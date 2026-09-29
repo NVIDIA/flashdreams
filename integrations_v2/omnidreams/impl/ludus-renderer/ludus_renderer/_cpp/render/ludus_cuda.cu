@@ -363,11 +363,11 @@ static __device__ __forceinline__ float get_prim_width(uint32_t prim_type_id, co
 }
 
 // Where a line's two sides go, given its direction in pixels and its half
-// width. In pixels the sides sit square either way up, which is the usual
-// answer. In NDC they step by the same amount along both axes of clip space,
-// taken from the picture's width alone, so a line across the picture comes out
-// narrower than one up it in proportion to the aspect ratio. That is what a
-// caller matching a renderer which offsets in NDC is after.
+// width. In pixels the sides sit square; in NDC they step equally along both
+// clip axes from the picture's width alone, so a line across the picture comes
+// out narrower than one up it by the aspect ratio, which is what a caller
+// matching a renderer that offsets in NDC wants. Both take the perpendicular
+// to the same side, so the modes differ in width alone.
 static __device__ __forceinline__ void get_line_offset(
     float dx, float dy, float half_width, float miter_scale,
     float img_w, float img_h, int width_in_ndc, float clip_w,
@@ -378,8 +378,8 @@ static __device__ __forceinline__ void get_line_offset(
         float ul = sqrtf(ux*ux + uy*uy);
         if (ul > 1e-9f) { ux /= ul; uy /= ul; }
         float ndc_hw = 2.0f * half_width * miter_scale / img_w;
-        ox = -uy * ndc_hw * clip_w;
-        oy =  ux * ndc_hw * clip_w;
+        ox =  uy * ndc_hw * clip_w;
+        oy = -ux * ndc_hw * clip_w;
     } else {
         ox = -dy * half_width * miter_scale * 2.0f / img_w * clip_w;
         oy = -dx * half_width * miter_scale * 2.0f / img_h * clip_w;
@@ -393,19 +393,11 @@ static __device__ __forceinline__ float get_wireframe_width(const CudaRenderPara
     return base * scale;
 }
 
-// Where a cube edge's two sides go. An edge is a line like any other, so it is
-// laid out as a polyline of the same width would be: from its direction in
-// pixels, and narrowing with distance, which leaves a box in the distance
-// outlined as faintly as the lines around it rather than at full thickness.
 // A point on a round cap or a dot, offset from its centre in whatever
-// convention get_line_offset is drawing the body of the line in. `sideways`
-// and `along` are the components of the direction wanted, across the line and
-// down it, so (1, 0) reproduces get_line_offset exactly and the cap meets the
-// body's own side vertices. Each convention builds the pair from its own
-// perpendicular: in ndc the two axes are the same length, in pixels they are
-// not, and a cap built in one while its line is drawn in the other stands out
-// past the line by the ratio of the two -- most visible on the short segments
-// a dashed line is made of, which are nearly all cap.
+// convention get_line_offset is drawing the line's body in. `sideways` and
+// `along` are the components wanted, across the line and down it, so (1, 0)
+// reproduces get_line_offset exactly and the cap meets the body's own side
+// vertices, which the fan is stitched to and so cannot be turned without it.
 static __device__ __forceinline__ void get_cap_offset(
     float dx, float dy, float half_width, float sideways, float along,
     float img_w, float img_h, int width_in_ndc, float clip_w,
@@ -416,8 +408,8 @@ static __device__ __forceinline__ void get_cap_offset(
         float ul = sqrtf(ux*ux + uy*uy);
         if (ul > 1e-9f) { ux /= ul; uy /= ul; }
         float ndc_hw = 2.0f * half_width / img_w;
-        ox = (-uy * sideways + ux * along) * ndc_hw * clip_w;
-        oy = ( ux * sideways + uy * along) * ndc_hw * clip_w;
+        ox = ( uy * sideways + ux * along) * ndc_hw * clip_w;
+        oy = (-ux * sideways + uy * along) * ndc_hw * clip_w;
     } else {
         float rx = -dy * sideways + dx * along;
         float ry =  dx * sideways + dy * along;
@@ -426,9 +418,10 @@ static __device__ __forceinline__ void get_cap_offset(
     }
 }
 
-// An outline edge's offset, narrowing with distance as the lines in the same
-// scene do -- and only while depth_scaling asks for it, since a caller that
-// turns it off means it of everything it draws, outlines included.
+// An outline edge's offset. An edge is a line like any other, so it is laid
+// out as a polyline of the same width would be, narrowing with distance -- and
+// only while depth_scaling asks for it, since a caller that turns it off means
+// it of everything it draws, outlines included.
 static __device__ __forceinline__ void get_edge_offset(
     float4 ca, float4 cb, float wa, float wb,
     float img_w, float img_h, float width, int width_in_ndc,
@@ -618,12 +611,10 @@ __device__ static int near_clipped_triangle(
 __device__ static void clip_to_near(
     float3& from, float3& to, const float* __restrict__ poseData, int culling);
 
-// Where a point on a cube sits along the cube's own x, nothing at the back and
-// one at the front, which is what a face's colour is blended by.
-//
-// A corner reads this off the unit cube it was built from, but a corner that
-// the near-plane cut inserted has no such corner to read, so it is recovered
-// from where the point landed, with the cube's rotation and scale undone.
+// Where a point on a cube sits along the cube's own x, which is what a face's
+// colour is blended by. A corner reads this off the unit cube it came from; a
+// corner the near-plane cut inserted has none, so it is recovered by undoing
+// the cube's rotation and scale.
 __device__ static __forceinline__ float cube_gradient_at(
     float3 world, float3 tr, float3 rot, float3 sc)
 {
@@ -680,12 +671,9 @@ __global__ void cubeGeometryKernel(
     if (!face_in_front(corners, poseData, cullBehind))
         return;
 
-    // A face across the plane is cut at the crossings themselves. The pooled
-    // faces are cut along their tessellation, which this face has none of, so
-    // each of its two triangles is cut into none, one or two of its own, the
-    // way the polygon faces are. A face clear of the plane is left to the
-    // four-corner path below, which is cheaper by two vertices and is what
-    // every face takes when culling is off.
+    // No tessellation here to cut a crossing face along, so each of its two
+    // triangles is cut at the crossings themselves, as the polygon faces are.
+    // A face clear of the plane keeps the cheaper four-corner path below.
     bool crossing = false;
     if (cullBehind) {
         for (int i = 0; i < 4; i++)
@@ -703,8 +691,10 @@ __global__ void cubeGeometryKernel(
             for (int piece = 0; piece < pieces; piece++) {
                 int vb = atomicAdd(atomicVerts, 3);
                 int tb = atomicAdd(atomicTris, 1);
+                // Carry on rather than give up on the rest, as the dots do:
+                // the retry sizes its buffers from these counters.
                 if (!geometry_reservation_fits(vb, 3, tb, 1, atomicVerts, atomicTris))
-                    return;
+                    continue;
                 for (int vi = 0; vi < 3; vi++) {
                     float3 wv = kept[piece][vi];
                     float t = (flags & 2u) ? ((faceIdx == 3) ? 1.0f : 0.0f)
@@ -891,21 +881,10 @@ static __device__ __forceinline__ bool point_inside_cube_d(
 
 // Whether the plane through the camera has all of a cube behind it.
 //
-// A point behind the camera has nowhere to go on the image, and rather than
-// drop it ftheta_project pushes it ten times its own way off centre. That
-// keeps a stray point clear of the frame but not a face: a box behind the
-// camera and across its axis has corners pushed off either side at once, so
-// the face between them is drawn from one edge of the frame to the other, at
-// the far plane and so behind the whole scene. A car following this one is
-// enough.
-//
-// Dropping it is the reference renderer's own rule, taken whatever the lens,
-// which is why cullBehindCamera turns these tests on rather than their being
-// unconditional: a two-hundred degree fisheye can see a hundred degrees off
-// its axis, so a tenth of what it should draw sits behind that plane. Culling
-// by the lens's own field of view would serve both, and needs an angle the
-// camera data does not carry, so the choice is left to the caller: parity with
-// the reference on, whole-lens coverage off, and off is what Ludus did before.
+// ftheta_project pushes a point behind the camera well off centre rather than
+// dropping it, so a box across the camera's axis is drawn as a face spanning
+// the frame. Opt-in, since a fisheye seeing past that plane loses a little of
+// its own field to the test.
 __device__ static bool cube_in_front(
     float3 tr, float4 qr, float3 sc, const float* __restrict__ poseData, int culling)
 {
@@ -940,12 +919,9 @@ __device__ static bool cube_in_front_euler(
     return false;
 }
 
-// The same question of one face, for a box the camera has drawn level with.
-//
-// One corner in front is enough to keep the face, which only settles whether
-// there is anything to draw at all. What of it actually stands in front of
-// the camera is settled per tessellated piece by subtri_in_front, and for a
-// face with no tessellation to cut down by face_wholly_in_front.
+// The same question of one face. One corner in front keeps it; what of it is
+// really in front is settled per piece by subtri_in_front, or for an
+// untessellated face by face_wholly_in_front.
 __device__ static bool face_in_front(
     const float3* corners, const float* __restrict__ poseData, int culling)
 {
@@ -958,13 +934,9 @@ __device__ static bool face_in_front(
     return false;
 }
 
-// An edge cut back to the near plane, as the reference cuts its own.
-//
-// An end behind the camera is brought forward along the edge to where the
-// edge crosses the plane, which is where the drawn line should stop. An edge
-// with both ends behind is collapsed to a point rather than skipped, since
-// the room for it in the vertex buffer is already spoken for and a gap left
-// unwritten would be drawn as whatever the buffer last held.
+// An edge cut back to the near plane, as the reference cuts its own. An end
+// behind the camera comes forward to the crossing; an edge with both ends
+// behind collapses to a point, its room in the buffer being already spoken for.
 __device__ static void clip_to_near(
     float3& from, float3& to, const float* __restrict__ poseData, int culling)
 {
@@ -988,10 +960,8 @@ __device__ static void clip_to_near(
         to = crossing;
 }
 
-// The stricter question, for a face there is no tessellation to cut down: it
-// is drawn only if the whole of it stands in front of the plane. A quad this
-// coarse is a small one, so losing it outright costs little, and a face near
-// enough to cross the plane is tessellated finely enough to be cut instead.
+// The stricter question, for a face with no tessellation to cut down: all four
+// corners in front, or none of it is drawn.
 __device__ static bool face_wholly_in_front(
     const float3* corners, const float* __restrict__ poseData, int culling)
 {
@@ -1004,21 +974,13 @@ __device__ static bool face_wholly_in_front(
     return true;
 }
 
-// How finely a face that crosses the near plane is cut along it: four pieces
-// to an edge, which puts the cut within a quarter of the face of the true
-// crossing without making a crossing face expensive.
+// Four pieces to an edge, which cuts a crossing face close enough to the plane.
 static const int CROSSING_SUBDIV = 2;
 
-// The tessellation a face needs in order to be cut at the near plane, which
-// is not the caller's to decide.
-//
-// A face is cut at the seams of its tessellation, and a face with no seams
-// has nothing to cut: its one piece is the whole of it, so a single corner
-// behind the camera takes all of it and a face still largely in view vanishes
-// as the camera draws level. Tessellation is otherwise the caller's affair, a
-// threshold against lens distortion that can be turned off altogether, so a
-// face crossing the plane is given seams to be cut along whatever was asked
-// for. A face that does not cross keeps the tessellation it was given.
+// The tessellation a face needs to be cut at the near plane, which is not the
+// caller's to decide: a face with no seams has nothing to cut, so one corner
+// behind the camera would take all of it, however much was still in view. A
+// face clear of the plane keeps whatever tessellation it was given.
 __device__ static __forceinline__ int subdiv_for_crossing(
     const float3* corners, const float* __restrict__ poseData,
     int culling, int subdiv)
@@ -1028,23 +990,11 @@ __device__ static __forceinline__ int subdiv_for_crossing(
     return (subdiv > CROSSING_SUBDIV) ? subdiv : CROSSING_SUBDIV;
 }
 
-// Whether one tessellated piece of a face stands wholly in front of the near
-// plane, and so can be drawn without dragging a corner from behind the camera
-// across the picture with it.
-//
-// Keeping a face for a single corner in front leaves the rest of it to be
-// drawn, the part across the plane included, which is the very thing culling
-// is here to prevent: a box the camera has drawn level with stretches a face
-// from one edge of the frame to the other. Judging the pieces instead cuts the
-// face down to what is really in front of the camera. Depth is affine in world
-// position, so a piece's depth at each of its points is the same barycentric
-// blend of the face's three corner depths that placed the point, and nothing
-// has to be projected to be judged.
-//
-// The cut follows the tessellation rather than the plane, so it falls a step
-// shy of the true crossing. subdiv_for_crossing sees that a face which crosses
-// has seams to be cut along whether or not any were asked for, so how shy is
-// bounded by CROSSING_SUBDIV rather than by the caller.
+// Whether one piece of a face stands wholly in front of the near plane, which
+// cuts the face down to what was ever visible. Depth is affine in world
+// position, so a piece's depth is the barycentric blend of the face's corner
+// depths and nothing need be projected to judge it. The cut follows the
+// tessellation, so it falls up to CROSSING_SUBDIV shy of the plane itself.
 __device__ static __forceinline__ bool subtri_in_front(
     int3 idx, int subdiv, float d0, float d1, float d2, int culling)
 {
@@ -1059,17 +1009,10 @@ __device__ static __forceinline__ bool subtri_in_front(
     return true;
 }
 
-// A point behind the camera brought onto the near plane, along the line from
-// a point in front of it.
-//
-// A line is drawn as a ribbon of points projected one at a time, so an end
-// behind the camera cannot simply be dropped the way a cube's edge can: the
-// strip would close over the gap. It is moved onto the plane instead, which
-// is what the reference does -- `_clip_polyline_to_image_plane` inserts the
-// crossing and carries on -- and leaves the ribbon ending where the line
-// leaves the camera's sight, rather than wherever ftheta_project put a point
-// it has nowhere to put: ten times its own way off centre, which for a
-// ribbon is a quad drawn clear across the frame.
+// A point behind the camera brought onto the near plane, along the line from a
+// point in front of it. A ribbon's end cannot be dropped the way a cube's edge
+// can, since the strip would close over the gap, so it is moved onto the plane
+// as the reference moves its own.
 __device__ static float3 pulled_to_near(
     float3 anchor, float3 point, const float* __restrict__ poseData)
 {
@@ -1087,18 +1030,10 @@ __device__ static float3 pulled_to_near(
         anchor.z + across * (point.z - anchor.z));
 }
 
-// A triangle cut at the near plane, as none, one or two triangles.
-//
-// A face with a corner behind the camera has that corner flung off centre and
-// is drawn from one edge of the frame to the other at the far plane, behind
-// everything else drawn, so what it looks like is not a shape at all: it is
-// the picture's background changing colour for a frame. Cutting keeps the
-// part that is in front, which is the part that was ever visible, and a face
-// with no part in front is dropped.
-//
-// The corners are walked in order and the crossings inserted where the edge
-// changes side, so what comes out is wound as what went in. One plane cuts a
-// triangle into at most a quad, which is why two triangles are always enough.
+// A triangle cut at the near plane, as none, one or two triangles. The corners
+// are walked in order with crossings inserted where the edge changes side, so
+// what comes out is wound as what went in, and one plane cuts a triangle into
+// at most a quad -- hence two.
 __device__ static int near_clipped_triangle(
     const float3* wp, const float* __restrict__ poseData, int culling, float3 out[2][3])
 {
@@ -2096,6 +2031,9 @@ __global__ void polygonPoolKernel(
         float3 kept[2][3];
         int faces = near_clipped_triangle(wp, poseData, params.cullBehindCamera, kept);
 
+        // A piece that finds no room is passed over rather than ending the
+        // thread: the retry sizes its buffers from these counters, so work
+        // that never reserves is work it leaves no room for either.
         for (int face = 0; face < faces; face++) {
             const float3* fp = kept[face];
 
@@ -2112,7 +2050,7 @@ __global__ void polygonPoolKernel(
                 int vbase = atomicAdd(atomicVerts, 3);
                 int triOut = atomicAdd(atomicTris, 1);
                 if (!geometry_reservation_fits(vbase, 3, triOut, 1, atomicVerts, atomicTris))
-                    return;
+                    continue;
                 for (int vi = 0; vi < 3; vi++) {
                     outVerts[vbase + vi] = ftheta_project(fp[vi], poseData, camData);
                     outVertColors[vbase + vi] = color;
@@ -2126,7 +2064,7 @@ __global__ void polygonPoolKernel(
                 int vbase = atomicAdd(atomicVerts, nV);
                 int triBase = atomicAdd(atomicTris, nT);
                 if (!geometry_reservation_fits(vbase, nV, triBase, nT, atomicVerts, atomicTris))
-                    return;
+                    continue;
                 for (int v = 0; v < nV; v++) {
                     float2 uv = bary_vertex_uv(v, level);
                     float wb = 1.0f - uv.x - uv.y;

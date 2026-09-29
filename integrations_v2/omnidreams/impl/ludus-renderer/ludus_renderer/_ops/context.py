@@ -495,25 +495,16 @@ class LudusCudaTimestampedContext:
     def set_cull_behind_camera(self, enabled: bool = True) -> None:
         """Whether geometry the camera's own plane has behind it is drawn at all.
 
-        On, a cube every corner of which sits behind that plane is dropped, a
-        face is dropped the same way, and a line crossing the plane stops at
-        it. A face with corners either side of the plane keeps the pieces of
-        it in front and drops the rest, cut at the seams of its tessellation
-        rather than exactly at the plane, so its edge there is a step or two
-        coarser than the line's; such a face is tessellated for the purpose
-        whatever set_tessellation_threshold asked for. An immediately drawn
-        cube has no tessellation to cut, so its faces are cut at the crossings
-        themselves and come out square there.
-        Off, they are projected anyway: a point behind the camera has
-        nowhere to go on the image, so it is pushed well off centre, which
-        keeps a stray point out of the frame but turns a box straddling the
-        camera into a face drawn right across it.
+        On, anything wholly behind the plane is dropped and anything crossing
+        it is cut back to it: a pooled cube's face along its tessellation, a
+        step or two coarser than the plane itself, and an immediately drawn
+        one at the crossings themselves. Off, a point behind the camera is
+        projected well off centre instead, which keeps a stray point out of
+        frame but draws a box straddling the camera right across it.
 
-        On is the reference renderer's rule and what a lens of no more than a
-        hemisphere wants. A wider lens sees past that plane -- a two-hundred
-        degree fisheye by a tenth of its field -- and would rather be culled by
-        its own field of view, which needs an angle the camera data does not
-        carry. So this is offered as the choice it is, and left off by default.
+        On is the reference renderer's rule and suits a lens of no more than a
+        hemisphere. A wider one sees past the plane and loses a little of its
+        own field to the test, so this is left off by default.
         """
         self.cpp_wrapper.set_cull_behind_camera(bool(enabled))
 
