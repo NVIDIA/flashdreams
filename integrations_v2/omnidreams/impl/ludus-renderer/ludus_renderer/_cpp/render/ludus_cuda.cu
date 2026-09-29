@@ -2928,7 +2928,7 @@ void ludusCudaRender(
                 (const float4*)s.projectedVertices, s.vertexColors,
                 s.msaaBuffer,
                 ssW, ssH, crWidth, crHeight, 0,
-                1.0f, 0, s.noDepthFade);
+                s.depthScaling, 0, s.noDepthFade);
             dim3 dsGrid((width + 7) / 8, (height + 7) / 8);
             downsampleKernel<<<dsGrid, dim3(8, 8), 0, stream>>>(
                 s.msaaBuffer, outputPtr,
@@ -2941,7 +2941,7 @@ void ludusCudaRender(
                 (const float4*)s.projectedVertices, s.vertexColors,
                 outputPtr,
                 width, height, crWidth, crHeight, camIdx,
-                1.0f, 0, s.noDepthFade);
+                s.depthScaling, 0, s.noDepthFade);
         }
     }
 
