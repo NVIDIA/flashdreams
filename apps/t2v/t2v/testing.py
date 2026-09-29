@@ -148,12 +148,24 @@ def check_t2v_model_impl(
             backpressure_mode=BackpressureMode.BLOCK,
             presentation_mode=PresentationMode.ON_DEMAND,
         )
-        with patch.multiple(
-            T2VImGuiUILoop,
-            _initialize_loop_state=BlitModelOutputToScreenLoop._initialize_loop_state,
-            step=BlitModelOutputToScreenLoop.step,
-            is_finished=BlitModelOutputToScreenLoop.is_finished,
-            reset=BlitModelOutputToScreenLoop.reset,
+        with (
+            # Only this one is new to the ImGui loop; the rest must keep
+            # failing loudly if the blit loop renames them.
+            patch.object(
+                T2VImGuiUILoop,
+                "frames_to_blit",
+                BlitModelOutputToScreenLoop.frames_to_blit,
+                create=True,
+            ),
+            patch.multiple(
+                T2VImGuiUILoop,
+                _initialize_loop_state=(
+                    BlitModelOutputToScreenLoop._initialize_loop_state
+                ),
+                step=BlitModelOutputToScreenLoop.step,
+                is_finished=BlitModelOutputToScreenLoop.is_finished,
+                reset=BlitModelOutputToScreenLoop.reset,
+            ),
         ):
             run_session(
                 application.create_session(session_desc),

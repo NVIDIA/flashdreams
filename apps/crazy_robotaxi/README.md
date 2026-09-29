@@ -36,7 +36,7 @@ Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
 connecting remotely. The first run downloads model assets and may take time to
 compile and autotune kernels.
 
-Ten OmniDreams runner configurations are registered:
+Twelve OmniDreams runner configurations are registered:
 
 | Runner | Configuration |
 | --- | --- |
@@ -45,6 +45,8 @@ Ten OmniDreams runner configurations are registered:
 | `crazy-robotaxi-omnidreams-optimized-rtx-pro-6000` | RTX PRO 6000-optimized attention |
 | `crazy-robotaxi-omnidreams-perf` | Performance optimized |
 | `crazy-robotaxi-omnidreams-fast-perf` | Fast performance optimized |
+| `crazy-robotaxi-omnidreams-rtx-5090` | Performance schedule fitted to a 32 GB GeForce RTX 5090 at 1168x640 |
+| `crazy-robotaxi-omnidreams-rtx-5090-fast` | RTX 5090 schedule with the native FP8 VAE at 1024x560 (real time) |
 | `crazy-robotaxi-omnidreams-responsive` | Standard with responsive model history |
 | `crazy-robotaxi-omnidreams-perf-responsive` | Performance schedule with responsive model history |
 | `crazy-robotaxi-omnidreams-fast-perf-responsive` | Native FP8 VAE with responsive model history |
@@ -53,6 +55,11 @@ Ten OmniDreams runner configurations are registered:
 
 The five presets whose names end in `-responsive` disable native DiT.
 `fast-perf-responsive` still uses the native FP8 VAE.
+
+The two `rtx-5090` presets fit a 32 GB GeForce RTX 5090: they run the
+Cosmos-Reason1 text encoder on the host CPU, use a 4-chunk temporal window,
+and use SageAttention-3 FP8 attention on Linux (cuDNN FP8 on Windows, where
+SageAttention-3 is unavailable).
 
 Application arguments follow `--`. For example:
 

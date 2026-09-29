@@ -155,8 +155,11 @@ def test_stream_profiles_buffering_as_a_separate_ar_stat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _FakeEventProfiler:
-        def __init__(self, *, synchronize_distributed: bool) -> None:
+        def __init__(
+            self, *, synchronize_distributed: bool, device: torch.device
+        ) -> None:
             assert not synchronize_distributed
+            assert device == torch.device("cuda:1")
 
         def record(self, stage: str) -> None:
             assert stage == "postprocess"
@@ -165,8 +168,15 @@ def test_stream_profiles_buffering_as_a_separate_ar_stat(
             return {"postprocess": 0.125}
 
     monkeypatch.setattr(postprocess_stream_module, "EventProfiler", _FakeEventProfiler)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 1)
     stream = VideoPostprocessStream(
-        postprocess=VideoPostprocessChainConfig(processors=(_BufferConfig(),)),
+        postprocess=VideoPostprocessChainConfig(
+            processors=(
+                _BufferConfig(device="cuda"),
+                _BufferConfig(device="cuda:1"),
+            )
+        ),
         output_layout="tchw",
         profile=True,
     )
@@ -187,10 +197,12 @@ def test_stream_profiles_buffering_as_a_separate_ar_stat(
     }
 
 
-def test_noop_stream_returns_chunks_without_collecting() -> None:
+@pytest.mark.parametrize("profile", [False, True])
+def test_noop_stream_returns_chunks_without_collecting(profile: bool) -> None:
     stream = VideoPostprocessStream(
         postprocess=VideoPostprocessChainConfig(),
         output_layout="bcthw",
+        profile=profile,
     )
     first = torch.ones((1, 3, 2, 4, 5))
     empty = torch.empty((1, 3, 0, 4, 5))

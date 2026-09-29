@@ -167,6 +167,9 @@ class ApplicationConfig:
     visual_flare_enabled: bool = False
     """Whether collision feedback may darken the presented game frame."""
 
+    no_ui: bool = False
+    """Present raw model frames without the ImGui HUD (no graphics device)."""
+
 
 PipelineFactory = Callable[[Any, str], Any]
 SceneFactory = Callable[[SceneRequest, Any], SceneDefinition]
@@ -333,6 +336,7 @@ class CrazyRobotaxiApplication(IApplication):
             live_edit=live_edit,
             native_dit_disabled_for_live_edit=native_dit_disabled_for_live_edit,
             visual_flare_enabled=settings.game.effects.visual_flare,
+            no_ui=not args.ui,
         )
         self._map_options = _discover_game_maps(map_path)
 
@@ -627,6 +631,16 @@ def _parser(
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)
     parser.add_argument("--force-map-recompile", action="store_true")
+    parser.add_argument(
+        "--ui",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "render the ImGui HUD (default). --no-ui presents raw model frames "
+            "and needs no Vulkan device; requires --game-mode, --map, and "
+            "--total-blocks"
+        ),
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--total-blocks", type=int)
     parser.add_argument("--game-time-s", type=float)

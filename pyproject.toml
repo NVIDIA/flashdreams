@@ -30,9 +30,13 @@ override-dependencies = [
     # Keep transitive HTTP clients off urllib3 versions with sensitive-header
     # redirect handling vulnerabilities.
     "urllib3>=2.7.0",
+    # Security floors for transitive async/TLS dependencies.
+    "anyio>=4.14.2",
+    "cryptography>=50.0.0",
     # Keep protobuf off the 6.33.x line flagged by BDSA for the ParseDict
-    # recursion-depth follow-up.
-    "protobuf>=7.35.0,<8",
+    # recursion-depth follow-up. 7.x is outside the published affected range;
+    # use the latest compatible patch to avoid scanner version-map ambiguity.
+    "protobuf>=7.36.2,<8",
 ]
 
 # `transformer-engine-torch` has no prebuilt wheel and must be built against
@@ -213,7 +217,7 @@ docs-ci = [
     "numpy>=1.24",
     "safetensors>=0.4",
     "tqdm>=4.60",
-    "transformers>=5.0,<6",
+    "transformers>=5.17,<6",
 ]
 dev = [
     "python-dotenv>=1.2.2",

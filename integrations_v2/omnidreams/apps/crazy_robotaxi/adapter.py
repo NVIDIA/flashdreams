@@ -17,6 +17,8 @@ from omnidreams.config import (
     OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
     OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
+    OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG,
+    OMNIDREAMS_RTX_5090_PIPELINE_CONFIG,
 )
 
 from flashdreams.api_v2.application import IApplication
@@ -41,6 +43,20 @@ OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS = CrazyRobotaxiApplicationDefaults(
     width=1168,
     height=640,
     pipeline_config=OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+)
+OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_DEFAULTS = CrazyRobotaxiApplicationDefaults(
+    title="Crazy Robotaxi (RTX 5090)",
+    slug="crazy-robotaxi-rtx-5090",
+    width=1168,
+    height=640,
+    pipeline_config=OMNIDREAMS_RTX_5090_PIPELINE_CONFIG,
+)
+OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_FAST_DEFAULTS = CrazyRobotaxiApplicationDefaults(
+    title="Crazy Robotaxi (RTX 5090 Fast)",
+    slug="crazy-robotaxi-rtx-5090-fast",
+    width=1024,
+    height=560,
+    pipeline_config=OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG,
 )
 OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_DEFAULTS = CrazyRobotaxiApplicationDefaults(
     title="Crazy Robotaxi (Optimized GB300)",
@@ -118,6 +134,20 @@ def create_fast_perf_app() -> IApplication:
     )
 
 
+def create_rtx_5090_app() -> IApplication:
+    """Create Crazy Robotaxi tuned to fit a 32 GiB GeForce RTX 5090."""
+    return CrazyRobotaxiApplication(
+        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_DEFAULTS
+    )
+
+
+def create_rtx_5090_fast_app() -> IApplication:
+    """Create the RTX 5090 app with the native FP8 VAE at 1024x560."""
+    return CrazyRobotaxiApplication(
+        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_FAST_DEFAULTS
+    )
+
+
 def create_optimized_gb300_app() -> IApplication:
     """Create Crazy Robotaxi with the GB300-optimized attention policy."""
     return CrazyRobotaxiApplication(
@@ -178,6 +208,8 @@ __all__ = [
     "OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS",
     "OMNIDREAMS_CRAZY_ROBOTAXI_PERF_RESPONSIVE_DEFAULTS",
     "OMNIDREAMS_CRAZY_ROBOTAXI_RESPONSIVE_DEFAULTS",
+    "OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_DEFAULTS",
+    "OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_FAST_DEFAULTS",
     "create_app",
     "create_fast_perf_app",
     "create_fast_perf_responsive_app",
@@ -188,4 +220,6 @@ __all__ = [
     "create_perf_app",
     "create_perf_responsive_app",
     "create_responsive_app",
+    "create_rtx_5090_app",
+    "create_rtx_5090_fast_app",
 ]

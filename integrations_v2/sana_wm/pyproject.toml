@@ -28,12 +28,12 @@ dependencies = [
     "diffusers>=0.36",
     "flashdreams",
     "flashdreams-cam2v",
-    "Pillow>=10",
+    "Pillow>=12.3.0",
     "PyYAML>=6.0",
     "safetensors>=0.5",
     "sentencepiece>=0.2",
     "torchvision>=0.26",
-    "transformers>=5.0,<6",
+    "transformers>=5.17,<6",
 ]
 
 [tool.uv.sources]

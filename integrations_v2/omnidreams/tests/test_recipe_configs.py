@@ -22,6 +22,8 @@ from omnidreams.apps.crazy_robotaxi.adapter import (
     OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS,
     OMNIDREAMS_CRAZY_ROBOTAXI_PERF_RESPONSIVE_DEFAULTS,
     OMNIDREAMS_CRAZY_ROBOTAXI_RESPONSIVE_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_FAST_DEFAULTS,
 )
 from omnidreams.apps.interactive_drive.adapter import (
     OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS,
@@ -57,6 +59,8 @@ from omnidreams.config import (
     OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
     OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
+    OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG,
+    OMNIDREAMS_RTX_5090_PIPELINE_CONFIG,
 )
 from omnidreams.impl.pipeline import OmnidreamsPipelineConfig
 from omnidreams.impl.transformer import CosmosTransformerConfig
@@ -77,6 +81,8 @@ def test_pipeline_configs_are_keyed_by_name() -> None:
         ),
         "omnidreams-perf": OMNIDREAMS_PERF_PIPELINE_CONFIG,
         "omnidreams-fast-perf": OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        "omnidreams-rtx-5090": OMNIDREAMS_RTX_5090_PIPELINE_CONFIG,
+        "omnidreams-rtx-5090-fast": OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG,
         "omnidreams-responsive": OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
         "omnidreams-perf-responsive": (OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG),
         "omnidreams-fast-perf-responsive": (
@@ -231,6 +237,14 @@ def test_application_defaults_are_owned_by_each_adapter() -> None:
             OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
         ),
         (
+            OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_DEFAULTS,
+            OMNIDREAMS_RTX_5090_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_FAST_DEFAULTS,
+            OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG,
+        ),
+        (
             OMNIDREAMS_CRAZY_ROBOTAXI_RESPONSIVE_DEFAULTS,
             OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
         ),
@@ -252,6 +266,35 @@ def test_application_defaults_are_owned_by_each_adapter() -> None:
         ),
     ):
         assert defaults.pipeline_config is pipeline_config
+
+
+def test_rtx_5090_configs_place_text_encoder_on_host_and_prefer_sage3() -> None:
+    pipeline: Any = OMNIDREAMS_RTX_5090_PIPELINE_CONFIG
+    base: Any = OMNIDREAMS_PERF_PIPELINE_CONFIG
+    assert pipeline.text_encoder.run_on_cpu is True
+    assert pipeline.text_encoder.embedding_cache_size == 8
+    assert base.text_encoder.run_on_cpu is False
+    transformer = pipeline.diffusion_model.transformer
+    base_transformer = base.diffusion_model.transformer
+    assert transformer.native_dit_acceleration == "required"
+    assert transformer.native_dit_backend == base_transformer.native_dit_backend
+    assert transformer.native_dit_attention_backend == "prefer_sage3_fp8"
+    assert transformer.window_size_t == 4
+    assert transformer.skip_finalize_kv_cache is True
+    assert OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_DEFAULTS.width == 1168
+    assert OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_DEFAULTS.height == 640
+
+    fast: Any = OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG
+    assert fast.text_encoder.run_on_cpu is True
+    assert (
+        fast.diffusion_model.transformer.native_dit_attention_backend
+        == "prefer_sage3_fp8"
+    )
+    assert fast.diffusion_model.transformer.window_size_t == 4
+    assert fast.encoder.native_vae_acceleration == "required"
+    assert fast.image_encoder.native_vae_acceleration == "required"
+    assert OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_FAST_DEFAULTS.width == 1024
+    assert OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_FAST_DEFAULTS.height == 560
 
 
 def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
@@ -388,6 +431,12 @@ def test_pyproject_registers_model_owned_app_adapters() -> None:
         ),
         "crazy-robotaxi-omnidreams-fast-perf": (
             "omnidreams.apps.crazy_robotaxi.adapter:create_fast_perf_app"
+        ),
+        "crazy-robotaxi-omnidreams-rtx-5090": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_rtx_5090_app"
+        ),
+        "crazy-robotaxi-omnidreams-rtx-5090-fast": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_rtx_5090_fast_app"
         ),
         "crazy-robotaxi-omnidreams-optimized-gb300": (
             "omnidreams.apps.crazy_robotaxi.adapter:create_optimized_gb300_app"
