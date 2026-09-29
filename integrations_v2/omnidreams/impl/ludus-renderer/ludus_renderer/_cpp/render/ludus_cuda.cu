@@ -613,10 +613,25 @@ __device__ static bool cube_in_front_euler(
     float3 tr, float3 rot, float3 sc, const float* __restrict__ poseData, int culling);
 __device__ static bool face_in_front(
     const float3* corners, const float* __restrict__ poseData, int culling);
-__device__ static float3 pulled_to_near(
-    float3 anchor, float3 point, const float* __restrict__ poseData);
+__device__ static int near_clipped_triangle(
+    const float3* wp, const float* __restrict__ poseData, int culling, float3 out[2][3]);
 __device__ static void clip_to_near(
     float3& from, float3& to, const float* __restrict__ poseData, int culling);
+
+// Where a point on a cube sits along the cube's own x, nothing at the back and
+// one at the front, which is what a face's colour is blended by.
+//
+// A corner reads this off the unit cube it was built from, but a corner that
+// the near-plane cut inserted has no such corner to read, so it is recovered
+// from where the point landed, with the cube's rotation and scale undone.
+__device__ static __forceinline__ float cube_gradient_at(
+    float3 world, float3 tr, float3 rot, float3 sc)
+{
+    float3 local = rodrigues(
+        make_float3(world.x - tr.x, world.y - tr.y, world.z - tr.z),
+        make_float3(-rot.x, -rot.y, -rot.z));
+    return (sc.x != 0.0f) ? (local.x / sc.x + 0.5f) : 0.5f;
+}
 
 __global__ void cubeGeometryKernel(
     const Cube* __restrict__ cubes, int numCubes,
@@ -665,23 +680,47 @@ __global__ void cubeGeometryKernel(
     if (!face_in_front(corners, poseData, cullBehind))
         return;
 
-    // This face has no tessellation to be cut along, so a corner behind the
-    // camera is drawn onto the near plane instead: the face keeps its place in
-    // the picture rather than vanishing whole, and no corner is left behind the
-    // camera to be flung across the frame. Its edge at the plane is pulled in
-    // rather than cut square, which a quad of four corners cannot help.
+    // A face across the plane is cut at the crossings themselves. The pooled
+    // faces are cut along their tessellation, which this face has none of, so
+    // each of its two triangles is cut into none, one or two of its own, the
+    // way the polygon faces are. A face clear of the plane is left to the
+    // four-corner path below, which is cheaper by two vertices and is what
+    // every face takes when culling is off.
+    bool crossing = false;
     if (cullBehind) {
-        int anchor = -1;
-        for (int i = 0; i < 4 && anchor < 0; i++) {
-            if (camera_depth(corners[i], poseData) > NEAR_DEPTH)
-                anchor = i;
+        for (int i = 0; i < 4; i++)
+            crossing |= camera_depth(corners[i], poseData) <= NEAR_DEPTH;
+    }
+    if (crossing) {
+        uint32_t flags;
+        memcpy(&flags, &cube._pad0, sizeof(uint32_t));
+        for (int half = 0; half < 2; half++) {
+            float3 wp[3] = { corners[0],
+                             corners[(half == 0) ? 1 : 2],
+                             corners[(half == 0) ? 2 : 3] };
+            float3 kept[2][3];
+            int pieces = near_clipped_triangle(wp, poseData, cullBehind, kept);
+            for (int piece = 0; piece < pieces; piece++) {
+                int vb = atomicAdd(atomicVerts, 3);
+                int tb = atomicAdd(atomicTris, 1);
+                if (!geometry_reservation_fits(vb, 3, tb, 1, atomicVerts, atomicTris))
+                    return;
+                for (int vi = 0; vi < 3; vi++) {
+                    float3 wv = kept[piece][vi];
+                    float t = (flags & 2u) ? ((faceIdx == 3) ? 1.0f : 0.0f)
+                                           : cube_gradient_at(wv, tr, rot, sc);
+                    outVerts[vb + vi] = ftheta_project(wv, poseData, camData);
+                    outVertColors[vb + vi] = pack_rgba8(
+                        bc.x + t * (fc.x - bc.x),
+                        bc.y + t * (fc.y - bc.y),
+                        bc.z + t * (fc.z - bc.z));
+                }
+                outIndices[tb * 3 + 0] = vb;
+                outIndices[tb * 3 + 1] = vb + 1;
+                outIndices[tb * 3 + 2] = vb + 2;
+            }
         }
-        if (anchor < 0)
-            return;
-        for (int i = 0; i < 4; i++) {
-            if (i != anchor && camera_depth(corners[i], poseData) <= NEAR_DEPTH)
-                corners[i] = pulled_to_near(corners[anchor], corners[i], poseData);
-        }
+        return;
     }
 
     int vbase = atomicAdd(atomicVerts, 4);
@@ -1003,9 +1042,9 @@ __device__ static __forceinline__ int subdiv_for_crossing(
 // has to be projected to be judged.
 //
 // The cut follows the tessellation rather than the plane, so it falls a step
-// shy of the true crossing; a face near enough to cross the plane is near
-// enough to be tessellated finely, and an untessellated one is dropped whole
-// by the caller.
+// shy of the true crossing. subdiv_for_crossing sees that a face which crosses
+// has seams to be cut along whether or not any were asked for, so how shy is
+// bounded by CROSSING_SUBDIV rather than by the caller.
 __device__ static __forceinline__ bool subtri_in_front(
     int3 idx, int subdiv, float d0, float d1, float d2, int culling)
 {
