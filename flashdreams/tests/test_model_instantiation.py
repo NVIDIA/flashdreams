@@ -21,6 +21,8 @@ Tests marked ``manual`` require large downloads or high VRAM and must
 be invoked explicitly: ``pytest tests/test_model_instantiation.py -v -m manual``
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 import torch
 
@@ -57,6 +59,30 @@ class TestImageEncoder:
 
 class TestTextEncoders:
     """Tests for text encoders."""
+
+    @pytest.mark.ci_cpu
+    def test_wan_text_encoder_uses_eager_attention(self, monkeypatch):
+        from flashdreams.infra.encoder.text import umt5
+
+        text_encoder = MagicMock()
+        from_pretrained = MagicMock(return_value=text_encoder)
+        monkeypatch.setattr(umt5, "maybe_download_hf_repo_on_rank0", MagicMock())
+        monkeypatch.setattr(umt5.UMT5EncoderModel, "from_pretrained", from_pretrained)
+        monkeypatch.setattr(
+            umt5.T5Tokenizer,
+            "from_pretrained",
+            MagicMock(return_value=MagicMock()),
+        )
+
+        config = umt5.UMT5TextEncoderConfig()
+        umt5.UMT5TextEncoder(config)
+
+        from_pretrained.assert_called_once_with(
+            config.model_id_or_local_path,
+            subfolder="text_encoder",
+            local_files_only=True,
+            attn_implementation="eager",
+        )
 
     @pytest.mark.ci_gpu
     def test_wan_text_encoder_instantiation(self, device):

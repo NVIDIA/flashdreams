@@ -1999,4 +1999,4 @@ def test_pyproject_package_selection() -> None:
         "sana_wm.impl.ops",
     ]
     assert "diffusers>=0.36" in dependencies
-    assert "transformers>=5.0,<6" in dependencies
+    assert "transformers>=5.17,<6" in dependencies
