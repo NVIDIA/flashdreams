@@ -20,6 +20,9 @@ dependencies = [
 [project.entry-points."flashdreams.applications_v2"]
 action2v-waypoint-1-5-1b = "waypoint.apps.action2v.adapter:create_app"
 
+[tool.uv]
+managed = true
+
 [tool.uv.sources]
 flashdreams-action2v = { workspace = true }
 flashdreams = { workspace = true }

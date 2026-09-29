@@ -42,6 +42,9 @@ dependencies = [
     "scipy>=1.11",
 ]
 
+[tool.uv]
+managed = true
+
 [tool.uv.sources]
 flashdreams = { workspace = true }
 flashdreams-cam2v = { workspace = true }
