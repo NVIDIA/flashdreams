@@ -877,6 +877,15 @@ __device__ static bool cube_in_front_euler(
 }
 
 // The same question of one face, for a box the camera has drawn level with.
+//
+// A face is kept whole as soon as one corner is in front, and the corners
+// behind are then projected as they fall, so a box the camera has driven into
+// can still stretch a face across the frame. That is the intended boundary of
+// this option rather than an oversight in it. Cutting the quad at the plane
+// means carrying the per-corner colour blend through the cut, and dropping
+// any face with a corner behind would pop it out of the picture while most of
+// it was still plainly in view. With culling left off, which is the default,
+// every such face is drawn this way in any case.
 __device__ static bool face_in_front(
     const float3* corners, const float* __restrict__ poseData, int culling)
 {
@@ -1167,6 +1176,8 @@ __global__ void cubePoolFusedKernel(
                 corners[i] = quat_rotate_d(qr, sv);
                 corners[i].x += tr.x; corners[i].y += tr.y; corners[i].z += tr.z;
             }
+            // Whole faces only: one corner in front keeps all four, uncut.
+            // See face_in_front for why a face across the plane stays whole.
             if (!face_in_front(corners, poseData, cullBehind))
                 return;
 
