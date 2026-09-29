@@ -141,6 +141,10 @@ succeeded. It also closes the window itself when the run never started, because
 `run_session` is what otherwise owns the window, and a WebRTC window may already
 be serving a browser before the application has finished loading.
 
+`timeout_seconds` and `steps` are a number or `Unbound`. `Unbound` (the
+default) is no limit. `None` is not a limit. The command-line token `unbound`
+and an omitted flag both become `Unbound` here.
+
 `run_session` then opens the window and any metrics sink, collects one batch of
 input, presents one tick, and only then starts the model thread — so a client that
 closed during startup is never generated for. Its main loop services input and

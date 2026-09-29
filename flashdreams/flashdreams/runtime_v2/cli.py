@@ -28,7 +28,7 @@ from flashdreams.runtime_v2.application_registry import (
     create_application,
     registered_application_slugs,
 )
-from flashdreams.runtime_v2.application_runner import ApplicationRunner
+from flashdreams.runtime_v2.application_runner import ApplicationRunner, Unbound
 from flashdreams.runtime_v2.client_window_factory import (
     add_client_window_arguments,
     client_window_mode,
@@ -50,25 +50,6 @@ command also has, so the split is stated rather than guessed.
 
 _HELP_FLAGS = frozenset({"-h", "--help"})
 """What an application's own arguments use to ask for its help."""
-
-_UNBOUND = "unbound"
-"""CLI token for no time-limit or no steps limit."""
-
-
-class _Omitted:
-    """Sentinel for ``--timeout`` or ``--total-model-steps`` when it was not given.
-
-    After parsing, ``None`` means ``unbound``. ``--mode mp4`` still requires
-    the argument to have been named.
-    """
-
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return "OMITTED"
-
-
-_OMITTED = _Omitted()
 
 
 def entrypoint(argv: Sequence[str] | None = None) -> None:
@@ -94,8 +75,8 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
             parser.error(str(error))
         if (
             parsed.mode == "mp4"
-            and parsed.timeout is _OMITTED
-            and parsed.total_model_steps is _OMITTED
+            and parsed.timeout is None
+            and parsed.total_model_steps is None
         ):
             parser.error("--mode mp4 requires --timeout and/or --total-model-steps.")
 
@@ -118,8 +99,12 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     ).run(
         session_desc,
         application_args,
-        timeout_seconds=_resolved_limit(parsed.timeout),
-        steps=_resolved_limit(parsed.total_model_steps),
+        timeout_seconds=(Unbound.unbound if parsed.timeout is None else parsed.timeout),
+        steps=(
+            Unbound.unbound
+            if parsed.total_model_steps is None
+            else parsed.total_model_steps
+        ),
     )
     _report(mode.finished(window))
 
@@ -158,23 +143,23 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timeout",
         type=_parse_timeout_seconds,
-        default=_OMITTED,
-        metavar=f"{{SECONDS,{_UNBOUND}}}",
+        default=None,
+        metavar=f"{{SECONDS,{Unbound.unbound.value}}}",
         help=(
             "Stop the application after this many seconds. "
-            f"{_UNBOUND} means no time-limit. Remaining time is what a "
-            "replacement session receives."
+            f"{Unbound.unbound.value} means no time-limit. Remaining time is "
+            "what a replacement session receives."
         ),
     )
     parser.add_argument(
         "--total-model-steps",
         type=_parse_total_model_steps,
-        default=_OMITTED,
-        metavar=f"{{N,{_UNBOUND}}}",
+        default=None,
+        metavar=f"{{N,{Unbound.unbound.value}}}",
         help=(
             "Maximum model steps before ending the session. "
-            f"{_UNBOUND} means no steps limit. A replacement session gets N "
-            "again, not remaining steps."
+            f"{Unbound.unbound.value} means no steps limit. A replacement "
+            "session gets N again, not remaining steps."
         ),
     )
     add_client_window_arguments(parser)
@@ -188,41 +173,40 @@ def _report(message: str | None) -> None:
         print(message, flush=True)
 
 
-def _resolved_limit(parsed_value: object) -> Any:
-    """Return ``None`` when the argument was omitted, otherwise the parsed value."""
-    return None if parsed_value is _OMITTED else parsed_value
-
-
-def _parse_timeout_seconds(value: str) -> float | None:
+def _parse_timeout_seconds(value: str) -> float | Unbound:
     """Parse ``--timeout`` as seconds, or ``unbound`` as no time-limit."""
-    if value == _UNBOUND:
-        return None
+    if value == Unbound.unbound.value:
+        return Unbound.unbound
     try:
         seconds = float(value)
     except ValueError as error:
         raise argparse.ArgumentTypeError(
-            f"--timeout must be a finite number greater than zero, or {_UNBOUND}."
+            f"--timeout must be a finite number greater than zero, or "
+            f"{Unbound.unbound.value}."
         ) from error
     if not math.isfinite(seconds) or seconds <= 0:
         raise argparse.ArgumentTypeError(
-            f"--timeout must be a finite number greater than zero, or {_UNBOUND}."
+            f"--timeout must be a finite number greater than zero, or "
+            f"{Unbound.unbound.value}."
         )
     return seconds
 
 
-def _parse_total_model_steps(value: str) -> int | None:
+def _parse_total_model_steps(value: str) -> int | Unbound:
     """Parse ``--total-model-steps`` as a count, or ``unbound`` as no steps limit."""
-    if value == _UNBOUND:
-        return None
+    if value == Unbound.unbound.value:
+        return Unbound.unbound
     try:
         steps = int(value)
     except ValueError as error:
         raise argparse.ArgumentTypeError(
-            f"--total-model-steps must be a non-negative integer, or {_UNBOUND}."
+            f"--total-model-steps must be a non-negative integer, or "
+            f"{Unbound.unbound.value}."
         ) from error
     if steps < 0:
         raise argparse.ArgumentTypeError(
-            f"--total-model-steps must be a non-negative integer, or {_UNBOUND}."
+            f"--total-model-steps must be a non-negative integer, or "
+            f"{Unbound.unbound.value}."
         )
     return steps
 

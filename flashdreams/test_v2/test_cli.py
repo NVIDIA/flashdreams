@@ -12,6 +12,7 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2 import cli
+from flashdreams.runtime_v2.application_runner import Unbound
 from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -58,16 +59,16 @@ class _StubMode(ClientWindowMode):
 
 def _record_run(
     monkeypatch: pytest.MonkeyPatch,
-) -> list[tuple[float | None, int | None]]:
-    received: list[tuple[float | None, int | None]] = []
+) -> list[tuple[float | Unbound, int | Unbound]]:
+    received: list[tuple[float | Unbound, int | Unbound]] = []
 
     def record(
         self: object,
         session_desc: SessionDesc,
         commandline_args: Sequence[str],
         *,
-        timeout_seconds: float | None = None,
-        steps: int | None = None,
+        timeout_seconds: float | Unbound = Unbound.unbound,
+        steps: int | Unbound = Unbound.unbound,
     ) -> None:
         del self, session_desc, commandline_args
         received.append((timeout_seconds, steps))
@@ -96,7 +97,7 @@ def test_mp4_accepts_timeout_unbound(monkeypatch: pytest.MonkeyPatch) -> None:
         ["stub", "--mode", "mp4", "--output-path", "out.mp4", "--timeout", "unbound"]
     )
 
-    assert received == [(None, None)]
+    assert received == [(Unbound.unbound, Unbound.unbound)]
 
 
 def test_mp4_accepts_total_model_steps_unbound(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -115,7 +116,7 @@ def test_mp4_accepts_total_model_steps_unbound(monkeypatch: pytest.MonkeyPatch) 
         ]
     )
 
-    assert received == [(None, None)]
+    assert received == [(Unbound.unbound, Unbound.unbound)]
 
 
 def test_mp4_accepts_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,7 +127,7 @@ def test_mp4_accepts_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         ["stub", "--mode", "mp4", "--output-path", "out.mp4", "--timeout", "60"]
     )
 
-    assert received == [(60.0, None)]
+    assert received == [(60.0, Unbound.unbound)]
 
 
 @pytest.mark.parametrize("steps, expected", [("50", 50), ("0", 0)])
@@ -148,7 +149,7 @@ def test_mp4_accepts_total_model_steps(
         ]
     )
 
-    assert received == [(None, expected)]
+    assert received == [(Unbound.unbound, expected)]
 
 
 def test_mp4_passes_timeout_and_total_model_steps(
@@ -194,7 +195,7 @@ def test_mp4_accepts_timeout_and_total_model_steps_unbound(
         ]
     )
 
-    assert received == [(None, None)]
+    assert received == [(Unbound.unbound, Unbound.unbound)]
 
 
 @pytest.mark.parametrize("mode", ["webrtc", "native-window"])
@@ -206,23 +207,23 @@ def test_webrtc_and_native_window_may_omit_timeout_and_total_model_steps(
 
     cli.entrypoint(["stub", "--mode", mode])
 
-    assert received == [(None, None)]
+    assert received == [(Unbound.unbound, Unbound.unbound)]
 
 
 @pytest.mark.parametrize(
     "mode, extra, expected",
     [
-        ("webrtc", ["--timeout", "2.5"], (2.5, None)),
-        ("webrtc", ["--total-model-steps", "20"], (None, 20)),
-        ("native-window", ["--timeout", "2.5"], (2.5, None)),
-        ("native-window", ["--total-model-steps", "20"], (None, 20)),
+        ("webrtc", ["--timeout", "2.5"], (2.5, Unbound.unbound)),
+        ("webrtc", ["--total-model-steps", "20"], (Unbound.unbound, 20)),
+        ("native-window", ["--timeout", "2.5"], (2.5, Unbound.unbound)),
+        ("native-window", ["--total-model-steps", "20"], (Unbound.unbound, 20)),
     ],
 )
 def test_webrtc_and_native_window_pass_timeout_and_total_model_steps(
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
     extra: list[str],
-    expected: tuple[float | None, int | None],
+    expected: tuple[float | Unbound, int | Unbound],
 ) -> None:
     """The flags belong to the command, so every mode forwards them."""
     received = _record_run(monkeypatch)
@@ -239,7 +240,7 @@ def test_timeout_unbound_is_the_same_as_omitting_it(
 
     cli.entrypoint(["stub", "--mode", "webrtc", "--timeout", "unbound"])
 
-    assert received == [(None, None)]
+    assert received == [(Unbound.unbound, Unbound.unbound)]
 
 
 def test_total_model_steps_unbound_is_the_same_as_omitting_it(
@@ -249,7 +250,7 @@ def test_total_model_steps_unbound_is_the_same_as_omitting_it(
 
     cli.entrypoint(["stub", "--mode", "webrtc", "--total-model-steps", "unbound"])
 
-    assert received == [(None, None)]
+    assert received == [(Unbound.unbound, Unbound.unbound)]
 
 
 @pytest.mark.parametrize("timeout", ["0", "-1", "nan", "inf"])

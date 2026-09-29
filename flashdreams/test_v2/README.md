@@ -26,8 +26,8 @@ CPU-only tests for the v2 protocols themselves:
   skipped when the serving packages are missing, which is also why a run writing
   a file does not import them.
 - `test_application_runner.py` covers `ApplicationRunner`: init, session
-  replacement, timeout, remaining time on a replacement session, and the
-  per-session `--total-model-steps` limit.
+  replacement, timeout, the per-session `--total-model-steps` limit, and
+  `Unbound` as the no-limit value (`None` is rejected).
 - `test_cli.py` covers `flashdreams-run-v2` `--timeout` and
   `--total-model-steps`: MP4 requires one or both, native-window and WebRTC
   may omit both, every mode forwards a named flag, and `unbound` means no

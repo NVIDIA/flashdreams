@@ -70,8 +70,8 @@ run_session(session, my_client_window, steps=4)
 app.close()
 ```
 
-`steps` bounds the run for a test. An interactive run leaves it `None` and ends
-when the browser disconnects.
+`run_session`'s `steps` bounds the run for a test. An interactive run leaves
+that argument `None` and ends when the browser disconnects.
 
 ## Tests
 

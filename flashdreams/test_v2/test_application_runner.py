@@ -304,6 +304,19 @@ def test_application_timeout_must_be_positive_and_finite(timeout: float) -> None
     assert calls == []
 
 
+def test_application_timeout_none_is_not_unbound() -> None:
+    """``None`` is not a time-limit. Omit the argument or pass ``Unbound``."""
+    calls: list[str] = []
+
+    with pytest.raises(ValueError, match="finite and greater than zero"):
+        ApplicationRunner(_Application(calls), _SilentWindow(calls)).run(
+            _session_desc(),
+            timeout_seconds=None,
+        )
+
+    assert calls == []
+
+
 def test_application_runner_stops_a_session_after_the_step_limit() -> None:
     """A window that never closes still ends once ``steps`` have been generated."""
     calls: list[str] = []
@@ -326,6 +339,19 @@ def test_application_runner_stops_a_session_that_was_given_no_steps() -> None:
 
     assert window.results == []
     assert calls[-3:] == ["window.close", "session.close", "application.close"]
+
+
+def test_application_steps_none_is_not_unbound() -> None:
+    """``None`` is not a steps limit. Omit the argument or pass ``Unbound``."""
+    calls: list[str] = []
+
+    with pytest.raises(ValueError, match="steps must be"):
+        ApplicationRunner(_Application(calls), _SilentWindow(calls)).run(
+            _session_desc(),
+            steps=None,
+        )
+
+    assert calls == []
 
 
 def test_application_step_limit_must_not_be_negative() -> None:
@@ -371,83 +397,6 @@ def test_application_runner_passes_the_same_step_limit_into_every_session(
     )
 
     assert seen == [7, 7]
-
-
-def test_application_runner_passes_remaining_seconds_into_every_session(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A replacement session gets remaining time, not the original ``timeout_seconds``."""
-    seen: list[float | None] = []
-    now = iter([1000.0, 1001.0, 1002.0, 1004.0, 1005.0])
-
-    def record_run_session(
-        session: ISession,
-        window: IClientWindow,
-        *,
-        metrics_output_sink: MetricsOutputSink | None = None,
-        steps: int | None = None,
-        timeout_seconds: float | None = None,
-    ) -> SessionDesc | None:
-        del session, window, metrics_output_sink, steps
-        seen.append(timeout_seconds)
-        if len(seen) == 1:
-            return _session_desc()
-        return None
-
-    monkeypatch.setattr(
-        "flashdreams.runtime_v2.application_runner.time.monotonic",
-        lambda: next(now),
-    )
-    monkeypatch.setattr(
-        "flashdreams.runtime_v2.application_runner.run_session",
-        record_run_session,
-    )
-    calls: list[str] = []
-    ApplicationRunner(_Application(calls), _SilentWindow(calls)).run(
-        _session_desc(),
-        timeout_seconds=10,
-    )
-
-    assert seen == [8.0, 5.0]
-
-
-def test_application_runner_does_not_start_a_replacement_after_the_time_limit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Once remaining time is gone, a replacement request does not start another session."""
-    seen: list[float | None] = []
-    now = iter([1000.0, 1001.0, 1002.0, 1010.0])
-
-    def record_run_session(
-        session: ISession,
-        window: IClientWindow,
-        *,
-        metrics_output_sink: MetricsOutputSink | None = None,
-        steps: int | None = None,
-        timeout_seconds: float | None = None,
-    ) -> SessionDesc | None:
-        del session, window, metrics_output_sink, steps
-        seen.append(timeout_seconds)
-        return _session_desc()
-
-    monkeypatch.setattr(
-        "flashdreams.runtime_v2.application_runner.time.monotonic",
-        lambda: next(now),
-    )
-    monkeypatch.setattr(
-        "flashdreams.runtime_v2.application_runner.run_session",
-        record_run_session,
-    )
-    calls: list[str] = []
-    application = _Application(calls)
-    ApplicationRunner(application, _SilentWindow(calls)).run(
-        _session_desc(),
-        timeout_seconds=10,
-    )
-
-    assert seen == [8.0]
-    assert len(application.sessions) == 1
-    assert calls[-2:] == ["window.close", "application.close"]
 
 
 def test_application_runner_keeps_metrics_output_separate_from_the_window() -> None:

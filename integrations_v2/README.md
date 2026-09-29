@@ -228,6 +228,9 @@ Driving it from Python takes the same two objects the command line builds:
 ApplicationRunner(create_app(), Mp4ClientWindow(path)).run(session_desc, args)
 ```
 
+`timeout_seconds` and `steps` default to `Unbound` (no limit). Pass a number to
+bound the run; `None` is not a limit.
+
 ## Testing it
 
 Every test carries a `ci_cpu`, `ci_gpu` or `manual` marker, enforced by a pytest

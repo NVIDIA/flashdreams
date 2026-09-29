@@ -8,6 +8,7 @@ import math
 import sys
 import time
 from collections.abc import Sequence
+from enum import Enum
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
@@ -17,6 +18,13 @@ from flashdreams.runtime_v2.session_runner import run_session
 
 _LOGGER = logging.getLogger(__name__)
 """Logger for an application or window that could not be closed."""
+
+
+class Unbound(Enum):
+    """No time-limit or no steps limit."""
+
+    unbound = "unbound"
+    """No limit."""
 
 
 class ApplicationRunner:
@@ -45,8 +53,8 @@ class ApplicationRunner:
         session_desc: SessionDesc,
         commandline_args: Sequence[str] = (),
         *,
-        timeout_seconds: float | None = None,
-        steps: int | None = None,
+        timeout_seconds: float | Unbound = Unbound.unbound,
+        steps: int | Unbound = Unbound.unbound,
     ) -> None:
         """Initialize the application and run sessions until the window exits.
 
@@ -63,28 +71,36 @@ class ApplicationRunner:
         Args:
             session_desc: Output shape and timing requested for the session.
             commandline_args: Arguments owned and parsed by the application.
-            timeout_seconds: Maximum application runtime; ``None`` waits for a
-                normal lifecycle exit. The deadline includes initialization and
-                every replacement session.
-            steps: Maximum model steps for each session; ``None`` leaves that
-                session's length to the UI, the client window, or
+            timeout_seconds: Maximum application runtime; ``Unbound`` waits for
+                a normal lifecycle exit. The deadline includes initialization
+                and every replacement session.
+            steps: Maximum model steps for each session; ``Unbound`` leaves
+                that session's length to the UI, the client window, or
                 ``timeout_seconds``. A replacement session gets the same
                 ``steps``, not remaining steps from the previous session.
 
         Raises:
-            ValueError: ``timeout_seconds`` is not finite and greater than
-                zero, or ``steps`` is negative.
+            ValueError: ``timeout_seconds`` is not a finite number greater
+                than zero or ``Unbound``, or ``steps`` is not a non-negative
+                integer or ``Unbound``.
         """
-        if timeout_seconds is not None and (
-            not math.isfinite(timeout_seconds) or timeout_seconds <= 0
+        if timeout_seconds is Unbound.unbound:
+            deadline = None
+        elif (
+            isinstance(timeout_seconds, (int, float))
+            and not isinstance(timeout_seconds, bool)
+            and math.isfinite(timeout_seconds)
+            and timeout_seconds > 0
         ):
+            deadline = time.monotonic() + timeout_seconds
+        else:
             raise ValueError("timeout_seconds must be finite and greater than zero.")
-        if steps is not None and steps < 0:
-            raise ValueError(f"steps must be >= 0 or None, got {steps}.")
-
-        deadline = (
-            None if timeout_seconds is None else time.monotonic() + timeout_seconds
-        )
+        if steps is Unbound.unbound:
+            session_steps = None
+        elif isinstance(steps, int) and not isinstance(steps, bool) and steps >= 0:
+            session_steps = steps
+        else:
+            raise ValueError(f"steps must be >= 0 or Unbound, got {steps}.")
         session_run_started = False
         window_needs_close = True
         try:
@@ -103,7 +119,7 @@ class ApplicationRunner:
                         session,
                         self._client_window,
                         metrics_output_sink=self._metrics_output_sink,
-                        steps=steps,
+                        steps=session_steps,
                         timeout_seconds=remaining_seconds,
                     )
                 except BaseException:

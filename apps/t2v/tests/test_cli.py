@@ -28,6 +28,7 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2 import cli
+from flashdreams.runtime_v2.application_runner import Unbound
 from flashdreams.runtime_v2.application_registry import (
     APPLICATION_ENTRY_POINT_GROUP,
     create_application,
@@ -610,8 +611,8 @@ def test_the_command_passes_its_timeout_to_the_application_runner(
         session_desc: SessionDesc,
         commandline_args: Sequence[str],
         *,
-        timeout_seconds: float | None = None,
-        steps: int | None = None,
+        timeout_seconds: float | Unbound = Unbound.unbound,
+        steps: int | Unbound = Unbound.unbound,
     ) -> None:
         del self, session_desc, commandline_args, steps
         received.append(timeout_seconds)
