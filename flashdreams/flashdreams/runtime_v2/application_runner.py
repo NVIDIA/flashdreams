@@ -79,20 +79,22 @@ class ApplicationRunner:
             None if timeout_seconds is None else time.monotonic() + timeout_seconds
         )
         session_run_started = False
+        parallel = None
         window_needs_close = True
         try:
             self._application.init(commandline_args)
             next_session_desc: SessionDesc | None = session_desc
             while next_session_desc is not None:
-                # A replacement returned by run_session is already synchronized
-                # across ranks, so only gate the unsynchronized first session.
+                # Only multi-rank replacements have an agreed decision that
+                # must survive a deadline crossed during session cleanup.
                 if (
-                    not session_run_started
+                    (parallel is None or parallel.world_size <= 1)
                     and deadline is not None
                     and time.monotonic() >= deadline
                 ):
                     break
                 session = self._application.create_session(next_session_desc)
+                parallel = session.parallel_context
                 session_run_started = True
                 remaining_seconds = (
                     None if deadline is None else max(0.0, deadline - time.monotonic())

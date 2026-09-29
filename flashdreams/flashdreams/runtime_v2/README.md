@@ -167,7 +167,8 @@ loops to stop and performs their normal cleanup. An in-flight model step must
 return before the process can finish cleaning up. Synchronous application or
 session initialization likewise cannot be interrupted mid-call.
 
-A replacement result already synchronized by the old session is authoritative:
+Local and single-rank replacements are skipped if cleanup reaches the deadline.
+A multi-rank replacement result already synchronized by the old session is authoritative:
 every rank creates that replacement even if the deadline crosses during cleanup,
 then the new session receives zero remaining time and stops at its first boundary.
 

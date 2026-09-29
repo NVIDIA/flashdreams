@@ -6,6 +6,7 @@
 import logging
 from collections.abc import Sequence
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -15,6 +16,7 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
 from flashdreams.api_v2.session import ISession
+from flashdreams.core.distributed.parallel import ParallelContext
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
@@ -305,10 +307,14 @@ def test_application_timeout_must_be_positive_and_finite(timeout: float) -> None
     assert calls == []
 
 
+@pytest.mark.parametrize("rank", [0, 1])
 def test_replacement_result_remains_authoritative_after_deadline(
     monkeypatch: pytest.MonkeyPatch,
+    rank: int,
 ) -> None:
     """Every rank follows the synchronized result instead of racing its clock."""
+    parallel = replace(ParallelContext.single(), tp_size=2, tp_rank=rank)
+    monkeypatch.setattr(_Session, "parallel_context", property(lambda self: parallel))
     calls: list[str] = []
     application = _Application(calls)
     session_desc = _session_desc()
@@ -342,6 +348,44 @@ def test_replacement_result_remains_authoritative_after_deadline(
 
     assert len(application.sessions) == 2
     assert remaining_seconds == [0.5, 0.0]
+
+
+@pytest.mark.parametrize("parallel", [None, ParallelContext.single()])
+@pytest.mark.parametrize("cleanup_finished_at", [0.9, 1.0, 1.1])
+def test_local_replacement_respects_deadline_after_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    parallel: ParallelContext | None,
+    cleanup_finished_at: float,
+) -> None:
+    calls: list[str] = []
+    application = _Application(calls, replace_first_session=True)
+    now = 0.0
+    original_close = _Session.close
+
+    def close(session: _Session) -> None:
+        nonlocal now
+        original_close(session)
+        now = cleanup_finished_at
+
+    monkeypatch.setattr(_Session, "close", close)
+    monkeypatch.setattr(_Session, "parallel_context", property(lambda self: parallel))
+    monkeypatch.setattr(
+        "flashdreams.runtime_v2.application_runner.time",
+        SimpleNamespace(monotonic=lambda: now),
+    )
+
+    ApplicationRunner(
+        application,
+        _SecondSessionClosingWindow(calls),
+        metrics_output_sink=_MetricsSink(calls),
+    ).run(_session_desc(), timeout_seconds=1.0)
+
+    expected_sessions = 2 if cleanup_finished_at < 1.0 else 1
+    assert len(application.sessions) == expected_sessions
+    for call in ("session.init", "session.close", "metrics.open", "metrics.close"):
+        assert calls.count(call) == expected_sessions
+    assert calls.count("window.close") == 1
+    assert calls[-1] == "application.close"
 
 
 def test_application_runner_keeps_metrics_output_separate_from_the_window() -> None:
