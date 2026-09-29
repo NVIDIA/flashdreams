@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Generic
 
@@ -219,6 +220,23 @@ class StreamInferencePipeline(
             Decoded tensor (e.g. RGB video) when a decoder is configured;
             otherwise the unpatchified clean latent from the diffusion model.
         """
+        return self._generate(
+            autoregressive_index,
+            cache,
+            input=input,
+        )
+
+    def _generate(
+        self,
+        autoregressive_index: int,
+        cache: StreamInferencePipelineCache[
+            StreamingEncoderCacheT, TransformerCacheT, StreamingDecoderCacheT
+        ],
+        input: Any = None,
+        *,
+        on_diffusion_complete: Callable[[], None] | None = None,
+    ) -> Tensor:
+        """Run the shared stages with an optional pre-decode completion hook."""
         prev = cache.autoregressive_index
         expected = (prev + 1) if prev is not None else 0
         assert autoregressive_index == expected, (
@@ -257,6 +275,9 @@ class StreamInferencePipeline(
 
         if events is not None:
             events.record("diffuse")
+
+        if on_diffusion_complete is not None:
+            on_diffusion_complete()
 
         if self.decoder is not None:
             assert cache.decoder_cache is not None  # invariant: paired with decoder

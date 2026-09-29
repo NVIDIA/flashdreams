@@ -96,14 +96,14 @@ class TestVideoVAE:
     """Tests for video VAE models."""
 
     @pytest.mark.manual
-    def test_teahv_vae_instantiation(self, device):
-        """Test TeahvInterface can be instantiated.
+    def test_taehv_vae_instantiation(self, device):
+        """Test TaehvInterface can be instantiated.
 
         Kept as manual: large checkpoint download and GPU memory use.
         """
-        from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
+        from flashdreams.recipes.taehv import TaehvVAEDecoderConfig
 
-        model = TeahvVAEDecoderConfig().setup().to(device)
+        model = TaehvVAEDecoderConfig().setup().to(device)
 
         assert model.temporal_compression_ratio == 4
         assert model.spatial_compression_ratio == 8

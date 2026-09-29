@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-from flashdreams.recipes.taehv import TeahvVAEDecoder, TeahvVAEDecoderConfig
+from flashdreams.recipes.taehv import TaehvVAEDecoder, TaehvVAEDecoderConfig
 from integrations_v2.omnidreams.benchmarks.cases import (
     BENCHMARK_CASES,
     AttentionBenchmarkCase,
@@ -136,7 +136,7 @@ def _run_full_pipeline_benchmark(
     pipeline.eval()
     assert pipeline.encoder is not None
     decoder = pipeline.decoder
-    assert isinstance(decoder, TeahvVAEDecoder)
+    assert isinstance(decoder, TaehvVAEDecoder)
 
     diffusion_config = pipeline_config.diffusion_model
     transformer_config = diffusion_config.transformer
@@ -146,7 +146,7 @@ def _run_full_pipeline_benchmark(
     assert isinstance(transformer_config, CosmosTransformerConfig)
     assert isinstance(scheduler_config, FlowMatchSchedulerConfig)
     assert isinstance(encoder_config, OmnidreamsWanVAEEncoderConfig)
-    assert isinstance(decoder_config, TeahvVAEDecoderConfig)
+    assert isinstance(decoder_config, TaehvVAEDecoderConfig)
     network_config = transformer_config.network
     assert network_config.self_attention_backend is self_attention_backend
     assert network_config.cross_attention_backend is case.cross_attention_backend

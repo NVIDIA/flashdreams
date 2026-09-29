@@ -24,8 +24,8 @@ from flashdreams.recipes.taehv import (
     AVAILABLE_TAEHV_CHECKPOINT_PATHS,
     Hy15TAEHVDecoderConfig,
     Hy15TAEHVEncoderConfig,
-    TeahvVAEDecoder,
-    TeahvVAEDecoderConfig,
+    TaehvVAEDecoder,
+    TaehvVAEDecoderConfig,
 )
 from flashdreams.recipes.taehv.checkpoint import legacy_to_blocks_keys
 from flashdreams.recipes.taehv.impl import TAEHV
@@ -132,10 +132,10 @@ def test_tokenizer(
     else:
         raise ValueError(f"Invalid tokenizer: {tokenizer_choice}")
 
-    detokenizer: WanVAEDecoder | TeahvVAEDecoder
+    detokenizer: WanVAEDecoder | TaehvVAEDecoder
     if detokenizer_choice == "lighttae":
         detokenizer = (
-            TeahvVAEDecoderConfig(
+            TaehvVAEDecoderConfig(
                 checkpoint_path=AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"],
                 dtype=dtype,
                 use_cuda_graph=False,

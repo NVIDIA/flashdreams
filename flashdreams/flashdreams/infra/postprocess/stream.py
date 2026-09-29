@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import TypeVar
 
@@ -110,8 +111,12 @@ class VideoPostprocessStream:
         if self._closed:
             raise RuntimeError("cannot process video after finish()")
         self.last_process_stats = None
-        self._prepare(output)
-        if not self.profile:
+        with self._device_context():
+            self._prepare(output)
+            if self.profile and self.postprocess.is_enabled():
+                return self._process_profiled(
+                    output, autoregressive_index=autoregressive_index
+                )
             result = apply_video_postprocess(
                 postprocess=self.postprocess,
                 output_layout=self.output_layout,
@@ -123,6 +128,8 @@ class VideoPostprocessStream:
             )
             return result
 
+    def _process_profiled(self, output: Tensor, *, autoregressive_index: int) -> Tensor:
+        """Process one decoded chunk and record time on its configured device."""
         profiler = self._create_event_profiler()
         result = apply_video_postprocess(
             postprocess=self.postprocess,
@@ -168,21 +175,22 @@ class VideoPostprocessStream:
             return
         if not self.postprocess.is_enabled():
             return
-        if self.per_view:
-            if self.output_layout != "bvtchw":
-                raise ValueError(
-                    "postprocess_per_view requires a layout with an explicit view "
-                    f"axis; got {self.output_layout!r}."
-                )
-            self.state.num_views = views
-            for view_idx in range(views):
+        with self._device_context():
+            if self.per_view:
+                if self.output_layout != "bvtchw":
+                    raise ValueError(
+                        "postprocess_per_view requires a layout with an explicit view "
+                        f"axis; got {self.output_layout!r}."
+                    )
+                self.state.num_views = views
+                for view_idx in range(views):
+                    session = self.postprocess.setup(input_spec)
+                    self.state.sessions[view_idx] = session
+                    session.prepare()
+            else:
                 session = self.postprocess.setup(input_spec)
-                self.state.sessions[view_idx] = session
+                self.state.sessions[-1] = session
                 session.prepare()
-        else:
-            session = self.postprocess.setup(input_spec)
-            self.state.sessions[-1] = session
-            session.prepare()
         self.state.input_spec = input_spec
         self._synchronize_preparation()
         self._prepared = True
@@ -206,31 +214,71 @@ class VideoPostprocessStream:
         if self._closed:
             return None
         self._closed = True
-        if not self.profile:
-            return flush_video_postprocess(
+        with self._device_context():
+            if not self.profile or not self.postprocess.is_enabled():
+                return flush_video_postprocess(
+                    postprocess=self.postprocess,
+                    output_layout=self.output_layout,
+                    per_view=self.per_view,
+                    state=self.state,
+                )
+
+            profiler = self._create_event_profiler()
+            result = flush_video_postprocess(
                 postprocess=self.postprocess,
                 output_layout=self.output_layout,
                 per_view=self.per_view,
                 state=self.state,
             )
-
-        profiler = self._create_event_profiler()
-        result = flush_video_postprocess(
-            postprocess=self.postprocess,
-            output_layout=self.output_layout,
-            per_view=self.per_view,
-            state=self.state,
-        )
-        profiler.record("postprocess_flush")
-        elapsed_ms = profiler.sync_and_summarize()["postprocess_flush"]
-        output_shape = None if result is None else tuple(result.shape)
-        logger.info(f"postprocess flush {elapsed_ms:.3f} ms | output {output_shape}")
-        return result
+            profiler.record("postprocess_flush")
+            elapsed_ms = profiler.sync_and_summarize()["postprocess_flush"]
+            output_shape = None if result is None else tuple(result.shape)
+            logger.info(
+                f"postprocess flush {elapsed_ms:.3f} ms | output {output_shape}"
+            )
+            return result
 
     def _create_event_profiler(self) -> EventProfiler:
         # The stream owns its one explicit readiness barrier in ``_prepare``.
         # Profiling must not inject additional collectives between model calls.
-        return EventProfiler(synchronize_distributed=False)
+        devices = self._resolved_devices()
+        if len(devices) != 1:
+            raise ValueError(
+                "postprocess profiling requires every processor to use one "
+                f"CUDA device; got {sorted(map(str, devices))}."
+            )
+        device = devices.pop()
+        if device.type != "cuda":
+            raise ValueError(
+                "postprocess CUDA-event profiling requires a CUDA device; "
+                f"got {device}."
+            )
+        return EventProfiler(synchronize_distributed=False, device=device)
+
+    def _device_context(self):
+        if not torch.cuda.is_available():
+            return nullcontext()
+        devices = self._resolved_devices()
+        if len(devices) != 1:
+            return nullcontext()
+        device = devices.pop()
+        return torch.cuda.device(device) if device.type == "cuda" else nullcontext()
+
+    def _resolved_devices(self) -> set[torch.device]:
+        """Return configured devices with bare ``cuda`` resolved to its ordinal."""
+        devices = {
+            torch.device(processor.device)
+            for processor in self.postprocess.resolved_processors()
+        }
+        if any(device.type == "cuda" and device.index is None for device in devices):
+            current_device = torch.cuda.current_device()
+            devices = {
+                torch.device("cuda", current_device)
+                if device.type == "cuda" and device.index is None
+                else device
+                for device in devices
+            }
+        return devices
 
     def _prepare(self, output: Tensor) -> None:
         """Prepare sessions once, then synchronize distributed readiness."""

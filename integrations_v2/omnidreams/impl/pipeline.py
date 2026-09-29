@@ -50,7 +50,7 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipelineCache,
     StreamInferencePipelineConfig,
 )
-from flashdreams.recipes.taehv import TeahvVAEDecoder
+from flashdreams.recipes.taehv import TaehvVAEDecoder
 from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEDecoder,
     WanVAEEncoder,
@@ -163,7 +163,7 @@ class OmnidreamsPipeline(
         )
         self._len_t_latent: int = transformer.config.len_t
         decoder = self.decoder
-        assert isinstance(decoder, (WanVAEDecoder, TeahvVAEDecoder)), (
+        assert isinstance(decoder, (WanVAEDecoder, TaehvVAEDecoder)), (
             "OmnidreamsPipeline requires a Wan or Taehv VAE decoder; "
             f"got {type(decoder).__name__}."
         )
@@ -370,7 +370,7 @@ class OmnidreamsPipeline(
             f"got {type(transformer).__name__}."
         )
         decoder = self.decoder
-        assert isinstance(decoder, (WanVAEDecoder, TeahvVAEDecoder)), (
+        assert isinstance(decoder, (WanVAEDecoder, TaehvVAEDecoder)), (
             "OmnidreamsPipeline requires a Wan or Taehv VAE decoder; "
             f"got {type(decoder).__name__}."
         )
