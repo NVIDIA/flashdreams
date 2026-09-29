@@ -1083,12 +1083,12 @@ def test_headless_loop_presents_video_channel_and_finishes() -> None:
 
     result = loop.step(0, UserInputEvents([]))
 
-    assert result is not None
-    output = result.read_output()
+    assert result
+    output = result[0].read_output()
     assert output.shape == (1, 3, 4, 6)
     assert torch.equal(output[0], frame)
     assert loop.is_finished()
     loop.reset()
     assert resets == ["hud"]
     presented[0] = ()
-    assert loop.step(1, UserInputEvents([])) is None
+    assert loop.step(1, UserInputEvents([])) == []
