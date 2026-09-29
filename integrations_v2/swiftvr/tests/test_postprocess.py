@@ -156,16 +156,16 @@ def test_swiftvr_flush_emits_one_frame_per_input(
     assert result.shape[0] == frame_count
 
 
-def test_swiftvr_reuses_resident_pipeline_across_sessions(
+def test_swiftvr_reuses_resident_pipeline_and_shape_warmup_across_fps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created = _install_fake_pipeline(monkeypatch)
     config = SwiftVRPostProcessorConfig(device="cpu", chunk_size=8, prewarm=True)
     processor = config.setup()
 
-    first = processor.start(VideoSpec(height=4, width=4))
+    first = processor.start(VideoSpec(height=4, width=4, fps=30))
     first.prepare()
-    second = config.setup().start(VideoSpec(height=4, width=4))
+    second = config.setup().start(VideoSpec(height=4, width=4, fps=75))
     second.prepare()
 
     assert config.setup() is processor

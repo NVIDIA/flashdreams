@@ -80,6 +80,9 @@ dependencies = [
     "einops>=0.7",
 ]
 
+[tool.uv]
+managed = true
+
 [tool.uv.sources]
 # Neither package is on PyPI; install both from the local source tree.
 # Paths are relative to this directory:

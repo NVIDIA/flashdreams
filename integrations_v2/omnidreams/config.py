@@ -30,7 +30,7 @@ from flashdreams.infra.encoder.text.cosmos_reason1 import (
 )
 from flashdreams.recipes.taehv import (
     AVAILABLE_TAEHV_CHECKPOINT_PATHS,
-    TeahvVAEDecoderConfig,
+    TaehvVAEDecoderConfig,
 )
 from flashdreams.recipes.wan.autoencoder.vae import AVAILABLE_WAN_VAE_CHECKPOINT_PATHS
 
@@ -56,7 +56,7 @@ OMNIDREAMS_PIPELINE_CONFIG = OmnidreamsPipelineConfig(
         use_compile=False,
         use_cuda_graph=True,
     ),
-    decoder=TeahvVAEDecoderConfig(
+    decoder=TaehvVAEDecoderConfig(
         checkpoint_path=AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"],
         use_compile=False,
         use_cuda_graph=True,

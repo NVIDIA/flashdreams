@@ -225,8 +225,8 @@ class DiffusionModel(nn.Module, Generic[TransformerCacheT]):
             input=input,
         )
 
-        # Postpone KV cache update to the finalization step. No runtime
-        # subscript: ``_FinalStateCacheT`` is bound from ``cache``'s type.
+        # Retain the clean state for finalization. A transformer may already
+        # have refreshed specialized cache state in ``postprocess_clean_latent``.
         final_state = DiffusionModel.FinalState(
             clean_latent=clean_latent,
             autoregressive_index=autoregressive_index,

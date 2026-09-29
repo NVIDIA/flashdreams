@@ -122,6 +122,12 @@ class RendererSettings:
 class PresentationSettings:
     """Player-facing HUD settings."""
 
+    width: int | None = None
+    """Presentation width; ``None`` uses the model output width."""
+
+    height: int | None = None
+    """Presentation height; ``None`` uses the model output height."""
+
     hud_enabled: bool = True
     show_fps: bool = False
     show_current_prompt: bool = False
@@ -188,6 +194,21 @@ def default_settings(
 
 class SettingsError(ValueError):
     """Invalid user-authored settings."""
+
+
+def presentation_resolution_wh(
+    settings: PresentationSettings,
+) -> tuple[int, int] | None:
+    """Return the configured presentation resolution when complete."""
+    width = settings.width
+    height = settings.height
+    if (width is None) != (height is None):
+        raise SettingsError("presentation width and height must be set together")
+    if width is None or height is None:
+        return None
+    if width <= 0 or height <= 0:
+        raise SettingsError("presentation width and height must be positive")
+    return width, height
 
 
 @dataclass
@@ -323,6 +344,7 @@ def _validate_settings(settings: CrazyRobotaxiUserSettings) -> None:
         raise SettingsError("renderer.raster.fog_start_m must be less than fog_end_m")
     if bev.width <= 0 or bev.height <= 0 or bev.height_m <= 0:
         raise SettingsError("renderer.bev dimensions must be positive")
+    presentation_resolution_wh(settings.presentation)
     if settings.runtime.total_blocks is not None and settings.runtime.total_blocks <= 0:
         raise SettingsError("runtime.total_blocks must be positive")
     if settings.runtime.prewarm_blocks < 0:
@@ -734,10 +756,18 @@ def restart_required_settings(
                 changed.append(".".join(path))
         return tuple(changed)
 
+    live_paths = {
+        "presentation.width",
+        "presentation.height",
+        "presentation.hud_enabled",
+        "presentation.show_fps",
+        "presentation.show_current_prompt",
+        "presentation.show_control_hints",
+        "presentation.show_live_edit_buttons",
+        "presentation.live_edit_mapping_location",
+    }
     return tuple(
-        path
-        for path in changed_paths(original, draft, ())
-        if not path.startswith("presentation.")
+        path for path in changed_paths(original, draft, ()) if path not in live_paths
     )
 
 
@@ -782,6 +812,7 @@ __all__ = [
     "iter_setting_fields",
     "normalize_settings",
     "parse_editor_value",
+    "presentation_resolution_wh",
     "restart_required_settings",
     "setting_choices",
     "setting_value",

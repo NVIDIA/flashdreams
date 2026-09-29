@@ -837,7 +837,7 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
     )
 
     result = ui_loop.step(0, pressed)
-    output = result.read_output()
+    output = result[0].read_output()
 
     assert output.shape == (1, 3, 2, 2)
     assert output.dtype is torch.bfloat16
@@ -988,7 +988,7 @@ def test_slangpy_overlay_finishes_after_drawing_the_final_model_frame() -> None:
     assert not ui_loop.is_finished()
     assert presentation_manager.advance(0, now=1.0)[0]
     assert not ui_loop.is_finished()
-    assert ui_loop.step(0, UserInputEvents([])) is not None
+    assert ui_loop.step(0, UserInputEvents([]))
     assert ui_loop.is_finished()
 
 

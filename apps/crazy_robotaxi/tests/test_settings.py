@@ -55,6 +55,8 @@ model:
 game:
   gamepad_button_style: PlayStation
 presentation:
+  width: 1920
+  height: 1080
   show_fps: true
   show_live_edit_buttons: false
   live_edit_mapping_location: control hints
@@ -68,10 +70,31 @@ presentation:
     assert document.settings.model.pipeline.diffusion_model.seed == 42
     assert document.settings.renderer.raster.resolution_wh == (1280, 704)
     assert document.settings.game.gamepad_button_style == "PlayStation"
+    assert document.settings.presentation.width == 1920
+    assert document.settings.presentation.height == 1080
     assert document.settings.presentation.show_fps
     assert not document.settings.presentation.show_live_edit_buttons
     assert document.settings.presentation.live_edit_mapping_location == "control hints"
     assert document.settings.presentation.show_current_prompt
+
+
+@pytest.mark.parametrize(
+    "presentation",
+    (
+        "width: 1920",
+        "height: 1080",
+        "width: 0\n  height: 1080",
+    ),
+)
+def test_presentation_resolution_must_be_complete_and_positive(
+    tmp_path: Path,
+    presentation: str,
+) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(f"presentation:\n  {presentation}\n", encoding="utf-8")
+
+    with pytest.raises(SettingsError, match="presentation width and height"):
+        _load(path)
 
 
 def test_launch_selections_are_not_user_yaml_settings(tmp_path: Path) -> None:

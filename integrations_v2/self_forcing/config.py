@@ -22,7 +22,7 @@ from typing import cast
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
+from flashdreams.recipes.taehv import TaehvVAEDecoderConfig
 from flashdreams.recipes.wan import (
     Wan21TransformerConfig,
     WanDiTNetwork1pt3BConfig,
@@ -74,7 +74,7 @@ PIPELINE_WAN21_T2V_1PT3B_TAEHV = cast(
     derive_config(
         PIPELINE_WAN21_T2V_1PT3B,
         name="self-forcing-wan2.1-t2v-1.3b-taehv",
-        decoder=TeahvVAEDecoderConfig(),
+        decoder=TaehvVAEDecoderConfig(),
     ),
 )  # ty:ignore[redundant-cast]
 # Long-rollout streaming preset: static sink=5, rolling window=7
