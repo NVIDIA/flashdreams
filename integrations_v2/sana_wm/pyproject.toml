@@ -32,7 +32,7 @@ dependencies = [
     "safetensors>=0.5",
     "sentencepiece>=0.2",
     "torchvision>=0.26",
-    "transformers>=5.17,<6",
+    "transformers[sentencepiece]>=5.17,<6",
 ]
 
 [tool.uv.sources]
