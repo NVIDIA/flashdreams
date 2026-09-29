@@ -6,7 +6,7 @@ dependencies = [
     "flashdreams[local-window,serving]",
     "huggingface-hub>=0.33",
     "ludus-renderer",
-    "Pillow>=10.0",
+    "Pillow>=12.3.0",
 ]
 
 [project.scripts]

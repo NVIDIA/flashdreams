@@ -11,7 +11,7 @@ from omnidreams.impl.synthetic_fixture import (
 from omnidreams.impl.vae_native import OmnidreamsWanVAEEncoderConfig
 
 from flashdreams.core.checkpoint import load as checkpoint_load
-from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
+from flashdreams.recipes.taehv import TaehvVAEDecoderConfig
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -37,7 +37,7 @@ def test_synthetic_fixture_round_trips_offline(monkeypatch, tmp_path) -> None:
         use_cuda_graph=False,
         native_vae_acceleration="disabled",
     )
-    decoder_cfg = TeahvVAEDecoderConfig(
+    decoder_cfg = TaehvVAEDecoderConfig(
         dtype=torch.float32,
         use_compile=False,
         use_cuda_graph=False,
@@ -61,7 +61,7 @@ def test_synthetic_fixture_round_trips_offline(monkeypatch, tmp_path) -> None:
         use_cuda_graph=False,
         native_vae_acceleration="disabled",
     ).setup()
-    decoder = TeahvVAEDecoderConfig(
+    decoder = TaehvVAEDecoderConfig(
         checkpoint_path=str(assets.decoder_checkpoint_path),
         dtype=torch.float32,
         use_compile=False,

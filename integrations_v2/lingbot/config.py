@@ -22,7 +22,7 @@ import torch
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
+from flashdreams.recipes.taehv import TaehvVAEDecoderConfig
 from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEDecoderConfig,
     WanVAEEncoderConfig,
@@ -112,7 +112,7 @@ PIPELINE_LINGBOT_WORLD_FAST = LingbotWorldInferencePipelineConfig(
 PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3 = derive_config(
     PIPELINE_LINGBOT_WORLD_FAST,
     name="lingbot-world-fast-taehv-window15-sink3",
-    decoder=TeahvVAEDecoderConfig(),
+    decoder=TaehvVAEDecoderConfig(),
     diffusion_model=dict(
         transformer=dict(
             window_size_t=15,
@@ -133,7 +133,7 @@ PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST = derive_config(
 PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3 = derive_config(
     PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
     name="lingbot-world-v2-14b-causal-fast-taehv-window15-sink3",
-    decoder=TeahvVAEDecoderConfig(),
+    decoder=TaehvVAEDecoderConfig(),
     diffusion_model=dict(
         transformer=dict(
             window_size_t=15,
