@@ -330,7 +330,7 @@ static __device__ uint32_t get_default_prim_color(uint32_t prim_type_id)
 
 static __device__ uint32_t get_prim_color_packed(uint32_t prim_type_id, const CudaRenderParams& p)
 {
-    if (p.colorPaletteSize > 0 && p.colorPalette && (int)prim_type_id < p.colorPaletteSize) {
+    if (p.colorPaletteSize > 0 && p.colorPalette && prim_type_id < (uint32_t)p.colorPaletteSize) {
         uint32_t c = p.colorPalette[prim_type_id];
         if ((c >> 24) != 0) return c;
     }
@@ -341,7 +341,10 @@ static __device__ __forceinline__ float get_prim_width(uint32_t prim_type_id, co
 {
     bool is_bev = (p.cameraTypeId == 1);
     float base;
-    if (p.widthTableSize > 0 && p.widthTable && (int)prim_type_id < p.widthTableSize
+    // Compared unsigned: a pool's id travels in a signed header, so a negative
+    // one arrives here as a very large value and a signed test would let it
+    // through to index the table from outside.
+    if (p.widthTableSize > 0 && p.widthTable && prim_type_id < (uint32_t)p.widthTableSize
         && p.widthTable[prim_type_id] > 0.0f) {
         base = p.widthTable[prim_type_id];
     } else if (prim_type_id == 4) {
@@ -593,10 +596,20 @@ __device__ static uint32_t cube_face_mask(
     return mask;
 }
 
+// The behind-camera tests, defined with the rest of them further down and
+// declared here because the immediate-mode cube kernels come first in the file.
+__device__ static bool cube_in_front_euler(
+    float3 tr, float3 rot, float3 sc, const float* __restrict__ poseData, int culling);
+__device__ static bool face_in_front(
+    const float3* corners, const float* __restrict__ poseData, int culling);
+__device__ static void clip_to_near(
+    float3& from, float3& to, const float* __restrict__ poseData, int culling);
+
 __global__ void cubeGeometryKernel(
     const Cube* __restrict__ cubes, int numCubes,
     const float* __restrict__ camData,
     const float* __restrict__ poseData,
+    int cullBehind,
     float4* __restrict__ outVerts,
     int* __restrict__ outIndices,
     uint32_t* __restrict__ outVertColors,
@@ -614,6 +627,9 @@ __global__ void cubeGeometryKernel(
     float3 fc = make_float3(cube.front_color[0], cube.front_color[1], cube.front_color[2]);
     float3 bc = make_float3(cube.back_color[0], cube.back_color[1], cube.back_color[2]);
 
+    if (!cube_in_front_euler(tr, rot, sc, poseData, cullBehind))
+        return;
+
     float3 cw = cube_cam_world(poseData);
 
     // Per-face backface culling
@@ -624,6 +640,16 @@ __global__ void cubeGeometryKernel(
     fc_world.x += tr.x; fc_world.y += tr.y; fc_world.z += tr.z;
     float3 to_cam = make_float3(cw.x - fc_world.x, cw.y - fc_world.y, cw.z - fc_world.z);
     if (n_world.x*to_cam.x + n_world.y*to_cam.y + n_world.z*to_cam.z <= 0.0f)
+        return;
+
+    float3 corners[4];
+    for (int i = 0; i < 4; i++) {
+        float3 lv = CUBE_VERTS_D[FACE_VERTS_D[faceIdx][i]];
+        float3 sv = make_float3(lv.x * sc.x, lv.y * sc.y, lv.z * sc.z);
+        corners[i] = rodrigues(sv, rot);
+        corners[i].x += tr.x; corners[i].y += tr.y; corners[i].z += tr.z;
+    }
+    if (!face_in_front(corners, poseData, cullBehind))
         return;
 
     int vbase = atomicAdd(atomicVerts, 4);
@@ -646,10 +672,7 @@ __global__ void cubeGeometryKernel(
         float cg = bc.y + t * (fc.y - bc.y);
         float cb = bc.z + t * (fc.z - bc.z);
 
-        float3 sv = make_float3(lv.x * sc.x, lv.y * sc.y, lv.z * sc.z);
-        float3 wv = rodrigues(sv, rot);
-        wv.x += tr.x; wv.y += tr.y; wv.z += tr.z;
-        outVerts[vbase + i] = ftheta_project(wv, poseData, camData);
+        outVerts[vbase + i] = ftheta_project(corners[i], poseData, camData);
         outVertColors[vbase + i] = pack_rgba8(cr, cg, cb);
     }
 
@@ -691,6 +714,9 @@ __global__ void cubeWireframeKernel(
     float3 sc = make_float3(cube.scale[0], cube.scale[1], cube.scale[2]);
     float3 rot = make_float3(cube.rotation[0], cube.rotation[1], cube.rotation[2]);
 
+    if (!cube_in_front_euler(tr, rot, sc, poseData, cullBehind))
+        return;
+
     float3 cw = cube_cam_world(poseData);
     uint32_t fmask = cube_face_mask(cube, tr, sc, rot, cw);
 
@@ -704,6 +730,7 @@ __global__ void cubeWireframeKernel(
     float3 sv1 = make_float3(lv1.x*sc.x, lv1.y*sc.y, lv1.z*sc.z);
     float3 wv0 = rodrigues(sv0, rot); wv0.x += tr.x; wv0.y += tr.y; wv0.z += tr.z;
     float3 wv1 = rodrigues(sv1, rot); wv1.x += tr.x; wv1.y += tr.y; wv1.z += tr.z;
+    clip_to_near(wv0, wv1, poseData, cullBehind);
 
     float4 clip0 = ftheta_project(wv0, poseData, camData);
     float4 clip1 = ftheta_project(wv1, poseData, camData);
@@ -824,6 +851,24 @@ __device__ static bool cube_in_front(
         float3 local = CUBE_VERTS_D[corner];
         float3 world = quat_rotate_d(
             qr, make_float3(local.x * sc.x, local.y * sc.y, local.z * sc.z));
+        world.x += tr.x; world.y += tr.y; world.z += tr.z;
+        if (camera_depth(world, poseData) > 0.0f)
+            return true;
+    }
+    return false;
+}
+
+// The same test for a cube whose rotation arrives as a Rodrigues vector, which
+// is how the immediate-mode path carries it rather than as a quaternion.
+__device__ static bool cube_in_front_euler(
+    float3 tr, float3 rot, float3 sc, const float* __restrict__ poseData, int culling)
+{
+    if (!culling)
+        return true;
+    for (int corner = 0; corner < 8; corner++) {
+        float3 local = CUBE_VERTS_D[corner];
+        float3 world = rodrigues(
+            make_float3(local.x * sc.x, local.y * sc.y, local.z * sc.z), rot);
         world.x += tr.x; world.y += tr.y; world.z += tr.z;
         if (camera_depth(world, poseData) > 0.0f)
             return true;
@@ -1566,8 +1611,11 @@ __global__ void polylinePoolKernel(
             if (r < 0.5f) continue;
             int vbase = atomicAdd(atomicVerts, 7);
             int triBase = atomicAdd(atomicTris, 6);
+            // Carry on rather than give up on the rest: the retry sizes its
+            // buffers from these counters, and a dot that never reserves is a
+            // dot the second attempt has no room for either.
             if (!geometry_reservation_fits(vbase, 7, triBase, 6, atomicVerts, atomicTris))
-                return;
+                continue;
             outVerts[vbase] = clip;
             outVertColors[vbase] = packedColor;
             for (int i = 0; i < 6; i++) {
@@ -2503,6 +2551,15 @@ static void ensureBuffers(LudusCudaState& s, int64_t maxVerts, int64_t maxTris)
 // the densest map clips measured here.
 static const int64_t ESTIMATE_TRIANGLE_CEILING = 1024 * 1024;
 
+// How many times a draw may grow its buffers and start the camera again.
+//
+// One pass is usually enough, the counters carrying the whole demand because a
+// thread reserves before it learns the reservation did not fit. A kernel that
+// abandons the rest of its work on the first miss reports less than it wanted,
+// though, and then one pass sizes the buffers from an undercount and the next
+// misses again. Passes are cheap against a blank camera, so a few are allowed.
+static const int GEOMETRY_RETRY_BUDGET = 3;
+
 // Buffers for an estimated triangle count, vertices following at three a
 // triangle as the geometry kernels emit them.
 static void estimateBuffers(LudusCudaState& s, int64_t maxTris)
@@ -2633,7 +2690,7 @@ void ludusCudaRender(
 
         if (numCubes > 0) {
             cubeGeometryKernel<<<numCubes, 6, 0, stream>>>(
-                cubes, numCubes, camData, poseData,
+                cubes, numCubes, camData, poseData, s.cullBehindCamera,
                 (float4*)s.projectedVertices, s.triangleIndices, s.vertexColors,
                 s.atomicVertexCount, s.atomicTriangleCount);
             cubeWireframeKernel<<<numCubes, 12, 0, stream>>>(
@@ -2696,7 +2753,7 @@ void ludusCudaRender(
             int64_t requiredVerts = actualVerts > s.maxVertices ? actualVerts : (int64_t)s.maxVertices + 1;
             int64_t requiredTris = actualTris > s.maxTriangles ? actualTris : (int64_t)s.maxTriangles + 1;
             ensureBuffers(s, requiredVerts, requiredTris);
-            if (geometryRetryCount++ == 0) {
+            if (geometryRetryCount++ < GEOMETRY_RETRY_BUDGET) {
                 --camIdx;
                 continue;
             }
@@ -2934,7 +2991,7 @@ void ludusCudaRenderTimestamped(
             int64_t requiredVerts = actualVerts > s.maxVertices ? actualVerts : (int64_t)s.maxVertices + 1;
             int64_t requiredTris = actualTris > s.maxTriangles ? actualTris : (int64_t)s.maxTriangles + 1;
             ensureBuffers(s, requiredVerts, requiredTris);
-            if (geometryRetryCount++ == 0) {
+            if (geometryRetryCount++ < GEOMETRY_RETRY_BUDGET) {
                 --camIdx;
                 continue;
             }

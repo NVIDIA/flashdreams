@@ -497,7 +497,11 @@ class LudusCudaTimestampedContext:
 
         On, a cube every corner of which sits behind that plane is dropped, a
         face is dropped the same way, and a line crossing the plane stops at
-        it. Off, they are projected anyway: a point behind the camera has
+        it. A face with corners either side of the plane is left whole on
+        purpose, so a box the camera is inside can still smear across the
+        frame: cutting one means carrying its per-corner colour blend through
+        the cut, which is more surgery than it has so far been worth.
+        Off, they are projected anyway: a point behind the camera has
         nowhere to go on the image, so it is pushed well off centre, which
         keeps a stray point out of the frame but turns a box straddling the
         camera into a face drawn right across it.
