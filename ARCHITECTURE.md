@@ -197,17 +197,14 @@ backends may have their own internal threads.
 
 Application control and model execution have separate owners:
 
-```text
-runtime_v2 application control (Gloo)
-  StepAgreement: admission, input/reset, session replacement, shutdown
-                           |
-                           | admits the same step on every rank
-                           v
-Integration-owned inference (normally NCCL)
-  ParallelContext + integration-owned TP/CP collectives and output gathers
-                           |
-                           v
-Rank-zero StepResult publication and presentation
+```mermaid
+flowchart TB
+  Control["runtime_v2 application control (Gloo)<br/>StepAgreement: admission, input/reset,<br/>session replacement and shutdown"]
+  Inference["Integration-owned inference (normally NCCL)<br/>ParallelContext, TP/CP collectives<br/>and required output gathers"]
+  Publication["Rank-zero StepResult<br/>publication and presentation"]
+
+  Control -->|"Admit the same step on every rank"| Inference
+  Inference --> Publication
 ```
 
 `run_session` owns `StepAgreement`; the model loop consumes a private structural
