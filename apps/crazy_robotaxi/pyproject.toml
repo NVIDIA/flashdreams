@@ -31,7 +31,7 @@ include = ["crazy_robotaxi*"]
 [tool.setuptools.package-data]
 crazy_robotaxi = [
     "assets/*.npz",
-    "maps/*.robotaxi.yaml",
+    "maps/*.game-map.yaml",
 ]
 
 [tool.uv]

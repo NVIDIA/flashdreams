@@ -31,7 +31,7 @@ _MAP_FIXTURES = Path(__file__).parent / "maps"
 
 @pytest.mark.parametrize(
     "filename",
-    ["boulevard_district.robotaxi.yaml", "flashdreams_raceway.robotaxi.yaml"],
+    ["boulevard_district.game-map.yaml", "flashdreams_raceway.game-map.yaml"],
 )
 def test_shipped_map_is_valid(filename: str) -> None:
     path = Path(__file__).parents[1] / "crazy_robotaxi" / "maps" / filename
@@ -46,12 +46,12 @@ def test_shipped_map_is_valid(filename: str) -> None:
 
 def test_prompt_context_is_trimmed_and_round_trips(tmp_path: Path) -> None:
     source = yaml.safe_load(
-        (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
+        (_MAP_FIXTURES / "intersection_geometry.game-map.yaml").read_text()
     )
     source["nodes"][0]["prompt_context"] = "  A neighborhood landmark.  "
     source["roads"][0]["prompt_context"] = "  Detached homes line the road.  "
     source["spawns"][0]["prompt_context"] = "  A forward-facing road view.  "
-    path = tmp_path / "prompt-context.robotaxi.yaml"
+    path = tmp_path / "prompt-context.game-map.yaml"
     path.write_text(yaml.safe_dump(source, sort_keys=False))
 
     original = load_game_map(path)
@@ -68,10 +68,10 @@ def test_prompt_context_is_trimmed_and_round_trips(tmp_path: Path) -> None:
 @pytest.mark.parametrize("value", ["", "   ", 42, ["not", "text"]])
 def test_prompt_context_requires_nonempty_text(tmp_path: Path, value: object) -> None:
     source = yaml.safe_load(
-        (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
+        (_MAP_FIXTURES / "intersection_geometry.game-map.yaml").read_text()
     )
     source["roads"][0]["prompt_context"] = value
-    path = tmp_path / "invalid-prompt-context.robotaxi.yaml"
+    path = tmp_path / "invalid-prompt-context.game-map.yaml"
     path.write_text(yaml.safe_dump(source, sort_keys=False))
 
     with pytest.raises(GameMapError, match="prompt_context must be a nonempty string"):
@@ -83,10 +83,10 @@ def test_spawn_prompt_context_requires_nonempty_text(
     tmp_path: Path, value: object
 ) -> None:
     source = yaml.safe_load(
-        (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
+        (_MAP_FIXTURES / "intersection_geometry.game-map.yaml").read_text()
     )
     source["spawns"][0]["prompt_context"] = value
-    path = tmp_path / "invalid-spawn-prompt-context.robotaxi.yaml"
+    path = tmp_path / "invalid-spawn-prompt-context.game-map.yaml"
     path.write_text(yaml.safe_dump(source, sort_keys=False))
 
     with pytest.raises(GameMapError, match="prompt_context must be a nonempty string"):
@@ -95,9 +95,9 @@ def test_spawn_prompt_context_requires_nonempty_text(
 
 def test_prompt_context_change_invalidates_compiler_cache(tmp_path: Path) -> None:
     source = yaml.safe_load(
-        (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()
+        (_MAP_FIXTURES / "intersection_geometry.game-map.yaml").read_text()
     )
-    path = tmp_path / "cached-prompt-context.robotaxi.yaml"
+    path = tmp_path / "cached-prompt-context.game-map.yaml"
     path.write_text(yaml.safe_dump(source, sort_keys=False))
     cache_root = tmp_path / "cache"
 
@@ -115,7 +115,7 @@ def test_prompt_context_change_invalidates_compiler_cache(tmp_path: Path) -> Non
 def test_compiled_map_uses_canonical_spawn_conditioning(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
+    path = Path(__file__).parent / "maps" / "race_course.game-map.yaml"
     monkeypatch.setenv("FLASHDREAMS_CACHE_DIR", str(tmp_path))
     game_map = load_game_map(path)
 
@@ -142,7 +142,7 @@ def test_map_menu_thumbnail_falls_back_to_first_authored_spawn_image(
     tmp_path: Path,
 ) -> None:
     document = yaml.safe_load(
-        (Path(__file__).parent / "maps" / "race_course.robotaxi.yaml").read_text(
+        (Path(__file__).parent / "maps" / "race_course.game-map.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -158,7 +158,7 @@ def test_map_menu_thumbnail_falls_back_to_first_authored_spawn_image(
     )
     document["spawns"].append(second_spawn)
     document["race_courses"][0]["spawn"] = "second"
-    path = tmp_path / "thumbnail.robotaxi.yaml"
+    path = tmp_path / "thumbnail.game-map.yaml"
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
     fallback_header = load_game_map_header(path)
@@ -183,7 +183,7 @@ def test_scene_request_selects_nondefault_spawn(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
+    source = Path(__file__).parent / "maps" / "race_course.game-map.yaml"
     document = yaml.safe_load(source.read_text(encoding="utf-8"))
     second_spawn = dict(document["spawns"][0])
     second_spawn.update(
@@ -195,7 +195,7 @@ def test_scene_request_selects_nondefault_spawn(
     )
     document["spawns"].append(second_spawn)
     document["race_courses"][0]["spawn"] = "course-start"
-    path = tmp_path / "second-spawn.robotaxi.yaml"
+    path = tmp_path / "second-spawn.game-map.yaml"
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
     monkeypatch.setenv("FLASHDREAMS_CACHE_DIR", str(tmp_path / "cache"))
 
@@ -223,7 +223,7 @@ def test_boulevard_traffic_turns_are_continuous_and_physically_limited() -> None
         Path(__file__).parents[1]
         / "crazy_robotaxi"
         / "maps"
-        / "boulevard_district.robotaxi.yaml"
+        / "boulevard_district.game-map.yaml"
     )
     game_map = load_game_map(path)
     lanes = {lane.lane_id: lane for lane in game_map.lanes}

@@ -66,7 +66,7 @@ Application arguments follow `--`. For example:
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
   crazy-robotaxi-omnidreams-perf --mode webrtc -- \
-  --map apps/crazy_robotaxi/crazy_robotaxi/maps/boulevard_district.robotaxi.yaml \
+  --map apps/crazy_robotaxi/crazy_robotaxi/maps/boulevard_district.game-map.yaml \
   --game-time-s 90
 ```
 
@@ -187,7 +187,7 @@ and select the `grand-prix` course in the menu:
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
   crazy-robotaxi-omnidreams --mode native-window -- \
-  --map apps/crazy_robotaxi/crazy_robotaxi/maps/flashdreams_raceway.robotaxi.yaml \
+  --map apps/crazy_robotaxi/crazy_robotaxi/maps/flashdreams_raceway.game-map.yaml \
   --game-mode race
 ```
 
@@ -229,17 +229,31 @@ items, and unguided obstacles keep native DiT acceleration.
 
 ## Authored maps
 
-Maps are strict semantic `.robotaxi.yaml` documents. Validate or preview them
-without loading a model:
+Maps are strict semantic `.game-map.yaml` documents. See the
+[map format guide](../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md) for
+nodes, roads, profiles, traffic, spawns, and race courses. The map menu discovers
+bundled maps and maps in the directory of the path supplied by `--map`.
+Existing `.robotaxi.yaml` maps are also accepted.
+
+From the repository root, validate, compile, or preview the bundled boulevard
+map without loading a world model or using a GPU:
 
 ```bash
-uv run --package crazy-robotaxi crazy-robotaxi-map validate path/to/city.robotaxi.yaml
-uv run --package crazy-robotaxi crazy-robotaxi-map compile path/to/city.robotaxi.yaml
+ROBOTAXI_MAP=apps/crazy_robotaxi/crazy_robotaxi/maps/boulevard_district.game-map.yaml
+
+uv run --package crazy-robotaxi crazy-robotaxi-map validate "$ROBOTAXI_MAP"
+uv run --package crazy-robotaxi crazy-robotaxi-map compile "$ROBOTAXI_MAP"
 uv run --package crazy-robotaxi crazy-robotaxi-map preview \
-  path/to/city.robotaxi.yaml --output city.svg
+  "$ROBOTAXI_MAP" --output boulevard.svg
 uv run --package crazy-robotaxi crazy-robotaxi-map preview-spawn \
-  path/to/city.robotaxi.yaml --spawn taxi_start --output taxi_start.png
+  "$ROBOTAXI_MAP" --spawn original_area_start --output boulevard_spawn.png
 ```
+
+Compiled scene archives are cached under
+`$FLASHDREAMS_CACHE_DIR/omnidreams-game-engine/game-maps`, defaulting to
+`~/.cache/flashdreams/omnidreams-game-engine/game-maps`. Use
+`compile --force-map-recompile` to rebuild an archive. The application accepts
+the source YAML directly and compiles it as needed.
 
 Each spawn can define both a full `prompt` for normal play and a shorter
 `prompt_context` base for `--live-edit-map-context`; dynamic road and motion

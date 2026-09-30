@@ -16,8 +16,11 @@ import yaml
 
 from omnidreams_game_engine.game_map.types import GameMapLinearAttributes
 
-GAME_MAP_SUFFIX = ".robotaxi.yaml"
+GAME_MAP_SUFFIX = ".game-map.yaml"
 """Filename suffix for authored node-graph game maps."""
+
+GAME_MAP_SUFFIXES = (GAME_MAP_SUFFIX, ".robotaxi.yaml")
+"""Accepted filename suffixes for new and existing game maps."""
 
 _SCHEMA_VERSION = 1
 _REQUIRED_ROOT_FIELDS = frozenset(
@@ -174,8 +177,10 @@ def _read_document(path: Path) -> dict[str, Any]:
     path = Path(path).expanduser().resolve()
     if not path.is_file():
         raise GameMapError(f"Game-map path does not exist or is not a file: {path}")
-    if not path.name.endswith(GAME_MAP_SUFFIX):
-        raise GameMapError(f"Game maps must use the {GAME_MAP_SUFFIX} suffix")
+    if not path.name.endswith(GAME_MAP_SUFFIXES):
+        raise GameMapError(
+            f"Game maps must use one of these suffixes: {', '.join(GAME_MAP_SUFFIXES)}"
+        )
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:

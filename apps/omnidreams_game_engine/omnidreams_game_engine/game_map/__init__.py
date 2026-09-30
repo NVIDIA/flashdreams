@@ -5,6 +5,7 @@
 
 from omnidreams_game_engine.game_map._schema import (
     GAME_MAP_SUFFIX,
+    GAME_MAP_SUFFIXES,
     GameMapError,
     GameMapHeader,
     GameMapRaceCourseHeader,
@@ -48,6 +49,7 @@ from omnidreams_game_engine.game_map.vicinity import (
 __all__ = [
     "CompiledGameMap",
     "GAME_MAP_SUFFIX",
+    "GAME_MAP_SUFFIXES",
     "GameMapError",
     "GameMapBoundaryAttributes",
     "GameMapCurb",

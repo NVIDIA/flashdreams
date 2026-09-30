@@ -85,7 +85,7 @@ def _lane_length(lane: GameMapLane) -> float:
 
 def test_intersection_approach_current_and_outgoing_context_handoff() -> None:
     game_map = _with_prompt_contexts(
-        load_game_map(_MAPS / "intersection_geometry.robotaxi.yaml")
+        load_game_map(_MAPS / "intersection_geometry.game-map.yaml")
     )
     tracker = MapContextTracker(game_map)
     incoming = _lane(game_map, "west_road:lane:2")
@@ -112,7 +112,7 @@ def test_intersection_approach_current_and_outgoing_context_handoff() -> None:
 
 
 def test_stopping_shortens_lookahead_and_motion_uses_hysteresis() -> None:
-    game_map = load_game_map(_MAPS / "intersection_geometry.robotaxi.yaml")
+    game_map = load_game_map(_MAPS / "intersection_geometry.game-map.yaml")
     tracker = MapContextTracker(game_map)
     incoming = _lane(game_map, "west_road:lane:2")
     near = _lane_length(incoming) - 20.0
@@ -132,7 +132,7 @@ def test_stopping_shortens_lookahead_and_motion_uses_hysteresis() -> None:
 
 
 def test_reversing_away_recomputes_destination_immediately() -> None:
-    game_map = load_game_map(_MAPS / "intersection_geometry.robotaxi.yaml")
+    game_map = load_game_map(_MAPS / "intersection_geometry.game-map.yaml")
     tracker = MapContextTracker(game_map)
     toward_center = _lane(game_map, "west_road:lane:2")
     toward_west_end = _lane(game_map, "west_road:lane:1")
@@ -152,7 +152,7 @@ def test_reversing_away_recomputes_destination_immediately() -> None:
 
 
 def test_velocity_selects_actual_travel_direction_over_vehicle_yaw() -> None:
-    game_map = load_game_map(_MAPS / "intersection_geometry.robotaxi.yaml")
+    game_map = load_game_map(_MAPS / "intersection_geometry.game-map.yaml")
     tracker = MapContextTracker(game_map)
     lane = _lane(game_map, "west_road:lane:2")
     state = _state_on_lane(lane, _lane_length(lane) - 15.0, velocity=True)
@@ -166,7 +166,7 @@ def test_velocity_selects_actual_travel_direction_over_vehicle_yaw() -> None:
 
 def test_two_off_map_chunks_clear_scene_context_but_keep_motion() -> None:
     game_map = _with_prompt_contexts(
-        load_game_map(_MAPS / "intersection_geometry.robotaxi.yaml")
+        load_game_map(_MAPS / "intersection_geometry.game-map.yaml")
     )
     tracker = MapContextTracker(game_map)
     lane = _lane(game_map, "west_road:lane:2")
@@ -184,7 +184,7 @@ def test_two_off_map_chunks_clear_scene_context_but_keep_motion() -> None:
 
 def test_culdesac_driveway_and_parking_lot_phrases() -> None:
     game_map = _with_prompt_contexts(
-        load_game_map(_MAPS / "parking_driveway.robotaxi.yaml")
+        load_game_map(_MAPS / "parking_driveway.game-map.yaml")
     )
 
     driveway_tracker = MapContextTracker(game_map)
@@ -217,7 +217,7 @@ def test_culdesac_driveway_and_parking_lot_phrases() -> None:
 
 
 def test_unique_road_joint_successor_contributes_curve_context() -> None:
-    game_map = load_game_map(_MAPS / "traffic_loop.robotaxi.yaml")
+    game_map = load_game_map(_MAPS / "traffic_loop.game-map.yaml")
     tracker = MapContextTracker(game_map)
     lane = _lane(game_map, "south_east:lane:1")
 
@@ -243,7 +243,7 @@ def test_unique_road_joint_successor_contributes_curve_context() -> None:
 def test_sampled_curved_roads_report_signed_curve_direction(
     points: list[tuple[float, float]], direction: str
 ) -> None:
-    game_map = load_game_map(_MAPS / "traffic_loop.robotaxi.yaml")
+    game_map = load_game_map(_MAPS / "traffic_loop.game-map.yaml")
     tracker = MapContextTracker(game_map)
     template = game_map.lanes[0]
     centerline = np.asarray([(x, y, 0.0) for x, y in points], dtype=np.float32)

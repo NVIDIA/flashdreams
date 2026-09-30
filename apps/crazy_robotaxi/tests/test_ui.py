@@ -1351,7 +1351,7 @@ def test_two_map_selections_render_in_one_grid_row() -> None:
         GameMapOption(
             map_id=f"map-{index}",
             name=f"Map {index}",
-            path=Path(f"map-{index}.robotaxi.yaml"),
+            path=Path(f"map-{index}.game-map.yaml"),
             preview_image_path=preview_path,
         )
         for index in range(2)
@@ -1376,7 +1376,7 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     option = GameMapOption(
         map_id="test-city",
         name="Test City",
-        path=Path("test-city.robotaxi.yaml"),
+        path=Path("test-city.game-map.yaml"),
         race_courses=(
             GameRaceCourseOption(
                 course_id="downtown-sprint",
@@ -1473,7 +1473,7 @@ def test_race_map_grid_uses_filtered_positions_for_layout() -> None:
         GameMapOption(
             map_id=f"map-{index}",
             name=f"Map {index}",
-            path=Path(f"map-{index}.robotaxi.yaml"),
+            path=Path(f"map-{index}.game-map.yaml"),
             race_courses=race_course if index % 2 else (),
         )
         for index in range(4)
@@ -1507,7 +1507,7 @@ def test_three_column_selection_grids_preserve_natural_width(
         GameMapOption(
             map_id=f"map-{index}",
             name=f"Map {index}",
-            path=Path(f"map-{index}.robotaxi.yaml"),
+            path=Path(f"map-{index}.game-map.yaml"),
             race_courses=courses,
             preview_image_path=preview_path,
         )
@@ -1550,7 +1550,7 @@ def test_map_and_course_selections_use_three_column_grids() -> None:
         GameMapOption(
             map_id=f"map-{index}",
             name=f"Map {index}",
-            path=Path(f"map-{index}.robotaxi.yaml"),
+            path=Path(f"map-{index}.game-map.yaml"),
             race_courses=(
                 GameRaceCourseOption(
                     course_id="course-0",
@@ -1585,7 +1585,7 @@ def test_map_and_course_selections_use_three_column_grids() -> None:
     course_option = GameMapOption(
         map_id="course-map",
         name="Course Map",
-        path=Path("course-map.robotaxi.yaml"),
+        path=Path("course-map.game-map.yaml"),
         race_courses=tuple(
             GameRaceCourseOption(
                 course_id=f"course-{index}",
@@ -1776,7 +1776,7 @@ def test_missing_selection_thumbnail_keeps_text_button(tmp_path: Path) -> None:
     option = GameMapOption(
         map_id="text-only",
         name="Text Only",
-        path=Path("text-only.robotaxi.yaml"),
+        path=Path("text-only.game-map.yaml"),
         preview_image_path=missing_thumbnail,
     )
     state = TaxiHudState(640, 540, _calibration(), map_options=(option,))
@@ -1797,13 +1797,13 @@ def test_selection_thumbnail_size_does_not_depend_on_choice_count() -> None:
     first = GameMapOption(
         map_id="first",
         name="First",
-        path=Path("first.robotaxi.yaml"),
+        path=Path("first.game-map.yaml"),
         preview_image_path=first_path,
     )
     second = GameMapOption(
         map_id="second",
         name="Second",
-        path=Path("second.robotaxi.yaml"),
+        path=Path("second.game-map.yaml"),
         preview_image_path=second_path,
     )
     state = TaxiHudState(640, 360, _calibration(), map_options=(first,))
@@ -1829,7 +1829,7 @@ def test_startup_menu_selects_taxi_mode_then_map_through_v2_message() -> None:
     option = GameMapOption(
         map_id="test-city",
         name="Test City",
-        path=Path("test-city.robotaxi.yaml"),
+        path=Path("test-city.game-map.yaml"),
         race_courses=(
             GameRaceCourseOption(
                 course_id="downtown-sprint",
@@ -1867,7 +1867,7 @@ def test_race_menu_selects_map_then_course() -> None:
     option = GameMapOption(
         map_id="test-city",
         name="Test City",
-        path=Path("test-city.robotaxi.yaml"),
+        path=Path("test-city.game-map.yaml"),
         race_courses=(
             GameRaceCourseOption(
                 course_id="downtown-sprint",
@@ -1909,7 +1909,7 @@ def test_complete_cli_selection_skips_all_selection_screens() -> None:
     option = GameMapOption(
         map_id="test-city",
         name="Test City",
-        path=Path("test-city.robotaxi.yaml").resolve(),
+        path=Path("test-city.game-map.yaml").resolve(),
         race_courses=(
             GameRaceCourseOption(
                 course_id="downtown-sprint",
@@ -1952,7 +1952,7 @@ def test_explicit_race_mode_and_map_skip_to_course_screen() -> None:
     option = GameMapOption(
         map_id="test-city",
         name="Test City",
-        path=Path("test-city.robotaxi.yaml").resolve(),
+        path=Path("test-city.game-map.yaml").resolve(),
         race_courses=(
             GameRaceCourseOption(
                 course_id="downtown-sprint",

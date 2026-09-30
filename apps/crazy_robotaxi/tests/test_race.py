@@ -36,18 +36,18 @@ from shapely.geometry import Polygon
 
 pytestmark = pytest.mark.ci_cpu
 
-_MAP = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
+_MAP = Path(__file__).parent / "maps" / "race_course.game-map.yaml"
 _BOULEVARD_MAP = (
     Path(__file__).parents[1]
     / "crazy_robotaxi"
     / "maps"
-    / "boulevard_district.robotaxi.yaml"
+    / "boulevard_district.game-map.yaml"
 )
 _RACEWAY_MAP = (
     Path(__file__).parents[1]
     / "crazy_robotaxi"
     / "maps"
-    / "flashdreams_raceway.robotaxi.yaml"
+    / "flashdreams_raceway.game-map.yaml"
 )
 
 
@@ -454,7 +454,7 @@ def test_invalid_race_course_schema_is_rejected(
 ) -> None:
     document = yaml.safe_load(_MAP.read_text(encoding="utf-8"))
     document["race_courses"][0].update(update)
-    path = tmp_path / "invalid.robotaxi.yaml"
+    path = tmp_path / "invalid.game-map.yaml"
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
     with pytest.raises(GameMapError, match=message):
@@ -464,7 +464,7 @@ def test_invalid_race_course_schema_is_rejected(
 def test_race_course_spawn_is_required(tmp_path: Path) -> None:
     document = yaml.safe_load(_MAP.read_text(encoding="utf-8"))
     del document["race_courses"][0]["spawn"]
-    path = tmp_path / "missing-course-spawn.robotaxi.yaml"
+    path = tmp_path / "missing-course-spawn.game-map.yaml"
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
     with pytest.raises(GameMapError, match="requires.*spawn"):
@@ -476,7 +476,7 @@ def test_checkpoint_markers_can_be_disabled_without_disabling_gates(
 ) -> None:
     document = yaml.safe_load(_MAP.read_text(encoding="utf-8"))
     document["race_courses"][0]["checkpoint_markers"] = False
-    path = tmp_path / "hidden-markers.robotaxi.yaml"
+    path = tmp_path / "hidden-markers.game-map.yaml"
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
     game_map = load_game_map(path)
     course = game_map.race_courses[0]

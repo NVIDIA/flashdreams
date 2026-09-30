@@ -20,7 +20,7 @@ from omnidreams_game_engine.cli_args import (
     arg_was_explicit,
 )
 from omnidreams_game_engine.config import BevConfig, RasterConfig
-from omnidreams_game_engine.game_map import GAME_MAP_SUFFIX, load_game_map_header
+from omnidreams_game_engine.game_map import GAME_MAP_SUFFIXES, load_game_map_header
 from omnidreams_game_engine.renderer_settings import RendererSettings
 from omnidreams_game_engine.scene import SceneRequest, load_scene
 from omnidreams_game_engine.types import SceneDefinition
@@ -60,7 +60,7 @@ from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _ROOT = Path(__file__).resolve().parent
-_DEFAULT_MAP = _ROOT / "maps" / "boulevard_district.robotaxi.yaml"
+_DEFAULT_MAP = _ROOT / "maps" / "boulevard_district.game-map.yaml"
 _VIDEO_FPS = 30
 """Generated-video cadence required by the model."""
 
@@ -586,7 +586,9 @@ def _discover_game_maps(selected_path: Path) -> tuple[GameMapOption, ...]:
     for directory in (_DEFAULT_MAP.parent, selected.parent):
         if directory.is_dir():
             paths.update(
-                path.resolve() for path in directory.glob(f"*{GAME_MAP_SUFFIX}")
+                path.resolve()
+                for suffix in GAME_MAP_SUFFIXES
+                for path in directory.glob(f"*{suffix}")
             )
 
     options: list[GameMapOption] = []

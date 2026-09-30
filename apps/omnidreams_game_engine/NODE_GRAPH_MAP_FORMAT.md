@@ -4,6 +4,9 @@ Schema version 1 is the authoring format for standalone OmniDreams games. It
 models structural places as nodes, public roads as graph edges, and parking
 access through driveway relationships.
 
+Use the shared `.game-map.yaml` suffix. The earlier `.robotaxi.yaml` suffix is
+also accepted for existing maps.
+
 ## Document shape
 
 ```yaml

@@ -18,6 +18,7 @@ from crazy_robotaxi.application import (
     CrazyRobotaxiApplication,
     CrazyRobotaxiApplicationDefaults,
     _configure_live_edit_pipeline,
+    _discover_game_maps,
     _fit_bev_renderer_to_ui,
 )
 from crazy_robotaxi.controls import BoundActionState, ControlsConfig
@@ -71,8 +72,25 @@ _DEMO_RACE_MAP = (
     Path(__file__).parents[1]
     / "crazy_robotaxi"
     / "maps"
-    / "flashdreams_raceway.robotaxi.yaml"
+    / "flashdreams_raceway.game-map.yaml"
 )
+
+
+def test_map_menu_discovers_shared_and_legacy_map_suffixes(tmp_path: Path) -> None:
+    source = _DEMO_RACE_MAP.read_text()
+    canonical = tmp_path / "custom.game-map.yaml"
+    legacy = tmp_path / "existing.robotaxi.yaml"
+    for path in (canonical, legacy):
+        path.write_text(source)
+    (tmp_path / "config.yaml").write_text("schema_version: 1\n")
+
+    options = _discover_game_maps(canonical)
+
+    assert {option.path for option in options if option.path.parent == tmp_path} == {
+        canonical,
+        legacy,
+    }
+    assert options[0].path == canonical
 
 
 @dataclass(kw_only=True)
@@ -201,14 +219,14 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.model_loop is model_loop
     assert len(ui_loop.state.map_options) == 2
-    assert ui_loop.state.map_options[0].path.name == "boulevard_district.robotaxi.yaml"
+    assert ui_loop.state.map_options[0].path.name == "boulevard_district.game-map.yaml"
     assert all(
         option.preview_image_path is not None for option in ui_loop.state.map_options
     )
     raceway = next(
         option
         for option in ui_loop.state.map_options
-        if option.path.name == "flashdreams_raceway.robotaxi.yaml"
+        if option.path.name == "flashdreams_raceway.game-map.yaml"
     )
     assert raceway.race_courses[0].spawn_id == "race_start"
     assert raceway.race_courses[0].preview_image_path is not None

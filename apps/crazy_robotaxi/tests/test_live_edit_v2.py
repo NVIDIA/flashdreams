@@ -604,7 +604,7 @@ def test_combined_map_prompts_are_encoded_lazily() -> None:
 def test_map_only_postprocessing_returns_original_video() -> None:
     scene = _scene(
         game_map=load_game_map(
-            Path(__file__).parent / "maps" / "intersection_geometry.robotaxi.yaml"
+            Path(__file__).parent / "maps" / "intersection_geometry.game-map.yaml"
         )
     )
     gameplay = LiveEditGameplay(
