@@ -5,12 +5,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 import torch
-from crazy_robotaxi.settings import SettingsDocument, SettingsError
+from crazy_robotaxi.settings import SettingsDocument, SettingsError, iter_setting_fields
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -30,6 +31,9 @@ class _Pipeline:
     name: str
     diffusion_model: _Diffusion = _Diffusion()
     quantization: _Quantization = _Quantization()
+    state_dict_transform: (
+        Callable[[dict[str, torch.Tensor]], dict[str, torch.Tensor]] | None
+    ) = None
 
 
 def _load(path: Path) -> SettingsDocument:
@@ -136,6 +140,28 @@ def test_pipeline_name_is_not_a_user_setting(tmp_path: Path) -> None:
 
     with pytest.raises(SettingsError, match="model.pipeline has unknown keys: name"):
         _load(path)
+
+
+def test_callable_pipeline_field_is_not_a_user_setting(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "model:\n  pipeline:\n    state_dict_transform: null\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        SettingsError, match="model.pipeline has unknown keys: state_dict_transform"
+    ):
+        _load(path)
+
+    path.write_text("", encoding="utf-8")
+    document = _load(path)
+    assert "state_dict_transform" not in {
+        item.name
+        for item, _annotation in iter_setting_fields(
+            document.settings.model.pipeline, ("model", "pipeline")
+        )
+    }
 
 
 def test_save_is_sparse_atomic_and_preserves_retained_comments(tmp_path: Path) -> None:
