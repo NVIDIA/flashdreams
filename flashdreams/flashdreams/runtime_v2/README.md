@@ -124,6 +124,13 @@ model record because they describe a different frame.
 `--stats-path` also sets `FLASHDREAMS_SYNC_AND_PROFILE=1` before constructing the
 application, enabling synchronized per-stage pipeline profiling for the run.
 
+`FLASHDREAMS_FPS=1` adds `model.frame_fps`, `present.frame_fps` and
+`ui.frame_fps` to those model records: frames generated, frames presented, and
+UI iterations, each over a trailing wall-clock window. They measure different
+frames, so `present.frame_fps` below `model.frame_fps` means the window is not
+consuming everything generated. Counting costs no synchronization, so it is safe
+to leave on while tracing.
+
 ## Starting and stopping a run
 
 `ApplicationRunner.run` calls `init`, `create_session` and `run_session` in

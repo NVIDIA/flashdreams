@@ -55,6 +55,13 @@ Developer Guides
       How to run command-backed local benchmarks that capture logs, MP4s,
       metrics, environment metadata, and an HTML report.
 
+   .. grid-item-card:: Profiling with Nsight Systems
+      :link: nvtx_profiling
+      :link-type: doc
+
+      Learn how to capture and read an Nsight Systems trace to see what the
+      model thread, UI thread, and GPU are doing at any given moment.
+
    .. grid-item-card:: flashdreams.accelerated
       :link: flashdreams_accelerated
       :link-type: doc
@@ -79,6 +86,7 @@ generated clip, see :doc:`/quickstart/index`.
    runner_slugs
    new_integration
    local_benchmarks
+   nvtx_profiling
    flashdreams_accelerated
 
 ..
