@@ -12,6 +12,14 @@ codes, sample offsets, and initial heights for 668 car and truck tracks.
 Runtime loading uses `allow_pickle=False`. The source scene used to derive the
 catalog is not distributed with the package.
 
+## Downloaded checkpoints
+
+Additional style and corrector checkpoints for enabled live-edit features are
+resolved during application startup. Downloads go to
+`artifacts/crazy_robotaxi/live_edit` relative to the working directory; they are
+separate from these packaged assets. Explicit checkpoint paths in settings
+take precedence. See the [live-edit abilities section](../../README.md#optional-live-edit-abilities).
+
 ## Maps
 
 Crazy Robotaxi's `.robotaxi.yaml` maps live in `crazy_robotaxi/maps/`. Seed
