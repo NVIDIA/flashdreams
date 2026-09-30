@@ -15,10 +15,10 @@ requires-python = ">=3.12,<3.13"
 #      stable pinned ``torch==2.11.*`` so parity numbers stay
 #      reproducible. (The native runner stays on flashdreams' own
 #      transformer + attention, so it does NOT need sageattention,
-#      cloudpickle, accelerate, or upstream's ``transformers==4.57.6``
+#      cloudpickle, or upstream's ``transformers==4.57.6``
 #      pin.)
 #   2. Provide a working ``cd HY-WorldPlay && torchrun wan/generate.py``
-#      harness *iff* the four heavy deps are re-installed manually
+#      harness *iff* the vendor-only heavy deps are re-installed manually
 #      (e.g. when re-baselining for a future 2b.6.1 Option-A refactor).
 #      ``run.sh`` documents the manual ``uv pip install`` step;
 #      production parity numbers come from the native path.
