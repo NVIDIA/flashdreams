@@ -42,6 +42,29 @@ from .ui import (
 )
 
 
+def _integrate_camera_poses(
+    integrator: CameraPoseIntegrator,
+    segments: list[PoseSegment],
+    frame_times: list[float],
+) -> torch.Tensor:
+    """Integrate one live camera-pose window into a tensor."""
+    return torch.from_numpy(
+        integrator.integrate_chunk(segments=segments, frame_times=frame_times)
+    )
+
+
+def _segments_starting_at(
+    segments: list[PoseSegment],
+    start_s: float,
+) -> list[PoseSegment]:
+    """Trim sampled keyboard state to the live portion of a mixed window."""
+    return [
+        (max(segment_start_s, start_s), segment_end_s, keys)
+        for segment_start_s, segment_end_s, keys in segments
+        if segment_end_s > start_s
+    ]
+
+
 @dataclass(kw_only=True, slots=True)
 class CameraControlInput:
     """Model-neutral per-step camera payload."""
@@ -199,62 +222,60 @@ class Cam2VModelState:
         self,
         window: InputWindow,
         *,
-        keyboard_override: bool,
+        keyboard_takeover_s: float | None,
     ) -> torch.Tensor:
-        """Sample replay poses, then permanently hand control to the keyboard."""
-
-        def _integrate_camera_poses(
-            integrator: CameraPoseIntegrator,
-            segments: list[PoseSegment],
-            frame_times: list[float],
-        ) -> torch.Tensor:
-            """Integrate one live camera-pose window into a tensor."""
-            return torch.from_numpy(
-                integrator.integrate_chunk(segments=segments, frame_times=frame_times)
-            )
-
-        def _segments_starting_at(
-            segments: list[PoseSegment],
-            start_s: float,
-        ) -> list[PoseSegment]:
-            """Trim sampled keyboard state to the live portion of a mixed window."""
-            return [
-                (max(segment_start_s, start_s), segment_end_s, keys)
-                for segment_start_s, segment_end_s, keys in segments
-                if segment_end_s > start_s
-            ]
-
+        """Use replay poses until they end or timestamped keyboard control begins."""
         segments = self.keyboard_track.segments(window)
         frame_times = list(window.sample_times_s)
         replay_poses = self.replay_poses
-        if replay_poses is None:
-            return _integrate_camera_poses(self.pose_integrator, segments, frame_times)
 
-        if keyboard_override:
-            replay_index = min(max(self.frames_generated - 1, 0), len(replay_poses) - 1)
-            self._finish_camera_replay(replay_poses[replay_index])
+        # Case 1: Replay already finished, so keyboard control owns every frame.
+        if replay_poses is None:
             return _integrate_camera_poses(self.pose_integrator, segments, frame_times)
 
         frame_start = self.frames_generated
         replay_count = min(len(frame_times), max(len(replay_poses) - frame_start, 0))
+        if keyboard_takeover_s is not None:
+            # A key event affects the interval after its timestamp, so replay
+            # samples at or before that time and give later samples to the keyboard.
+            replay_count = min(
+                replay_count,
+                sum(sample_s <= keyboard_takeover_s for sample_s in frame_times),
+            )
+
         replay_chunk = replay_poses[frame_start : frame_start + replay_count]
+
+        # Case 2: Replay owns every frame in this window.
         if replay_count == len(frame_times):
-            if frame_start + replay_count == len(replay_poses):
+            replay_ends_here = frame_start + replay_count == len(replay_poses)
+            if replay_ends_here or keyboard_takeover_s is not None:
                 self._finish_camera_replay(replay_chunk[-1])
             return replay_chunk
 
-        replay_pose = replay_chunk[-1] if replay_count else replay_poses[-1]
-        self._finish_camera_replay(replay_pose)
-        if replay_count == 0:
-            return _integrate_camera_poses(self.pose_integrator, segments, frame_times)
+        # Case 3: Replay owns a prefix, possibly empty, and live control owns
+        # the rest. Seed live control from the last pose before that handoff.
+        if replay_count:
+            last_replay_pose = replay_chunk[-1]
+            live_start_s = frame_times[replay_count - 1]
+        else:
+            previous_replay_index = min(max(frame_start - 1, 0), len(replay_poses) - 1)
+            last_replay_pose = replay_poses[previous_replay_index]
+            live_start_s = window.start_s
 
-        transition_s = frame_times[replay_count - 1]
-        live_segments = _segments_starting_at(segments, transition_s)
+        self._finish_camera_replay(last_replay_pose)
+        live_frame_times = frame_times[replay_count:]
         live_poses = _integrate_camera_poses(
             self.pose_integrator,
-            live_segments,
-            frame_times[replay_count:],
-        ).to(device=replay_chunk.device, dtype=replay_chunk.dtype)
+            _segments_starting_at(segments, live_start_s),
+            live_frame_times,
+        )
+
+        if replay_count == 0:
+            return live_poses
+        live_poses = live_poses.to(
+            device=replay_chunk.device,
+            dtype=replay_chunk.dtype,
+        )
         return torch.cat((replay_chunk, live_poses))
 
     def _finish_camera_replay(self, pose: torch.Tensor) -> None:
@@ -321,12 +342,17 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 result.timestamp_s for result in keyboard_events if result.tracked
             ),
         )
+        keyboard_takeover_s = min(
+            (
+                result.timestamp_s
+                for result in keyboard_events
+                if result.tracked and isinstance(result.event, KeyboardUserInputEvent)
+            ),
+            default=None,
+        )
         poses = state.sample_camera_poses(
             input_window,
-            keyboard_override=any(
-                result.tracked and isinstance(result.event, KeyboardUserInputEvent)
-                for result in keyboard_events
-            ),
+            keyboard_takeover_s=keyboard_takeover_s,
         )
         camera_input = CameraControlInput(
             intrinsics=conditioning.base_intrinsics.repeat(frame_count, 1).to(
