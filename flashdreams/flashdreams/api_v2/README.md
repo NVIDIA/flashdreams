@@ -115,13 +115,18 @@ Every channel in one model step must report the same `frame_count`, and a
 mismatch raises `ValueError`. A step may generate several frames at once; the
 runtime presents them one per UI tick rather than dropping all but the last.
 
-A model loop returning an **empty list** presents nothing for that step. That is
-how a process says it is a worker: several processes running the same sharded
-model generate the same frames and only one of them has a client, so the rest
-would decode a copy nobody reads and write a file nobody opens. The run still
-ends when the model loop does, and a sink that was never written to leaves
-nothing behind — an `Mp4ClientWindow` on a worker creates no file at all, so
-every process in such a launch can be given the same `--output-path`.
+In a distributed session, every admitted rank executes the same model step and
+ordered collectives. The integration chooses the CP view/token axis and TP
+projections. Before rank zero returns non-empty results, it must gather every CP
+shard needed for publication in the original view/token order. Workers return
+`[]` only after participating in all required collectives, including that gather.
+
+Gather before decoding if the decoder needs the complete latent/view sequence;
+decode only on rank zero when the model permits it. TP reductions that already
+replicate a complete value need no additional gather. Use `build_shard()` and
+`gather_tokens()` when their tensor contract fits. The runtime cannot infer the
+sharded dimension, ordering, padding, or replication from a `StepResult`.
+A run whose model steps all return `[]` still ends when the model loop does.
 
 A UI loop reads what the model produced through `presented_model_frame` and
 `presented_model_frames`, which return `[C, H, W]` frames with one, three or

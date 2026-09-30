@@ -105,10 +105,14 @@ def plan_mesh(
     *,
     head_groups: int,
 ) -> tuple[int, int]:
-    """Choose tensor/context sizes, defaulting to evenly divided head groups.
+    """Choose tensor/context sizes with a TP-first fallback.
 
-    An explicit tensor size may leave uneven head shards but must divide the
-    world and cannot exceed the model's key/value head count.
+    With ``tensor_parallel=None``, maximize evenly divided TP using
+    ``gcd(world_size, head_groups)`` and assign remaining ranks to CP. This may
+    leave ``cp_size=1``; integrations requiring CP should choose TP explicitly.
+    CP is always ``world_size // tensor_parallel``. An explicit tensor size may
+    leave uneven head shards but must divide the world and cannot exceed the
+    model's key/value head count; the integration validates projection shapes.
     """
     if world_size < 1:
         raise ValueError(f"world_size must be >= 1, got {world_size}.")
@@ -136,8 +140,10 @@ def init_parallel(
 ) -> ParallelContext:
     """Initialize a launcher-provided world or reuse the current process group.
 
-    Pass the model's key/value head count as ``head_groups``. Without a
-    launcher or initialized process group, return a single-process context.
+    Pass the integration's configured ``tensor_parallel`` and the model's
+    key/value head count as ``head_groups``. ``None`` uses :func:`plan_mesh`'s
+    TP-first fallback; CP is derived from the world size. Without a launcher or
+    initialized process group, return a single-process context.
     Axis groups use NCCL for CUDA or Gloo for CPU, independently of the
     reused world's backend. The caller retains ownership of a reused world;
     a world created here receives best-effort process-exit cleanup.

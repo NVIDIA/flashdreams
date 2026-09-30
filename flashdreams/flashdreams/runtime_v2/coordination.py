@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Step admission and session-result synchronization across a process mesh."""
+"""Runtime-v2 application control over a separate Gloo process group."""
 
 from __future__ import annotations
 
@@ -23,12 +23,13 @@ AGREEMENT_TIMEOUT = timedelta(minutes=5)
 
 
 class StepAgreement:
-    """Coordinate model-step boundaries and the final session result.
+    """Application-control coordinator for admission, input, results, and shutdown.
 
     The model-thread checks cover cancellation, preparation, and input before
     committing every rank to a step. After every model thread stops, the calling
     threads poll rank zero's result once per UI tick. A failed rank bypasses
-    result polling, and cleanup performs no collective.
+    result polling, and cleanup performs no collective. TP/CP model collectives
+    belong to the integration's inference data plane.
     """
 
     def __init__(

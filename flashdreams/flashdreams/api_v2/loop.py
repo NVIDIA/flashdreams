@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, final
 
 import torch
 from torch import Tensor
@@ -26,11 +26,20 @@ from flashdreams.runtime_v2.user_input_event import (
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 if TYPE_CHECKING:
-    from flashdreams.runtime_v2.coordination import StepAgreement
     from flashdreams.runtime_v2.presentation_manager import PresentationManager
     from flashdreams.runtime_v2.session_desc import SessionDesc
 
 StateT = TypeVar("StateT")
+
+
+class _ModelStepControl(Protocol):
+    """Private execution hook for step admission and synchronized input."""
+
+    def ready(self, *, stopping: bool, failed: bool = False) -> bool: ...
+
+    def inputs(
+        self, events: UserInputEvents, generation: int
+    ) -> tuple[UserInputEvents, int]: ...
 
 
 class ModelInferenceState(Enum):
@@ -284,12 +293,16 @@ class IModelLoop(ILoop[StateT], ABC):
     channel, with every channel reporting the same ``frame_count``. An empty
     list means the step produced no presentable output.
 
-    **An empty list is a step that presents nothing**, which is how a loop says
-    "this process is a worker". Several processes running the same sharded model
-    generate the same frames and only one of them has a client; the others would
-    otherwise decode a copy nobody reads and write a file nobody opens. A run
-    whose steps all present nothing still ends when the model loop does. Returning
-    a bare :class:`StepResult` or ``None`` raises :class:`TypeError`.
+    Every admitted rank executes the same model step and ordered collectives.
+    The integration owns TP/CP partitioning and must gather all CP shards needed
+    for publication before the presenting rank returns non-empty results.
+    Workers return ``[]`` only after all required collectives, including gathers.
+    Gather before decoding when it needs the complete latent/view sequence;
+    decoding may run only on the presenting rank when the model permits it.
+    TP reductions that already replicate a complete value need no extra gather.
+
+    A run whose steps all present nothing still ends when the model loop does.
+    Returning a bare :class:`StepResult` or ``None`` raises :class:`TypeError`.
     """
 
     @abstractmethod
@@ -323,7 +336,7 @@ class IModelLoop(ILoop[StateT], ABC):
         reader_id: int,
         publish: Callable[[int, list[StepResult], float], None],
         max_steps: int | None = None,
-        agreement: StepAgreement | None = None,
+        step_control: _ModelStepControl | None = None,
         device: torch.device | None = None,
     ) -> None:
         """Run model steps until shutdown or completion.
@@ -334,7 +347,7 @@ class IModelLoop(ILoop[StateT], ABC):
             publish: Function called with each model result and the cumulative
                 seconds spent in :meth:`step` since the previous result.
             max_steps: Maximum steps; ``None`` runs until stopped.
-            agreement: Runtime-owned admission and input synchronization for a mesh.
+            step_control: Admission and input synchronization; ``None`` runs locally.
             device: Mesh device to bind on this model thread before running hooks.
         """
         steps_run = 0
@@ -349,14 +362,14 @@ class IModelLoop(ILoop[StateT], ABC):
                 stopping = self._shutdown_event.is_set() or (
                     max_steps is not None and steps_run >= max_steps
                 )
-                if agreement is not None:
-                    if not agreement.ready(stopping=stopping):
+                if step_control is not None:
+                    if not step_control.ready(stopping=stopping):
                         break
                 elif stopping:
                     break
                 events, generation = event_buffer.read(reader_id)
-                if agreement is not None:
-                    events, generation = agreement.inputs(events, generation)
+                if step_control is not None:
+                    events, generation = step_control.inputs(events, generation)
                 if generation != unpublished_generation:
                     unpublished_step_elapsed_s = 0.0
                     unpublished_generation = generation
@@ -368,16 +381,16 @@ class IModelLoop(ILoop[StateT], ABC):
                         if run.step_index is not None:
                             last_run_started = self._pace(last_run_started)
                     except BaseException:
-                        if agreement is not None:
+                        if step_control is not None:
                             try:
-                                agreement.ready(stopping=True, failed=True)
+                                step_control.ready(stopping=True, failed=True)
                             except BaseException:
                                 # A departed peer must not replace the original failure.
                                 pass
                         raise
                     stopping = run.step_index is None or self._shutdown_event.is_set()
-                    if agreement is not None:
-                        if not agreement.ready(stopping=stopping):
+                    if step_control is not None:
+                        if not step_control.ready(stopping=stopping):
                             break
                     elif stopping:
                         break

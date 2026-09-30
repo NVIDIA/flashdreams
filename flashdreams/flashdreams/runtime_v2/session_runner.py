@@ -260,7 +260,7 @@ def run_session(
                     "reader_id": _MODEL_READER_ID,
                     "publish": publish_model_results,
                     "max_steps": steps,
-                    "agreement": agreement,
+                    "step_control": agreement,
                     "device": None if parallel is None else parallel.device,
                 },
                 name=_MODEL_THREAD_NAME,

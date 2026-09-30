@@ -186,14 +186,35 @@ process groups, uneven token gathers, and sharded linear projections live in
 
 The two-loop ownership rule applies per process. Rank zero's main thread owns
 the only client window, UI presentation, and metrics sink. Every rank has one
-model thread that binds its mesh CUDA device before running model hooks, owns
-its shard, and executes the same admitted steps. CUDA device selection on the
-main thread does not select the device on a newly created model thread.
+model thread that binds its mesh CUDA device before running model hooks and
+executes the same admitted steps. TP shards weights; CP shards views/tokens and
+replicates each TP weight shard across its CP group. With `tp_size=1`, every CP
+rank holds the full model weights. CUDA device selection on the main thread
+does not select the device on a newly created model thread.
 Worker main threads manage startup and cleanup without a client window. The
 runtime creates no coordination thread. PyTorch, communication, and window
 backends may have their own internal threads.
 
-The runtime coordinates model threads over a separate Gloo process group:
+Application control and model execution have separate owners:
+
+```text
+runtime_v2 application control (Gloo)
+  StepAgreement: admission, input/reset, session replacement, shutdown
+                           |
+                           | admits the same step on every rank
+                           v
+Integration-owned inference (normally NCCL)
+  ParallelContext + integration-owned TP/CP collectives and output gathers
+                           |
+                           v
+Rank-zero StepResult publication and presentation
+```
+
+`run_session` owns `StepAgreement`; the model loop consumes a private structural
+hook for admission and input. The runtime decides whether a step may begin;
+the integration decides how it is sharded.
+
+The step and lifecycle boundaries are:
 
 | Boundary | Runtime action | Required ordering |
 | --- | --- | --- |
@@ -201,7 +222,7 @@ The runtime coordinates model threads over a separate Gloo process group:
 | Input | Broadcast rank zero's event batch and reset generation. | Every model sees the same reset and input events. |
 | Step admission | Check preparation, completion, and cancellation on every rank. | A preparation error fails the run on every rank. |
 | Model execution | Execute the admitted step and its TP/CP collectives. | A later UI stop cannot make a rank skip this step. |
-| Publication | Rank zero publishes frames; workers can return an empty list. | Workers do not enter presentation backpressure. |
+| Publication | Rank zero publishes complete results; workers return `[]`. | The integration finishes all required output collectives before returning; workers do not enter presentation backpressure. |
 | Session result | After model threads stop, rank zero broadcasts continue, terminal, or replacement state on every UI tick. | Workers remain responsive through long idle UIs; replacement sessions start together. |
 | Cleanup | Join the model thread, release loops and sinks, then release the control group. | No collective is introduced during error cleanup. |
 
@@ -213,9 +234,24 @@ deadline check, so every rank enters the same replacement session.
 This belongs to the runtime: `is_finished` is a local predicate, and `reset`
 and `close` are local state hooks. Integrations must not add independent
 collective decisions to these hooks. All ranks must enter matching model
-collectives in the same order inside each admitted step. Tensor groups contain
-consecutive ranks; context groups stride by tensor size. Size the tensor axis
-to match the fast links available in the launch topology.
+collectives in the same order inside each admitted step.
+
+Before rank zero returns non-empty results, the integration must gather all CP
+shards needed for publication in the original view/token order. Workers return
+`[]` only after participating in every required collective. Gather before decode
+when it needs the complete latent/view sequence; decode only on rank zero when
+the model permits it. TP reductions that already replicate a complete value
+need no extra gather. Use `build_shard()` and `gather_tokens()` when their tensor
+contract fits; the runtime cannot infer a result's axis, order, or padding.
+
+The integration passes its configured TP degree to
+`init_parallel(tensor_parallel=..., head_groups=...)`; core derives
+`cp_size = world_size // tp_size`. Missing or `None` TP retains `plan_mesh()`'s
+TP-first GCD fallback, which may leave `cp_size=1`. Integrations requiring CP
+choose TP explicitly and validate projection/checkpoint shapes, partitionable
+views/tokens, and output order. Prefer the smallest TP that meets model
+memory/performance needs and keep it within a node when possible. Tensor groups
+contain consecutive ranks; context groups stride by tensor size.
 
 `invoke_async` remains process-local; it does not replicate callbacks or state
 across ranks. Use the replicated input events for model changes that must agree

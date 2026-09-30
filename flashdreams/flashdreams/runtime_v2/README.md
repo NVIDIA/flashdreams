@@ -75,10 +75,27 @@ Input:
 
 `flashdreams.core.distributed.parallel.init_parallel(head_groups=...)` creates
 a tensor × context mesh from the launcher world, or reuses an initialized
-process group. Pass the model's key/value head count; the default tensor size is
-`gcd(world_size, head_groups)`. An explicit `tensor_parallel` overrides it.
-Tensor groups contain consecutive ranks, and context groups stride by tensor
-size. Match the tensor size to the node topology when launching across nodes.
+process group. An integration can select TP through its own configuration:
+
+```python
+init_parallel(
+    tensor_parallel=config.parallel.tensor_parallel,
+    head_groups=model_head_groups,
+)
+```
+
+Core validates the TP degree and derives `cp_size = world_size // tp_size`;
+there is no separate CP setting. Missing or `None` TP uses `plan_mesh()`'s
+TP-first fallback: `gcd(world_size, head_groups)`, which may leave `cp_size=1`.
+Choose TP explicitly when the integration requires CP. `tensor_parallel=1`
+maximizes CP; `tensor_parallel=world_size` gives pure TP when model-compatible.
+The integration validates projection/checkpoint shapes, at least `cp_size`
+partitionable views/tokens per CP pass, and output order. Prefer the smallest TP
+that meets model memory/performance needs, keeping TP within a node when possible.
+Tensor groups contain consecutive ranks; context groups stride by tensor size.
+TP shards weights; CP shards views/tokens and replicates each TP weight shard
+across its CP group. With `tp_size=1`, every CP rank holds the full model weights.
+
 Both axes use NCCL for CUDA or Gloo for CPU, regardless of the reused world's
 backend; all ranks must agree on the device type. The caller still owns the
 world's lifecycle. The shared shutdown helper's immediate-exit path for
@@ -96,15 +113,25 @@ and `local_query_range` for uneven token counts. Existing equal-sized
 `split_inputs_cp` and `cat_outputs_cp` callers retain their contracts.
 
 Expose the mesh through `ISession.parallel_context`; it must be available
-before `session.init`. `run_session` owns step admission and input
-synchronization. Model hooks stay local: `is_finished` reports completion,
+before `session.init`. `run_session` owns the application control plane through
+`StepAgreement`: admission, input, session results, and shutdown over a separate
+Gloo control group. The model loop consumes only a private structural hook for
+admission and input. `ParallelContext` and integration-owned TP/CP collectives
+and output gathering form the inference data plane, normally over NCCL.
+Model hooks stay local: `is_finished` reports completion,
 `reset` discards model state, and `close` releases resources. They do not
 broadcast lifecycle decisions or perform cleanup barriers.
 
 Only rank zero creates a window or metrics sink. Programmatic worker calls
 pass `None` as the window; the CLI selects this from the launcher rank.
-Workers return `[]` from model steps to skip presentation. The integration
-can skip decoding on those ranks while retaining its model shard.
+Every admitted rank executes the same step and ordered model collectives.
+Before rank zero returns non-empty results, the integration must gather all CP
+shards needed for publication in their original order. Workers return `[]` only
+after every required collective, including gathers. Gather before decoding when
+it needs the complete latent/view sequence; decoding may run only on rank zero
+when the model permits it. Already-replicated TP results need no extra gather.
+The runtime does not gather `StepResult` objects; it cannot infer their sharded
+axis, ordering, padding, or replication.
 
 Before each step the runtime checks cancellation, broadcasts rank zero's
 input batch and reset generation, then checks preparation and cancellation
