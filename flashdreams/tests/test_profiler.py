@@ -345,6 +345,49 @@ def test_frame_rate_profiler_reports_a_wall_clock_rate() -> None:
     assert rates["model.frame_fps"] > 0.0
 
 
+def test_frame_rate_is_not_overstated_on_the_second_sample() -> None:
+    """Counting the oldest event's frames over a span that starts at it
+    reported len/(len-1) too high -- 2x on the second chunk."""
+    profiler = FrameRateProfiler(window_seconds=30.0)
+    profiler.event("model.frame", count=16)
+    time.sleep(0.05)
+    profiler.event("model.frame", count=16)
+
+    rate = profiler.collect_fps()["model.frame_fps"]
+    # 16 frames arrived across ~0.05 s, so ~320/s. The bug reported ~640/s.
+    assert 200.0 < rate < 500.0, rate
+
+
+def test_frame_rate_stays_steady_as_the_window_fills() -> None:
+    """The reported rate must not drift as sample count grows."""
+    profiler = FrameRateProfiler(window_seconds=30.0)
+    profiler.event("model.frame", count=8)
+    seen = []
+    for _ in range(5):
+        time.sleep(0.02)
+        profiler.event("model.frame", count=8)
+        seen.append(profiler.collect_fps()["model.frame_fps"])
+
+    spread = max(seen) / min(seen)
+    assert spread < 1.35, f"rate drifted as the window filled: {seen}"
+
+
+def test_reset_counts_drops_a_previous_session() -> None:
+    profiler = FrameRateProfiler(window_seconds=30.0)
+    profiler.event("ui.frame")
+    time.sleep(0.02)
+    profiler.event("ui.frame")
+    assert profiler.collect_fps() != {}
+
+    profiler.reset_counts()
+    assert profiler.collect_fps() == {}, "a new session inherited the last one's events"
+
+
+def test_reset_counts_is_a_no_op_on_backends_that_do_not_count() -> None:
+    NullProfiler().reset_counts()
+    CudaEventProfiler().reset_counts()
+
+
 def test_frame_rate_profiler_needs_two_samples_to_name_a_rate() -> None:
     profiler = FrameRateProfiler(window_seconds=5.0)
     assert profiler.collect_fps() == {}

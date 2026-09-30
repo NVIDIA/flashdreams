@@ -57,6 +57,10 @@ class IProfiler(ABC):
         """
         return {}
 
+    def reset_counts(self) -> None:
+        """Forget events so far. One profiler serves a run's whole session
+        sequence, and a replacement session must not inherit the last one's."""
+
 
 class NullProfiler(IProfiler):
     """Records nothing. The default, so an unprofiled run pays one no-op."""
@@ -166,11 +170,20 @@ class FrameRateProfiler(IProfiler):
                 if len(window) < 2:
                     # One sample spans no time, so it names no rate.
                     continue
+                # The oldest event's items were produced before the window
+                # opened, so counting them over a span that starts at that
+                # event overstates the rate by len/(len-1) -- 2x on the second
+                # sample. Measure the items that arrived during the span.
                 span_s = now - window[0][0]
                 if span_s <= 0.0:
                     continue
-                rates[f"{name}_fps"] = sum(count for _, count in window) / span_s
+                arrived = sum(count for _, count in list(window)[1:])
+                rates[f"{name}_fps"] = arrived / span_s
             return rates
+
+    def reset_counts(self) -> None:
+        with self._lock:
+            self._windows.clear()
 
     def _evict(self, window: deque[tuple[float, int]], now: float) -> None:
         cutoff = now - self._window_seconds
@@ -207,6 +220,10 @@ class CompositeProfiler(IProfiler):
         for profiler in self._profilers:
             rates.update(profiler.collect_fps())
         return rates
+
+    def reset_counts(self) -> None:
+        for profiler in self._profilers:
+            profiler.reset_counts()
 
 
 _INFERENCE_PROFILER: ContextVar[IProfiler | None] = ContextVar(
@@ -271,8 +288,8 @@ def create_profiler() -> IProfiler:
 
     ``FLASHDREAMS_NVTX`` adds Nsight Systems ranges,
     ``FLASHDREAMS_SYNC_AND_PROFILE`` adds the CUDA-event stage timings that
-    ``finalize`` returns, and ``FLASHDREAMS_FPS`` adds the frame rates the model
-    loop reports. None set means nothing is recorded.
+    ``finalize`` returns, ``FLASHDREAMS_FPS`` adds the frame rates the model loop
+    reports. None set means nothing is recorded.
     """
     profilers: list[IProfiler] = []
     if os.environ.get("FLASHDREAMS_NVTX") == "1" and torch.cuda.is_available():
