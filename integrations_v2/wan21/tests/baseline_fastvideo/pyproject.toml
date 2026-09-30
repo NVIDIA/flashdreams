@@ -5,7 +5,6 @@ description = "Isolated venv for FastVideo Wan 2.1 parity benchmark."
 requires-python = ">=3.10"
 dependencies = [
     "imageio[ffmpeg]",
-    "accelerate",
     "aiofiles",
     "aiohttp",
     "av",
@@ -27,7 +26,6 @@ dependencies = [
     "moviepy",
     "omegaconf",
     "opencv-python",
-    "peft",
     "pyarrow",
     "protobuf>=7.35.0,<8",
     "ray",

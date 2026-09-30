@@ -27,7 +27,6 @@ dependencies = [
     "moviepy",
     "omegaconf",
     "opencv-python",
-    "peft",
     "pyarrow",
     "protobuf>=7.35.0,<8",
     "ray",
