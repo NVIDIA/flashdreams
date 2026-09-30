@@ -1455,8 +1455,12 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
         flags = imgui.window_flags[title]
         assert flags & imgui.WindowFlags_.no_title_bar
         assert flags & imgui.WindowFlags_.always_auto_resize
-        assert flags & imgui.WindowFlags_.no_scrollbar
-        assert flags & imgui.WindowFlags_.no_scroll_with_mouse
+        if title == "Crazy Robotaxi - Select Game Mode":
+            assert not flags & imgui.WindowFlags_.no_scrollbar
+            assert not flags & imgui.WindowFlags_.no_scroll_with_mouse
+        else:
+            assert flags & imgui.WindowFlags_.no_scrollbar
+            assert flags & imgui.WindowFlags_.no_scroll_with_mouse
     button_sizes = dict(imgui.button_sizes)
     button_positions = dict(imgui.button_positions)
     assert button_sizes["TAXI"] == button_sizes["RACE"] == button_sizes["FREE-ROAM"]
@@ -1497,6 +1501,33 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     assert [command for command, _args in imgui.background_draw_list.commands].count(
         "rect_filled"
     ) == 3
+
+
+def test_mode_card_scrolls_within_a_small_viewport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    imgui = _FakeImGui()
+    constraints: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    monkeypatch.setattr(
+        imgui,
+        "set_next_window_size_constraints",
+        lambda minimum, maximum: constraints.append((minimum, maximum)),
+    )
+
+    state.draw(imgui)
+
+    assert constraints == [((1.0, 1.0), (612.0, 332.0))]
+    flags = imgui.window_flags["Crazy Robotaxi - Select Game Mode"]
+    assert not flags & imgui.WindowFlags_.no_scrollbar
+    assert not flags & imgui.WindowFlags_.no_scroll_with_mouse
+    assert "OPTIONS" in imgui.buttons
+    assert "EXIT" in imgui.buttons
 
 
 def test_race_map_grid_uses_filtered_positions_for_layout() -> None:

@@ -2637,6 +2637,13 @@ class TaxiHudState:
             alpha=0.97,
             pivot=(0.5, 0.5),
         )
+        imgui.set_next_window_size_constraints(
+            imgui.ImVec2(1.0, 1.0),
+            imgui.ImVec2(
+                max(1.0, float(self.width) - 28.0),
+                max(1.0, float(self.height) - 28.0),
+            ),
+        )
         style_var_count, style_color_count = _push_arcade_card_style(
             imgui, _TAXI_ACCENT_RGB
         )
@@ -2667,7 +2674,8 @@ class TaxiHudState:
         visible = _begin_window(
             imgui,
             "Crazy Robotaxi - Select Game Mode",
-            extra_flags=_AUTO_CARD_FLAGS,
+            extra_flags=("no_title_bar", "always_auto_resize"),
+            scrollable=True,
         )
         try:
             if not visible:
@@ -4183,8 +4191,9 @@ def _begin_window(
     title: str,
     *,
     extra_flags: Sequence[str] = (),
+    scrollable: bool = False,
 ) -> bool:
-    """Begin a non-scrolling HUD window and normalize the binding result."""
+    """Begin a HUD window and normalize the binding result."""
     flags = 0
     window_flags = imgui.WindowFlags_
     for name in (
@@ -4192,11 +4201,11 @@ def _begin_window(
         "no_resize",
         "no_collapse",
         "no_saved_settings",
-        "no_scrollbar",
-        "no_scroll_with_mouse",
         *extra_flags,
     ):
         flags |= int(getattr(window_flags, name))
+    if not scrollable:
+        flags |= int(window_flags.no_scrollbar | window_flags.no_scroll_with_mouse)
     result = imgui.begin(title, flags=flags)
     if isinstance(result, tuple):
         return bool(result[0])
