@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from flashdreams.runtime_v2.session_desc import SessionDesc
 
 StateT = TypeVar("StateT")
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class ModelInferenceState(Enum):
@@ -489,6 +492,8 @@ class IUILoop(ILoop[StateT], ABC):
 
         The window reports the result later as
         :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`.
+        A second call with the same ``request_id`` while the first is still
+        queued is ignored so the original picker can still complete.
 
         Args:
             request_id: Correlation token for the later input event.
@@ -497,8 +502,7 @@ class IUILoop(ILoop[StateT], ABC):
 
         Raises:
             TypeError: ``request_id`` or ``initial_path`` is not a string.
-            ValueError: ``request_id`` is empty, ``initial_path`` is empty, or
-                ``request_id`` is already queued in this UI step.
+            ValueError: ``request_id`` is empty or ``initial_path`` is empty.
         """
         if not isinstance(request_id, str):
             raise TypeError("request_id must be a string.")
@@ -516,7 +520,11 @@ class IUILoop(ILoop[StateT], ABC):
         if any(
             selection.request_id == request_id for selection in requests.file_selections
         ):
-            raise ValueError(f"Duplicate file-selection request id {request_id!r}.")
+            _LOGGER.warning(
+                "Ignoring duplicate file-selection request id %r.",
+                request_id,
+            )
+            return
         requests.file_selections.append(
             FileSelectionRequest(
                 request_id=request_id,

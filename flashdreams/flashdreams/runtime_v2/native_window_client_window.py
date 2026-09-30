@@ -243,12 +243,13 @@ class NativeWindowClientWindow(IClientWindow):
             request_id: Correlation token for the later input event.
             initial_path: Directory the selector should start in; ``None`` uses
                 the current user's home directory.
-
-        Raises:
-            ValueError: ``request_id`` is already waiting for a selector.
         """
         if request_id in self._in_flight_file_requests:
-            raise ValueError(f"Duplicate file-selection request id {request_id!r}.")
+            _LOGGER.warning(
+                "Ignoring duplicate file-selection request id %r.",
+                request_id,
+            )
+            return
         self._in_flight_file_requests.add(request_id)
         try:
             selected = _ask_open_filename(

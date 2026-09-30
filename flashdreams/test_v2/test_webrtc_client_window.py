@@ -148,8 +148,7 @@ async def test_browser_file_upload_reaches_the_input_stream() -> None:
     window.open(_session_desc())
     try:
         window.request_selected_files("open-1", "/tmp")
-        with pytest.raises(ValueError, match="Duplicate file-selection request id"):
-            window.request_selected_files("open-1", "/tmp")
+        window.request_selected_files("open-1", "/tmp")
 
         form = FormData()
         form.add_field("request_id", "open-1")

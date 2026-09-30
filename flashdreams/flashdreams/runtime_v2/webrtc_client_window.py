@@ -3,6 +3,7 @@
 
 """WebRTC client window for the v2 runtime."""
 
+import logging
 import threading
 from collections import deque
 from dataclasses import replace
@@ -18,6 +19,8 @@ from flashdreams.runtime_v2.user_input_event import (
     UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class WebRTCClientWindow(IClientWindow):
@@ -115,12 +118,13 @@ class WebRTCClientWindow(IClientWindow):
             request_id: Correlation token for the later input event.
             initial_path: Directory hint for the selector; browsers may ignore
                 it. ``None`` uses the current user's home directory.
-
-        Raises:
-            ValueError: ``request_id`` is already waiting for a selector.
         """
         if request_id in self._in_flight_file_requests:
-            raise ValueError(f"Duplicate file-selection request id {request_id!r}.")
+            _LOGGER.warning(
+                "Ignoring duplicate file-selection request id %r.",
+                request_id,
+            )
+            return
         self._in_flight_file_requests.add(request_id)
         self.server.request_selected_files(request_id, initial_path=initial_path)
 

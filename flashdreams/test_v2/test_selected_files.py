@@ -60,12 +60,10 @@ def test_selected_files_event_carries_bytes_and_request_id() -> None:
     assert event.files[0].data == b"png"
 
 
-def test_ui_loop_queues_file_selection_and_rejects_duplicate_ids() -> None:
+def test_ui_loop_ignores_duplicate_file_selection_ids() -> None:
     loop = _ui_loop()
     loop.request_selected_files("open-1", "/tmp")
-
-    with pytest.raises(ValueError, match="Duplicate file-selection request id"):
-        loop.request_selected_files("open-1", "/var")
+    loop.request_selected_files("open-1", "/var")
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
