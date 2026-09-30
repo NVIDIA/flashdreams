@@ -8,6 +8,7 @@ from __future__ import annotations
 import queue
 import threading
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
@@ -27,6 +28,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    SelectedFilesUserInputEvent,
 )
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -583,6 +585,72 @@ def test_cursor_options_can_change_while_native_window_is_running() -> None:
     unlocked_mouse = cast(MouseUserInputEvent, unlocked_events[0])
     assert (locked_mouse.x, locked_mouse.y) == (1.5, -0.5)
     assert (unlocked_mouse.x, unlocked_mouse.y) == (1.0, 0.0)
+
+
+def test_native_window_reports_a_selected_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    chosen = tmp_path / "seed.png"
+    chosen.write_bytes(b"png-bytes")
+    monkeypatch.setattr(
+        native_window_module,
+        "_ask_open_filename",
+        lambda *, initial_dir: str(chosen),
+    )
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    events = window.get_user_input_events().get_events()
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.request_id == "open-1"
+    assert event.files[0].name == "seed.png"
+    assert event.files[0].path == str(chosen)
+    assert event.files[0].data == b"png-bytes"
+
+
+def test_ask_open_filename_linux_uses_zenity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        native_window_module.shutil,
+        "which",
+        lambda name: "/usr/bin/zenity" if name == "zenity" else None,
+    )
+
+    def fake_run(argv: list[str], **kwargs: object) -> object:
+        assert argv[0] == "/usr/bin/zenity"
+        assert "--file-selection" in argv
+        assert any(arg.startswith("--filename=/tmp/") for arg in argv)
+        return SimpleNamespace(returncode=0, stdout="/tmp/seed.png\n")
+
+    monkeypatch.setattr(native_window_module.subprocess, "run", fake_run)
+    assert (
+        native_window_module._ask_open_filename_linux(initial_dir="/tmp")
+        == "/tmp/seed.png"
+    )
+
+
+def test_ask_open_filename_linux_cancel_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        native_window_module.shutil,
+        "which",
+        lambda name: "/usr/bin/zenity" if name == "zenity" else None,
+    )
+    monkeypatch.setattr(
+        native_window_module.subprocess,
+        "run",
+        lambda argv, **kwargs: SimpleNamespace(returncode=1, stdout=""),
+    )
+    assert native_window_module._ask_open_filename_linux(initial_dir="/tmp") == ""
 
 
 def test_native_window_reports_standard_gamepad_events() -> None:

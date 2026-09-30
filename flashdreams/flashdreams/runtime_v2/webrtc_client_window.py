@@ -13,7 +13,10 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import UserInputEvent
+from flashdreams.runtime_v2.user_input_event import (
+    SelectedFilesUserInputEvent,
+    UserInputEvent,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
@@ -55,6 +58,7 @@ class WebRTCClientWindow(IClientWindow):
         self._input_events: deque[UserInputEvent] = deque()
         self._hide_cursor = False
         self._lock_cursor_to_window = False
+        self._in_flight_file_requests: set[str] = set()
         self._input_lock = threading.Lock()
         # Offset from the server's stable clock to the current session's clock.
         self._session_event_offset_us = uint64(0)
@@ -68,6 +72,8 @@ class WebRTCClientWindow(IClientWindow):
             """Buffer one backend event for the ``InputSource`` protocol."""
             # TODO: do we really need to buffer all events? Some mouse moves may be superseded by later ones.
             with self._input_lock:
+                if isinstance(event, SelectedFilesUserInputEvent):
+                    self._in_flight_file_requests.discard(event.request_id)
                 self._input_events.append(event)
 
         self.server.register_input_callback(handle_input)
@@ -99,6 +105,24 @@ class WebRTCClientWindow(IClientWindow):
             TimeoutError: The active video track cannot be reset in time.
         """
         self.server.request_new_window_size(new_window_size)
+
+    def request_selected_files(
+        self, request_id: str, initial_path: str | None = None
+    ) -> None:
+        """Ask the connected browser to open a file selector.
+
+        Args:
+            request_id: Correlation token for the later input event.
+            initial_path: Directory hint for the selector; browsers may ignore
+                it. ``None`` uses the current user's home directory.
+
+        Raises:
+            ValueError: ``request_id`` is already waiting for a selector.
+        """
+        if request_id in self._in_flight_file_requests:
+            raise ValueError(f"Duplicate file-selection request id {request_id!r}.")
+        self._in_flight_file_requests.add(request_id)
+        self.server.request_selected_files(request_id, initial_path=initial_path)
 
     def open(self, session_desc: SessionDesc) -> None:
         """Implement ``OutputSink.open`` by configuring WebRTC output.

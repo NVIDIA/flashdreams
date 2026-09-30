@@ -10,8 +10,9 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
 from torch import Tensor
@@ -61,6 +62,17 @@ class _Message(Generic[StateT]):
     """Operation to run before the loop's next step."""
 
 
+@dataclass(frozen=True, slots=True)
+class FileSelectionRequest:
+    """One client file-selector request queued by a UI loop."""
+
+    request_id: str
+    """Correlation token for the later selected-files input event."""
+
+    initial_path: str
+    """Directory the selector should start in."""
+
+
 @dataclass(slots=True)
 class UILoopRequests:
     """Changes requested by a UI loop for the session runtime to apply.
@@ -79,6 +91,9 @@ class UILoopRequests:
 
     new_window_size: tuple[int, int] | None = None
     """Requested downstream window size, or ``None`` to leave it unchanged."""
+
+    file_selections: list[FileSelectionRequest] = field(default_factory=list)
+    """File-selector requests to apply, in the order they were queued."""
 
 
 class ILoop(ABC, Generic[StateT]):
@@ -466,6 +481,49 @@ class IUILoop(ILoop[StateT], ABC):
             raise ValueError("new_window_size dimensions must be > 0.")
         self.get_or_create_ui_loop_requests().new_window_size = new_window_size
 
+    @final
+    def request_selected_files(
+        self, request_id: str, initial_path: str | None = None
+    ) -> None:
+        """Ask the client window to open a file selector.
+
+        The window reports the result later as
+        :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`.
+
+        Args:
+            request_id: Correlation token for the later input event.
+            initial_path: Directory the selector should start in; ``None`` uses
+                the current user's home directory.
+
+        Raises:
+            TypeError: ``request_id`` or ``initial_path`` is not a string.
+            ValueError: ``request_id`` is empty, ``initial_path`` is empty, or
+                ``request_id`` is already queued in this UI step.
+        """
+        if not isinstance(request_id, str):
+            raise TypeError("request_id must be a string.")
+        if not request_id:
+            raise ValueError("request_id must be a non-empty string.")
+        if initial_path is None:
+            resolved_initial_path = str(Path.home())
+        else:
+            if not isinstance(initial_path, str):
+                raise TypeError("initial_path must be a string.")
+            if not initial_path:
+                raise ValueError("initial_path must be a non-empty string.")
+            resolved_initial_path = initial_path
+        requests = self.get_or_create_ui_loop_requests()
+        if any(
+            selection.request_id == request_id for selection in requests.file_selections
+        ):
+            raise ValueError(f"Duplicate file-selection request id {request_id!r}.")
+        requests.file_selections.append(
+            FileSelectionRequest(
+                request_id=request_id,
+                initial_path=resolved_initial_path,
+            )
+        )
+
     def get_or_create_ui_loop_requests(self) -> UILoopRequests:
         if self._ui_loop_requests is None:
             self._ui_loop_requests = UILoopRequests()
@@ -561,6 +619,7 @@ def invoke_async(loop: ILoop[StateT], operation: Callable[[StateT], None]) -> No
 
 
 __all__ = [
+    "FileSelectionRequest",
     "ILoop",
     "IModelLoop",
     "IUILoop",

@@ -230,6 +230,40 @@ class XRControllerUserInputEvent(UserInputEvent):
     """Optional controller quaternion in client XR space."""
 
 
+@dataclass(frozen=True, slots=True)
+class SelectedFile:
+    """One file chosen by a client file selector."""
+
+    name: str
+    """File name shown to the application, without requiring a host path."""
+
+    path: str
+    """Native host path, or the file name when the client has no path."""
+
+    data: bytes
+    """File contents. Applications should use this rather than opening ``path``."""
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class SelectedFilesUserInputEvent(UserInputEvent):
+    """Files chosen for one :meth:`IClientWindow.request_selected_files` call.
+
+    An empty ``files`` tuple is a cancelled or unavailable selector, including
+    ``--mode mp4`` where no client can pick a file.
+    """
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "selected_files"
+
+    request_id: str
+    """Identifier supplied with the matching file-selection request."""
+
+    files: tuple[SelectedFile, ...] = ()
+    """Chosen files, empty when the selector was cancelled or unavailable."""
+
+
 @dataclass(frozen=True, slots=True, eq=False)
 class UnknownUserInputEvent(UserInputEvent):
     """User input event for an unknown input modality."""

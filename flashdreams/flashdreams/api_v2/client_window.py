@@ -46,3 +46,19 @@ class IClientWindow(InputSource, OutputSink, ABC):
             new_window_size: Requested ``(width, height)`` in pixels.
         """
         pass
+
+    # Optional to implement
+    def request_selected_files(
+        self, request_id: str, initial_path: str | None = None
+    ) -> None:
+        """Ask this client to pick files and report them as input events.
+
+        The chosen files arrive later through
+        :meth:`InputSource.get_user_input_events`.
+
+        Args:
+            request_id: Correlation token for the later input event.
+            initial_path: Directory the selector should start in; ``None`` lets
+                the window choose a default.
+        """
+        pass

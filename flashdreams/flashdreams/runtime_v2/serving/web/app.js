@@ -74,6 +74,29 @@ const applyCursorOptions = options => {
   }
 };
 
+const openFileSelector = options => {
+  const requestId = options?.id;
+  if (typeof requestId !== "string" || !requestId) {
+    return;
+  }
+  const input = document.createElement("input");
+  input.type = "file";
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    if (!file) {
+      send({type: "file_selector_result", id: requestId, cancelled: true});
+      return;
+    }
+    const body = new FormData();
+    body.append("request_id", requestId);
+    body.append("file", file, file.name);
+    fetch("/api/files", {method: "POST", body}).catch(error => {
+      console.debug("Unable to upload the selected file.", error);
+    });
+  });
+  input.click();
+};
+
 window.addEventListener("focus", updateCursorVisibility);
 window.addEventListener("blur", updateCursorVisibility);
 
@@ -85,6 +108,10 @@ controls.addEventListener("message", event => {
     const payload = JSON.parse(event.data);
     if (payload?.type === "cursor_options") {
       applyCursorOptions(payload);
+      return;
+    }
+    if (payload?.type === "file_selector") {
+      openFileSelector(payload);
       return;
     }
     if (payload?.type === "error") {

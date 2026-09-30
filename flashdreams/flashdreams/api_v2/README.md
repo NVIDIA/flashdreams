@@ -210,7 +210,11 @@ exposes `imgui_bundle.imgui` and an image-like pixel upload convenience form. A
 UI control that needs a fresh application session calls
 `request_new_session(session_desc)` with a fully resolved replacement
 description; the runtime cleans the current session and passes that description
-to `ApplicationRunner` unchanged.
+to `ApplicationRunner` unchanged. A control that needs a file from the client
+calls `request_selected_files(request_id)`; the window later reports
+`SelectedFilesUserInputEvent` through the same input stream as keyboard and
+mouse. The application reads file bytes from that event and does not open a
+host path.
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The
 [`slangpy_ui_demo` integration](../../../integrations_v2/slangpy_ui_demo/README.md)

@@ -7,11 +7,15 @@ from __future__ import annotations
 
 import logging
 import queue
+import shutil
+import subprocess
+import sys
 import threading
 import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -29,6 +33,8 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    SelectedFile,
+    SelectedFilesUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
@@ -37,6 +43,69 @@ if TYPE_CHECKING:
     import slangpy as spy
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _ask_open_filename(*, initial_dir: str) -> str:
+    """Return a path from the OS file picker, or ``""`` when cancelled."""
+    if sys.platform.startswith("linux"):
+        return _ask_open_filename_linux(initial_dir=initial_dir)
+    return _ask_open_filename_tkinter(initial_dir=initial_dir)
+
+
+def _ask_open_filename_linux(*, initial_dir: str) -> str:
+    """Open the desktop file picker via ``zenity`` or ``kdialog``.
+
+    ``zenity --file-selection`` uses ``GtkFileChooserNative``, which is the
+    xdg-desktop-portal chooser. The helper is a separate process so the
+    GLFW window does not host GTK.
+    """
+    directory = str(Path(initial_dir))
+    zenity = shutil.which("zenity")
+    if zenity is not None:
+        argv = [
+            zenity,
+            "--file-selection",
+            f"--filename={directory}/",
+            "--title=Select a file",
+        ]
+    else:
+        kdialog = shutil.which("kdialog")
+        if kdialog is None:
+            raise RuntimeError(
+                "Native file picker needs a desktop chooser (zenity or kdialog)."
+            )
+        argv = [kdialog, "--getopenfilename", directory]
+    completed = subprocess.run(
+        argv,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return ""
+    return completed.stdout.strip()
+
+
+def _ask_open_filename_tkinter(*, initial_dir: str) -> str:
+    """Open the Tk file dialog (native Explorer / macOS panel)."""
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    try:
+        selected = filedialog.askopenfilename(
+            initialdir=initial_dir,
+            title="Select a file",
+        )
+    finally:
+        root.destroy()
+    return str(selected or "")
+
 
 _PRINTABLE_KEY_NAMES = {
     "space": " ",
@@ -126,6 +195,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._pressed_key_values: dict[str, str] = {}
         self._hide_cursor = False
         self._lock_cursor_to_window = False
+        self._in_flight_file_requests: set[str] = set()
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor in the native window."""
@@ -163,6 +233,44 @@ class NativeWindowClientWindow(IClientWindow):
                 "NativeWindowClientWindow.open() must run before resizing."
             )
         self._window_size = presenter.resize(*new_window_size)
+
+    def request_selected_files(
+        self, request_id: str, initial_path: str | None = None
+    ) -> None:
+        """Open a native OS file selector and enqueue the chosen file.
+
+        Args:
+            request_id: Correlation token for the later input event.
+            initial_path: Directory the selector should start in; ``None`` uses
+                the current user's home directory.
+
+        Raises:
+            ValueError: ``request_id`` is already waiting for a selector.
+        """
+        if request_id in self._in_flight_file_requests:
+            raise ValueError(f"Duplicate file-selection request id {request_id!r}.")
+        self._in_flight_file_requests.add(request_id)
+        try:
+            selected = _ask_open_filename(
+                initial_dir=initial_path or str(Path.home()),
+            )
+            files: tuple[SelectedFile, ...] = ()
+            if selected:
+                path = Path(selected)
+                try:
+                    data = path.read_bytes()
+                except OSError:
+                    data = b""
+                files = (SelectedFile(name=path.name, path=str(path), data=data),)
+            self._put_input(
+                SelectedFilesUserInputEvent(
+                    timestamp=uint64(0),
+                    request_id=request_id,
+                    files=files,
+                )
+            )
+        finally:
+            self._in_flight_file_requests.discard(request_id)
 
     def open(self, session_desc: SessionDesc) -> None:
         """Create the GLFW window on the runtime's UI thread.

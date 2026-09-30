@@ -20,7 +20,7 @@ pytestmark = pytest.mark.ci_cpu
 pytest.importorskip("aiohttp")
 pytest.importorskip("aiortc")
 
-from aiohttp import ClientSession
+from aiohttp import ClientSession, FormData
 from aiortc import (
     MediaStreamTrack,
     RTCDataChannel,
@@ -43,6 +43,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEvent,
     MouseUserInputEvent,
     QueryStringUserInputEvent,
+    SelectedFilesUserInputEvent,
     TouchUserInputEvent,
     XRControllerUserInputEvent,
 )
@@ -142,6 +143,47 @@ async def test_browser_query_string_reaches_the_input_stream() -> None:
 
 
 @pytest.mark.asyncio
+async def test_browser_file_upload_reaches_the_input_stream() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        window.request_selected_files("open-1", "/tmp")
+        with pytest.raises(ValueError, match="Duplicate file-selection request id"):
+            window.request_selected_files("open-1", "/tmp")
+
+        form = FormData()
+        form.add_field("request_id", "open-1")
+        form.add_field(
+            "file",
+            b"hello",
+            filename="hello.txt",
+            content_type="text/plain",
+        )
+        async with ClientSession() as client:
+            async with client.post(
+                f"{window.server.url}api/files", data=form
+            ) as response:
+                assert response.status == 204
+
+        events = []
+        for _ in range(100):
+            events.extend(window.get_user_input_events().get_events())
+            if events:
+                break
+            await asyncio.sleep(0.01)
+        assert len(events) == 1
+        event = events[0]
+        assert isinstance(event, SelectedFilesUserInputEvent)
+        assert event.request_id == "open-1"
+        assert event.files[0].name == "hello.txt"
+        assert event.files[0].data == b"hello"
+
+        window.request_selected_files("open-1", "/tmp")
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
 async def test_window_buffers_browser_events_until_drained() -> None:
     window = WebRTCClientWindow()
     server_loop = window.server._loop
@@ -215,6 +257,9 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert '["failed", "closed"]' in connection_handler
                 assert "navigator.getGamepads" in browser_script
                 assert 'type: "touch"' in browser_script
+                assert "openFileSelector" in browser_script
+                assert 'type === "file_selector"' in browser_script
+                assert 'fetch("/api/files"' in browser_script
 
         window.request_hide_cursor(True)
         window.open(_session_desc())

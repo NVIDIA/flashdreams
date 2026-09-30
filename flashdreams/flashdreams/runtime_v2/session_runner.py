@@ -143,6 +143,10 @@ def run_session(
                         )
                     if request.new_window_size is not None:
                         window.request_new_window_size(request.new_window_size)
+                    for selection in request.file_selections:
+                        window.request_selected_files(
+                            selection.request_id, selection.initial_path
+                        )
                     if request.new_session is not None:
                         next_session_desc = request.new_session
                         stop.set()
