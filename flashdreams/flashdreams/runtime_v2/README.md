@@ -219,8 +219,9 @@ Both counters use model chunks as their unit.
 ## Presenting and writing
 
 A UI loop reads model frames through `presented_model_frame` and
-`presented_model_frames`, composites whatever it wants, and returns one
-`StepResult` that `run_session` writes to the window.
+`presented_model_frames`, composites whatever it wants, and returns a list
+holding that one frame, or `[]` to present nothing. `run_session` writes
+the single frame to the window.
 
 The ImGui and SlangPy UI loops prepare the optional model back buffer before
 composition: integer `[0, 255]` frames are normalized to the renderer's
@@ -233,7 +234,9 @@ channel in list order as if they were image layers and reshapes the result into
 the session's layout.
 
 `SlangPyUILoop` is the alternative for SlangPy's retained
-widget subset. `ImGuiUILoop` exposes the complete ImGui API. Both return a `[1, C, H, W]` frame, so an `ISession` using either should declare a `tchw` output layout.
+widget subset. `ImGuiUILoop` exposes the complete ImGui API. Both produce a
+`[1, C, H, W]` frame inside that one-element list, so an `ISession` using
+either should declare a `tchw` output layout.
 
 `IClientWindow` is both an `InputSource` and an `OutputSink`, so a window is
 written to with the same three calls as any sink: `open` with the session

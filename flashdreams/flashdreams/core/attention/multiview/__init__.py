@@ -71,6 +71,7 @@ from flashdreams.core.attention.multiview.rollout import (
 from flashdreams.core.attention.multiview.rope import (
     BASE_FPS,
     MODALITY_MARGIN,
+    caption_mrope_ids,
     chunk_mrope_ids,
     clip_mrope_ids,
     temporal_positions,
@@ -113,6 +114,7 @@ __all__ = [
     "build_chunk_metadata",
     "build_memory_layout",
     "build_prefill_pack",
+    "caption_mrope_ids",
     "causal_steps",
     "chunk_mrope_ids",
     "clip_mrope_ids",

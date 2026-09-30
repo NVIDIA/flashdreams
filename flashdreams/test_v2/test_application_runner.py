@@ -37,9 +37,10 @@ class _ModelLoop(IModelLoop["_Session"]):
 
 
 class _ReplacementUILoop(IUILoop["_Session"]):
-    def step(self, step_index: int, events: UserInputEvents) -> None:
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         del step_index, events
         self.request_new_session(self.session_desc)
+        return []
 
     def reset(self) -> None:
         return
