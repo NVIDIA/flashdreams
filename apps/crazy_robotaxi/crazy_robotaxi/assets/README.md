@@ -22,5 +22,9 @@ take precedence. See the [live-edit abilities section](../../README.md#optional-
 
 ## Maps
 
-Crazy Robotaxi's `.robotaxi.yaml` maps live in `crazy_robotaxi/maps/`. Seed
-images referenced by a map may be map-relative files or packaged assets.
+Bundled maps live in [../maps/](../maps/). They use the
+[shared node-graph map format](../../../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md).
+Spawn images may be map-relative files or `package://package/resource`
+references. Both bundled maps use
+`package://omnidreams_game_engine/screenshot.jpg`. Spawns without an image receive
+a deterministic first-person road preview during compilation.
