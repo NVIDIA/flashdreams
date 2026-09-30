@@ -121,7 +121,23 @@ def integrate_taxi_vehicle(
 ) -> VehicleState:
     steer_rad = state.steer_rad
     if command.steer_is_direct:
-        steer_rad = command.steer * vehicle.max_steer_rad
+        target_steer_rad = (
+            float(np.clip(command.steer, -1.0, 1.0)) * vehicle.max_steer_rad
+        )
+        returning = target_steer_rad == 0.0 or (
+            steer_rad * target_steer_rad > 0.0
+            and abs(target_steer_rad) < abs(steer_rad)
+        )
+        response_rate = (
+            vehicle.steer_return_rate_rad_per_s
+            if returning
+            else vehicle.steer_rate_rad_per_s
+        )
+        steer_rad = _move_towards(
+            steer_rad,
+            target_steer_rad,
+            response_rate * dt_s,
+        )
     elif abs(command.steer) > 1e-5:
         steer_rad += command.steer * vehicle.steer_rate_rad_per_s * dt_s
     else:

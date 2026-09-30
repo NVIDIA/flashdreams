@@ -55,7 +55,12 @@ model:
 game:
   gamepad_button_style: PlayStation
 presentation:
+  width: 1920
+  height: 1080
   show_fps: true
+  show_live_edit_buttons: false
+  live_edit_mapping_location: control hints
+  show_current_prompt: true
 """,
         encoding="utf-8",
     )
@@ -65,7 +70,31 @@ presentation:
     assert document.settings.model.pipeline.diffusion_model.seed == 42
     assert document.settings.renderer.raster.resolution_wh == (1280, 704)
     assert document.settings.game.gamepad_button_style == "PlayStation"
+    assert document.settings.presentation.width == 1920
+    assert document.settings.presentation.height == 1080
     assert document.settings.presentation.show_fps
+    assert not document.settings.presentation.show_live_edit_buttons
+    assert document.settings.presentation.live_edit_mapping_location == "control hints"
+    assert document.settings.presentation.show_current_prompt
+
+
+@pytest.mark.parametrize(
+    "presentation",
+    (
+        "width: 1920",
+        "height: 1080",
+        "width: 0\n  height: 1080",
+    ),
+)
+def test_presentation_resolution_must_be_complete_and_positive(
+    tmp_path: Path,
+    presentation: str,
+) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(f"presentation:\n  {presentation}\n", encoding="utf-8")
+
+    with pytest.raises(SettingsError, match="presentation width and height"):
+        _load(path)
 
 
 def test_launch_selections_are_not_user_yaml_settings(tmp_path: Path) -> None:
@@ -74,6 +103,31 @@ def test_launch_selections_are_not_user_yaml_settings(tmp_path: Path) -> None:
 
     with pytest.raises(SettingsError, match="unknown keys: launch"):
         _load(path)
+
+
+def test_live_edit_prompt_suffix_round_trips(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        """\
+live_edit:
+  weather:
+    enabled: true
+    weathers:
+      - name: custom
+        prompt_suffix: Custom weather conditions.
+""",
+        encoding="utf-8",
+    )
+
+    document = _load(path)
+    document.save(document.settings)
+
+    assert document.settings.live_edit.weather.weathers[0].prompt_suffix == (
+        "Custom weather conditions."
+    )
+    assert "prompt_suffix: Custom weather conditions." in path.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_pipeline_name_is_not_a_user_setting(tmp_path: Path) -> None:

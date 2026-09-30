@@ -14,11 +14,14 @@ requires-python = ">=3.10"
 dependencies = [
     "flashdreams-action2v",
     "flashdreams",
-    "pillow>=10",
+    "pillow>=12.3.0",
 ]
 
 [project.entry-points."flashdreams.applications_v2"]
 action2v-waypoint-1-5-1b = "waypoint.apps.action2v.adapter:create_app"
+
+[tool.uv]
+managed = true
 
 [tool.uv.sources]
 flashdreams-action2v = { workspace = true }

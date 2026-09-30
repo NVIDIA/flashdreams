@@ -32,10 +32,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     pybind11::class_<LudusCudaStateWrapper>(m, "LudusCudaStateWrapper").def(pybind11::init<int>())
         .def("set_line_widths",          &LudusCudaStateWrapper::setLineWidths)
         .def("set_resolution_scale",     &LudusCudaStateWrapper::setResolutionScale)
+        .def("set_width_in_ndc",         &LudusCudaStateWrapper::setWidthInNdc)
+        .def("set_depth_fade",           &LudusCudaStateWrapper::setDepthFade)
+        .def("set_cull_behind_camera",   &LudusCudaStateWrapper::setCullBehindCamera)
         .def("set_depth_scaling",        &LudusCudaStateWrapper::setDepthScaling)
         .def("set_cull_radius",          &LudusCudaStateWrapper::setCullRadius)
         .def("set_max_tessellation_levels", &LudusCudaStateWrapper::setMaxTessellationLevels)
         .def("upload_color_palette",     &LudusCudaStateWrapper::uploadColorPalette)
+        .def("upload_width_table",       &LudusCudaStateWrapper::uploadWidthTable)
         .def("set_msaa_samples",         &LudusCudaStateWrapper::setMsaaSamples);
 
     // CudaRaster low-level API test wrapper

@@ -22,8 +22,8 @@ from omnidreams.impl.encoder.pixel_shuffle import (
 
 from flashdreams.infra.config import InstantiateConfig
 from flashdreams.recipes.taehv import (
-    TeahvVAEDecoder,
-    TeahvVAEDecoderConfig,
+    TaehvVAEDecoder,
+    TaehvVAEDecoderConfig,
 )
 from flashdreams.recipes.wan.autoencoder.vae import WanVAEEncoder, WanVAEEncoderConfig
 
@@ -34,7 +34,7 @@ pytestmark = pytest.mark.ci_cpu
     ("config_cls", "target_cls"),
     [
         (PixelShuffleVAEEncoderConfig, PixelShuffleVAEEncoder),
-        (TeahvVAEDecoderConfig, TeahvVAEDecoder),
+        (TaehvVAEDecoderConfig, TaehvVAEDecoder),
         (WanVAEEncoderConfig, WanVAEEncoder),
     ],
 )

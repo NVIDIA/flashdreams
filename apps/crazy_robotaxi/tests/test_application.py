@@ -3,6 +3,8 @@
 
 """CPU tests for Crazy Robotaxi's application boundary against FlashDreams V2."""
 
+import queue
+import threading
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +23,7 @@ from crazy_robotaxi.application import (
 from crazy_robotaxi.controls import BoundActionState, ControlsConfig
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
 from crazy_robotaxi.game_selection import GameSelection
+from crazy_robotaxi.headless_ui import CrazyRobotaxiHeadlessUILoop
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
@@ -36,7 +39,7 @@ from crazy_robotaxi.session import (
     ModelState,
     _taxi_driver_command,
 )
-from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop
+from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
 from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.renderer_settings import RendererSettings
@@ -46,7 +49,9 @@ from omnidreams_game_engine.types import (
     DriverCommand,
     SceneDefinition,
 )
+from torch import Tensor
 
+from flashdreams.api_v2.loop import ModelInferenceState
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.base import SchedulerConfig
 from flashdreams.infra.diffusion.transformer.base import TransformerConfig
@@ -211,6 +216,13 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert ui_loop.state.show_fps
     assert ui_loop.state.gamepad_button_style == session._config.gamepad_button_style
     assert (
+        ui_loop.state.show_live_edit_buttons is session._config.show_live_edit_buttons
+    )
+    assert (
+        ui_loop.state.live_edit_mapping_location
+        == session._config.live_edit_mapping_location
+    )
+    assert (
         ui_loop.state.native_dit_disabled_for_live_edit
         is session._config.native_dit_disabled_for_live_edit
     )
@@ -290,6 +302,10 @@ game:
   gamepad_button_style: PlayStation
   taxi:
     seed: 1234
+presentation:
+  show_live_edit_buttons: false
+  live_edit_mapping_location: control hints
+  show_current_prompt: true
 runtime:
   prewarm_blocks: 0
 """,
@@ -307,6 +323,9 @@ runtime:
     assert app._config.device == "cpu"
     assert app._config.game.seed == 1234
     assert app._config.gamepad_button_style == "PlayStation"
+    assert not app._config.show_live_edit_buttons
+    assert app._config.live_edit_mapping_location == "control hints"
+    assert app._config.show_current_prompt
     pipeline_config = app._pipeline_config
     assert pipeline_config is not None
     assert pipeline_config.diffusion_model.seed == 5678
@@ -518,6 +537,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
         ui_loop=cast(Any, ui_loop),
         rollout=cast(Any, rollout),
         last_video=torch.zeros(1, 3, 4, 4),
+        last_hdmap=torch.ones(1, 3, 4, 4),
         last_pose=np.eye(4, dtype=np.float32),
         prewarm_complete=True,
         game_selected=True,
@@ -527,7 +547,8 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
 
     results = loop.step(0, UserInputEvents([]))
 
-    assert len(results) == 1
+    assert len(results) == 2
+    assert torch.all(results[1].read_output() == 1.0)
     assert not state.finished
     assert not loop.is_finished()
     assert len(ui_loop.operations) == 1
@@ -929,8 +950,107 @@ def test_application_rejects_geometry_the_model_does_not_produce() -> None:
         video_height=desc.video_height,
     )
 
-    with pytest.raises(ValueError, match="do not match renderer"):
+    with pytest.raises(ValueError) as exc_info:
         app.create_session(desc)
+    assert str(exc_info.value) == (
+        "Session/model dimensions (640, 704) do not match renderer raster dimensions "
+        "(1280, 704). You may have changed Width or Height under Options > Renderer > "
+        "Raster, or used --width or --height; those settings control model rendering. "
+        "To resize only the displayed output, use Options > Presentation > Width and "
+        "Height or --display-width and --display-height."
+    )
+
+
+def test_user_settings_resize_window_to_presentation_resolution(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "presentation:\n  width: 1920\n  height: 1080\n",
+        encoding="utf-8",
+    )
+    app = _application()
+    model_desc = app.session_desc()
+    app.init(["--config", str(config_path), "--device", "cpu"])
+
+    session = cast(CrazyRobotaxiSession, app.create_session(model_desc))
+    session.init()
+    ui_loop = session.ui_loop
+
+    assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
+    assert session.session_desc.video_width == 1280
+    assert session.session_desc.video_height == 704
+    assert session._config.renderer.raster.resolution_wh == (1280, 704)
+    assert (ui_loop.state.width, ui_loop.state.height) == (1280, 704)
+    assert ui_loop.state.presentation_size == (1920, 1080)
+    renderer = cast(Any, ui_loop.renderer)
+    assert (renderer.width, renderer.height) == (1280, 704)
+    assert ui_loop.flush_ui_loop_requests() is None
+
+    state = SimpleNamespace(
+        width=1280,
+        height=704,
+        presentation_size=(1920, 1080),
+        consume_input_events=lambda _events: None,
+        draw=lambda *_args, **_kwargs: None,
+    )
+
+    def resize(width: int, height: int) -> None:
+        state.width = width
+        state.height = height
+
+    state.resize = resize
+    ui_loop.state = cast(Any, state)
+    assert ui_loop.step_ui(None, 0, UserInputEvents([])) is None
+    request = ui_loop.flush_ui_loop_requests()
+
+    assert (renderer.width, renderer.height) == (1280, 704)
+    assert request is not None
+    assert request.new_window_size == (1920, 1080)
+
+    assert ui_loop.step_ui(None, 1, UserInputEvents([])) is None
+    assert (ui_loop.state.width, ui_loop.state.height) == (1920, 1080)
+    assert (renderer.width, renderer.height) == (1920, 1080)
+    assert ui_loop.flush_ui_loop_requests() is None
+
+    state.presentation_size = (1600, 900)
+    assert ui_loop.step_ui(None, 2, UserInputEvents([])) is None
+    request = ui_loop.flush_ui_loop_requests()
+    assert request is not None
+    assert request.new_window_size == (1600, 900)
+    assert (renderer.width, renderer.height) == (1920, 1080)
+
+    assert ui_loop.step_ui(None, 3, UserInputEvents([])) is None
+    assert (ui_loop.state.width, ui_loop.state.height) == (1600, 900)
+    assert (renderer.width, renderer.height) == (1600, 900)
+    assert ui_loop.flush_ui_loop_requests() is None
+
+
+def test_display_cli_overrides_saved_presentation_resolution(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "presentation:\n  width: 1920\n  height: 1080\n",
+        encoding="utf-8",
+    )
+    app = _application()
+    model_desc = app.session_desc()
+    app.init(
+        [
+            "--config",
+            str(config_path),
+            "--display-width",
+            "2560",
+            "--display-height",
+            "1440",
+            "--device",
+            "cpu",
+        ]
+    )
+
+    session = cast(CrazyRobotaxiSession, app.create_session(model_desc))
+    session.init()
+
+    assert session._config.presentation_resolution_wh == (2560, 1440)
 
 
 def test_application_rejects_mismatched_generation_rate() -> None:
@@ -959,3 +1079,115 @@ def test_application_forces_continuous_presentation_for_interactive_input() -> N
     )
 
     assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
+
+
+def test_no_ui_registers_headless_loop_and_keeps_cli_selection() -> None:
+    app = _application(
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: _scene(),
+    )
+    app.init(
+        [
+            "--device",
+            "cpu",
+            "--prewarm-blocks",
+            "0",
+            "--no-ui",
+            "--total-blocks",
+            "4",
+            "--game-mode",
+            "race",
+            "--race-course",
+            "grand-prix",
+            "--map",
+            str(_DEMO_RACE_MAP),
+        ]
+    )
+    assert app._config is not None
+    assert app._config.no_ui
+
+    session = app.create_session(app.session_desc())
+    session.init()
+    ui_loop, model_loop = session._take_loops()
+
+    assert isinstance(ui_loop, CrazyRobotaxiHeadlessUILoop)
+    assert isinstance(model_loop, CrazyRobotaxiModelLoop)
+    assert model_loop.state.ui_loop is ui_loop
+    assert ui_loop.state.initial_game_mode == "race"
+    assert ui_loop.state.initial_map_path == _DEMO_RACE_MAP.resolve()
+    assert ui_loop.state.initial_race_course_id == "grand-prix"
+
+
+def test_no_ui_in_race_mode_requires_a_course() -> None:
+    app = _application(
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: _scene(),
+    )
+    app.init(
+        [
+            "--device",
+            "cpu",
+            "--no-ui",
+            "--total-blocks",
+            "4",
+            "--game-mode",
+            "race",
+            "--map",
+            str(_DEMO_RACE_MAP),
+        ]
+    )
+
+    session = app.create_session(app.session_desc())
+    with pytest.raises(ValueError, match="requires --race-course"):
+        session.init()
+
+
+def test_no_ui_requires_explicit_mode_map_and_block_count() -> None:
+    app = _application(
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: _scene(),
+    )
+    app.init(["--device", "cpu", "--no-ui"])
+
+    session = app.create_session(app.session_desc())
+    with pytest.raises(ValueError, match="--no-ui requires"):
+        session.init()
+
+
+def test_headless_loop_presents_video_channel_and_finishes() -> None:
+    frame = torch.zeros((3, 4, 6))
+    presented: list[tuple[Tensor, ...]] = [(frame, torch.ones((3, 4, 6)))]
+    manager = SimpleNamespace(
+        presented_frames=lambda: presented[0],
+        presented_frame_count=1,
+        composite=lambda background, layer: layer,
+        has_pending_frames=lambda: False,
+    )
+    resets: list[str] = []
+    state = SimpleNamespace(reset=lambda: resets.append("hud"))
+    loop = CrazyRobotaxiHeadlessUILoop()
+    loop.register_session_loop_objects(
+        state=cast(TaxiHudState, state),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    loop.register_session_ui_loop_objects(
+        session_desc=_application().session_desc(),
+        presentation_manager=cast(Any, manager),
+    )
+    loop._set_model_loop(
+        cast(Any, SimpleNamespace(inference_state=ModelInferenceState.FINISHED))
+    )
+
+    result = loop.step(0, UserInputEvents([]))
+
+    assert result
+    output = result[0].read_output()
+    assert output.shape == (1, 3, 4, 6)
+    assert torch.equal(output[0], frame)
+    assert loop.is_finished()
+    loop.reset()
+    assert resets == ["hud"]
+    presented[0] = ()
+    assert loop.step(1, UserInputEvents([])) == []

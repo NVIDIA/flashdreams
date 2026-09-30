@@ -101,11 +101,15 @@ client asks for one, implement it, even if the body is `return`.
 
 ## What a step returns
 
-The two loops have different return contracts, and the runtime enforces both:
+Both loops return `list[StepResult]`. The list does not mean the same thing
+on both threads, and the runtime enforces both contracts:
 
-- A model loop returns `list[StepResult]`, one entry per channel. A single
-  `StepResult` or `None` raises `TypeError`.
-- A UI loop returns one `StepResult`, or `None` to present nothing this tick.
+- A model loop returns one entry per channel. A single `StepResult` or
+  `None` raises `TypeError`. An empty list means this step produced no
+  presentable output; the runtime does not publish it.
+- A UI loop returns one `StepResult` to present, or `[]` to present nothing
+  this tick. A list longer than one raises `TypeError`, because
+  `window.write` takes a single frame.
 
 Every channel in one model step must report the same `frame_count`, and a
 mismatch raises `ValueError`. A step may generate several frames at once; the
@@ -114,6 +118,8 @@ runtime presents them one per UI tick rather than dropping all but the last.
 A UI loop reads what the model produced through `presented_model_frame` and
 `presented_model_frames`, which return `[C, H, W]` frames with one, three or
 four channels. Four channels is RGBA, and composites over what is beneath it.
+`has_pending_model_frames` and `presented_model_frame_count` say whether more
+model frames are waiting and how many have already been selected.
 
 Output sinks read floating-point frames as `[-1, 1]` and integer frames as
 `[0, 255]`. No `SessionDesc` setting remaps this; a UI loop that works in some

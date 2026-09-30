@@ -6,7 +6,6 @@ requires-python = ">=3.10"
 dependencies = [
     "flashdreams",
     "imageio[ffmpeg]",
-    "accelerate",
     "aiofiles",
     "aiohttp",
     "av",
@@ -22,7 +21,6 @@ dependencies = [
     "moviepy",
     "omegaconf",
     "opencv-python",
-    "peft",
     "pyarrow",
     "protobuf>=7.35.0,<8",
     "ray",

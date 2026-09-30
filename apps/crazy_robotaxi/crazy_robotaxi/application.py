@@ -46,9 +46,11 @@ from crazy_robotaxi.rules import TaxiGameConfig
 from crazy_robotaxi.session import CrazyRobotaxiSession
 from crazy_robotaxi.settings import (
     CrazyRobotaxiUserSettings,
+    LiveEditMappingLocation,
     SettingsDocument,
     default_config_path,
     normalize_settings,
+    presentation_resolution_wh,
 )
 from crazy_robotaxi.ui import bev_display_extent
 from flashdreams.api_v2.application import IApplication
@@ -110,11 +112,23 @@ class ApplicationConfig:
     show_fps: bool
     """Whether the HUD displays the measured generated-video frame rate."""
 
+    presentation_resolution_wh: tuple[int, int] | None
+    """Presentation size, or ``None`` to use the model output dimensions."""
+
+    show_current_prompt: bool = False
+    """Whether the HUD displays the prompt currently driving generation."""
+
     hud_enabled: bool = True
     """Whether gameplay HUD overlays are visible."""
 
     show_control_hints: bool = True
     """Whether gameplay control hints start visible."""
+
+    show_live_edit_buttons: bool = True
+    """Whether live-edit actions appear as clickable HUD buttons."""
+
+    live_edit_mapping_location: LiveEditMappingLocation = "buttons"
+    """Where active live-edit mappings appear in the gameplay HUD."""
 
     controls: ControlsConfig = ControlsConfig()
     """Process-start gameplay bindings."""
@@ -156,6 +170,9 @@ class ApplicationConfig:
 
     visual_flare_enabled: bool = False
     """Whether collision feedback may darken the presented game frame."""
+
+    no_ui: bool = False
+    """Present raw model frames without the ImGui HUD (no graphics device)."""
 
 
 PipelineFactory = Callable[[Any, str], Any]
@@ -243,6 +260,7 @@ class CrazyRobotaxiApplication(IApplication):
             raise ValueError("--prewarm-blocks must be non-negative")
         if settings.game.taxi.rules.global_time_s <= 0:
             raise ValueError("--game-time-s must be positive")
+        presentation_resolution = presentation_resolution_wh(settings.presentation)
         if initial_game_mode != "race" and initial_race_course_id is not None:
             raise ValueError("--race-course requires --game-mode race")
         map_path: Path = args.map
@@ -297,8 +315,14 @@ class CrazyRobotaxiApplication(IApplication):
                 else settings.diagnostics.input_trace_path
             ),
             show_fps=settings.presentation.show_fps,
+            presentation_resolution_wh=presentation_resolution,
+            show_current_prompt=settings.presentation.show_current_prompt,
             hud_enabled=settings.presentation.hud_enabled,
             show_control_hints=settings.presentation.show_control_hints,
+            show_live_edit_buttons=settings.presentation.show_live_edit_buttons,
+            live_edit_mapping_location=(
+                settings.presentation.live_edit_mapping_location
+            ),
             controls=controls,
             gamepad_button_style=settings.game.gamepad_button_style,
             control_documents=control_documents,
@@ -318,6 +342,7 @@ class CrazyRobotaxiApplication(IApplication):
             live_edit=live_edit,
             native_dit_disabled_for_live_edit=native_dit_disabled_for_live_edit,
             visual_flare_enabled=settings.game.effects.visual_flare,
+            no_ui=not args.ui,
         )
         self._map_options = _discover_game_maps(map_path)
 
@@ -409,6 +434,13 @@ class CrazyRobotaxiApplication(IApplication):
         presentation = settings.presentation
         if explicit("show_fps", ("presentation", "show_fps"), args.show_fps):
             presentation = replace(presentation, show_fps=bool(args.show_fps))
+        for argument, field_name in (
+            ("display_width", "width"),
+            ("display_height", "height"),
+        ):
+            value = getattr(args, argument)
+            if explicit(argument, ("presentation", field_name), value):
+                presentation = replace(presentation, **{field_name: value})
         runtime = settings.runtime
         for name, field_name in (
             ("total_blocks", "total_blocks"),
@@ -455,18 +487,24 @@ class CrazyRobotaxiApplication(IApplication):
         if session_desc.frames_per_second_for_step != _VIDEO_FPS:
             raise ValueError("Crazy Robotaxi generates video at 30 frames per second")
         actual = session_desc.video_width, session_desc.video_height
+        presentation = config.presentation_resolution_wh or actual
         config = replace(
             config,
             renderer=_fit_bev_renderer_to_ui(
                 config.renderer,
-                video_width=actual[0],
-                video_height=actual[1],
+                video_width=presentation[0],
+                video_height=presentation[1],
             ),
         )
         expected = config.renderer.raster.resolution_wh
         if actual != expected:
             raise ValueError(
-                f"Session dimensions {actual} do not match renderer {expected}"
+                f"Session/model dimensions {actual} do not match renderer raster "
+                f"dimensions {expected}. You may have changed Width or Height under "
+                "Options > Renderer > Raster, or used --width or --height; those "
+                "settings control model rendering. To resize only the displayed "
+                "output, use Options > Presentation > Width and Height or "
+                "--display-width and --display-height."
             )
         transformer = pipeline_config.diffusion_model.transformer
         scheduler = pipeline_config.diffusion_model.scheduler
@@ -477,7 +515,7 @@ class CrazyRobotaxiApplication(IApplication):
             "Crazy Robotaxi model preset=%s resolution=%sx%s native_dit=%s "
             "native_backend=%s attention_backend=%s native_vae=%s "
             "native_vae_backend=%s skip_finalize=%s "
-            "denoising_timesteps=%s bev=%s",
+            "denoising_timesteps=%s presentation=%sx%s bev=%s",
             config.model_preset_name,
             actual[0],
             actual[1],
@@ -488,6 +526,8 @@ class CrazyRobotaxiApplication(IApplication):
             encoder.native_vae_backend,
             transformer.skip_finalize_kv_cache,
             list(scheduler.denoising_timesteps),
+            presentation[0],
+            presentation[1],
             bev_resolution,
         )
         return CrazyRobotaxiSession(
@@ -611,7 +651,19 @@ def _parser(
     parser.add_argument("--map", type=Path, default=_DEFAULT_MAP)
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)
+    parser.add_argument("--display-width", type=int)
+    parser.add_argument("--display-height", type=int)
     parser.add_argument("--force-map-recompile", action="store_true")
+    parser.add_argument(
+        "--ui",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "render the ImGui HUD (default). --no-ui presents raw model frames "
+            "and needs no Vulkan device; requires --game-mode, --map, and "
+            "--total-blocks"
+        ),
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--total-blocks", type=int)
     parser.add_argument("--game-time-s", type=float)

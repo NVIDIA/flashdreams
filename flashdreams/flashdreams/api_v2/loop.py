@@ -83,6 +83,9 @@ class UILoopRequests:
     lock_cursor_to_window: bool | None = None
     """Cursor capture change, or ``None`` to leave it unchanged."""
 
+    new_window_size: tuple[int, int] | None = None
+    """Requested downstream window size, or ``None`` to leave it unchanged."""
+
 
 class ILoop(ABC, Generic[StateT]):
     """Shared state, messaging, and lifecycle for a session loop.
@@ -127,7 +130,7 @@ class ILoop(ABC, Generic[StateT]):
         self._message_queue: queue.Queue[_Message[StateT]] = queue.Queue()
         self.user_events = UserInputEvents([])
         self._pending_user_events: list[UserInputEvent] = []
-        self.latest_result: StepResult | list[StepResult] | None = None
+        self.latest_result: list[StepResult] | None = None
         self._step_index = 0
         self._generation = 0
         self._accepting_messages = True
@@ -142,23 +145,22 @@ class ILoop(ABC, Generic[StateT]):
         return
 
     @abstractmethod
-    def step(
-        self, step_index: int, events: UserInputEvents
-    ) -> StepResult | list[StepResult] | None:
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Run one step.
 
-        The two kinds of loop return different things, and the runtime rejects
-        the wrong one: a model loop must return ``list[StepResult]``, one entry
-        per channel, and a UI loop must return one :class:`StepResult` or
-        ``None`` to present nothing this step.
+        Both kinds of loop return ``list[StepResult]``. A model loop returns
+        one entry per channel, or an empty list when the step produced no
+        presentable output. A UI loop returns one frame to present, or an
+        empty list to present nothing this step. A UI list longer than one
+        raises :class:`TypeError`.
 
         Args:
             step_index: Zero-based index since the latest reset.
             events: Input events not seen by this loop before.
 
         Returns:
-            Model channels from a model loop; one frame, or ``None``, from a UI
-            loop.
+            Model channels from a model loop, possibly empty; zero or one
+            frame from a UI loop.
         """
         ...
 
@@ -225,14 +227,15 @@ class ILoop(ABC, Generic[StateT]):
     @final
     def _finish_run(
         self,
-        result: StepResult | list[StepResult] | None,
+        result: list[StepResult] | None,
         *,
         step_completed: bool,
     ) -> None:
         """Finish one prepared run, saving its completed step when present.
 
         Args:
-            result: Value returned by the completed step, or ``None``.
+            result: Value returned by the completed step, or ``None`` when no
+                step ran.
             step_completed: Whether :meth:`step` returned successfully and
                 ``result`` should replace :attr:`latest_result`.
         """
@@ -392,10 +395,20 @@ class IModelLoop(ILoop[StateT], ABC):
 class IUILoop(ILoop[StateT], ABC):
     """Loop whose output is sent to the client window.
 
-    :meth:`ILoop.step` must return one :class:`StepResult` or ``None`` here.
-    Model frames to draw come from :meth:`presented_model_frame` and
-    :meth:`presented_model_frames` rather than from the model loop directly.
+    :meth:`ILoop.step` must return ``list[StepResult]`` here: one frame to
+    present, or an empty list to present nothing this step. A list longer than
+    one raises :class:`TypeError`. Model frames to draw come from
+    :meth:`presented_model_frame` and :meth:`presented_model_frames` rather
+    than from the model loop directly.
+    :meth:`has_pending_model_frames` and :attr:`presented_model_frame_count`
+    report whether more model frames are waiting and how many have been
+    selected.
     """
+
+    @abstractmethod
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        """Return zero or one :class:`StepResult` to present this tick."""
+        ...
 
     @final
     def register_session_ui_loop_objects(
@@ -452,6 +465,30 @@ class IUILoop(ILoop[StateT], ABC):
             lock_cursor_to_window
         )
 
+    @final
+    def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
+        """Request a positive downstream client-window width and height.
+
+        Args:
+            new_window_size: Requested ``(width, height)`` in pixels.
+
+        Raises:
+            TypeError: The size is not a pair of integers.
+            ValueError: Either dimension is not positive.
+        """
+        if (
+            not isinstance(new_window_size, tuple)
+            or len(new_window_size) != 2
+            or any(
+                isinstance(dimension, bool) or not isinstance(dimension, int)
+                for dimension in new_window_size
+            )
+        ):
+            raise TypeError("new_window_size must be a tuple of two integers.")
+        if any(dimension <= 0 for dimension in new_window_size):
+            raise ValueError("new_window_size dimensions must be > 0.")
+        self.get_or_create_ui_loop_requests().new_window_size = new_window_size
+
     def get_or_create_ui_loop_requests(self) -> UILoopRequests:
         if self._ui_loop_requests is None:
             self._ui_loop_requests = UILoopRequests()
@@ -498,6 +535,17 @@ class IUILoop(ILoop[StateT], ABC):
                 from a presented result.
         """
         return self._presentation_manager.presented_frames()
+
+    @property
+    @final
+    def presented_model_frame_count(self) -> int:
+        """Return how many model frames have been selected in this generation."""
+        return self._presentation_manager.presented_frame_count
+
+    @final
+    def has_pending_model_frames(self) -> bool:
+        """Return whether another model frame is ready to present."""
+        return self._presentation_manager.has_pending_frames()
 
 
 def _parse_lifecycle_events(

@@ -13,7 +13,7 @@ dependencies = [
     "flashdreams",
     "ludus-renderer",
     "numpy",
-    "pillow",
+    "pillow>=12.3.0",
     "pyarrow",
     "pyyaml>=6",
     "shapely>=2.0",

@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-"""Torch compositor for live-edit pixels on device-resident model frames.
+"""Torch compositor for live-edit sprites on device-resident model frames.
 
 The native window path hands ``PresentedFrame.model_rgb_host_uint8`` to the
 Vulkan HUD as a CUDA uint8 HWC tensor (``LazyCudaFrame``); materializing it
 to host numpy for PIL compositing forces a GPU->CPU->CPU-composite->GPU
 round trip per frame (~10 fps observed). This module keeps the frame on
-device: sprites, contact shadows, and HUD chips are pre-rendered once (PIL,
-host) and uploaded as cached tensors; the per-frame work is a handful of
+device: sprites and contact shadows are pre-rendered once (PIL, host) and
+uploaded as cached tensors; the per-frame work is a handful of
 small alpha-blended ROI writes plus an optional separable-Gaussian unsharp
 mask, all plain torch ops on the frame's device.
 
@@ -36,9 +36,6 @@ from torch import Tensor
 if TYPE_CHECKING:
     from crazy_robotaxi.live_edit.coin_ability import CoinSprite
 
-_CHIP_CACHE_MAX = 64
-"""Cached chip textures (labels change only on pickups/state switches)."""
-
 _SPRITE_REF_PX = 96
 """Canonical sprite edge used for the pre-uploaded coin/shadow textures."""
 
@@ -51,9 +48,6 @@ the cached texture makes every coin a single full-opacity blend (the hot
 path is CPU-launch-bound, so per-coin torch-op count dominates); 1/16 alpha
 steps are imperceptible on the 20 m fade ramp."""
 
-_COUNTER_MARGIN_PX = 12
-_COUNTER_TEXT_RGBA = (255, 255, 255, 255)
-_COUNTER_CHIP_RGBA = (30, 30, 30, 180)
 _SHADOW_MAX_ALPHA = 60
 _SHADOW_WIDTH_FRACTION = 0.9
 _SHADOW_HEIGHT_FRACTION = 0.22
@@ -206,7 +200,7 @@ class LiveEditFrameCompositor:
     """Pre-uploaded textures + per-frame ROI blends for one coin sprite.
 
     Mirrors the PIL path in :mod:`crazy_robotaxi.live_edit.presenter`
-    (:func:`~.presenter.unsharp_rgb`, coin/shadow compositing, HUD chips)
+    (:func:`~.presenter.unsharp_rgb` and coin/shadow compositing)
     with torch ops on the frame's device. One instance per presenter;
     texture caches are keyed by device so CPU tests and CUDA serving share
     the code.
@@ -239,8 +233,6 @@ class LiveEditFrameCompositor:
         self._roi_blends = os.environ.get("LIVE_EDIT_COMPOSITOR", "float") == "roi"
         self._sprite_cache: dict[tuple[str, torch.device], tuple[Tensor, Tensor]] = {}
         self._shadow_cache: dict[torch.device, Tensor] = {}
-        self._chip_cache: OrderedDict[tuple[str, torch.device], tuple[Tensor, Tensor]]
-        self._chip_cache = OrderedDict()
         self._kernel_cache: dict[tuple[float, torch.device], Tensor] = {}
         # Merged per-size coin textures (contact shadow + coin + quantized
         # distance fade pre-composited): coin sizes quantize to a few dozen
@@ -289,35 +281,6 @@ class LiveEditFrameCompositor:
             _, alpha = _rgba_to_tensors(image, device)
             cached = alpha.unsqueeze(0)  # [1,1,H,W] for interpolate
             self._shadow_cache[device] = cached
-        return cached
-
-    def _chip(self, label: str, device: torch.device) -> tuple[Tensor, Tensor]:
-        """Chip texture ``([h,w,3] rgb*a, [h,w,1] 1-a)``, rendered per label."""
-        key = (label, device)
-        cached = self._chip_cache.get(key)
-        if cached is not None:
-            self._chip_cache.move_to_end(key)
-            return cached
-        probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-        text_box = probe.textbbox((10, 6), label)
-        image = Image.new(
-            "RGBA",
-            (round(text_box[2]) + 11, round(text_box[3]) + 7),
-            (0,) * 4,
-        )
-        draw = ImageDraw.Draw(image)
-        draw.rounded_rectangle(
-            [0, 0, text_box[2] + 10, text_box[3] + 6],
-            radius=6,
-            fill=_COUNTER_CHIP_RGBA,
-        )
-        draw.text((10, 6), label, fill=_COUNTER_TEXT_RGBA)
-        rgb, alpha = _rgba_to_tensors(image, device)
-        rgb, alpha = rgb.permute(1, 2, 0), alpha.permute(1, 2, 0)
-        cached = ((rgb * alpha).contiguous(), (1.0 - alpha).contiguous())
-        self._chip_cache[key] = cached
-        while len(self._chip_cache) > _CHIP_CACHE_MAX:
-            self._chip_cache.popitem(last=False)
         return cached
 
     def _coin_texture(
@@ -391,7 +354,6 @@ class LiveEditFrameCompositor:
         *,
         sprites: Sequence[CoinSprite] = (),
         frame_index: int = 0,
-        labels: Sequence[str] = (),
         sharpen_sigma: float = 0.0,
         sharpen_amount: float = 0.0,
     ) -> Tensor:
@@ -409,7 +371,6 @@ class LiveEditFrameCompositor:
         if sharpen_amount <= 0.0 and self._roi_blends:
             canvas = frame_hwc_uint8.clone()
             self._blend_coins(canvas, sprites, frame_index, _blend_uint8_)
-            self._blend_chips(canvas, labels, _blend_uint8_)
             return canvas
         canvas = frame_hwc_uint8.to(torch.float32)
         if sharpen_amount > 0.0:
@@ -417,7 +378,6 @@ class LiveEditFrameCompositor:
                 canvas, sigma=sharpen_sigma, amount=sharpen_amount
             )
         self._blend_coins(canvas, sprites, frame_index, _blend_float_)
-        self._blend_chips(canvas, labels, _blend_float_)
         return canvas.round_().clamp_(0.0, 255.0).to(torch.uint8)
 
     def unsharp(
@@ -464,10 +424,6 @@ class LiveEditFrameCompositor:
             self.composite(frame_hwc_uint8, sprites=sprites, frame_index=frame_index)
         )
 
-    def draw_chips(self, frame_hwc_uint8: Tensor, labels: Sequence[str]) -> None:
-        """Blend the stacked HUD chips in place (uint8 convenience)."""
-        frame_hwc_uint8.copy_(self.composite(frame_hwc_uint8, labels=labels))
-
     def _blend_coins(
         self,
         canvas_hwc: Tensor,
@@ -501,15 +457,3 @@ class LiveEditFrameCompositor:
                 round(sprite.center_uv[0] - sprite_w / 2.0) - coin_x,
                 round(sprite.center_uv[1] - sprite_h / 2.0),
             )
-
-    def _blend_chips(
-        self, canvas_hwc: Tensor, labels: Sequence[str], blend: _BlendFn
-    ) -> None:
-        if not labels:
-            return
-        device = canvas_hwc.device
-        y0 = _COUNTER_MARGIN_PX
-        for label in labels:
-            premultiplied, one_minus = self._chip(label, device)
-            blend(canvas_hwc, premultiplied, one_minus, _COUNTER_MARGIN_PX, y0)
-            y0 += one_minus.shape[0] - 1 + 8

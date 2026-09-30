@@ -81,6 +81,7 @@ class UMT5TextEncoder(Encoder):
                 config.model_id_or_local_path,
                 subfolder="text_encoder",
                 local_files_only=True,
+                attn_implementation="eager",
             ),
         )
         self.text_encoder.eval().requires_grad_(False)

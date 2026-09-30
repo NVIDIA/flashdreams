@@ -17,17 +17,18 @@ style prompts, not weather); :class:`~.style_ability.StyleAbility` detaches
 it around the ``replace_text`` call when ``use_lora`` is False.
 
 Weather is a **base-world-only** ability (design decision 2026-08-20):
-skin+weather combo prompts produced rain that was not attributable as rain
+skin+weather combinations produced rain that was not attributable as rain
 under the neon skins, so :class:`~.style_ability.StyleAbility` rejects the
 weather key while a skin is active and clears weather when a skin is
-activated. Exactly one of (skin, weather) is active at any time:
+activated. Weather text is appended to the authored map prompt and runtime map
+context. Exactly one of (skin, weather) is active at any time:
 
 ===========  ==========  ==============================  ========  =========
 skin         weather     prompt                          LoRA      corrector
 ===========  ==========  ==============================  ========  =========
-none         none        base scene prompt (plain 1/0)   off       off
-active       none        skin prompt                     on        style gain
-none         active      weather standalone prompt       BYPASS    weather gain*
+none         none        base scene + map context        off       off
+active       none        skin prompt + map context        on        style gain
+none         active      base + map + weather suffix      BYPASS    weather gain*
 ===========  ==========  ==============================  ========  =========
 
 ``*`` the corrector gate profile was calibrated on style v6, not weather;
@@ -73,13 +74,14 @@ class SwapTarget:
 def compose_swap_target(
     *,
     base_prompt: str,
+    map_prompt_suffix: str,
     skin: StyleSkin | None,
     weather: WeatherPreset | None,
     style_config: LiveEditStyleConfig,
     weather_config: LiveEditWeatherConfig | None,
     lora_available: bool,
 ) -> SwapTarget:
-    """Resolve the single active prompt for a (skin | weather) state.
+    """Resolve the composed prompt for a mutually exclusive appearance state.
 
     Raises:
         ValueError: Both a skin and a weather are requested — weather is
@@ -92,7 +94,10 @@ def compose_swap_target(
         # Plain swap back to the base world; guidance 1.0/0 also deactivates
         # the pre-merged edit LoRA.
         return SwapTarget(
-            prompt=base_prompt,
+            prompt=compose_prompt(
+                base_prompt=base_prompt,
+                map_prompt_suffix=map_prompt_suffix,
+            ),
             guidance_scale=1.0,
             guidance_chunks=0,
             use_lora=False,
@@ -100,7 +105,10 @@ def compose_swap_target(
         )
     if skin is not None:
         return SwapTarget(
-            prompt=skin.prompt,
+            prompt=compose_prompt(
+                base_prompt=skin.prompt,
+                map_prompt_suffix=map_prompt_suffix,
+            ),
             guidance_scale=style_config.guidance_scale,
             guidance_chunks=style_config.guidance_chunks,
             use_lora=lora_available,
@@ -109,9 +117,27 @@ def compose_swap_target(
     assert weather is not None
     assert weather_config is not None, "weather state requires a weather config"
     return SwapTarget(
-        prompt=weather.prompt,
+        prompt=compose_prompt(
+            base_prompt=base_prompt,
+            map_prompt_suffix=map_prompt_suffix,
+            appearance_prompt_suffix=weather.prompt_suffix,
+        ),
         guidance_scale=weather_config.guidance_scale,
         guidance_chunks=weather_config.guidance_chunks,
         use_lora=False,
         corrector_gain=weather_config.corrector_gain,
+    )
+
+
+def compose_prompt(
+    *,
+    base_prompt: str,
+    map_prompt_suffix: str = "",
+    appearance_prompt_suffix: str = "",
+) -> str:
+    """Compose the base scene, runtime map context, and appearance text."""
+    return " ".join(
+        part.strip()
+        for part in (base_prompt, map_prompt_suffix, appearance_prompt_suffix)
+        if part.strip()
     )

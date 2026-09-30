@@ -69,6 +69,13 @@ from flashdreams.infra.cuda_graph import CUDAGraphWrapper
 
 _LOGGER = logging.getLogger(__name__)
 
+_ATTENTION_BACKEND_CHOICES = frozenset(
+    {"auto", "cudnn", "sparge", "sage3", "sage3_fp8", "prefer_sage3_fp8"}
+)
+_ATTENTION_BACKEND_CHOICES_TEXT = (
+    "'auto', 'cudnn', 'sparge', 'sage3', 'sage3_fp8', or 'prefer_sage3_fp8'"
+)
+
 _DEFAULT_SPARGE_TOPK = 0.25
 _DEFAULT_SPARGE_HYBRID_TOPK = _DEFAULT_SPARGE_TOPK
 _DEFAULT_SPARGE_HYBRID_PERIOD = 2
@@ -751,16 +758,10 @@ class OptimizedDiTExecutor:
         self._requested_attention_backend = (
             (attention_backend or "auto").strip().lower()
         )
-        if self._requested_attention_backend not in {
-            "auto",
-            "cudnn",
-            "sparge",
-            "sage3",
-            "sage3_fp8",
-        }:
+        if self._requested_attention_backend not in _ATTENTION_BACKEND_CHOICES:
             raise ValueError(
-                "--native-attention-backend must be 'auto', 'cudnn', "
-                f"'sparge', 'sage3', or 'sage3_fp8' (got {self._requested_attention_backend!r})"
+                f"--native-attention-backend must be one of {_ATTENTION_BACKEND_CHOICES_TEXT} "
+                f"(got {self._requested_attention_backend!r})"
             )
         self._requested_sparge_topk = sparge_topk
         self._requested_sparge_hybrid_period = sparge_hybrid_period
@@ -930,13 +931,22 @@ class OptimizedDiTExecutor:
         device: torch.device | int | None = None,
     ) -> tuple[str, bool]:
         requested = (requested or "auto").strip().lower()
-        if requested not in {"auto", "cudnn", "sparge", "sage3", "sage3_fp8"}:
+        if requested not in _ATTENTION_BACKEND_CHOICES:
             raise ValueError(
-                "--native-attention-backend must be 'auto', 'cudnn', "
-                f"'sparge', 'sage3', or 'sage3_fp8' (got {requested!r})"
+                f"--native-attention-backend must be one of {_ATTENTION_BACKEND_CHOICES_TEXT} "
+                f"(got {requested!r})"
             )
 
         if requested == "auto":
+            return "cudnn", False
+        if requested == "prefer_sage3_fp8":
+            sage3_available, sage3_reason = self._sage3_status(device)
+            if self._uses_fp8_dit and sage3_available:
+                return "sage3_fp8", False
+            _LOGGER.info(
+                "native attention backend: Sage3 FP8 unavailable (%s); using cuDNN",
+                sage3_reason or "requires the fp8_kvcache_cudnn DiT backend",
+            )
             return "cudnn", False
 
         sage3_available, sage3_reason = self._sage3_status(device)

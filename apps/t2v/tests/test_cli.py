@@ -313,6 +313,12 @@ def _install(
         )
         monkeypatch.setattr(
             T2VImGuiUILoop,
+            "frames_to_blit",
+            BlitModelOutputToScreenLoop.frames_to_blit,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            T2VImGuiUILoop,
             "step",
             BlitModelOutputToScreenLoop.step,
         )

@@ -25,7 +25,6 @@ requires-python = ">=3.10"
 #   pick up ``flashvsr``.
 # - omegaconf / easydict: upstream config plumbing.
 # - imageio[ffmpeg]: upstream video I/O (``infer_flashvsr_*.py`` uses it).
-# - peft: optional but pulled by some diffsynth model wrappers.
 # - block-sparse-attn: upstream Locality-Constrained Sparse Attention.
 #   Kept here so the cloned upstream baseline keeps its original sparse
 #   attention implementation while the FlashDreams candidate exercises the
@@ -43,7 +42,6 @@ dependencies = [
     "omegaconf",
     "easydict",
     "imageio[ffmpeg]",
-    "peft",
     "safetensors",
     "diffusers",
     "block-sparse-attn==0.0.2",
