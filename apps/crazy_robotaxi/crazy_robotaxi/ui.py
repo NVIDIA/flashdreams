@@ -3510,6 +3510,8 @@ class TaxiHudState:
         imgui: Any,
         snapshot: TaxiGameSnapshot | RaceGameSnapshot | FreeRoamSnapshot,
     ) -> None:
+        if isinstance(snapshot, FreeRoamSnapshot):
+            return
         awaiting_name = snapshot.session_state == "awaiting_name"
         leaderboard = snapshot.session_state == "leaderboard"
         if not (awaiting_name or leaderboard):
