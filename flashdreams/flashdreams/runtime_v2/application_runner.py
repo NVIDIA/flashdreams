@@ -13,6 +13,7 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.infra.profiler import (
     create_profiler,
+    get_inference_profiler,
     set_flashdreams_inference_profiler,
 )
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
@@ -92,6 +93,8 @@ class ApplicationRunner:
                     if deadline is not None and time.monotonic() >= deadline:
                         break
                     session = self._application.create_session(next_session_desc)
+                    # Rates describe one session, not the run's whole sequence.
+                    get_inference_profiler().reset_counts()
                     session_run_started = True
                     remaining_seconds = (
                         None
