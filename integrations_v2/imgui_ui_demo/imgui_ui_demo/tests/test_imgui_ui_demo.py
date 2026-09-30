@@ -9,9 +9,9 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from numpy import uint64
 from imgui_ui_demo.file_picker_app import FilePickerImGuiUILoop, FilePickerState
 from imgui_ui_demo.text_input_app import TextInputImGuiUILoop, TextInputState
+from numpy import uint64
 
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc

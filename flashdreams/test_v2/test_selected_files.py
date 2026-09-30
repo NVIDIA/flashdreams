@@ -25,9 +25,9 @@ pytestmark = pytest.mark.ci_cpu
 
 
 class _UILoop(IUILoop[None]):
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         del step_index, events
-        return None
+        return []
 
     def reset(self) -> None:
         return

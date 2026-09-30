@@ -246,9 +246,9 @@ delegates over the thing that does the work — `Mp4ClientWindow` over
 the output shape, because the session already did.
 
 They differ in what they can do rather than in how they are driven. A session
-chooses its UI independently of the client window. Browser keyboard, mouse and
-focus events arrive on the server's own thread, so it queues them and hands them
-over in batches when the session asks.
+chooses its UI independently of the client window. Browser keyboard, mouse,
+focus, and file-selector events arrive on the server's own thread, so it queues
+them and hands them over in batches when the session asks.
 
 A UI loop may call `request_new_session(session_desc)` during its step with a
 fully resolved replacement description. `run_session` stops and cleans the
