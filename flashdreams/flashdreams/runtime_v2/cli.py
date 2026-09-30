@@ -12,7 +12,7 @@ What the modes are, and what each one takes, belongs to
 :mod:`flashdreams.runtime_v2.client_window_factory`. Nothing here reads an
 argument that only one of them uses. ``--timeout`` and ``--total-model-steps``
 belong to this command; ``--mode mp4`` requires that at least one of them is
-present.
+present. A named steps count is remaining for the whole application run.
 """
 
 import argparse
@@ -157,9 +157,9 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         metavar=f"{{N,{Unbound.unbound.value}}}",
         help=(
-            "Maximum model steps before ending the session. "
-            f"{Unbound.unbound.value} means no steps limit. A replacement "
-            "session gets N again, not remaining steps."
+            "Maximum model steps for the application run. "
+            f"{Unbound.unbound.value} means no steps limit. Remaining "
+            "steps are what a replacement session receives."
         ),
     )
     add_client_window_arguments(parser)

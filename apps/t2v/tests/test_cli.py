@@ -28,12 +28,12 @@ from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2 import cli
-from flashdreams.runtime_v2.application_runner import Unbound
 from flashdreams.runtime_v2.application_registry import (
     APPLICATION_ENTRY_POINT_GROUP,
     create_application,
     registered_application_slugs,
 )
+from flashdreams.runtime_v2.application_runner import Unbound
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
@@ -604,7 +604,7 @@ def test_the_run_goes_to_the_window_the_mode_asked_for(
 def test_the_command_passes_its_timeout_to_the_application_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    received: list[float | None] = []
+    received: list[float | Unbound] = []
 
     def record_run(
         self: object,

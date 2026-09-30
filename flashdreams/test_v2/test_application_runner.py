@@ -311,7 +311,7 @@ def test_application_timeout_none_is_not_unbound() -> None:
     with pytest.raises(ValueError, match="finite and greater than zero"):
         ApplicationRunner(_Application(calls), _SilentWindow(calls)).run(
             _session_desc(),
-            timeout_seconds=None,
+            timeout_seconds=None,  # ty: ignore[invalid-argument-type]
         )
 
     assert calls == []
@@ -348,7 +348,7 @@ def test_application_steps_none_is_not_unbound() -> None:
     with pytest.raises(ValueError, match="steps must be"):
         ApplicationRunner(_Application(calls), _SilentWindow(calls)).run(
             _session_desc(),
-            steps=None,
+            steps=None,  # ty: ignore[invalid-argument-type]
         )
 
     assert calls == []
@@ -366,10 +366,10 @@ def test_application_step_limit_must_not_be_negative() -> None:
     assert calls == []
 
 
-def test_application_runner_passes_the_same_step_limit_into_every_session(
+def test_application_runner_passes_remaining_steps_into_the_next_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A replacement session gets ``steps`` again, not remaining steps."""
+    """A replacement session receives what the previous session did not use."""
     seen: list[int | None] = []
 
     def record_run_session(
@@ -379,9 +379,12 @@ def test_application_runner_passes_the_same_step_limit_into_every_session(
         metrics_output_sink: MetricsOutputSink | None = None,
         steps: int | None = None,
         timeout_seconds: float | None = None,
+        completed_steps: list[int] | None = None,
     ) -> SessionDesc | None:
         del session, window, metrics_output_sink, timeout_seconds
         seen.append(steps)
+        if completed_steps is not None:
+            completed_steps.append(3 if steps == 7 else 0)
         if len(seen) == 1:
             return _session_desc()
         return None
@@ -396,7 +399,43 @@ def test_application_runner_passes_the_same_step_limit_into_every_session(
         steps=7,
     )
 
-    assert seen == [7, 7]
+    assert seen == [7, 4]
+
+
+def test_application_runner_skips_replacement_when_no_steps_remain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A replacement request is dropped once the run has used its step budget."""
+    seen: list[int | None] = []
+
+    def record_run_session(
+        session: ISession,
+        window: IClientWindow,
+        *,
+        metrics_output_sink: MetricsOutputSink | None = None,
+        steps: int | None = None,
+        timeout_seconds: float | None = None,
+        completed_steps: list[int] | None = None,
+    ) -> SessionDesc | None:
+        del session, window, metrics_output_sink, timeout_seconds
+        seen.append(steps)
+        if completed_steps is not None:
+            completed_steps.append(0 if steps is None else steps)
+        return _session_desc()
+
+    monkeypatch.setattr(
+        "flashdreams.runtime_v2.application_runner.run_session",
+        record_run_session,
+    )
+    calls: list[str] = []
+    ApplicationRunner(_Application(calls), _SilentWindow(calls)).run(
+        _session_desc(),
+        steps=7,
+    )
+
+    assert seen == [7]
+    assert calls.count("application.create_session") == 1
+    assert calls[-2:] == ["window.close", "application.close"]
 
 
 def test_application_runner_keeps_metrics_output_separate_from_the_window() -> None:

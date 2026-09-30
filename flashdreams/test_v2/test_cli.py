@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU tests for flashdreams-run-v2 ``--timeout`` and ``--total-model-steps``."""
+"""CPU tests for flashdreams-run-v2 ``--timeout`` and ``--total-model-steps``.
+
+These tests check parse and forwarding into ``ApplicationRunner.run``. Leftover
+steps across replacements are covered in ``test_application_runner.py``.
+"""
 
 import argparse
 from collections.abc import Sequence

@@ -60,7 +60,8 @@ class ApplicationRunner:
 
         A new-session request closes the current session and creates its
         replacement from the description returned by ``run_session``. A close
-        request or a completed session returns no replacement and ends the run.
+        request, a completed session, or a named ``steps`` budget with nothing
+        left returns no replacement and ends the run.
 
         The application is closed before this method returns or raises.
 
@@ -74,10 +75,10 @@ class ApplicationRunner:
             timeout_seconds: Maximum application runtime; ``Unbound`` waits for
                 a normal lifecycle exit. The deadline includes initialization
                 and every replacement session.
-            steps: Maximum model steps for each session; ``Unbound`` leaves
-                that session's length to the UI, the client window, or
-                ``timeout_seconds``. A replacement session gets the same
-                ``steps``, not remaining steps from the previous session.
+            steps: Maximum model steps for the application run; ``Unbound``
+                leaves session length to the UI, the client window, or
+                ``timeout_seconds``. Each session receives the remaining
+                count. A replacement is not started when none remain.
 
         Raises:
             ValueError: ``timeout_seconds`` is not a finite number greater
@@ -96,9 +97,9 @@ class ApplicationRunner:
         else:
             raise ValueError("timeout_seconds must be finite and greater than zero.")
         if steps is Unbound.unbound:
-            session_steps = None
+            remaining_steps = None
         elif isinstance(steps, int) and not isinstance(steps, bool) and steps >= 0:
-            session_steps = steps
+            remaining_steps = steps
         else:
             raise ValueError(f"steps must be >= 0 or Unbound, got {steps}.")
         session_run_started = False
@@ -114,19 +115,27 @@ class ApplicationRunner:
                 remaining_seconds = (
                     None if deadline is None else max(0.0, deadline - time.monotonic())
                 )
+                completed_steps: list[int] = []
                 try:
                     next_session_desc = run_session(
                         session,
                         self._client_window,
                         metrics_output_sink=self._metrics_output_sink,
-                        steps=session_steps,
+                        steps=remaining_steps,
                         timeout_seconds=remaining_seconds,
+                        completed_steps=completed_steps,
                     )
                 except BaseException:
                     # ``run_session`` closes the window on every failure.
                     window_needs_close = False
                     raise
                 window_needs_close = next_session_desc is not None
+                # Subtract what this session used; a replacement gets leftover, not a fresh N.
+                if remaining_steps is not None:
+                    used = completed_steps[0] if completed_steps else 0
+                    remaining_steps = max(0, remaining_steps - used)
+                    if remaining_steps == 0:
+                        next_session_desc = None
         finally:
             if window_needs_close:
                 _close_client_window(self._client_window)

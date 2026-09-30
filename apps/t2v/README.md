@@ -31,6 +31,8 @@ uv run --package flashdreams-self-forcing flashdreams-run-v2 \
 ```
 
 `unbound` means no runner time-limit; `--total-blocks` still ends the clip.
+`--total-model-steps N` (before `--`) is remaining for the whole run, not a
+fresh `N` on each new prompt.
 
 To keep the model resident and submit prompts from a browser:
 

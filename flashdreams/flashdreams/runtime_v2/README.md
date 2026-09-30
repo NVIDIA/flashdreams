@@ -30,7 +30,8 @@ Finding and starting an application:
 - `cli.py` is `flashdreams-run-v2`: it splits its own arguments from the
   application's at `--`, decides which session to ask for, and builds the window.
 - `application_runner.py` owns the application lifecycle around one run —
-  `init`, `create_session`, `run_session`, `close`.
+  `init`, `create_session`, `run_session`, `close`. Remaining timeout and
+  remaining `--total-model-steps` are what each replacement receives.
 - `client_window_factory.py` turns `--mode` into a window, and owns the
   arguments each mode takes.
 
@@ -111,9 +112,15 @@ An in-flight model step must return before the process can finish cleaning up.
 Synchronous application or session initialization likewise cannot be interrupted
 mid-call.
 
-`--total-model-steps N` is `run_session`'s per-session `steps` limit. A
-replacement session gets `N` again, not remaining steps. `unbound` (or omitting
-the flag) means no steps limit.
+`--total-model-steps N` is the remaining model-step budget for the whole
+application run. Each session receives what is left. A replacement is not
+started when none remain. `unbound` (or omitting the flag) means no steps
+limit.
+
+`--total-blocks` is still an application flag after `--` on Cam2V, T2V,
+Action2V, Interactive Drive, and Crazy Robotaxi. It ends that session through
+`is_finished()`. Both can be set; the first to fire wins. Making the runner
+count the only user-facing length is a later change.
 
 `--mode mp4` requires `--timeout` and/or `--total-model-steps` (a number or
 `unbound` on each). Native-window and WebRTC may omit both and end when the
@@ -143,7 +150,8 @@ be serving a browser before the application has finished loading.
 
 `timeout_seconds` and `steps` are a number or `Unbound`. `Unbound` (the
 default) is no limit. `None` is not a limit. The command-line token `unbound`
-and an omitted flag both become `Unbound` here.
+and an omitted flag both become `Unbound` here. A named `steps` count is
+remaining across replacement sessions, the same way remaining seconds are.
 
 `run_session` then opens the window and any metrics sink, collects one batch of
 input, presents one tick, and only then starts the model thread — so a client that

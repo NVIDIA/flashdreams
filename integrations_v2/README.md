@@ -229,7 +229,8 @@ ApplicationRunner(create_app(), Mp4ClientWindow(path)).run(session_desc, args)
 ```
 
 `timeout_seconds` and `steps` default to `Unbound` (no limit). Pass a number to
-bound the run; `None` is not a limit.
+bound the run; `None` is not a limit. A named `steps` count is remaining across
+replacement sessions.
 
 ## Testing it
 
