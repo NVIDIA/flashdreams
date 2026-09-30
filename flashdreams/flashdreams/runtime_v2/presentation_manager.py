@@ -13,6 +13,7 @@ from contextlib import contextmanager
 import torch
 from torch import Tensor
 
+from flashdreams.infra.profiler import get_inference_profiler
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateTracker
 from flashdreams.runtime_v2.session_desc import BackpressureMode
@@ -393,6 +394,7 @@ class PresentationManager:
             self._presented_frame_count += 1
             self._trace_presented_frame(generation)
             self._presentation_clock.mark_advanced(now, backlog=backlog)
+            get_inference_profiler().event("present.frame")
             return True, None
 
         chunk = self._take_buffered_chunk(
@@ -406,6 +408,7 @@ class PresentationManager:
         self._presented_frame_count += 1
         self._trace_presented_frame(generation)
         self._presentation_clock.mark_advanced(now, backlog=backlog)
+        get_inference_profiler().event("present.frame")
         return True, chunk
 
     @property

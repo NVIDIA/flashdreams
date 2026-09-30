@@ -17,9 +17,12 @@
 
 from __future__ import annotations
 
+import math
 import os
 import threading
+import time
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager, nullcontext
 from contextvars import ContextVar, Token
@@ -28,6 +31,9 @@ from typing import ContextManager
 import torch
 
 _STAGE_PREFIX = "pipeline."
+_FPS_WINDOW_SECONDS = 2.0
+"""Trailing window for reported rates. Long enough to be steady, short
+enough to follow a change."""
 
 
 class IProfiler(ABC):
@@ -41,10 +47,25 @@ class IProfiler(ABC):
     def range(self, name: str) -> ContextManager[None]:
         """Return a context manager covering the block as ``name``."""
 
+    def event(self, name: str, *, count: int = 1) -> None:
+        """Mark that ``name`` happened, covering ``count`` items.
+
+        A range has width; an event does not. ``count`` is how many items the
+        event stands for, so one chunk of frames is a single call.
+        """
+        del name, count
+
     def collect_stage_ms(self) -> dict[str, float]:
         """Return and clear the pipeline stage timings of the step just run.
 
         Empty when the backend does not time stages.
+        """
+        return {}
+
+    def collect_fps(self) -> dict[str, float]:
+        """Return trailing-window rates for the events seen so far.
+
+        Empty when the backend does not count events.
         """
         return {}
 
@@ -71,6 +92,10 @@ class NVTXProfiler(IProfiler):
             yield
         finally:
             torch.cuda.nvtx.range_pop()
+
+    def event(self, name: str, *, count: int = 1) -> None:
+        del count
+        torch.cuda.nvtx.mark(name)
 
 
 class CudaEventProfiler(IProfiler):
@@ -113,6 +138,58 @@ class CudaEventProfiler(IProfiler):
         return events.sync_and_summarize()
 
 
+class FrameRateProfiler(IProfiler):
+    """Counts events into a trailing wall-clock rate, one window per name.
+
+    ``RecentFrameRateTracker`` divides frames by summed operation time, which is
+    throughput and is what presentation pacing wants. A displayed frame rate is
+    per wall-clock second, so the window here is kept over completion times.
+
+    The model thread and the UI thread both record, so the windows are guarded.
+    Ranges are ignored: a rate comes from completions, not widths.
+    """
+
+    def __init__(self, *, window_seconds: float = _FPS_WINDOW_SECONDS) -> None:
+        if not math.isfinite(window_seconds) or window_seconds <= 0.0:
+            raise ValueError("window_seconds must be finite and > 0.")
+        self._window_seconds = window_seconds
+        self._windows: dict[str, deque[tuple[float, int]]] = {}
+        self._lock = threading.Lock()
+
+    def range(self, name: str) -> ContextManager[None]:
+        del name
+        return nullcontext()
+
+    def event(self, name: str, *, count: int = 1) -> None:
+        if count <= 0:
+            return
+        now = time.monotonic()
+        with self._lock:
+            window = self._windows.setdefault(name, deque())
+            window.append((now, count))
+            self._evict(window, now)
+
+    def collect_fps(self) -> dict[str, float]:
+        now = time.monotonic()
+        with self._lock:
+            rates: dict[str, float] = {}
+            for name, window in self._windows.items():
+                self._evict(window, now)
+                if len(window) < 2:
+                    # One sample spans no time, so it names no rate.
+                    continue
+                span_s = now - window[0][0]
+                if span_s <= 0.0:
+                    continue
+                rates[f"{name}_fps"] = sum(count for _, count in window) / span_s
+            return rates
+
+    def _evict(self, window: deque[tuple[float, int]], now: float) -> None:
+        cutoff = now - self._window_seconds
+        while window and window[0][0] <= cutoff:
+            window.popleft()
+
+
 class CompositeProfiler(IProfiler):
     """Runs several backends over one set of call sites, outermost first."""
 
@@ -126,12 +203,22 @@ class CompositeProfiler(IProfiler):
                 stack.enter_context(profiler.range(name))
             yield
 
+    def event(self, name: str, *, count: int = 1) -> None:
+        for profiler in self._profilers:
+            profiler.event(name, count=count)
+
     def collect_stage_ms(self) -> dict[str, float]:
         # Drain every backend: one left uncollected would carry into the next step.
         stage_ms: dict[str, float] = {}
         for profiler in self._profilers:
             stage_ms.update(profiler.collect_stage_ms())
         return stage_ms
+
+    def collect_fps(self) -> dict[str, float]:
+        rates: dict[str, float] = {}
+        for profiler in self._profilers:
+            rates.update(profiler.collect_fps())
+        return rates
 
 
 _INFERENCE_PROFILER: ContextVar[IProfiler | None] = ContextVar(
@@ -194,15 +281,18 @@ def unbind_inference_profiler(token: Token[IProfiler | None]) -> None:
 def create_profiler() -> IProfiler:
     """Build the profiler a session runs with, from the environment.
 
-    ``FLASHDREAMS_NVTX`` adds Nsight Systems ranges, and
+    ``FLASHDREAMS_NVTX`` adds Nsight Systems ranges,
     ``FLASHDREAMS_SYNC_AND_PROFILE`` adds the CUDA-event stage timings that
-    ``finalize`` returns. Neither set means nothing is recorded.
+    ``finalize`` returns, and ``FLASHDREAMS_FPS`` adds the frame rates the model
+    loop reports. None set means nothing is recorded.
     """
     profilers: list[IProfiler] = []
     if os.environ.get("FLASHDREAMS_NVTX") == "1" and torch.cuda.is_available():
         profilers.append(NVTXProfiler())
     if os.environ.get("FLASHDREAMS_SYNC_AND_PROFILE") == "1":
         profilers.append(CudaEventProfiler())
+    if os.environ.get("FLASHDREAMS_FPS") == "1":
+        profilers.append(FrameRateProfiler())
     if not profilers:
         return NullProfiler()
     if len(profilers) == 1:

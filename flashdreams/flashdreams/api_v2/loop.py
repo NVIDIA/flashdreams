@@ -366,6 +366,14 @@ class IModelLoop(ILoop[StateT], ABC):
 
                 # Carry timing across steps whose output remains buffered.
                 if result:
+                    self.profiler.event("model.frame", count=result[0].frame_count)
+                    # Read the rates before publishing: afterwards the result
+                    # belongs to the presentation thread and must not be touched.
+                    frames_per_second = self.profiler.collect_fps()
+                    if frames_per_second:
+                        for channel in result:
+                            if channel.metrics is not None:
+                                channel.metrics.update(frames_per_second)
                     with self.profiler.range("model.publish"):
                         publish(generation, result, unpublished_step_elapsed_s)
                     unpublished_step_elapsed_s = 0.0
