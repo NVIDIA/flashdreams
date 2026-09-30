@@ -18,9 +18,12 @@
 
 from __future__ import annotations
 
+import dataclasses
+import math
 import queue
 import subprocess
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -33,6 +36,7 @@ from flashdreams.infra import profiler as profiler_module
 from flashdreams.infra.profiler import (
     CompositeProfiler,
     CudaEventProfiler,
+    FrameRateProfiler,
     IProfiler,
     NullProfiler,
     NVTXProfiler,
@@ -68,12 +72,16 @@ class _RecordingNvtx:
 
     def __init__(self) -> None:
         self.events: list[str] = []
+        self.marks: list[str] = []
 
     def range_push(self, name: str) -> None:
         self.events.append(f"push:{name}")
 
     def range_pop(self) -> None:
         self.events.append("pop")
+
+    def mark(self, name: str) -> None:
+        self.marks.append(name)
 
 
 @pytest.fixture
@@ -320,6 +328,115 @@ def test_pipeline_reports_timings_a_caller_recorded_on_the_cache(
 
     assert stats is not None, "a caller's own timings must not be discarded"
     assert "denoise_ms" in stats and "finalize_ms" in stats
+
+
+def test_frame_rate_profiler_reports_a_wall_clock_rate() -> None:
+    """The rate is frames over elapsed wall time, not over summed work time."""
+    profiler = FrameRateProfiler(window_seconds=5.0)
+    profiler.event("model.frame", count=8)
+    time.sleep(0.05)
+    profiler.event("model.frame", count=8)
+
+    rates = profiler.collect_fps()
+    assert set(rates) == {"model.frame_fps"}
+    # 16 frames over ~0.05 s is a large but finite rate; the bug this guards
+    # against returned math.inf by dividing by summed operation time.
+    assert math.isfinite(rates["model.frame_fps"])
+    assert rates["model.frame_fps"] > 0.0
+
+
+def test_frame_rate_profiler_needs_two_samples_to_name_a_rate() -> None:
+    profiler = FrameRateProfiler(window_seconds=5.0)
+    assert profiler.collect_fps() == {}
+    profiler.event("ui.frame")
+    assert profiler.collect_fps() == {}, "one sample spans no time"
+
+
+def test_frame_rate_profiler_forgets_events_outside_the_window() -> None:
+    profiler = FrameRateProfiler(window_seconds=0.02)
+    profiler.event("ui.frame")
+    profiler.event("ui.frame")
+    time.sleep(0.05)
+    assert profiler.collect_fps() == {}
+
+
+def test_frame_rate_profiler_ignores_non_positive_counts() -> None:
+    profiler = FrameRateProfiler(window_seconds=5.0)
+    profiler.event("model.frame", count=0)
+    profiler.event("model.frame", count=-3)
+    assert profiler.collect_fps() == {}
+
+
+def test_frame_rate_profiler_counts_across_threads() -> None:
+    """The model thread and the UI thread record into the same windows."""
+    profiler = FrameRateProfiler(window_seconds=5.0)
+
+    def worker() -> None:
+        for _ in range(3):
+            profiler.event("ui.frame")
+
+    profiler.event("ui.frame")
+    thread = threading.Thread(target=worker)
+    thread.start()
+    thread.join()
+    time.sleep(0.01)
+    profiler.event("ui.frame")
+
+    assert set(profiler.collect_fps()) == {"ui.frame_fps"}
+
+
+@pytest.mark.parametrize("window", [0.0, -1.0, float("inf"), float("nan")])
+def test_frame_rate_profiler_rejects_an_unusable_window(window: float) -> None:
+    with pytest.raises(ValueError):
+        FrameRateProfiler(window_seconds=window)
+
+
+def test_composite_fans_events_out_and_merges_rates() -> None:
+    rates, nvtx = FrameRateProfiler(window_seconds=5.0), _RecordingNvtx()
+    profiler = CompositeProfiler((NVTXProfiler(), rates))
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(torch.cuda, "nvtx", nvtx)
+        profiler.event("ui.frame")
+        time.sleep(0.01)
+        profiler.event("ui.frame")
+
+    assert nvtx.marks == ["ui.frame", "ui.frame"]
+    assert set(profiler.collect_fps()) == {"ui.frame_fps"}
+
+
+def test_a_profiler_that_counts_nothing_reports_no_rates() -> None:
+    assert NullProfiler().collect_fps() == {}
+    assert CudaEventProfiler().collect_fps() == {}
+
+
+def test_pipeline_times_the_decode_stage_without_a_decoder() -> None:
+    """A stage absent from a config is still a stage the metrics must name.
+
+    main records decode unconditionally. Opening the range only inside the
+    ``if self.decoder is not None`` branch silently drops ``decode_ms`` for a
+    pipeline configured without a decoder.
+    """
+    null_model = pytest.importorskip("null_model")
+    config = dataclasses.replace(null_model.NULL_MODEL_CONFIG, decoder=None)
+    pipeline = config.setup().to("cpu")
+    recording = _RecordingProfiler()
+    cache = pipeline.initialize_cache()
+
+    with set_flashdreams_inference_profiler(recording):
+        pipeline.generate(0, cache, input=torch.tensor([[1]]))
+        pipeline.finalize(0, cache)
+
+    opened = [
+        name.removeprefix("enter:")
+        for name in recording.events
+        if name.startswith("enter:")
+    ]
+    assert opened == [
+        "pipeline.encode",
+        "pipeline.diffuse",
+        "pipeline.decode",
+        "pipeline.finalize",
+    ]
 
 
 def test_loops_run_with_the_profiler_the_session_injects() -> None:
