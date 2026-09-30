@@ -11,7 +11,7 @@ These arguments do not correspond to an Options field:
 | `--map PATH` | Chooses a map and skips map selection. |
 | `--race-course ID` | Chooses a race course; requires race mode. |
 | `--force-map-recompile` | Rebuilds the compiled map. |
-| `--ui`, `--no-ui` | Enables or disables the ImGui UI. |
+| `--ui`, `--no-ui` | Enables or disables the ImGui UI. `--no-ui` requires explicit `--game-mode`, `--map`, and `--total-blocks` arguments; race mode also requires `--race-course`. |
 | `--controls-dir PATH` | Selects the separate controls settings directory. |
 
 The runner name selects the starting model preset before application arguments are parsed. Controller bindings are edited under **CONTROLS** on the mode menu and saved in separate `controls/keyboard.yaml`, `controls/gamepad.yaml`, and `controls/wheel.yaml` files.

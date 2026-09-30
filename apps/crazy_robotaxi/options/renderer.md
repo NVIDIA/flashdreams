@@ -8,7 +8,7 @@ The raster is the main semantic camera image. The BEV is the top-down view used 
 
 | On-screen label | `config.yaml` key | Defined by | CLI flag | What it changes |
 | --- | --- | --- | --- | --- |
-| **Width:** | `renderer.raster.width` | Game engine | `--width` | Main raster wbe positiveidth in pixels; must . |
+| **Width:** | `renderer.raster.width` | Game engine | `--width` | Main raster width in pixels; must be positive. |
 | **Height:** | `renderer.raster.height` | Game engine | `--height` | Main raster height in pixels; must be positive. |
 | **Compute Device:** | `renderer.raster.compute_device` | Game engine | — | Device used for raster computation. |
 | **Sync Gpu Timing:** | `renderer.raster.sync_gpu_timing` | Game engine | — | Synchronizes GPU work for timing measurements. |
