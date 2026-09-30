@@ -105,11 +105,11 @@ class _UI(IUILoop):
     def step(self, step_index, events):
         del step_index, events
         if self.model_inference_state is not ModelInferenceState.FINISHED:
-            return None
+            return []
         self.state.post_inference_ui_steps += 1
         if self.state.scenario == "replacement":
             self.request_new_session(replace(self.session_desc, video_width=4))
-        return None
+        return []
 
 
 class _Session(ISession):
