@@ -48,11 +48,31 @@ SPDX-License-Identifier: Apache-2.0
         color: #ff8a8a;
       }
 
+      #file-pick {
+        position: fixed;
+        left: 50%;
+        bottom: 1.5rem;
+        transform: translateX(-50%);
+        z-index: 2;
+        padding: 0.6rem 1.1rem;
+        border: 0;
+        border-radius: 0.4rem;
+        background: #eee;
+        color: #111;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      #file-pick[hidden] {
+        display: none;
+      }
+
     </style>
   </head>
   <body>
     <video id="video" autoplay muted playsinline></video>
     <div id="status" role="status" aria-live="polite">Waiting for the server…</div>
+    <button id="file-pick" type="button" hidden>Choose file</button>
     <script src="/app.js"></script>
   </body>
 </html>

@@ -213,8 +213,9 @@ description; the runtime cleans the current session and passes that description
 to `ApplicationRunner` unchanged. A control that needs a file from the client
 calls `request_selected_files(request_id)`; the window later reports
 `SelectedFilesUserInputEvent` through the same input stream as keyboard and
-mouse. The application reads file bytes from that event and does not open a
-host path.
+mouse. The application reads ``name`` and ``data`` from that event. An empty
+``files`` tuple is a cancelled or unavailable pick (including MP4 and files
+that exceed the window size cap).
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The
 [`slangpy_ui_demo` integration](../../../integrations_v2/slangpy_ui_demo/README.md)

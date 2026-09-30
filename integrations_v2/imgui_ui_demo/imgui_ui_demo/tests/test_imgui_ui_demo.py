@@ -113,7 +113,7 @@ def test_selected_files_event_updates_file_picker_status() -> None:
                 SelectedFilesUserInputEvent(
                     timestamp=uint64(0),
                     request_id="open-1",
-                    files=(SelectedFile(name="seed.png", path="seed.png", data=b"xx"),),
+                    files=(SelectedFile(name="seed.png", data=b"xx"),),
                 )
             ]
         ),

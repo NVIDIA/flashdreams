@@ -16,7 +16,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
 from importlib.resources import files
-from pathlib import Path
 from typing import Any, Literal, cast
 
 import numpy as np
@@ -33,6 +32,7 @@ from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    MAX_SELECTED_FILE_BYTES,
     CloseUserInputEvent,
     FocusUserInputEvent,
     GamepadUserInputEvent,
@@ -56,9 +56,6 @@ _BROWSER_SCRIPT = _WEB_RESOURCES.joinpath("app.js").read_text(encoding="utf-8")
 
 _INTERACTIVE_FRAME_QUEUE_SIZE = 2
 """Send-ready frames retained while the media sender is temporarily busy."""
-
-_MAX_SELECTED_FILE_BYTES = 32 * 1024 * 1024
-"""Maximum file the browser may upload for one selected-files event."""
 
 _TRANSFER_STREAM_PRIORITY = -1
 """Portable high-priority CUDA stream request for interactive output copies."""
@@ -354,6 +351,8 @@ class WebRTCServer:
         self._hide_cursor = False
         self._lock_cursor_to_window = False
         self._queued_file_selectors: list[dict[str, str]] = []
+        self._pending_file_request_ids: set[str] = set()
+        self._file_selector_lock = threading.Lock()
         self._thread = threading.Thread(
             target=self._run_server,
             name="flashdreams-webrtc",
@@ -451,26 +450,54 @@ class WebRTCServer:
 
         Args:
             request_id: Correlation token for the later input event.
-            initial_path: Directory hint for the selector; ``None`` uses the
-                current user's home directory.
+            initial_path: Ignored; the browser picker cannot use a host path.
         """
+        del initial_path
         if not isinstance(request_id, str) or not request_id:
             raise ValueError("request_id must be a non-empty string.")
-        if initial_path is None:
-            resolved_initial_path = str(Path.home())
-        elif not isinstance(initial_path, str) or not initial_path:
-            raise ValueError("initial_path must be a non-empty string.")
-        else:
-            resolved_initial_path = initial_path
-        payload = {
-            "type": "file_selector",
-            "id": request_id,
-            "initial_path": resolved_initial_path,
-        }
+        payload = {"type": "file_selector", "id": request_id}
         loop = self._loop
         if loop is None:
             raise RuntimeError("WebRTC server is not running.")
-        loop.call_soon_threadsafe(self._send_file_selector, payload)
+        loop.call_soon_threadsafe(self._arm_file_selector, payload)
+
+    def _arm_file_selector(self, payload: dict[str, str]) -> None:
+        """Record a pending id and send or queue the selector request."""
+        with self._file_selector_lock:
+            self._pending_file_request_ids.add(payload["id"])
+        self._send_file_selector(payload)
+
+    def _take_pending_file_request(self, request_id: str) -> bool:
+        """Return whether ``request_id`` was pending and consume it."""
+        with self._file_selector_lock:
+            if request_id not in self._pending_file_request_ids:
+                return False
+            self._pending_file_request_ids.discard(request_id)
+            return True
+
+    def _invalidate_file_selectors(self) -> None:
+        """Drop queued and pending selector requests without completing them."""
+        with self._file_selector_lock:
+            self._pending_file_request_ids.clear()
+            self._queued_file_selectors.clear()
+
+    def _complete_abandoned_file_selectors(self) -> None:
+        """Complete pending selector requests with empty files."""
+        timestamp_us = self._timestamp_us()
+        with self._file_selector_lock:
+            pending = tuple(self._pending_file_request_ids)
+            self._pending_file_request_ids.clear()
+            self._queued_file_selectors.clear()
+        if timestamp_us is None:
+            return
+        for request_id in pending:
+            self._append_event(
+                SelectedFilesUserInputEvent(
+                    timestamp=timestamp_us,
+                    request_id=request_id,
+                    files=(),
+                )
+            )
 
     def _send_file_selector(self, payload: dict[str, str]) -> None:
         """Send one file-selector request on the WebRTC event-loop thread."""
@@ -549,6 +576,7 @@ class WebRTCServer:
             # Keep timestamps comparable across sessions so events buffered
             # during a handoff retain their real order.
             self._event_origin_ns = time.monotonic_ns()
+        self._invalidate_file_selectors()
 
     def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
         """Change the dimensions used to present subsequent UI frames.
@@ -771,7 +799,7 @@ class WebRTCServer:
     async def _start_server(self) -> None:
         """Create and bind the standalone aiohttp application."""
         self._offer_lock = asyncio.Lock()
-        app = web.Application(client_max_size=_MAX_SELECTED_FILE_BYTES + 1024 * 1024)
+        app = web.Application(client_max_size=MAX_SELECTED_FILE_BYTES + 1024 * 1024)
         app.router.add_get("/", self._serve_browser)
         app.router.add_get("/app.js", self._serve_browser_script)
         app.router.add_get("/healthz", self._health)
@@ -828,10 +856,19 @@ class WebRTCServer:
         upload = post.get("file")
         if not isinstance(upload, FileField):
             raise web.HTTPBadRequest(reason="File upload requires a file.")
+        if not self._take_pending_file_request(request_id):
+            raise web.HTTPConflict(reason="No pending file selection for this request_id.")
         data = upload.file.read()
-        if len(data) > _MAX_SELECTED_FILE_BYTES:
+        if len(data) > MAX_SELECTED_FILE_BYTES:
+            self._append_event(
+                SelectedFilesUserInputEvent(
+                    timestamp=timestamp_us,
+                    request_id=request_id,
+                    files=(),
+                )
+            )
             raise web.HTTPRequestEntityTooLarge(
-                max_size=_MAX_SELECTED_FILE_BYTES,
+                max_size=MAX_SELECTED_FILE_BYTES,
                 actual_size=len(data),
             )
         name = upload.filename or "upload"
@@ -839,7 +876,7 @@ class WebRTCServer:
             SelectedFilesUserInputEvent(
                 timestamp=timestamp_us,
                 request_id=request_id,
-                files=(SelectedFile(name=name, path=name, data=data),),
+                files=(SelectedFile(name=name, data=data),),
             )
         )
         return web.Response(status=204)
@@ -1174,6 +1211,8 @@ class WebRTCServer:
                     "File selector result must set cancelled true; send files "
                     "with POST /api/files."
                 )
+            if not self._take_pending_file_request(request_id):
+                return
             event = SelectedFilesUserInputEvent(
                 timestamp=timestamp_us,
                 request_id=request_id,
@@ -1208,6 +1247,7 @@ class WebRTCServer:
             self._control_channel = None
             self._video_track = None
             self._sent_cursor_options = None
+            self._complete_abandoned_file_selectors()
         else:
             track = detached_video_track
         failures: list[BaseException] = []

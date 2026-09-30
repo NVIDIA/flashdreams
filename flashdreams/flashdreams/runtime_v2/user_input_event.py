@@ -9,6 +9,9 @@ from typing import Literal
 
 from flashdreams.api_v2.user_input_event import UserInputEvent
 
+MAX_SELECTED_FILE_BYTES = 32 * 1024 * 1024
+"""Maximum bytes one selected file may carry into the application."""
+
 
 class KeyboardInputState(Enum):
     """State transition reported by a keyboard input event."""
@@ -235,21 +238,18 @@ class SelectedFile:
     """One file chosen by a client file selector."""
 
     name: str
-    """File name shown to the application, without requiring a host path."""
-
-    path: str
-    """Native host path, or the file name when the client has no path."""
+    """File name shown to the application."""
 
     data: bytes
-    """File contents. Applications should use this rather than opening ``path``."""
+    """File contents."""
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class SelectedFilesUserInputEvent(UserInputEvent):
     """Files chosen for one :meth:`IClientWindow.request_selected_files` call.
 
-    An empty ``files`` tuple is a cancelled or unavailable selector, including
-    ``--mode mp4`` where no client can pick a file.
+    An empty ``files`` tuple is a cancelled or unavailable selector: dismiss,
+    oversize, unreadable, a dropped WebRTC peer, or ``--mode mp4``.
     """
 
     @classmethod

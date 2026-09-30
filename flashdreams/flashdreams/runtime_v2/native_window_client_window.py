@@ -28,6 +28,7 @@ from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    MAX_SELECTED_FILE_BYTES,
     CloseUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
@@ -105,6 +106,19 @@ def _ask_open_filename_tkinter(*, initial_dir: str) -> str:
     finally:
         root.destroy()
     return str(selected or "")
+
+
+def _selected_file_from_path(path: Path) -> SelectedFile | None:
+    """Load one picked file, or ``None`` when it cannot be used."""
+    try:
+        if path.stat().st_size > MAX_SELECTED_FILE_BYTES:
+            return None
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if len(data) > MAX_SELECTED_FILE_BYTES:
+        return None
+    return SelectedFile(name=path.name, data=data)
 
 
 _PRINTABLE_KEY_NAMES = {
@@ -196,6 +210,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._hide_cursor = False
         self._lock_cursor_to_window = False
         self._in_flight_file_requests: set[str] = set()
+        self._file_request_lock = threading.Lock()
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor in the native window."""
@@ -237,41 +252,55 @@ class NativeWindowClientWindow(IClientWindow):
     def request_selected_files(
         self, request_id: str, initial_path: str | None = None
     ) -> None:
-        """Open a native OS file selector and enqueue the chosen file.
+        """Ask the OS file selector and enqueue the chosen file.
+
+        The desktop dialog runs on a worker thread so the UI loop can keep
+        polling and presenting while the picker is open.
 
         Args:
             request_id: Correlation token for the later input event.
             initial_path: Directory the selector should start in; ``None`` uses
                 the current user's home directory.
         """
-        if request_id in self._in_flight_file_requests:
-            _LOGGER.warning(
-                "Ignoring duplicate file-selection request id %r.",
-                request_id,
-            )
-            return
-        self._in_flight_file_requests.add(request_id)
+        with self._file_request_lock:
+            if request_id in self._in_flight_file_requests:
+                _LOGGER.warning(
+                    "Ignoring duplicate file-selection request id %r.",
+                    request_id,
+                )
+                return
+            self._in_flight_file_requests.add(request_id)
+        worker = threading.Thread(
+            target=self._complete_file_selection,
+            args=(request_id, initial_path or str(Path.home())),
+            name="flashdreams-file-picker",
+            daemon=True,
+        )
+        worker.start()
+
+    def _complete_file_selection(self, request_id: str, initial_dir: str) -> None:
+        """Run the OS picker and enqueue a selected-files event."""
         try:
-            selected = _ask_open_filename(
-                initial_dir=initial_path or str(Path.home()),
-            )
+            selected = _ask_open_filename(initial_dir=initial_dir)
             files: tuple[SelectedFile, ...] = ()
             if selected:
-                path = Path(selected)
-                try:
-                    data = path.read_bytes()
-                except OSError:
-                    data = b""
-                files = (SelectedFile(name=path.name, path=str(path), data=data),)
-            self._put_input(
+                chosen = _selected_file_from_path(Path(selected))
+                if chosen is not None:
+                    files = (chosen,)
+            started_ns = self._session_started_ns
+            elapsed_ns = (
+                0 if started_ns is None else max(0, self._clock_ns() - started_ns)
+            )
+            self._input_events.put(
                 SelectedFilesUserInputEvent(
-                    timestamp=uint64(0),
+                    timestamp=uint64(elapsed_ns // 1_000),
                     request_id=request_id,
                     files=files,
                 )
             )
         finally:
-            self._in_flight_file_requests.discard(request_id)
+            with self._file_request_lock:
+                self._in_flight_file_requests.discard(request_id)
 
     def open(self, session_desc: SessionDesc) -> None:
         """Create the GLFW window on the runtime's UI thread.

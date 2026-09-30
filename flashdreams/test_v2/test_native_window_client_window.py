@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,6 +38,15 @@ if TYPE_CHECKING:
     import slangpy as spy
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _wait_for_input_events(window: NativeWindowClientWindow) -> list[object]:
+    for _ in range(100):
+        events = window.get_user_input_events().get_events()
+        if events:
+            return list(events)
+        time.sleep(0.01)
+    return []
 
 
 def _session_desc() -> SessionDesc:
@@ -603,7 +613,7 @@ def test_native_window_reports_a_selected_file(
     )
     window.open(_session_desc())
     window.request_selected_files("open-1", str(tmp_path))
-    events = window.get_user_input_events().get_events()
+    events = _wait_for_input_events(window)
     window.close()
 
     assert len(events) == 1
@@ -611,8 +621,19 @@ def test_native_window_reports_a_selected_file(
     assert isinstance(event, SelectedFilesUserInputEvent)
     assert event.request_id == "open-1"
     assert event.files[0].name == "seed.png"
-    assert event.files[0].path == str(chosen)
     assert event.files[0].data == b"png-bytes"
+
+
+def test_selected_file_from_path_skips_unreadable_and_oversize(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    missing = tmp_path / "gone.png"
+    assert native_window_module._selected_file_from_path(missing) is None
+
+    too_big = tmp_path / "big.bin"
+    too_big.write_bytes(b"abcd")
+    monkeypatch.setattr(native_window_module, "MAX_SELECTED_FILE_BYTES", 3)
+    assert native_window_module._selected_file_from_path(too_big) is None
 
 
 def test_ask_open_filename_linux_uses_zenity(

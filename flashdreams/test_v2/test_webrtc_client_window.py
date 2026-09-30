@@ -149,6 +149,12 @@ async def test_browser_file_upload_reaches_the_input_stream() -> None:
     try:
         window.request_selected_files("open-1", "/tmp")
         window.request_selected_files("open-1", "/tmp")
+        for _ in range(100):
+            if "open-1" in window.server._pending_file_request_ids:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("file selection was not armed")
 
         form = FormData()
         form.add_field("request_id", "open-1")
@@ -178,6 +184,96 @@ async def test_browser_file_upload_reaches_the_input_stream() -> None:
         assert event.files[0].data == b"hello"
 
         window.request_selected_files("open-1", "/tmp")
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_unsolicited_file_upload_is_rejected() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        form = FormData()
+        form.add_field("request_id", "open-1")
+        form.add_field(
+            "file",
+            b"hello",
+            filename="hello.txt",
+            content_type="text/plain",
+        )
+        async with ClientSession() as client:
+            async with client.post(
+                f"{window.server.url}api/files", data=form
+            ) as response:
+                assert response.status == 409
+        assert window.get_user_input_events().get_events() == []
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_file_selector_omits_host_path() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, channel, _ = await _connect_browser(window)
+        messages: list[dict[str, object]] = []
+
+        @channel.on("message")
+        def on_message(message: object) -> None:
+            if isinstance(message, str):
+                messages.append(json.loads(message))
+
+        window.request_selected_files("open-1", "/home/secret")
+        for _ in range(100):
+            if any(item.get("type") == "file_selector" for item in messages):
+                break
+            await asyncio.sleep(0.01)
+        payload = next(
+            item for item in messages if item.get("type") == "file_selector"
+        )
+        assert payload == {"type": "file_selector", "id": "open-1"}
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_session_handoff_clears_pending_file_selection() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        window.request_selected_files("open-1", "/tmp")
+        for _ in range(100):
+            if "open-1" in window.server._pending_file_request_ids:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("file selection was not armed")
+        window.open(_session_desc())
+        assert "open-1" not in window.server._pending_file_request_ids
+        window.request_selected_files("open-1", "/tmp")
+        for _ in range(100):
+            if "open-1" in window.server._pending_file_request_ids:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("file selection was not re-armed")
+        form = FormData()
+        form.add_field("request_id", "open-1")
+        form.add_field(
+            "file",
+            b"hello",
+            filename="hello.txt",
+            content_type="text/plain",
+        )
+        async with ClientSession() as client:
+            async with client.post(
+                f"{window.server.url}api/files", data=form
+            ) as response:
+                assert response.status == 204
     finally:
         window.close()
 
@@ -220,6 +316,7 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert 'id="reset"' not in browser_page
                 assert '<video id="video" autoplay muted playsinline>' in browser_page
                 assert 'id="status"' in browser_page
+                assert 'id="file-pick"' in browser_page
                 assert '<script src="/app.js"></script>' in browser_page
             async with client.get(f"{window.server.url}app.js") as response:
                 browser_script = await response.text()
@@ -259,6 +356,9 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert "openFileSelector" in browser_script
                 assert 'type === "file_selector"' in browser_script
                 assert 'fetch("/api/files"' in browser_script
+                assert 'addEventListener("cancel"' in browser_script
+                assert "Choose file" in browser_page
+                assert "response.ok" in browser_script
 
         window.request_hide_cursor(True)
         window.open(_session_desc())

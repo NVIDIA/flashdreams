@@ -116,8 +116,8 @@ class WebRTCClientWindow(IClientWindow):
 
         Args:
             request_id: Correlation token for the later input event.
-            initial_path: Directory hint for the selector; browsers may ignore
-                it. ``None`` uses the current user's home directory.
+            initial_path: Ignored by the browser picker; kept so the window
+                signature matches :meth:`IClientWindow.request_selected_files`.
         """
         if request_id in self._in_flight_file_requests:
             _LOGGER.warning(
@@ -138,6 +138,7 @@ class WebRTCClientWindow(IClientWindow):
         session_event_offset_us = self.server.event_timestamp_us()
         with self._input_lock:
             self._input_events.clear()
+            self._in_flight_file_requests.clear()
             self._session_event_offset_us = session_event_offset_us
 
     def get_user_input_events(self) -> UserInputEvents:

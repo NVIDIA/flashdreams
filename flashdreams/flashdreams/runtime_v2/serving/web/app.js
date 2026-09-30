@@ -7,6 +7,7 @@ const pointerControls = peer.createDataChannel("pointer-controls");
 peer.addTransceiver("video", {direction: "recvonly"});
 const video = document.getElementById("video");
 const status = document.getElementById("status");
+const filePick = document.getElementById("file-pick");
 const pressedKeys = new Map();
 const pressedButtons = new Set();
 const gamepadSnapshots = new Map();
@@ -74,28 +75,76 @@ const applyCursorOptions = options => {
   }
 };
 
+let pendingFileRequestId = null;
+
+const hideFilePicker = () => {
+  pendingFileRequestId = null;
+  if (filePick !== null) {
+    filePick.hidden = true;
+  }
+};
+
+const cancelFileSelection = requestId => {
+  send({type: "file_selector_result", id: requestId, cancelled: true});
+};
+
 const openFileSelector = options => {
   const requestId = options?.id;
+  if (typeof requestId !== "string" || !requestId || filePick === null) {
+    return;
+  }
+  if (pendingFileRequestId !== null && pendingFileRequestId !== requestId) {
+    cancelFileSelection(pendingFileRequestId);
+  }
+  pendingFileRequestId = requestId;
+  filePick.hidden = false;
+};
+
+filePick?.addEventListener("click", () => {
+  const requestId = pendingFileRequestId;
   if (typeof requestId !== "string" || !requestId) {
     return;
   }
   const input = document.createElement("input");
   input.type = "file";
+  let settled = false;
+  const finishCancelled = () => {
+    if (settled || pendingFileRequestId !== requestId) {
+      return;
+    }
+    settled = true;
+    cancelFileSelection(requestId);
+    hideFilePicker();
+  };
   input.addEventListener("change", () => {
     const file = input.files?.[0];
     if (!file) {
-      send({type: "file_selector_result", id: requestId, cancelled: true});
+      finishCancelled();
       return;
     }
     const body = new FormData();
     body.append("request_id", requestId);
     body.append("file", file, file.name);
-    fetch("/api/files", {method: "POST", body}).catch(error => {
-      console.debug("Unable to upload the selected file.", error);
-    });
+    fetch("/api/files", {method: "POST", body})
+      .then(response => {
+        if (settled || pendingFileRequestId !== requestId) {
+          return;
+        }
+        if (!response.ok) {
+          finishCancelled();
+          return;
+        }
+        settled = true;
+        hideFilePicker();
+      })
+      .catch(error => {
+        console.debug("Unable to upload the selected file.", error);
+        finishCancelled();
+      });
   });
+  input.addEventListener("cancel", finishCancelled);
   input.click();
-};
+});
 
 window.addEventListener("focus", updateCursorVisibility);
 window.addEventListener("blur", updateCursorVisibility);

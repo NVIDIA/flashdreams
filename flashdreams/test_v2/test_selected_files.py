@@ -52,7 +52,7 @@ def test_selected_files_event_carries_bytes_and_request_id() -> None:
     event = SelectedFilesUserInputEvent(
         timestamp=uint64(1),
         request_id="open-1",
-        files=(SelectedFile(name="seed.png", path="/tmp/seed.png", data=b"png"),),
+        files=(SelectedFile(name="seed.png", data=b"png"),),
     )
 
     assert event.get_type_name() == "selected_files"
