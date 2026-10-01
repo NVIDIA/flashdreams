@@ -651,6 +651,31 @@ def test_native_window_reports_cancelled_file_selection(
     assert event.files == ()
 
 
+def test_native_window_reports_unavailable_when_picker_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fail_picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+        del initial_dir, accept
+        raise RuntimeError("Native file picker needs a desktop chooser.")
+
+    monkeypatch.setattr(native_window_module, "_ask_open_filename", fail_picker)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.UNAVAILABLE
+    assert event.files == ()
+
+
 def test_selected_file_from_path_skips_unreadable_and_oversize(
     tmp_path: Path,
 ) -> None:

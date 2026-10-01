@@ -312,6 +312,9 @@ class _PendingFileSelection:
     max_bytes: int
     """Maximum file bytes, already clamped to the window ceiling."""
 
+    epoch: int
+    """Session epoch that armed this request; later epochs drop the result."""
+
 
 class WebRTCServer:
     """Own the HTTP, signaling, input buffering, and media transport."""
@@ -368,6 +371,7 @@ class WebRTCServer:
         self._queued_file_selectors: list[dict[str, Any]] = []
         self._pending_file_requests: dict[str, _PendingFileSelection] = {}
         self._file_selector_lock = threading.Lock()
+        self._file_selection_epoch = 0
         self._thread = threading.Thread(
             target=self._run_server,
             name="flashdreams-webrtc",
@@ -503,6 +507,7 @@ class WebRTCServer:
             self._pending_file_requests[request_id] = _PendingFileSelection(
                 accept=tuple(accept),
                 max_bytes=max_bytes,
+                epoch=self._file_selection_epoch,
             )
         self._send_file_selector(payload)
 
@@ -512,6 +517,10 @@ class WebRTCServer:
         """Return and consume the policy for ``request_id``, if it was pending."""
         with self._file_selector_lock:
             return self._pending_file_requests.pop(request_id, None)
+
+    def _file_selection_belongs_to_current_session(self, epoch: int) -> bool:
+        """Return whether ``epoch`` was armed for the open session."""
+        return not self._closed and epoch == self._file_selection_epoch
 
     def _invalidate_file_selectors(self) -> None:
         """Drop queued and pending selector requests without completing them."""
@@ -612,6 +621,7 @@ class WebRTCServer:
             # Keep timestamps comparable across sessions so events buffered
             # during a handoff retain their real order.
             self._event_origin_ns = time.monotonic_ns()
+        self._file_selection_epoch += 1
         self._invalidate_file_selectors()
 
     def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
@@ -893,22 +903,30 @@ class WebRTCServer:
             raise web.HTTPConflict(
                 reason="No pending file selection for this request_id."
             )
+
+        def emit(
+            status: SelectedFilesStatus,
+            files: tuple[SelectedFile, ...] = (),
+        ) -> None:
+            if not self._file_selection_belongs_to_current_session(policy.epoch):
+                raise web.HTTPConflict(
+                    reason="No pending file selection for this request_id."
+                )
+            self._emit_selected_files(
+                timestamp_us,
+                request_id,
+                status=status,
+                files=files,
+            )
+
         try:
             post = await request.post()
         except web.HTTPRequestEntityTooLarge:
-            self._emit_selected_files(
-                timestamp_us,
-                request_id,
-                status=SelectedFilesStatus.TOO_LARGE,
-            )
+            emit(SelectedFilesStatus.TOO_LARGE)
             raise
         upload = post.get("file")
         if not isinstance(upload, FileField):
-            self._emit_selected_files(
-                timestamp_us,
-                request_id,
-                status=SelectedFilesStatus.UNAVAILABLE,
-            )
+            emit(SelectedFilesStatus.UNAVAILABLE)
             raise web.HTTPBadRequest(reason="File upload requires a file.")
         data = upload.file.read()
         name = upload.filename or "upload"
@@ -916,26 +934,16 @@ class WebRTCServer:
             name, len(data), accept=policy.accept, max_bytes=policy.max_bytes
         )
         if rejected is SelectedFilesStatus.DISALLOWED_TYPE:
-            self._emit_selected_files(
-                timestamp_us,
-                request_id,
-                status=rejected,
-            )
+            emit(rejected)
             return web.Response(status=204)
         if rejected is SelectedFilesStatus.TOO_LARGE:
-            self._emit_selected_files(
-                timestamp_us,
-                request_id,
-                status=rejected,
-            )
+            emit(rejected)
             raise web.HTTPRequestEntityTooLarge(
                 max_size=policy.max_bytes,
                 actual_size=len(data),
             )
-        self._emit_selected_files(
-            timestamp_us,
-            request_id,
-            status=SelectedFilesStatus.OK,
+        emit(
+            SelectedFilesStatus.OK,
             files=(SelectedFile(name=name, data=data),),
         )
         return web.Response(status=204)

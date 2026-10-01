@@ -20,7 +20,7 @@ pytestmark = pytest.mark.ci_cpu
 pytest.importorskip("aiohttp")
 pytest.importorskip("aiortc")
 
-from aiohttp import ClientSession, FormData
+from aiohttp import ClientSession, FormData, web
 from aiortc import (
     MediaStreamTrack,
     RTCDataChannel,
@@ -315,8 +315,7 @@ async def test_file_upload_prefers_disallowed_suffix_over_oversize() -> None:
         window.request_selected_files("open-1", accept=(".png",), max_bytes=1)
         await _wait_file_armed(window, "open-1")
         assert (
-            await _post_selected_file(window, "open-1", b"x" * 8192, "hello.txt")
-            == 204
+            await _post_selected_file(window, "open-1", b"x" * 8192, "hello.txt") == 204
         )
         event = await _wait_selected_files_event(window)
         assert event.request_id == "open-1"
@@ -366,6 +365,48 @@ async def test_session_handoff_clears_pending_file_selection() -> None:
         window.request_selected_files("open-1", "/tmp")
         await _wait_file_armed(window, "open-1")
         assert await _post_selected_file(window, "open-1", b"hello", "hello.txt") == 204
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_in_flight_upload_is_dropped_after_session_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        window.request_selected_files("open-1", "/tmp")
+        await _wait_file_armed(window, "open-1")
+        original_post = web.Request.post
+        handed_off = False
+
+        async def post_after_handoff(request: web.Request) -> Any:
+            nonlocal handed_off
+            if not handed_off:
+                handed_off = True
+                window.open(_session_desc())
+            return await original_post(request)
+
+        monkeypatch.setattr(web.Request, "post", post_after_handoff)
+        assert await _post_selected_file(window, "open-1", b"hello", "hello.txt") == 409
+        assert window.get_user_input_events().get_events() == []
+
+        window.request_selected_files("open-1", "/tmp")
+        await _wait_file_armed(window, "open-1")
+        assert await _post_selected_file(window, "open-1", b"next", "next.txt") == 204
+        events = []
+        for _ in range(100):
+            events.extend(window.get_user_input_events().get_events())
+            if events:
+                break
+            await asyncio.sleep(0.01)
+        assert len(events) == 1
+        event = events[0]
+        assert isinstance(event, SelectedFilesUserInputEvent)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.OK
+        assert event.files[0].data == b"next"
     finally:
         window.close()
 

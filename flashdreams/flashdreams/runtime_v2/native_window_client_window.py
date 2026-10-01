@@ -337,18 +337,26 @@ class NativeWindowClientWindow(IClientWindow):
         max_bytes: int,
     ) -> None:
         """Run the OS picker and enqueue a selected-files event."""
+        files: tuple[SelectedFile, ...] = ()
+        status = SelectedFilesStatus.UNAVAILABLE
         try:
-            selected = _ask_open_filename(initial_dir=initial_dir, accept=accept)
-            if selected:
-                chosen, status = _selected_file_from_path(
-                    Path(selected),
-                    accept=accept,
-                    max_bytes=max_bytes,
+            try:
+                selected = _ask_open_filename(initial_dir=initial_dir, accept=accept)
+            except Exception:
+                _LOGGER.exception(
+                    "Native file picker failed for request id %r.",
+                    request_id,
                 )
-                files: tuple[SelectedFile, ...] = () if chosen is None else (chosen,)
             else:
-                files = ()
-                status = SelectedFilesStatus.CANCELLED
+                if selected:
+                    chosen, status = _selected_file_from_path(
+                        Path(selected),
+                        accept=accept,
+                        max_bytes=max_bytes,
+                    )
+                    files = () if chosen is None else (chosen,)
+                else:
+                    status = SelectedFilesStatus.CANCELLED
             started_ns = self._session_started_ns
             elapsed_ns = (
                 0 if started_ns is None else max(0, self._clock_ns() - started_ns)
