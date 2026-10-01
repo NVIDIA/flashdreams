@@ -44,8 +44,7 @@ _FILE_SELECTION_STATUS_TEXT = {
         f"max_bytes={MAX_SELECTED_FILE_BYTES} (32 MiB)."
     ),
     SelectedFilesStatus.DISALLOWED_TYPE: (
-        "SelectedFilesStatus.DISALLOWED_TYPE: suffix not in "
-        "accept=('.bin', '.raw')."
+        "SelectedFilesStatus.DISALLOWED_TYPE: suffix not in accept=('.bin', '.raw')."
     ),
     SelectedFilesStatus.UNAVAILABLE: (
         "SelectedFilesStatus.UNAVAILABLE: picker did not run "

@@ -10,10 +10,10 @@ from unittest.mock import Mock
 
 import pytest
 from imgui_ui_demo.file_picker_app import (
-    FilePickerImGuiUILoop,
-    FilePickerState,
     _FILE_SELECTION_ERROR_COLOR,
     _FILE_SELECTION_STATUS_TEXT,
+    FilePickerImGuiUILoop,
+    FilePickerState,
 )
 from imgui_ui_demo.text_input_app import TextInputImGuiUILoop, TextInputState
 from numpy import uint64
@@ -137,9 +137,7 @@ def test_selected_files_event_updates_file_picker_status() -> None:
 
 def test_file_picker_shows_error_status_in_red() -> None:
     assert set(_FILE_SELECTION_STATUS_TEXT) == {
-        status
-        for status in SelectedFilesStatus
-        if status is not SelectedFilesStatus.OK
+        status for status in SelectedFilesStatus if status is not SelectedFilesStatus.OK
     }
     state, loop = _file_picker_loop()
     imgui = _file_picker_imgui()

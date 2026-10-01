@@ -660,7 +660,9 @@ class RecordingClientWindow(IClientWindow):
         self.session_desc: SessionDesc | None = None
         self.results: list[StepResult] = []
         self.cursor_requests: list[tuple[str, bool]] = []
-        self.file_selection_requests: list[tuple[str, str | None]] = []
+        self.file_selection_requests: list[
+            tuple[str, str | None, tuple[str, ...], int | None]
+        ] = []
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Record one cursor visibility request."""
