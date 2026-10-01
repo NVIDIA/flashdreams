@@ -857,7 +857,9 @@ class WebRTCServer:
         if not isinstance(upload, FileField):
             raise web.HTTPBadRequest(reason="File upload requires a file.")
         if not self._take_pending_file_request(request_id):
-            raise web.HTTPConflict(reason="No pending file selection for this request_id.")
+            raise web.HTTPConflict(
+                reason="No pending file selection for this request_id."
+            )
         data = upload.file.read()
         if len(data) > MAX_SELECTED_FILE_BYTES:
             self._append_event(

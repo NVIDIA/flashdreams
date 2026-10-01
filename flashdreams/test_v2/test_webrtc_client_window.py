@@ -230,9 +230,7 @@ async def test_browser_file_selector_omits_host_path() -> None:
             if any(item.get("type") == "file_selector" for item in messages):
                 break
             await asyncio.sleep(0.01)
-        payload = next(
-            item for item in messages if item.get("type") == "file_selector"
-        )
+        payload = next(item for item in messages if item.get("type") == "file_selector")
         assert payload == {"type": "file_selector", "id": "open-1"}
     finally:
         if peer is not None:
