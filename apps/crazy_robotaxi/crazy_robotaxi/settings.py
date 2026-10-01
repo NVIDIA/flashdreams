@@ -782,9 +782,7 @@ def iter_setting_fields(
     return tuple(
         (item, hints.get(item.name, type(getattr(value, item.name))))
         for item in fields(value)
-        if _is_user_setting_field(
-            value, item, (*path, item.name), hints.get(item.name)
-        )
+        if _is_user_setting_field(value, item, (*path, item.name), hints.get(item.name))
     )
 
 
