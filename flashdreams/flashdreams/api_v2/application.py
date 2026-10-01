@@ -24,7 +24,7 @@ class IApplication(ABC):
 
     @abstractmethod
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Parse application arguments and validate startup state."""
+        """Parse application arguments and start preparation."""
         ...
 
     def session_desc(self) -> SessionDesc | None:

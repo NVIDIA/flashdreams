@@ -35,6 +35,7 @@ def test_ludus_uses_configured_cuda_device(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     devices: list[torch.device] = []
+    native_preparations: list[None] = []
 
     class _FakeContext:
         def __init__(self, *, device: torch.device) -> None:
@@ -56,6 +57,11 @@ def test_ludus_uses_configured_cuda_device(
     monkeypatch.setattr(rasterizer_module, "LudusCudaTimestampedContext", _FakeContext)
     monkeypatch.setattr(
         rasterizer_module,
+        "prepare_ludus",
+        lambda: native_preparations.append(None),
+    )
+    monkeypatch.setattr(
+        rasterizer_module,
         "LudusPhysxDebugSceneBuffer",
         lambda *_args, **_kwargs: SimpleNamespace(),
     )
@@ -66,6 +72,7 @@ def test_ludus_uses_configured_cuda_device(
 
     assert rasterizer._device == torch.device("cuda:1")
     assert devices == [torch.device("cuda:1")]
+    assert native_preparations == [None]
 
 
 def test_bev_pose_discards_driving_pitch_and_roll() -> None:

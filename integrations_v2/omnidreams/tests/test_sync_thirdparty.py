@@ -151,6 +151,11 @@ def test_sync_downloads_pinned_source_and_applies_operations(tmp_path: Path) -> 
     assert (dest_root / "demo" / ".flashdreams_source.json").is_file()
     assert module.verify_sources(sources, dest_root)[0].commit == commit
 
+    bytecode_cache = dest_root / "demo" / "__pycache__"
+    bytecode_cache.mkdir()
+    (bytecode_cache / "hello.cpython-310.pyc").write_bytes(b"generated")
+    assert module.verify_sources(sources, dest_root)[0].commit == commit
+
     (dest_root / "demo" / "hello.txt").write_text("drift\n", encoding="utf-8")
     with pytest.raises(module.ThirdPartySyncError, match="source tree does not match"):
         module.verify_sources(sources, dest_root)

@@ -21,6 +21,7 @@ from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
 )
+from flashdreams.runtime_v2.null_client_window import NullClientWindow
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -58,6 +59,12 @@ def test_the_file_is_named_once_there_is_something_in_it(tmp_path: Path) -> None
 def test_an_unsupported_mode_is_refused() -> None:
     with pytest.raises(ValueError, match="Unsupported"):
         create_client_window(argparse.Namespace(mode="local"))
+
+
+def test_internal_null_mode_discards_preload_output() -> None:
+    assert isinstance(
+        client_window_mode("null").create(argparse.Namespace()), NullClientWindow
+    )
 
 
 def test_a_native_window_mode_is_lazy_and_keeps_its_title() -> None:
