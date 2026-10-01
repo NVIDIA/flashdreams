@@ -29,6 +29,8 @@ from flashdreams.core.attention.multiview.mask import (
     ROLE_CLEAN_TARGET,
     ROLE_CONTROL,
     ROLE_TARGET_CONDITION,
+    AttentionPattern,
+    AttentionScope,
     StreamFields,
     build_block_mask,
     visibility,
@@ -36,6 +38,7 @@ from flashdreams.core.attention.multiview.mask import (
 from flashdreams.core.attention.multiview.packing import (
     ClipGeometry,
     _check_ranges,
+    _check_view_text_tokens,
     _stamp_view_major,
     _vision,
     concat,
@@ -69,15 +72,37 @@ class PrefillPack:
         """Return the number of understanding/text tokens."""
         return len(self.und)
 
-    def mask(self) -> Tensor:
+    def mask(
+        self,
+        *,
+        pattern: AttentionPattern = "causal",
+        scope: AttentionScope = "all_views",
+        decomposed_temporal_window_seconds: float | None = None,
+    ) -> Tensor:
         """Build the dense ``[num_gen, num_und + num_gen]`` prefill mask."""
-        return visibility(self.gen, concat(self.und, self.gen))
+        return visibility(
+            self.gen,
+            concat(self.und, self.gen),
+            pattern=pattern,
+            scope=scope,
+            decomposed_temporal_window_seconds=decomposed_temporal_window_seconds,
+        )
 
-    def block_mask(self, *, block_size: int | tuple[int, int] = 128) -> BlockMask:
+    def block_mask(
+        self,
+        *,
+        pattern: AttentionPattern = "causal",
+        scope: AttentionScope = "all_views",
+        decomposed_temporal_window_seconds: float | None = None,
+        block_size: int | tuple[int, int] = 128,
+    ) -> BlockMask:
         """Build the equivalent block-sparse prefill mask."""
         return build_block_mask(
             self.gen,
             concat(self.und, self.gen),
+            pattern=pattern,
+            scope=scope,
+            decomposed_temporal_window_seconds=decomposed_temporal_window_seconds,
             block_size=block_size,
         )
 
@@ -86,6 +111,7 @@ def build_prefill_pack(
     geometry: ClipGeometry,
     *,
     text_tokens: int,
+    view_text_tokens: Sequence[int] | None = None,
     target_frames: int | None = None,
     control_ranges: Sequence[tuple[int, int]] | None = None,
     device: torch.device | None = None,
@@ -95,6 +121,8 @@ def build_prefill_pack(
     Args:
         geometry: Multi-view clip geometry.
         text_tokens: Number of understanding/text tokens prefixed to attention.
+        view_text_tokens: Token count for each view's caption, in view order.
+            ``None`` leaves every caption token visible to the whole rig.
         target_frames: Target frames represented by the pass. ``None`` keeps
             only the supplied conditioning frames.
         control_ranges: Control frames to prefill, one range per cache section.
@@ -103,6 +131,7 @@ def build_prefill_pack(
     """
     if text_tokens < 0:
         raise ValueError(f"text_tokens must be non-negative, got {text_tokens}.")
+    _check_view_text_tokens(geometry, view_text_tokens)
     device = device or torch.device("cpu")
     target_frames = (
         geometry.condition_frames if target_frames is None else target_frames
@@ -159,7 +188,7 @@ def build_prefill_pack(
 
     keep = gen.is_control | (gen.token_role_id == ROLE_TARGET_CONDITION)
     return PrefillPack(
-        und=text_stream(text_tokens, device),
+        und=text_stream(text_tokens, device, view_text_tokens=view_text_tokens),
         gen=gen,
         memory_token_indexes=keep.nonzero().squeeze(-1),
         control_ranges=control_ranges,

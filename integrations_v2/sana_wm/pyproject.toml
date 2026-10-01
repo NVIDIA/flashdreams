@@ -24,7 +24,6 @@ description = "SANA-WM world-model and Cam2V integration for FlashDreams v2."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "accelerate>=1.0",
     "diffusers>=0.36",
     "flashdreams",
     "flashdreams-cam2v",
@@ -33,7 +32,7 @@ dependencies = [
     "safetensors>=0.5",
     "sentencepiece>=0.2",
     "torchvision>=0.26",
-    "transformers>=5.17,<6",
+    "transformers[sentencepiece]>=5.17,<6",
 ]
 
 [tool.uv.sources]

@@ -50,6 +50,7 @@ from crazy_robotaxi.settings import (
     SettingsDocument,
     default_config_path,
     normalize_settings,
+    presentation_resolution_wh,
 )
 from crazy_robotaxi.ui import bev_display_extent
 from flashdreams.api_v2.application import IApplication
@@ -110,6 +111,9 @@ class ApplicationConfig:
 
     show_fps: bool
     """Whether the HUD displays the measured generated-video frame rate."""
+
+    presentation_resolution_wh: tuple[int, int] | None
+    """Presentation size, or ``None`` to use the model output dimensions."""
 
     show_current_prompt: bool = False
     """Whether the HUD displays the prompt currently driving generation."""
@@ -256,6 +260,7 @@ class CrazyRobotaxiApplication(IApplication):
             raise ValueError("--prewarm-blocks must be non-negative")
         if settings.game.taxi.rules.global_time_s <= 0:
             raise ValueError("--game-time-s must be positive")
+        presentation_resolution = presentation_resolution_wh(settings.presentation)
         if initial_game_mode != "race" and initial_race_course_id is not None:
             raise ValueError("--race-course requires --game-mode race")
         map_path: Path = args.map
@@ -310,6 +315,7 @@ class CrazyRobotaxiApplication(IApplication):
                 else settings.diagnostics.input_trace_path
             ),
             show_fps=settings.presentation.show_fps,
+            presentation_resolution_wh=presentation_resolution,
             show_current_prompt=settings.presentation.show_current_prompt,
             hud_enabled=settings.presentation.hud_enabled,
             show_control_hints=settings.presentation.show_control_hints,
@@ -428,6 +434,13 @@ class CrazyRobotaxiApplication(IApplication):
         presentation = settings.presentation
         if explicit("show_fps", ("presentation", "show_fps"), args.show_fps):
             presentation = replace(presentation, show_fps=bool(args.show_fps))
+        for argument, field_name in (
+            ("display_width", "width"),
+            ("display_height", "height"),
+        ):
+            value = getattr(args, argument)
+            if explicit(argument, ("presentation", field_name), value):
+                presentation = replace(presentation, **{field_name: value})
         runtime = settings.runtime
         for name, field_name in (
             ("total_blocks", "total_blocks"),
@@ -474,18 +487,24 @@ class CrazyRobotaxiApplication(IApplication):
         if session_desc.frames_per_second_for_step != _VIDEO_FPS:
             raise ValueError("Crazy Robotaxi generates video at 30 frames per second")
         actual = session_desc.video_width, session_desc.video_height
+        presentation = config.presentation_resolution_wh or actual
         config = replace(
             config,
             renderer=_fit_bev_renderer_to_ui(
                 config.renderer,
-                video_width=actual[0],
-                video_height=actual[1],
+                video_width=presentation[0],
+                video_height=presentation[1],
             ),
         )
         expected = config.renderer.raster.resolution_wh
         if actual != expected:
             raise ValueError(
-                f"Session dimensions {actual} do not match renderer {expected}"
+                f"Session/model dimensions {actual} do not match renderer raster "
+                f"dimensions {expected}. You may have changed Width or Height under "
+                "Options > Renderer > Raster, or used --width or --height; those "
+                "settings control model rendering. To resize only the displayed "
+                "output, use Options > Presentation > Width and Height or "
+                "--display-width and --display-height."
             )
         transformer = pipeline_config.diffusion_model.transformer
         scheduler = pipeline_config.diffusion_model.scheduler
@@ -496,7 +515,7 @@ class CrazyRobotaxiApplication(IApplication):
             "Crazy Robotaxi model preset=%s resolution=%sx%s native_dit=%s "
             "native_backend=%s attention_backend=%s native_vae=%s "
             "native_vae_backend=%s skip_finalize=%s "
-            "denoising_timesteps=%s bev=%s",
+            "denoising_timesteps=%s presentation=%sx%s bev=%s",
             config.model_preset_name,
             actual[0],
             actual[1],
@@ -507,6 +526,8 @@ class CrazyRobotaxiApplication(IApplication):
             encoder.native_vae_backend,
             transformer.skip_finalize_kv_cache,
             list(scheduler.denoising_timesteps),
+            presentation[0],
+            presentation[1],
             bev_resolution,
         )
         return CrazyRobotaxiSession(
@@ -630,6 +651,8 @@ def _parser(
     parser.add_argument("--map", type=Path, default=_DEFAULT_MAP)
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)
+    parser.add_argument("--display-width", type=int)
+    parser.add_argument("--display-height", type=int)
     parser.add_argument("--force-map-recompile", action="store_true")
     parser.add_argument(
         "--ui",

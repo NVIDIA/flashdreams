@@ -12,8 +12,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, final
 
+import torch
 from torch import Tensor
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
@@ -29,6 +30,16 @@ if TYPE_CHECKING:
     from flashdreams.runtime_v2.session_desc import SessionDesc
 
 StateT = TypeVar("StateT")
+
+
+class _ModelStepControl(Protocol):
+    """Private execution hook for step admission and synchronized input."""
+
+    def ready(self, *, stopping: bool, failed: bool = False) -> bool: ...
+
+    def inputs(
+        self, events: UserInputEvents, generation: int
+    ) -> tuple[UserInputEvents, int]: ...
 
 
 class ModelInferenceState(Enum):
@@ -120,7 +131,7 @@ class ILoop(ABC, Generic[StateT]):
         self._message_queue: queue.Queue[_Message[StateT]] = queue.Queue()
         self.user_events = UserInputEvents([])
         self._pending_user_events: list[UserInputEvent] = []
-        self.latest_result: StepResult | list[StepResult] | None = None
+        self.latest_result: list[StepResult] | None = None
         self._step_index = 0
         self._generation = 0
         self._accepting_messages = True
@@ -135,23 +146,22 @@ class ILoop(ABC, Generic[StateT]):
         return
 
     @abstractmethod
-    def step(
-        self, step_index: int, events: UserInputEvents
-    ) -> StepResult | list[StepResult] | None:
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Run one step.
 
-        The two kinds of loop return different things, and the runtime rejects
-        the wrong one: a model loop must return ``list[StepResult]``, one entry
-        per channel, and a UI loop must return one :class:`StepResult` or
-        ``None`` to present nothing this step.
+        Both kinds of loop return ``list[StepResult]``. A model loop returns
+        one entry per channel, or an empty list when the step produced no
+        presentable output. A UI loop returns one frame to present, or an
+        empty list to present nothing this step. A UI list longer than one
+        raises :class:`TypeError`.
 
         Args:
             step_index: Zero-based index since the latest reset.
             events: Input events not seen by this loop before.
 
         Returns:
-            Model channels from a model loop; one frame, or ``None``, from a UI
-            loop.
+            Model channels from a model loop, possibly empty; zero or one
+            frame from a UI loop.
         """
         ...
 
@@ -218,14 +228,15 @@ class ILoop(ABC, Generic[StateT]):
     @final
     def _finish_run(
         self,
-        result: StepResult | list[StepResult] | None,
+        result: list[StepResult] | None,
         *,
         step_completed: bool,
     ) -> None:
         """Finish one prepared run, saving its completed step when present.
 
         Args:
-            result: Value returned by the completed step, or ``None``.
+            result: Value returned by the completed step, or ``None`` when no
+                step ran.
             step_completed: Whether :meth:`step` returned successfully and
                 ``result`` should replace :attr:`latest_result`.
         """
@@ -260,6 +271,13 @@ class ILoop(ABC, Generic[StateT]):
             if result is not None:
                 raise TypeError("Message operations must return None.")
 
+    def _pace(self, last_run_started: float | None) -> float:
+        if self.frequency == 0 or last_run_started is None:
+            return time.monotonic()
+        earliest_start = last_run_started + 1.0 / self.frequency
+        self._shutdown_event.wait(max(0.0, earliest_start - time.monotonic()))
+        return time.monotonic()
+
     def _empty_message_queue(self) -> None:
         while True:
             try:
@@ -273,8 +291,18 @@ class IModelLoop(ILoop[StateT], ABC):
 
     :meth:`ILoop.step` must return ``list[StepResult]`` here, one entry per
     channel, with every channel reporting the same ``frame_count``. An empty
-    list means the step produced no presentable output. Returning a bare
-    :class:`StepResult` or ``None`` raises :class:`TypeError`.
+    list means the step produced no presentable output.
+
+    Every admitted rank executes the same model step and ordered collectives.
+    The integration owns TP/CP partitioning and must gather all CP shards needed
+    for publication before the presenting rank returns non-empty results.
+    Workers return ``[]`` only after all required collectives, including gathers.
+    Gather before decoding when it needs the complete latent/view sequence;
+    decoding may run only on the presenting rank when the model permits it.
+    TP reductions that already replicate a complete value need no extra gather.
+
+    A run whose steps all present nothing still ends when the model loop does.
+    Returning a bare :class:`StepResult` or ``None`` raises :class:`TypeError`.
     """
 
     @abstractmethod
@@ -309,6 +337,8 @@ class IModelLoop(ILoop[StateT], ABC):
         publish: Callable[[int, list[StepResult], float], None],
         max_steps: int | None = None,
         steps_run_out: list[int] | None = None,
+        step_control: _ModelStepControl | None = None,
+        device: torch.device | None = None,
     ) -> None:
         """Run model steps until shutdown or completion.
 
@@ -321,6 +351,8 @@ class IModelLoop(ILoop[StateT], ABC):
                 pass the remaining session cap here.
             steps_run_out: When provided, receives how many model-loop
                 iterations this call ran.
+            step_control: Admission and input synchronization; ``None`` runs locally.
+            device: Mesh device to bind on this model thread before running hooks.
         """
         steps_run = 0
         last_run_started: float | None = None
@@ -328,27 +360,47 @@ class IModelLoop(ILoop[StateT], ABC):
         unpublished_generation: int | None = None
         self._set_inference_state(ModelInferenceState.RUNNING)
         try:
-            while not self._shutdown_event.is_set() and (
-                max_steps is None or steps_run < max_steps
-            ):
+            if device is not None and device.type == "cuda":
+                torch.cuda.set_device(device)
+            while True:
+                stopping = self._shutdown_event.is_set() or (
+                    max_steps is not None and steps_run >= max_steps
+                )
+                if step_control is not None:
+                    if not step_control.ready(stopping=stopping):
+                        break
+                elif stopping:
+                    break
                 events, generation = event_buffer.read(reader_id)
+                if step_control is not None:
+                    events, generation = step_control.inputs(events, generation)
                 if generation != unpublished_generation:
                     unpublished_step_elapsed_s = 0.0
                     unpublished_generation = generation
                 result: list[StepResult] | None = None
                 step_completed = False
                 try:
-                    run = self._begin_run(events, generation)
-                    if run.step_index is None:
+                    try:
+                        run = self._begin_run(events, generation)
+                        if run.step_index is not None:
+                            last_run_started = self._pace(last_run_started)
+                    except BaseException:
+                        if step_control is not None:
+                            try:
+                                step_control.ready(stopping=True, failed=True)
+                            except BaseException:
+                                # A departed peer must not replace the original failure.
+                                pass
+                        raise
+                    stopping = run.step_index is None or self._shutdown_event.is_set()
+                    if step_control is not None:
+                        if not step_control.ready(stopping=stopping):
+                            break
+                    elif stopping:
                         break
-                    if self.frequency != 0 and last_run_started is not None:
-                        earliest_start = last_run_started + 1.0 / self.frequency
-                        self._shutdown_event.wait(
-                            max(0.0, earliest_start - time.monotonic())
-                        )
-                    last_run_started = time.monotonic()
-                    if self._shutdown_event.is_set():
-                        break
+                    # Admission commits every rank to this step. A later UI stop is
+                    # handled at the next boundary, never by skipping a collective.
+                    assert run.step_index is not None
                     step_started_at = time.monotonic()
                     raw_result = self.step(run.step_index, self.user_events)
                     step_elapsed_s = time.monotonic() - step_started_at
@@ -378,10 +430,20 @@ class IModelLoop(ILoop[StateT], ABC):
 class IUILoop(ILoop[StateT], ABC):
     """Loop whose output is sent to the client window.
 
-    :meth:`ILoop.step` must return one :class:`StepResult` or ``None`` here.
-    Model frames to draw come from :meth:`presented_model_frame` and
-    :meth:`presented_model_frames` rather than from the model loop directly.
+    :meth:`ILoop.step` must return ``list[StepResult]`` here: one frame to
+    present, or an empty list to present nothing this step. A list longer than
+    one raises :class:`TypeError`. Model frames to draw come from
+    :meth:`presented_model_frame` and :meth:`presented_model_frames` rather
+    than from the model loop directly.
+    :meth:`has_pending_model_frames` and :attr:`presented_model_frame_count`
+    report whether more model frames are waiting and how many have been
+    selected.
     """
+
+    @abstractmethod
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        """Return zero or one :class:`StepResult` to present this tick."""
+        ...
 
     @final
     def register_session_ui_loop_objects(
@@ -508,6 +570,17 @@ class IUILoop(ILoop[StateT], ABC):
                 from a presented result.
         """
         return self._presentation_manager.presented_frames()
+
+    @property
+    @final
+    def presented_model_frame_count(self) -> int:
+        """Return how many model frames have been selected in this generation."""
+        return self._presentation_manager.presented_frame_count
+
+    @final
+    def has_pending_model_frames(self) -> bool:
+        """Return whether another model frame is ready to present."""
+        return self._presentation_manager.has_pending_frames()
 
 
 def _parse_lifecycle_events(

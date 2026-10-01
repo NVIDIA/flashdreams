@@ -1990,7 +1990,6 @@ def test_pyproject_package_selection() -> None:
     packages = pyproject["tool"]["setuptools"]["packages"]
     dependencies = set(pyproject["project"]["dependencies"])
 
-    assert "accelerate>=1.0" in dependencies
     assert packages == [
         "sana_wm",
         "sana_wm.apps",
@@ -1999,4 +1998,4 @@ def test_pyproject_package_selection() -> None:
         "sana_wm.impl.ops",
     ]
     assert "diffusers>=0.36" in dependencies
-    assert "transformers>=5.17,<6" in dependencies
+    assert "transformers[sentencepiece]>=5.17,<6" in dependencies

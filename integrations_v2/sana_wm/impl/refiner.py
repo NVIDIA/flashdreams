@@ -524,7 +524,6 @@ class SanaWMLTX2Refiner(nn.Module):
         self.text_encoder = Gemma3ForConditionalGeneration.from_pretrained(
             self.gemma_root,
             dtype=self.dtype,
-            low_cpu_mem_usage=True,
             local_files_only=True,
         ).eval()
         self._text_encoder_built = True

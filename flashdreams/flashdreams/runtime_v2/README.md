@@ -46,6 +46,8 @@ Running a session:
 - `session_desc.py` describes the session being run: frame size, rates, layout,
   and the two policy knobs below.
 - `step_result.py` is what one generation step produces.
+- `coordination.py` broadcasts rank zero's continue/reset/stop decisions over a
+  separate CPU process group for distributed model loops.
 
 Presenting it:
 
@@ -69,6 +71,87 @@ Input:
   projects held state over each selected window. Other modalities should reuse
   the window clock with their own semantics: held state for mouse buttons,
   coalesced position for pointer motion, and accumulated impulses for wheels.
+
+## Tensor × context inference
+
+`flashdreams.core.distributed.parallel.init_parallel(head_groups=...)` creates
+a tensor × context mesh from the launcher world, or reuses an initialized
+process group. An integration can select TP through its own configuration:
+
+```python
+init_parallel(
+    tensor_parallel=config.parallel.tensor_parallel,
+    head_groups=model_head_groups,
+)
+```
+
+Core validates the TP degree and derives `cp_size = world_size // tp_size`;
+there is no separate CP setting. Missing or `None` TP uses `plan_mesh()`'s
+TP-first fallback: `gcd(world_size, head_groups)`, which may leave `cp_size=1`.
+Choose TP explicitly when the integration requires CP. `tensor_parallel=1`
+maximizes CP; `tensor_parallel=world_size` gives pure TP when model-compatible.
+The integration validates projection/checkpoint shapes, at least `cp_size`
+partitionable views/tokens per CP pass, and output order. Prefer the smallest TP
+that meets model memory/performance needs, keeping TP within a node when possible.
+Tensor groups contain consecutive ranks; context groups stride by tensor size.
+TP shards weights; CP shards views/tokens and replicates each TP weight shard
+across its CP group. With `tp_size=1`, every CP rank holds the full model weights.
+
+Both axes use NCCL for CUDA or Gloo for CPU, regardless of the reused world's
+backend; all ranks must agree on the device type. The caller still owns the
+world's lifecycle. The shared shutdown helper's immediate-exit path for
+compiled CUDA-graph workloads requires an NCCL **world**, not only NCCL axes;
+a mixed Gloo-world/NCCL-axis launch still needs launcher/job timeouts around
+ordinary process-group teardown.
+
+`core.distributed.tensor_parallel` provides `ColumnParallelLinear` and
+`RowParallelLinear`. The integration selects the projections and head ranges;
+the core layers slice weights and sum row-sharded outputs. Keep a row bias on
+exactly one tensor rank. Shard after loading and before moving weights to CUDA.
+
+`core.distributed.context_parallel` provides `build_shard`, `gather_tokens`,
+and `local_query_range` for uneven token counts. Existing equal-sized
+`split_inputs_cp` and `cat_outputs_cp` callers retain their contracts.
+
+Expose the mesh through `ISession.parallel_context`; it must be available
+before `session.init`. `run_session` owns the application control plane through
+`StepAgreement`: admission, input, session results, and shutdown over a separate
+Gloo control group. The model loop consumes only a private structural hook for
+admission and input. `ParallelContext` and integration-owned TP/CP collectives
+and output gathering form the inference data plane, normally over NCCL.
+Model hooks stay local: `is_finished` reports completion,
+`reset` discards model state, and `close` releases resources. They do not
+broadcast lifecycle decisions or perform cleanup barriers.
+
+Only rank zero creates a window or metrics sink. Programmatic worker calls
+pass `None` as the window; the CLI selects this from the launcher rank.
+Every admitted rank executes the same step and ordered model collectives.
+Before rank zero returns non-empty results, the integration must gather all CP
+shards needed for publication in their original order. Workers return `[]` only
+after every required collective, including gathers. Gather before decoding when
+it needs the complete latent/view sequence; decoding may run only on rank zero
+when the model permits it. Already-replicated TP results need no extra gather.
+The runtime does not gather `StepResult` objects; it cannot infer their sharded
+axis, ordering, padding, or replication.
+
+Before each step the runtime checks cancellation, broadcasts rank zero's
+input batch and reset generation, then checks preparation and cancellation
+again. Admission commits every rank to the step; a later UI stop is handled
+at the following boundary. Input events must be pickleable and come from
+trusted ranks in the same job. After model threads stop, calling threads poll
+rank zero's continue, terminal, or replacement result once per UI tick. Workers
+therefore remain coordinated while an unfinished UI stays open, without treating
+idle user time as a missing rank. Failed ranks bypass result polling; cleanup
+performs no collective that could hide the original failure.
+
+Control waits have a five-minute timeout. A process supervisor such as
+`torchrun` must terminate peers after a rank exits with an error; a Slurm
+time limit bounds kernel or process failures that cannot unwind. See
+[ARCHITECTURE.md](../../../ARCHITECTURE.md#many-gpu-sessions) for the process
+and thread model, and `tests/test_step_agreement.py` for fault-injection checks.
+
+The v2 CLI synchronizes and releases the default process group after a clean
+run; on failure it lets the process supervisor terminate blocked peers.
 
 ## The command line
 
@@ -126,6 +209,11 @@ count the only user-facing length is a later change.
 `unbound` on each). Native-window and WebRTC may omit both and end when the
 client closes. An application's own `is_finished()` can still end a session
 first.
+
+Local and single-rank replacements are skipped if cleanup reaches the deadline.
+A multi-rank replacement result already synchronized by the old session is authoritative:
+every rank creates that replacement even if the deadline crosses during cleanup,
+then the new session receives zero remaining time and stops at its first boundary.
 
 `--stats-path` adds a `MetricsOutputSink`. It receives the **model** loop's
 results as they are published, not the UI loop's output, so a benchmark measures
@@ -203,6 +291,10 @@ Constructing the manager with an explicit CPU device disables the CUDA stream.
 Stream priority lets short UI work overtake queued lower-priority kernels, but
 does not preempt a kernel that is already executing.
 
+Publishing an empty list queues nothing and waits for nothing — a step that
+presented nothing, which is what a worker process of a sharded multi-process run
+returns. See `api_v2/README.md` for the model loop's side of that.
+
 Frame cadence initially uses `frames_per_second_for_step`, then follows the
 throughput of complete model steps over the trailing two seconds. The estimate
 uses time spent inside model steps, so presentation-queue backpressure cannot
@@ -240,8 +332,9 @@ Both counters use model chunks as their unit.
 ## Presenting and writing
 
 A UI loop reads model frames through `presented_model_frame` and
-`presented_model_frames`, composites whatever it wants, and returns one
-`StepResult` that `run_session` writes to the window.
+`presented_model_frames`, composites whatever it wants, and returns a list
+holding that one frame, or `[]` to present nothing. `run_session` writes
+the single frame to the window.
 
 The ImGui and SlangPy UI loops prepare the optional model back buffer before
 composition: integer `[0, 255]` frames are normalized to the renderer's
@@ -254,7 +347,9 @@ channel in list order as if they were image layers and reshapes the result into
 the session's layout.
 
 `SlangPyUILoop` is the alternative for SlangPy's retained
-widget subset. `ImGuiUILoop` exposes the complete ImGui API. Both return a `[1, C, H, W]` frame, so an `ISession` using either should declare a `tchw` output layout.
+widget subset. `ImGuiUILoop` exposes the complete ImGui API. Both produce a
+`[1, C, H, W]` frame inside that one-element list, so an `ISession` using
+either should declare a `tchw` output layout.
 
 `IClientWindow` is both an `InputSource` and an `OutputSink`, so a window is
 written to with the same three calls as any sink: `open` with the session

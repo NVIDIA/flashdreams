@@ -37,6 +37,7 @@ from flashdreams.core.attention.multiview.packing import (
     build_memory_layout,
     causal_steps,
     pack_cross_view_attention,
+    text_stream,
     unpack_cross_view_attention,
 )
 
@@ -135,10 +136,41 @@ def index_of(stream: StreamFields, role: int, frame: int, view: int) -> int:
 def rolled_out_chunk(**kwargs):
     """Memory holding frame 1, and the chunk generating frame 2."""
     memory = build_memory_layout(CLIP, history_frame_ranges=[(1, 2)])
+    text_tokens = kwargs.pop("text_tokens", 1)
     chunk = build_chunk_metadata(
-        CLIP, memory, chunk_start=2, chunk_frames=1, text_tokens=1, **kwargs
+        CLIP,
+        memory,
+        chunk_start=2,
+        chunk_frames=1,
+        text_tokens=text_tokens,
+        **kwargs,
     )
     return memory, chunk
+
+
+def test_text_stream_assigns_each_caption_to_its_view() -> None:
+    stream = text_stream(6, view_text_tokens=(2, 1, 3))
+
+    assert stream.view_id.tolist() == [0, 0, 1, 2, 2, 2]
+
+
+def test_text_stream_rejects_caption_lengths_that_do_not_cover_the_prompt() -> None:
+    with pytest.raises(ValueError, match="but the prompt is 6 tokens"):
+        text_stream(6, view_text_tokens=(2, 1, 2))
+
+
+def test_chunk_metadata_preserves_view_caption_runs() -> None:
+    _memory, chunk = rolled_out_chunk(
+        text_tokens=6,
+        view_text_tokens=(2, 4),
+    )
+
+    assert chunk.kv.view_id[:6].tolist() == [0, 0, 1, 1, 1, 1]
+
+
+def test_chunk_metadata_rejects_too_few_view_caption_counts() -> None:
+    with pytest.raises(ValueError, match="expected 2, got 1"):
+        rolled_out_chunk(text_tokens=1, view_text_tokens=(1,))
 
 
 def test_causal_partition_makes_frame_zero_a_singleton() -> None:

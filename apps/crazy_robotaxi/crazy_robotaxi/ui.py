@@ -81,6 +81,7 @@ from crazy_robotaxi.settings import (
     format_editor_value,
     iter_setting_fields,
     parse_editor_value,
+    presentation_resolution_wh,
     restart_required_settings,
     setting_choices,
     setting_value,
@@ -256,6 +257,9 @@ class TaxiHudState:
     calibration: CameraCalibration | None
     """Camera calibration used to project world markers on the UI thread."""
 
+    presentation_size: tuple[int, int] | None = None
+    """Desired client-window and UI render-target size."""
+
     bev: BevConfig = BevConfig()
     """BEV camera geometry used to place navigation markers on the map."""
 
@@ -320,6 +324,9 @@ class TaxiHudState:
 
     _exit_requested: bool = False
     """Whether the root menu requested application shutdown."""
+
+    _model_size: tuple[int, int] = field(init=False)
+    """Model output size restored when presentation dimensions are unset."""
 
     _frames: OrderedDict[int, TaxiHudFrame] = field(default_factory=OrderedDict)
     """Recent immutable snapshots keyed by presented tensor-frame identity."""
@@ -477,6 +484,9 @@ class TaxiHudState:
 
     def __post_init__(self) -> None:
         """Initialize input state from the process-start bindings."""
+        self._model_size = self.width, self.height
+        if self.presentation_size is None:
+            self.presentation_size = self._model_size
         self._control_action_state = BoundActionState(self.controls)
         self._menu_back_action_state = BoundActionState(_MENU_BACK_CONTROLS)
 
@@ -1124,12 +1134,23 @@ class TaxiHudState:
         draft = self._options_draft
         if document is None or draft is None:
             return
+        overrides = document.cli_overrides
+        presentation = draft.presentation
+        for field_name in ("width", "height"):
+            path = "presentation", field_name
+            if path in overrides:
+                presentation = replace(
+                    presentation,
+                    **{field_name: overrides[path]},
+                )
         try:
+            presentation_size = (
+                presentation_resolution_wh(presentation) or self._model_size
+            )
             document.save(draft)
         except (OSError, SettingsError, ValueError) as exc:
             self._options_error = str(exc)
             return
-        overrides = document.cli_overrides
         if ("presentation", "hud_enabled") not in overrides:
             self.hud_enabled = draft.presentation.hud_enabled
         if ("presentation", "show_fps") not in overrides:
@@ -1144,6 +1165,7 @@ class TaxiHudState:
             self.live_edit_mapping_location = (
                 draft.presentation.live_edit_mapping_location
             )
+        self.presentation_size = presentation_size
         self._settings_notice = f"SAVED {document.path}"
         self._settings_notice_expires_at_s = (
             time.monotonic() + _SETTINGS_NOTICE_DURATION_S
@@ -1884,6 +1906,20 @@ class TaxiHudState:
         self._latest_committed_frame = None
         self._name_input = ""
         self._active_control_device = "keyboard"
+
+    def resize(self, width: int, height: int) -> None:
+        """Resize presentation-dependent HUD state."""
+        if (self.width, self.height) == (width, height):
+            return
+        self.width = width
+        self.height = height
+        self._waypoint_source = None
+        self._waypoint_projections = ()
+        self._bev_composite_source_key = None
+        self._bev_composite = None
+        self._bev_rect = None
+        self._menu_scroll_chrome_heights.clear()
+        self._menu_scrollbars.clear()
 
     def _clear_presented_game(self) -> None:
         """Discard frame-aligned HUD and BEV resources from the previous game."""
@@ -3303,9 +3339,17 @@ class TaxiHudState:
         ):
             return self._bev_composite
 
-        # The shared ImGui overlay is float32. Converting once here avoids a
-        # full-frame overlay cast and extra BF16 blend kernels downstream.
+        # Scale before placing the BEV because its rectangle is expressed in
+        # presentation pixels. The shared ImGui overlay is also float32, so
+        # converting once here avoids an extra full-frame cast.
         output = video.to(dtype=torch.float32, copy=True)
+        if tuple(output.shape[-2:]) != (self.height, self.width):
+            output = functional.interpolate(
+                output.unsqueeze(0),
+                size=(self.height, self.width),
+                mode="bilinear",
+                align_corners=False,
+            )[0]
         if frame is None or rect is None:
             self._bev_composite_source_key = composite_source_key
             self._bev_composite = output
@@ -3318,8 +3362,8 @@ class TaxiHudState:
             raise ValueError("BEV and video presentation frames must share a device")
 
         top, left, image_height, image_width = rect
-        bottom = min(int(video.shape[-2]), top + image_height)
-        right = min(int(video.shape[-1]), left + image_width)
+        bottom = min(int(output.shape[-2]), top + image_height)
+        right = min(int(output.shape[-1]), left + image_width)
         if bottom <= top or right <= left:
             self._bev_composite_source_key = composite_source_key
             self._bev_composite = output
@@ -3762,6 +3806,21 @@ def _composite_bev_ego_car(panel: Tensor) -> None:
 class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
     """Present generated frames beneath a responsive Dear ImGui taxi HUD."""
 
+    def __init__(
+        self,
+        *,
+        width: int,
+        height: int,
+    ) -> None:
+        """Configure the initial UI render-target dimensions.
+
+        Args:
+            width: Initial UI render-target width.
+            height: Initial UI render-target height.
+        """
+        super().__init__(width=width, height=height)
+        self._window_resize_requested: tuple[int, int] | None = None
+
     def is_finished(self) -> bool:
         """Return whether the root menu requested application shutdown."""
         return self.state._exit_requested
@@ -3770,6 +3829,20 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         self, imgui: Any, step_index: int, events: UserInputEvents
     ) -> Tensor | None:
         """Draw the HUD and return the generated world frame beneath it."""
+        presentation_size = self.state.presentation_size or (
+            self.state.width,
+            self.state.height,
+        )
+        if self.get_ui_loop_size() != presentation_size:
+            if self._window_resize_requested == presentation_size:
+                self.resize_ui_loop(*presentation_size)
+                self.state.resize(*presentation_size)
+                self._window_resize_requested = None
+            else:
+                self.request_new_window_size(presentation_size)
+                self._window_resize_requested = presentation_size
+        else:
+            self._window_resize_requested = None
         self.state.consume_input_events(events)
         frames = self.presented_model_frames()
         video = frames[0] if frames else None
