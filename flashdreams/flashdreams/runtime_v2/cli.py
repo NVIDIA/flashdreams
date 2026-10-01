@@ -119,7 +119,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
             application_flags=ApplicationFlags(
                 preload=parsed.preload_application,
                 skip_preload_validation=parsed.skip_preload_validation,
-            )
+            ),
         ).run(
             session_desc,
             application_args,
@@ -133,6 +133,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
             synchronize=completed,
             terminate_process=completed,
         )
+
 
 def split_arguments(arguments: Sequence[str]) -> tuple[list[str], list[str]]:
     """Split this command's arguments from the application's at ``--``.

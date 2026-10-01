@@ -47,8 +47,7 @@ _COMMAND_SEPARATOR = ":::"
 """Separator between this tool's options and a complete runtime command."""
 
 _FAILURE_GUIDANCE = (
-    "This is either a missing environment variable or an integration bug. "
-    "An integration/config must complete preparation in IApplication.init()."
+    "Packager failed. This is either a packager bug, missing environment variable, or packaged application crash."
 )
 """Guidance appended to application-preload failures."""
 
@@ -365,7 +364,7 @@ def _nvrtc_builtins() -> tuple[tuple[Path, Path], ...]:
             relative_path = Path(file)
             if "nvrtc-builtins" not in relative_path.name.lower():
                 continue
-            source = Path(installed.locate_file(file)).resolve()
+            source = Path(str(installed.locate_file(file))).resolve()
             if source.is_file():
                 binaries[source] = relative_path.parent
     return tuple(sorted(binaries.items()))
@@ -393,6 +392,8 @@ def _launcher_source(
     slug: str, config: list[str], cache_seed_id: str | None = None
 ) -> str:
     """Return a launcher that seeds and uses a writable runtime cache."""
+    embedded_runtime_arguments = _runtime_arguments(config)
+    embedded_application_arguments = _application_arguments(config)
     return dedent(
         f"""\
         # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -523,9 +524,16 @@ def _launcher_source(
 
                 _physx_native._configure_and_build = reuse_preloaded_physx
 
-        from flashdreams.runtime_v2.cli import entrypoint
+        from flashdreams.runtime_v2.cli import entrypoint, split_arguments
 
-        entrypoint({[slug, *config]!r} + sys.argv[1:])
+        runtime_arguments, application_arguments = split_arguments(sys.argv[1:])
+        application_arguments = {embedded_application_arguments!r} + application_arguments
+        entrypoint([
+            {slug!r},
+            *{embedded_runtime_arguments!r},
+            *runtime_arguments,
+            *(["--", *application_arguments] if application_arguments else []),
+        ])
         """
     )
 
@@ -685,9 +693,7 @@ def _pyinstaller_command(
         command.extend(("--hidden-import", hidden_import))
     for binary, installed_parent in _nvrtc_builtins():
         for destination in sorted({Path("."), installed_parent}):
-            command.extend(
-                ("--add-binary", f"{binary}{os.pathsep}{destination}")
-            )
+            command.extend(("--add-binary", f"{binary}{os.pathsep}{destination}"))
     for executable_name in executables:
         executable = shutil.which(executable_name)
         if executable is None:

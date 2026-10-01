@@ -127,7 +127,9 @@ class ApplicationRunner:
                     parallel = session.parallel_context
                     session_run_started = True
                     remaining_seconds = (
-                        None if deadline is None else max(0.0, deadline - time.monotonic())
+                        None
+                        if deadline is None
+                        else max(0.0, deadline - time.monotonic())
                     )
                     try:
                         next_session_desc = run_session(

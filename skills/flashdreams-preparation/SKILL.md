@@ -26,4 +26,4 @@ Findings include a full stack trace with every detected "failure", emitting resu
 All reported work should be moved into `IApplication.init` if operation is a one-time download/setup.
 Packager records validation in `INSTALLER_OUTPUT.txt`
 
-`--skip-runtime-validation` runs preloading (`init`) but omits the runtime validation of running the first model block.
+`--skip-preload-validation` runs preloading (`init`) but omits the runtime validation of running the first model block.

@@ -5,10 +5,13 @@
 
 import os
 import runpy
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+from flashdreams.runtime_v2 import cli
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -37,7 +40,9 @@ def test_slangpy_shaders_are_bundled_beside_runtime_library(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     packager_globals = _PACKAGER["_pyinstaller_command"].__globals__
-    monkeypatch.setitem(packager_globals, "_module_search_path", lambda _module: tmp_path)
+    monkeypatch.setitem(
+        packager_globals, "_module_search_path", lambda _module: tmp_path
+    )
     monkeypatch.setitem(packager_globals, "_metadata_distributions", lambda _module: ())
     monkeypatch.setitem(
         packager_globals, "_local_dependency_modules", lambda _distributions: ()
@@ -62,7 +67,9 @@ def test_nvrtc_builtins_are_bundled_beside_nvrtc(
 ) -> None:
     packager_globals = _PACKAGER["_pyinstaller_command"].__globals__
     builtins = tmp_path / "nvidia" / "cu13" / "lib" / "libnvrtc-builtins.so.13.0"
-    monkeypatch.setitem(packager_globals, "_module_search_path", lambda _module: tmp_path)
+    monkeypatch.setitem(
+        packager_globals, "_module_search_path", lambda _module: tmp_path
+    )
     monkeypatch.setitem(packager_globals, "_metadata_distributions", lambda _module: ())
     monkeypatch.setitem(
         packager_globals, "_local_dependency_modules", lambda _distributions: ()
@@ -126,6 +133,40 @@ def test_runtime_validation_uses_no_window_mode() -> None:
         "entrypoint(['example', '--preload-application', '--pixel-width', '64', "
         "'--', '--model-option'])" in source
     )
+
+
+def test_launcher_keeps_runtime_and_application_overrides_separate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    launched: list[list[str]] = []
+    monkeypatch.setattr(cli, "entrypoint", lambda arguments: launched.append(arguments))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["example", "--timeout", "5", "--", "--launch-option"],
+    )
+    for name in _PACKAGER["_CACHE_PATHS"]:
+        monkeypatch.setenv(name, "")
+
+    source = _PACKAGER["_launcher_source"](
+        "example",
+        ["--mode", "native-window", "--", "--embedded-option"],
+    )
+    launcher = tmp_path / "launcher.py"
+    exec(compile(source, launcher, "exec"), {"__file__": str(launcher)})
+
+    assert launched == [
+        [
+            "example",
+            "--mode",
+            "native-window",
+            "--timeout",
+            "5",
+            "--",
+            "--embedded-option",
+            "--launch-option",
+        ]
+    ]
 
 
 def test_preparation_issues_are_written_beside_installer_output(
