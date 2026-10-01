@@ -10,6 +10,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import torch
@@ -1390,6 +1391,24 @@ def test_run_session_forwards_file_selection_requests_to_the_window() -> None:
     assert "window.request_selected_files" in log.calls
 
 
+def test_timeout_wins_over_a_ui_requested_replacement() -> None:
+    log = CallLog()
+    resolved = _session_desc()
+
+    class RequestingSession(FakeSession):
+        def init(self) -> None:
+            super().init()
+            self.ui_loop.request_new_session(resolved)
+
+    session = RequestingSession(resolved, log)
+    window = RecordingClientWindow(log)
+
+    next_session_desc = run_session(session, window, timeout_seconds=0.0)
+
+    assert next_session_desc is None
+    assert log.calls[-2:] == ["window.close", "session.close"]
+
+
 def test_interactive_ui_can_replace_an_already_finished_session() -> None:
     log = CallLog()
 
@@ -1793,6 +1812,106 @@ def test_run_session_discards_results_generated_before_a_reset(
     assert any("before a reset" in record.getMessage() for record in caplog.records)
 
 
+def test_publishing_nothing_queues_nothing_and_waits_for_nothing() -> None:
+    """A step that presented nothing must not fill the queue or block on it.
+
+    ``BLOCK`` is the default backpressure mode, so an empty chunk taking the
+    ordinary path would wait for room it does not need, once per step, on the
+    thread doing the generating.
+    """
+    manager = PresentationManager()
+    manager.configure(
+        backpressure_mode=BackpressureMode.BLOCK,
+        stop=threading.Event(),
+        put_timeout=0.01,
+    )
+
+    manager.publish(0, [])
+    manager.publish(0, [])
+
+    assert manager.buffered_chunk_count == 0
+    assert not manager.has_pending_frames()
+    assert manager.advance(0) == (False, None)
+    assert manager.presented_frame(0) is None
+
+
+def test_a_model_loop_that_presents_nothing_still_runs_and_ends() -> None:
+    """The worker rank of a sharded run: it generates, and nobody watches it.
+
+    Every rank of such a run computes the same frames and only one of them has a
+    client. The rest used to have to decode a copy nobody reads and write a file
+    nobody opens, because a step publishing no channel was refused. Nothing
+    reaches the window now, and the run still ends on its own.
+    """
+    log = CallLog()
+
+    class SilentSession(FiniteSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_model_loop(SilentModelLoop, state=self)
+
+    class SilentModelLoop(FakeModelLoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            self.state.step(step_index, events)
+            return []
+
+    session = SilentSession(_session_desc(), log, length=3)
+    window = RecordingClientWindow(log)
+
+    run_session(session, window, steps=None)
+
+    assert [call for call in log.calls if call.startswith("session.step(")] == [
+        "session.step(0)",
+        "session.step(1)",
+        "session.step(2)",
+    ]
+    assert window.results == []
+    assert "ui_loop.step" not in log.calls
+    assert log.calls[-2:] == ["window.close", "session.close"]
+
+
+def test_a_step_that_presents_nothing_records_no_metrics() -> None:
+    """No channel is no result, so there is nothing for a metrics sink to write.
+
+    Worth pinning rather than assuming: a benchmark reading a worker rank's file
+    should find a run that measured nothing, not one that measured zeros.
+    """
+    log = CallLog()
+
+    class SilentModelLoop(FakeModelLoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            del step_index, events
+            return []
+
+    class SilentSession(FiniteSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_model_loop(SilentModelLoop, state=self)
+
+    class RecordingMetricsSink(MetricsOutputSink):
+        def __init__(self) -> None:
+            self.results: list[StepResult] = []
+
+        def open(self, session_desc: SessionDesc) -> None:
+            del session_desc
+
+        def write(self, result: StepResult) -> None:
+            self.results.append(result)
+
+        def close(self) -> None:
+            return
+
+    metrics = RecordingMetricsSink()
+    run_session(
+        SilentSession(_session_desc(), log, length=2),
+        RecordingClientWindow(log),
+        metrics_output_sink=metrics,
+        steps=2,
+    )
+
+    assert metrics.results == []
+
+
 def test_run_session_with_no_steps_still_opens_and_closes() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
@@ -1833,6 +1952,49 @@ def test_run_session_closes_both_when_a_step_raises(
     assert completed == [True, False]
     assert log.calls[-2:] == ["window.close", "session.close"]
     assert [result.step_index for result in window.results] == [1]
+
+
+@pytest.mark.parametrize("fail_at", [None, 0])
+def test_run_session_preserves_first_failure_and_finishes_cleanup(
+    fail_at: int | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    log = CallLog()
+    desc = replace(
+        _session_desc(),
+        metadata={
+            "trace_chunk_lifecycle": True,
+            "trace_chunk_lifecycle_path": str(tmp_path / "trace.log"),
+        },
+    )
+    session = FakeSession(desc, log, fail_at=fail_at, fail_to_close=True)
+    window = RecordingClientWindow(log, fail_to_close=True)
+    metrics = MetricsOutputSink(tmp_path / "metrics.json")
+    trace_logger = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
+    original_handlers = list(trace_logger.handlers)
+    original_level = trace_logger.level
+    original_propagate = trace_logger.propagate
+
+    def fail_metrics_close() -> None:
+        log.record("metrics.close")
+        raise RuntimeError("metrics close failed")
+
+    monkeypatch.setattr(metrics, "close", fail_metrics_close)
+    expected_failure = "metrics close failed" if fail_at is None else "step failed"
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match=expected_failure):
+            run_session(session, window, metrics_output_sink=metrics, steps=1)
+
+    assert log.calls[-3:] == ["metrics.close", "window.close", "session.close"]
+    assert "RuntimeError: close failed" in caplog.text
+    assert "session close failed" in caplog.text
+    if fail_at is not None:
+        assert "metrics close failed" in caplog.text
+    assert trace_logger.handlers == original_handlers
+    assert trace_logger.level == original_level
+    assert trace_logger.propagate is original_propagate
 
 
 def test_run_session_reports_a_window_that_fails_to_close() -> None:

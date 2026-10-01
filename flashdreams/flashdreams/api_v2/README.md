@@ -115,6 +115,19 @@ Every channel in one model step must report the same `frame_count`, and a
 mismatch raises `ValueError`. A step may generate several frames at once; the
 runtime presents them one per UI tick rather than dropping all but the last.
 
+In a distributed session, every admitted rank executes the same model step and
+ordered collectives. The integration chooses the CP view/token axis and TP
+projections. Before rank zero returns non-empty results, it must gather every CP
+shard needed for publication in the original view/token order. Workers return
+`[]` only after participating in all required collectives, including that gather.
+
+Gather before decoding if the decoder needs the complete latent/view sequence;
+decode only on rank zero when the model permits it. TP reductions that already
+replicate a complete value need no additional gather. Use `build_shard()` and
+`gather_tokens()` when their tensor contract fits. The runtime cannot infer the
+sharded dimension, ordering, padding, or replication from a `StepResult`.
+A run whose model steps all return `[]` still ends when the model loop does.
+
 A UI loop reads what the model produced through `presented_model_frame` and
 `presented_model_frames`, which return `[C, H, W]` frames with one, three or
 four channels. Four channels is RGBA, and composites over what is beneath it.
