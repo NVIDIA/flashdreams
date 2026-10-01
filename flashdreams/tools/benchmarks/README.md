@@ -19,7 +19,7 @@ in [the local benchmarks guide](../../../docs/source/developer_guides/local_benc
 ## Set up
 
 ```bash
-uv sync --package flashdreams --group cuda13 --extra runners --inexact
+uv sync --package flashdreams --extra runners --inexact
 export HF_TOKEN=<your-hf-token>
 ```
 

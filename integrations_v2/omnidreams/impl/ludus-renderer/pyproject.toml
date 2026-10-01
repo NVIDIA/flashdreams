@@ -34,7 +34,7 @@ dependencies = [
     "setuptools>=69",
     "ninja>=1.13.0",
     "cmake>=4.0",
-    "nvidia-nvcomp-cu12>=4.0",
+    "nvidia-nvcomp-cu13>=5.0",
 ]
 
 [project.optional-dependencies]

@@ -174,7 +174,6 @@ venv`` asks whether to replace it:
    uv sync --python 3.12 \
      --package flashdreams \
      --no-dev \
-     --group cuda13 \
      --extra runners
 
    uv venv --python 3.12 ~/.venvs/flashdreams-paibench

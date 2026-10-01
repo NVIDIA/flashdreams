@@ -540,7 +540,7 @@ def _get_nvcomp_codec():
     if _nvcomp_codec is not None:
         return _nvcomp_codec
     if _nvcomp is None:
-        raise RuntimeError("nvidia-nvcomp-cu12 is not installed")
+        raise RuntimeError("nvidia-nvcomp-cu13 is not installed")
     _nvcomp_codec = _nvcomp.Codec(
         algorithm="snappy",
         bitstream_kind=_nvcomp.BitstreamKind.RAW,

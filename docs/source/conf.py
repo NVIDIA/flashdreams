@@ -232,9 +232,7 @@ autodoc_mock_imports = [
     # `uv pip install --no-deps`. Without it, autodoc cannot import the recipes
     # that build their CLI with it.
     "tyro",
-    # Mocked rather than installed: with no torch source binding active
-    # under the docs-ci sync, uv can't disambiguate between the PyPI,
-    # +cu128, and +cu130 lock candidates.
+    # Mocked rather than installed by the CPU-only docs environment.
     "torch",
     "torchvision",
 ]
