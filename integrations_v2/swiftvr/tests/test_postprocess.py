@@ -190,6 +190,29 @@ def test_swiftvr_exposes_and_clears_latest_finalize_metrics(
     assert session.pull_finalize_metrics() is None
 
 
+def test_swiftvr_reset_starts_fresh_stream_with_resident_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = _install_fake_pipeline(monkeypatch)
+    session = (
+        SwiftVRPostProcessorConfig(device="cpu", chunk_size=8, prewarm=True)
+        .setup()
+        .start(VideoSpec(height=4, width=4))
+    )
+    session.prepare()
+    session.process(VideoChunk(tensor=torch.zeros((8, 3, 4, 4)), layout="tchw"))
+    session.flush()
+
+    session.reset()
+    output = session.process(
+        VideoChunk(tensor=torch.zeros((8, 3, 4, 4)), layout="tchw")
+    )
+
+    assert len(created) == 1
+    assert len(created[0].starts) == 3  # prewarm, first rollout, reset rollout
+    assert output[0].tensor.shape[2] == 5  # cold-stream trim repeats after reset
+
+
 def test_swiftvr_reports_exact_scaled_output_spec() -> None:
     output = SwiftVRPostProcessorConfig(scale=4).output_spec(
         VideoSpec(height=360, width=640, fps=30)
