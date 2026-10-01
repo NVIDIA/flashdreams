@@ -35,10 +35,11 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEvent,
     MouseUserInputEvent,
     SelectedFile,
+    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
     clamp_selected_file_max_bytes,
     normalize_selected_file_accept,
-    selected_file_suffix_allowed,
+    selected_file_policy_status,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
@@ -131,20 +132,30 @@ def _selected_file_from_path(
     *,
     accept: tuple[str, ...] = (),
     max_bytes: int | None = None,
-) -> SelectedFile | None:
-    """Load one picked file, or ``None`` when it cannot be used."""
+) -> tuple[SelectedFile | None, SelectedFilesStatus]:
+    """Load one picked file, or ``None`` and a failure status."""
     budget = MAX_SELECTED_FILE_BYTES if max_bytes is None else max_bytes
-    if not selected_file_suffix_allowed(path.name, accept):
-        return None
+    rejected = selected_file_policy_status(
+        path.name, None, accept=accept, max_bytes=budget
+    )
+    if rejected is not None:
+        return None, rejected
     try:
-        if path.stat().st_size > budget:
-            return None
+        size = path.stat().st_size
+        rejected = selected_file_policy_status(
+            path.name, size, accept=accept, max_bytes=budget
+        )
+        if rejected is not None:
+            return None, rejected
         data = path.read_bytes()
     except OSError:
-        return None
-    if len(data) > budget:
-        return None
-    return SelectedFile(name=path.name, data=data)
+        return None, SelectedFilesStatus.UNAVAILABLE
+    rejected = selected_file_policy_status(
+        path.name, len(data), accept=accept, max_bytes=budget
+    )
+    if rejected is not None:
+        return None, rejected
+    return SelectedFile(name=path.name, data=data), SelectedFilesStatus.OK
 
 
 _PRINTABLE_KEY_NAMES = {
@@ -328,15 +339,16 @@ class NativeWindowClientWindow(IClientWindow):
         """Run the OS picker and enqueue a selected-files event."""
         try:
             selected = _ask_open_filename(initial_dir=initial_dir, accept=accept)
-            files: tuple[SelectedFile, ...] = ()
             if selected:
-                chosen = _selected_file_from_path(
+                chosen, status = _selected_file_from_path(
                     Path(selected),
                     accept=accept,
                     max_bytes=max_bytes,
                 )
-                if chosen is not None:
-                    files = (chosen,)
+                files: tuple[SelectedFile, ...] = () if chosen is None else (chosen,)
+            else:
+                files = ()
+                status = SelectedFilesStatus.CANCELLED
             started_ns = self._session_started_ns
             elapsed_ns = (
                 0 if started_ns is None else max(0, self._clock_ns() - started_ns)
@@ -345,6 +357,7 @@ class NativeWindowClientWindow(IClientWindow):
                 SelectedFilesUserInputEvent(
                     timestamp=uint64(elapsed_ns // 1_000),
                     request_id=request_id,
+                    status=status,
                     files=files,
                 )
             )

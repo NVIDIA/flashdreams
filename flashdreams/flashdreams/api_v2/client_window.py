@@ -60,8 +60,13 @@ class IClientWindow(InputSource, OutputSink, ABC):
         """Ask this client to pick files and report them as input events.
 
         The chosen files arrive later through
-        :meth:`InputSource.get_user_input_events`. Windows enforce ``accept``
-        and ``max_bytes`` and clamp the size to the 32 MiB ceiling.
+        :meth:`InputSource.get_user_input_events`. Windows classify the choice
+        with
+        :func:`~flashdreams.runtime_v2.user_input_event.selected_file_policy_status`
+        (type before size) and clamp size to the 32 MiB ceiling. The event
+        carries a ``status`` so cancel, oversize, and disallowed type are
+        distinct. Applications read that ``status``; they do not re-check type
+        or size.
 
         Args:
             request_id: Correlation token for the later input event.

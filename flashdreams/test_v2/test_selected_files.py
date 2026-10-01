@@ -18,9 +18,11 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     MAX_SELECTED_FILE_BYTES,
     SelectedFile,
+    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
     clamp_selected_file_max_bytes,
     normalize_selected_file_accept,
+    selected_file_policy_status,
     selected_file_suffix_allowed,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -56,29 +58,17 @@ def test_selected_files_event_carries_bytes_and_request_id() -> None:
     event = SelectedFilesUserInputEvent(
         timestamp=uint64(1),
         request_id="open-1",
+        status=SelectedFilesStatus.OK,
         files=(SelectedFile(name="seed.png", data=b"png"),),
     )
 
     assert event.get_type_name() == "selected_files"
     assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.OK
     assert event.files[0].data == b"png"
 
 
-def test_ui_loop_ignores_duplicate_file_selection_ids() -> None:
-    loop = _ui_loop()
-    loop.request_selected_files("open-1", "/tmp")
-    loop.request_selected_files("open-1", "/var")
-
-    requests = loop.flush_ui_loop_requests()
-    assert requests is not None
-    assert len(requests.file_selections) == 1
-    assert requests.file_selections[0].request_id == "open-1"
-    assert requests.file_selections[0].initial_path == "/tmp"
-    assert requests.file_selections[0].accept == ()
-    assert requests.file_selections[0].max_bytes is None
-
-
-def test_ui_loop_queues_accept_and_max_bytes_without_clamping() -> None:
+def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
     loop = _ui_loop()
     loop.request_selected_files(
         "open-1",
@@ -86,10 +76,14 @@ def test_ui_loop_queues_accept_and_max_bytes_without_clamping() -> None:
         accept=(".png", ".JPG"),
         max_bytes=MAX_SELECTED_FILE_BYTES * 2,
     )
+    loop.request_selected_files("open-1", "/var")
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
+    assert len(requests.file_selections) == 1
     selection = requests.file_selections[0]
+    assert selection.request_id == "open-1"
+    assert selection.initial_path == "/tmp"
     assert selection.accept == (".png", ".JPG")
     assert selection.max_bytes == MAX_SELECTED_FILE_BYTES * 2
 
@@ -104,6 +98,18 @@ def test_selected_file_policy_helpers() -> None:
     assert selected_file_suffix_allowed("seed.PNG", (".png",))
     assert not selected_file_suffix_allowed("seed.txt", (".png",))
     assert selected_file_suffix_allowed("seed.txt", ())
+    assert (
+        selected_file_policy_status("seed.txt", 99, accept=(".png",), max_bytes=3)
+        is SelectedFilesStatus.DISALLOWED_TYPE
+    )
+    assert (
+        selected_file_policy_status("seed.png", 99, accept=(".png",), max_bytes=3)
+        is SelectedFilesStatus.TOO_LARGE
+    )
+    assert (
+        selected_file_policy_status("seed.png", 2, accept=(".png",), max_bytes=3)
+        is None
+    )
 
 
 def test_ui_loop_rejects_invalid_accept() -> None:
@@ -112,7 +118,23 @@ def test_ui_loop_rejects_invalid_accept() -> None:
         loop.request_selected_files("open-1", accept=("png",))
 
 
-def test_mp4_window_completes_file_selection_with_no_files(tmp_path: Path) -> None:
+def test_selected_files_event_rejects_inconsistent_status() -> None:
+    with pytest.raises(ValueError, match="must include files"):
+        SelectedFilesUserInputEvent(
+            timestamp=uint64(1),
+            request_id="open-1",
+            status=SelectedFilesStatus.OK,
+        )
+    with pytest.raises(ValueError, match="must not include files"):
+        SelectedFilesUserInputEvent(
+            timestamp=uint64(1),
+            request_id="open-1",
+            status=SelectedFilesStatus.CANCELLED,
+            files=(SelectedFile(name="seed.png", data=b"png"),),
+        )
+
+
+def test_mp4_window_completes_file_selection_as_unavailable(tmp_path: Path) -> None:
     window = Mp4ClientWindow(tmp_path / "clip.mp4")
     window.request_selected_files("open-1", "/tmp")
 
@@ -122,5 +144,6 @@ def test_mp4_window_completes_file_selection_with_no_files(tmp_path: Path) -> No
     event = events[0]
     assert isinstance(event, SelectedFilesUserInputEvent)
     assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.UNAVAILABLE
     assert event.files == ()
     assert window.get_user_input_events().get_events() == []

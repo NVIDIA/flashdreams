@@ -9,7 +9,12 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from imgui_ui_demo.file_picker_app import FilePickerImGuiUILoop, FilePickerState
+from imgui_ui_demo.file_picker_app import (
+    FilePickerImGuiUILoop,
+    FilePickerState,
+    _FILE_SELECTION_ERROR_COLOR,
+    _FILE_SELECTION_STATUS_TEXT,
+)
 from imgui_ui_demo.text_input_app import TextInputImGuiUILoop, TextInputState
 from numpy import uint64
 
@@ -18,6 +23,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_event import (
     MAX_SELECTED_FILE_BYTES,
     SelectedFile,
+    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -72,18 +78,27 @@ def _file_picker_loop() -> tuple[FilePickerState, FilePickerImGuiUILoop]:
     return state, loop
 
 
-def test_open_file_button_requests_a_client_file() -> None:
-    _state, loop = _file_picker_loop()
-    imgui = SimpleNamespace(
+def _file_picker_imgui(*, button: bool = False) -> SimpleNamespace:
+    return SimpleNamespace(
         ImVec2=lambda x, y: (x, y),
+        ImVec4=lambda x, y, z, w: (x, y, z, w),
+        Col_=SimpleNamespace(text="text"),
         Cond_=SimpleNamespace(once="once"),
         set_next_window_pos=Mock(),
         set_next_window_size=Mock(),
         begin=Mock(),
         end=Mock(),
         text=Mock(),
-        button=Mock(return_value=True),
+        text_wrapped=Mock(),
+        push_style_color=Mock(),
+        pop_style_color=Mock(),
+        button=Mock(return_value=button),
     )
+
+
+def test_open_file_button_requests_a_client_file() -> None:
+    _state, loop = _file_picker_loop()
+    imgui = _file_picker_imgui(button=True)
 
     loop.step_ui(imgui, 0, UserInputEvents([]))
     requests = loop.flush_ui_loop_requests()
@@ -97,16 +112,7 @@ def test_open_file_button_requests_a_client_file() -> None:
 
 def test_selected_files_event_updates_file_picker_status() -> None:
     state, loop = _file_picker_loop()
-    imgui = SimpleNamespace(
-        ImVec2=lambda x, y: (x, y),
-        Cond_=SimpleNamespace(once="once"),
-        set_next_window_pos=Mock(),
-        set_next_window_size=Mock(),
-        begin=Mock(),
-        end=Mock(),
-        text=Mock(),
-        button=Mock(return_value=False),
-    )
+    imgui = _file_picker_imgui()
 
     loop.step_ui(
         imgui,
@@ -116,6 +122,7 @@ def test_selected_files_event_updates_file_picker_status() -> None:
                 SelectedFilesUserInputEvent(
                     timestamp=uint64(0),
                     request_id="open-1",
+                    status=SelectedFilesStatus.OK,
                     files=(SelectedFile(name="seed.png", data=b"xx"),),
                 )
             ]
@@ -124,3 +131,37 @@ def test_selected_files_event_updates_file_picker_status() -> None:
 
     assert state.status == "seed.png (2 bytes)"
     imgui.text.assert_called_with("seed.png (2 bytes)")
+    imgui.text_wrapped.assert_not_called()
+    imgui.push_style_color.assert_not_called()
+
+
+def test_file_picker_shows_error_status_in_red() -> None:
+    assert set(_FILE_SELECTION_STATUS_TEXT) == {
+        status
+        for status in SelectedFilesStatus
+        if status is not SelectedFilesStatus.OK
+    }
+    state, loop = _file_picker_loop()
+    imgui = _file_picker_imgui()
+    cancelled = SelectedFilesStatus.CANCELLED
+
+    loop.step_ui(
+        imgui,
+        0,
+        UserInputEvents(
+            [
+                SelectedFilesUserInputEvent(
+                    timestamp=uint64(0),
+                    request_id="open-1",
+                    status=cancelled,
+                )
+            ]
+        ),
+    )
+
+    message = _FILE_SELECTION_STATUS_TEXT[cancelled]
+    assert state.status == message
+    imgui.push_style_color.assert_called_with("text", _FILE_SELECTION_ERROR_COLOR)
+    imgui.text_wrapped.assert_called_with(message)
+    imgui.pop_style_color.assert_called_once_with()
+    imgui.text.assert_not_called()

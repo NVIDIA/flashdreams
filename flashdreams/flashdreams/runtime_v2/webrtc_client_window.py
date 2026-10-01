@@ -124,8 +124,8 @@ class WebRTCClientWindow(IClientWindow):
             request_id: Correlation token for the later input event.
             initial_path: Ignored by the browser picker; kept so the window
                 signature matches :meth:`IClientWindow.request_selected_files`.
-            accept: Filename suffixes forwarded to the browser picker.
-            max_bytes: Size budget forwarded to the browser and upload handler.
+            accept: Filename suffixes such as ``.png``. Empty allows any type.
+            max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
         """
         if request_id in self._in_flight_file_requests:
             _LOGGER.warning(

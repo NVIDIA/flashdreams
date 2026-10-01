@@ -43,13 +43,14 @@ from flashdreams.runtime_v2.user_input_event import (
     QueryStringUserInputEvent,
     ResetUserInputEvent,
     SelectedFile,
+    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
     TouchUserInputEvent,
     UserInputEvent,
     XRControllerUserInputEvent,
     clamp_selected_file_max_bytes,
     normalize_selected_file_accept,
-    selected_file_suffix_allowed,
+    selected_file_policy_status,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -301,10 +302,6 @@ class _VideoTrack(MediaStreamTrack):
             await self._frame_available.wait()
 
 
-_FILE_UPLOAD_HEADER_SLACK_BYTES = 4 * 1024
-"""Multipart wrapper bytes allowed on top of a selected-file size budget."""
-
-
 @dataclass(frozen=True, slots=True)
 class _PendingFileSelection:
     """Accept suffixes and size budget for one armed file-selector request."""
@@ -523,7 +520,7 @@ class WebRTCServer:
             self._queued_file_selectors.clear()
 
     def _complete_abandoned_file_selectors(self) -> None:
-        """Complete pending selector requests with empty files."""
+        """Complete pending selector requests as unavailable."""
         timestamp_us = self._timestamp_us()
         with self._file_selector_lock:
             pending = tuple(self._pending_file_requests)
@@ -532,12 +529,10 @@ class WebRTCServer:
         if timestamp_us is None:
             return
         for request_id in pending:
-            self._append_event(
-                SelectedFilesUserInputEvent(
-                    timestamp=timestamp_us,
-                    request_id=request_id,
-                    files=(),
-                )
+            self._emit_selected_files(
+                timestamp_us,
+                request_id,
+                status=SelectedFilesStatus.UNAVAILABLE,
             )
 
     def _send_file_selector(self, payload: dict[str, Any]) -> None:
@@ -898,67 +893,50 @@ class WebRTCServer:
             raise web.HTTPConflict(
                 reason="No pending file selection for this request_id."
             )
-        content_length = request.content_length
-        if (
-            content_length is not None
-            and content_length > policy.max_bytes + _FILE_UPLOAD_HEADER_SLACK_BYTES
-        ):
-            self._append_event(
-                SelectedFilesUserInputEvent(
-                    timestamp=timestamp_us,
-                    request_id=request_id,
-                    files=(),
-                )
-            )
-            raise web.HTTPRequestEntityTooLarge(
-                max_size=policy.max_bytes,
-                actual_size=content_length,
-            )
         try:
             post = await request.post()
         except web.HTTPRequestEntityTooLarge:
-            self._append_event(
-                SelectedFilesUserInputEvent(
-                    timestamp=timestamp_us,
-                    request_id=request_id,
-                    files=(),
-                )
+            self._emit_selected_files(
+                timestamp_us,
+                request_id,
+                status=SelectedFilesStatus.TOO_LARGE,
             )
             raise
         upload = post.get("file")
         if not isinstance(upload, FileField):
-            self._append_event(
-                SelectedFilesUserInputEvent(
-                    timestamp=timestamp_us,
-                    request_id=request_id,
-                    files=(),
-                )
+            self._emit_selected_files(
+                timestamp_us,
+                request_id,
+                status=SelectedFilesStatus.UNAVAILABLE,
             )
             raise web.HTTPBadRequest(reason="File upload requires a file.")
         data = upload.file.read()
         name = upload.filename or "upload"
-        if len(data) > policy.max_bytes or not selected_file_suffix_allowed(
-            name, policy.accept
-        ):
-            self._append_event(
-                SelectedFilesUserInputEvent(
-                    timestamp=timestamp_us,
-                    request_id=request_id,
-                    files=(),
-                )
+        rejected = selected_file_policy_status(
+            name, len(data), accept=policy.accept, max_bytes=policy.max_bytes
+        )
+        if rejected is SelectedFilesStatus.DISALLOWED_TYPE:
+            self._emit_selected_files(
+                timestamp_us,
+                request_id,
+                status=rejected,
             )
-            if len(data) > policy.max_bytes:
-                raise web.HTTPRequestEntityTooLarge(
-                    max_size=policy.max_bytes,
-                    actual_size=len(data),
-                )
             return web.Response(status=204)
-        self._append_event(
-            SelectedFilesUserInputEvent(
-                timestamp=timestamp_us,
-                request_id=request_id,
-                files=(SelectedFile(name=name, data=data),),
+        if rejected is SelectedFilesStatus.TOO_LARGE:
+            self._emit_selected_files(
+                timestamp_us,
+                request_id,
+                status=rejected,
             )
+            raise web.HTTPRequestEntityTooLarge(
+                max_size=policy.max_bytes,
+                actual_size=len(data),
+            )
+        self._emit_selected_files(
+            timestamp_us,
+            request_id,
+            status=SelectedFilesStatus.OK,
+            files=(SelectedFile(name=name, data=data),),
         )
         return web.Response(status=204)
 
@@ -1287,9 +1265,13 @@ class WebRTCServer:
             request_id = payload.get("id")
             if not isinstance(request_id, str) or not request_id:
                 raise ValueError("File selector result requires a non-empty id.")
-            if payload.get("cancelled") is not True:
+            try:
+                status = SelectedFilesStatus(payload.get("status"))
+            except ValueError as error:
+                raise ValueError("File selector result status is invalid.") from error
+            if status is SelectedFilesStatus.OK:
                 raise ValueError(
-                    "File selector result must set cancelled true; send files "
+                    "File selector result must not set status ok; send files "
                     "with POST /api/files."
                 )
             if self._take_pending_file_request(request_id) is None:
@@ -1297,7 +1279,7 @@ class WebRTCServer:
             event = SelectedFilesUserInputEvent(
                 timestamp=timestamp_us,
                 request_id=request_id,
-                files=(),
+                status=status,
             )
         else:
             raise ValueError("Unsupported browser event type.")
@@ -1309,6 +1291,24 @@ class WebRTCServer:
         if callback is None:
             raise RuntimeError("WebRTC input callback is not registered.")
         callback(event)
+
+    def _emit_selected_files(
+        self,
+        timestamp_us: np.uint64,
+        request_id: str,
+        *,
+        status: SelectedFilesStatus,
+        files: tuple[SelectedFile, ...] = (),
+    ) -> None:
+        """Append one selected-files event."""
+        self._append_event(
+            SelectedFilesUserInputEvent(
+                timestamp=timestamp_us,
+                request_id=request_id,
+                status=status,
+                files=files,
+            )
+        )
 
     async def _release_peer_connection(
         self,

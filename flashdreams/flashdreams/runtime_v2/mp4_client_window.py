@@ -13,6 +13,7 @@ from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
     UserInputEvent,
 )
@@ -26,8 +27,8 @@ class Mp4ClientWindow(IClientWindow):
     event. Use ``BackpressureMode.BLOCK`` with
     ``PresentationMode.ON_DEMAND`` to write every frame once.
 
-    File-selector requests complete immediately with no files; there is no
-    client to pick one.
+    File-selector requests complete immediately as unavailable. This window
+    writes the run to a file; it has no interactive client.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -58,20 +59,20 @@ class Mp4ClientWindow(IClientWindow):
         accept: Sequence[str] = (),
         max_bytes: int | None = None,
     ) -> None:
-        """Complete a file-selector request with no files.
+        """Complete a file-selector request as unavailable.
 
         Args:
             request_id: Correlation token from the UI loop.
-            initial_path: Ignored; an MP4 has no selector.
-            accept: Ignored; an MP4 has no selector.
-            max_bytes: Ignored; an MP4 has no selector.
+            initial_path: Ignored; this window has no selector.
+            accept: Ignored; this window has no selector.
+            max_bytes: Ignored; this window has no selector.
         """
         del initial_path, accept, max_bytes
         self._pending_events.append(
             SelectedFilesUserInputEvent(
                 timestamp=uint64(0),
                 request_id=request_id,
-                files=(),
+                status=SelectedFilesStatus.UNAVAILABLE,
             )
         )
 

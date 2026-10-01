@@ -3,6 +3,7 @@
 
 """ImGui file-picker application for the v2 loop runtime."""
 
+import math
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -12,17 +13,77 @@ import torch
 from torch import Tensor
 
 from flashdreams.api_v2.application import IApplication
+from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     MAX_SELECTED_FILE_BYTES,
+    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
-from .text_input_app import BackgroundModelLoop
+_BREATHE_PERIOD_S = 3.0
+"""Seconds for one black → gray → black cycle in the demo background."""
+
+_BREATHE_BLACK = -1.0
+"""Model-frame value for black in ``[-1, 1]``."""
+
+_BREATHE_GRAY = -0.25
+"""Brightest gray in the cycle. Stops short of white."""
+
+_FILE_SELECTION_STATUS_TEXT = {
+    SelectedFilesStatus.CANCELLED: (
+        "SelectedFilesStatus.CANCELLED: user dismissed the selector."
+    ),
+    SelectedFilesStatus.TOO_LARGE: (
+        "SelectedFilesStatus.TOO_LARGE: file exceeded this request's "
+        f"max_bytes={MAX_SELECTED_FILE_BYTES} (32 MiB)."
+    ),
+    SelectedFilesStatus.DISALLOWED_TYPE: (
+        "SelectedFilesStatus.DISALLOWED_TYPE: suffix not in "
+        "accept=('.bin', '.raw')."
+    ),
+    SelectedFilesStatus.UNAVAILABLE: (
+        "SelectedFilesStatus.UNAVAILABLE: picker did not run "
+        "(--mode mp4, dropped WebRTC peer, or unreadable path / OSError)."
+    ),
+}
+_FILE_SELECTION_ERROR_COLOR = (1.0, 0.25, 0.25, 1.0)
+"""RGBA used for cancelled and other failed selector results."""
+
+
+class BreathingBackgroundModelLoop(IModelLoop[tuple[SessionDesc, torch.device | str]]):
+    """Generate a black-to-gray breathing background for the file-picker demo."""
+
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        """Return one background frame along a 3s black-gray cycle."""
+        del events
+        desc, device = self.state
+        phase = (step_index / desc.frames_per_second_for_step) * (
+            2.0 * math.pi / _BREATHE_PERIOD_S
+        )
+        mix = 0.5 - 0.5 * math.cos(phase)
+        level = _BREATHE_BLACK + (_BREATHE_GRAY - _BREATHE_BLACK) * mix
+        return [
+            StepResult(
+                step_index=step_index,
+                output=torch.full(
+                    (1, 3, desc.video_height, desc.video_width),
+                    level,
+                    dtype=torch.float32,
+                    device=device,
+                ),
+                frame_count=1,
+                output_layout=desc.output_layout,
+            )
+        ]
+
+    def reset(self) -> None:
+        return
 
 
 @dataclass(slots=True)
@@ -47,14 +108,14 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
         for event in events.get_events():
             if not isinstance(event, SelectedFilesUserInputEvent):
                 continue
-            if not event.files:
-                self.state.status = "Cancelled."
+            if event.status is not SelectedFilesStatus.OK:
+                self.state.status = _FILE_SELECTION_STATUS_TEXT[event.status]
                 continue
             chosen = event.files[0]
             self.state.status = f"{chosen.name} ({len(chosen.data)} bytes)"
 
         imgui.set_next_window_pos(imgui.ImVec2(16.0, 16.0), imgui.Cond_.once)
-        imgui.set_next_window_size(imgui.ImVec2(420.0, 130.0), imgui.Cond_.once)
+        imgui.set_next_window_size(imgui.ImVec2(520.0, 180.0), imgui.Cond_.once)
         imgui.begin("File picker")
         try:
             if imgui.button("Open file"):
@@ -63,7 +124,17 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
                     accept=(".bin", ".raw"),
                     max_bytes=MAX_SELECTED_FILE_BYTES,
                 )
-            imgui.text(self.state.status)
+            if self.state.status in _FILE_SELECTION_STATUS_TEXT.values():
+                imgui.push_style_color(
+                    imgui.Col_.text,
+                    imgui.ImVec4(*_FILE_SELECTION_ERROR_COLOR),
+                )
+                try:
+                    imgui.text_wrapped(self.state.status)
+                finally:
+                    imgui.pop_style_color()
+            else:
+                imgui.text(self.state.status)
         finally:
             imgui.end()
         return self.presented_model_frame()
@@ -111,7 +182,7 @@ class FilePickerSession(ISession):
             height=self._session_desc.video_height,
         )
         self.register_model_loop(
-            BackgroundModelLoop,
+            BreathingBackgroundModelLoop,
             state=(self._session_desc, self._device),
         )
 

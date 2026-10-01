@@ -48,23 +48,104 @@ SPDX-License-Identifier: Apache-2.0
         color: #ff8a8a;
       }
 
-      #file-pick {
+      #prompt-backdrop {
         position: fixed;
-        left: 50%;
-        bottom: 1.5rem;
-        transform: translateX(-50%);
+        inset: 0;
         z-index: 2;
-        padding: 0.6rem 1.1rem;
-        border: 0;
-        border-radius: 0.4rem;
-        background: #eee;
-        color: #111;
+        background: rgb(0 0 0 / 28%);
+      }
+
+      #prompt-backdrop[hidden] {
+        display: none;
+      }
+
+      #prompt-dialog {
+        position: fixed;
+        inset: 0;
+        z-index: 3;
+        margin: auto;
+        height: fit-content;
+        color-scheme: light dark;
+        max-width: 26rem;
+        width: min(26rem, calc(100% - 2rem));
+        padding: 1.25rem 1.35rem 1rem;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, Canvas);
+        border-radius: 12px;
+        background: Canvas;
+        color: CanvasText;
         font: inherit;
+        box-shadow: 0 18px 40px rgb(0 0 0 / 45%);
+      }
+
+      #prompt-dialog-title {
+        margin: 0 0 0.9rem;
+        font-size: 1.1rem;
+        font-weight: 650;
+      }
+
+      #prompt-dialog-details {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        align-items: baseline;
+        column-gap: 0.85rem;
+        row-gap: 0.4rem;
+        margin: 0 0 1.15rem;
+      }
+
+      #prompt-dialog-details[hidden] {
+        display: none;
+      }
+
+      .prompt-dialog-row {
+        display: contents;
+      }
+
+      .prompt-dialog-detail-label {
+        margin: 0;
+        font-size: 0.85rem;
+        color: color-mix(in srgb, CanvasText 62%, Canvas);
+        text-align: end;
+        white-space: nowrap;
+      }
+
+      .prompt-dialog-detail-label::after {
+        content: ":";
+      }
+
+      .prompt-dialog-row-value {
+        display: flex;
+        flex-wrap: wrap;
+        column-gap: 0.55rem;
+        row-gap: 0.15rem;
+      }
+
+      .prompt-dialog-chip {
+        font-size: 0.95rem;
+      }
+
+      .prompt-dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.55rem;
+      }
+
+      .prompt-dialog-actions button {
+        font: inherit;
+        padding: 0.45rem 0.95rem;
+        border-radius: 0.45rem;
         cursor: pointer;
       }
 
-      #file-pick[hidden] {
-        display: none;
+      #prompt-dialog-cancel {
+        border: 1px solid color-mix(in srgb, CanvasText 28%, Canvas);
+        background: transparent;
+        color: CanvasText;
+      }
+
+      #prompt-dialog-confirm {
+        border: 0;
+        background: CanvasText;
+        color: Canvas;
       }
 
     </style>
@@ -72,7 +153,15 @@ SPDX-License-Identifier: Apache-2.0
   <body>
     <video id="video" autoplay muted playsinline></video>
     <div id="status" role="status" aria-live="polite">Waiting for the server…</div>
-    <button id="file-pick" type="button" hidden>Choose file</button>
+    <div id="prompt-backdrop" hidden></div>
+    <dialog id="prompt-dialog" aria-labelledby="prompt-dialog-title">
+      <h2 id="prompt-dialog-title"></h2>
+      <div id="prompt-dialog-details" hidden></div>
+      <div class="prompt-dialog-actions">
+        <button type="button" id="prompt-dialog-cancel">Cancel</button>
+        <button type="button" id="prompt-dialog-confirm">Open</button>
+      </div>
+    </dialog>
     <script src="/app.js"></script>
   </body>
 </html>

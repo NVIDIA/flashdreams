@@ -556,12 +556,16 @@ class IUILoop(ILoop[StateT], ABC):
 
         The window reports the result later as
         :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`.
-        A second call with the same ``request_id`` while the first is still
-        queued is ignored so the original picker can still complete.
+        Read ``status`` for cancel, oversize, disallowed type, or unavailable;
+        ``files`` is non-empty only when the pick succeeded. A second call with
+        the same ``request_id`` while the first is still queued is ignored so
+        the original picker can still complete.
 
         ``accept`` and ``max_bytes`` are the application's policy. Windows
-        enforce them and clamp ``max_bytes`` to the 32 MiB ceiling so a client
-        cannot raise the cap.
+        classify the choice with
+        :func:`~flashdreams.runtime_v2.user_input_event.selected_file_policy_status`
+        (type before size) and clamp ``max_bytes`` to the 32 MiB ceiling so a
+        client cannot raise the cap.
 
         Args:
             request_id: Correlation token for the later input event.

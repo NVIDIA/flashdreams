@@ -226,12 +226,13 @@ description; the runtime cleans the current session and passes that description
 to `ApplicationRunner` unchanged. A control that needs a file from the client
 calls `request_selected_files(request_id, accept=..., max_bytes=...)`; the
 window later reports `SelectedFilesUserInputEvent` through the same input
-stream as keyboard and mouse. The application reads ``name`` and ``data`` from
-that event. ``accept`` (filename suffixes such as ``.png``) and ``max_bytes``
-are the application's policy; windows enforce them and clamp size to 32 MiB
-so a client cannot raise the cap. An empty ``files`` tuple is a cancelled or
-unavailable pick (including MP4, disallowed type, and files that exceed the
-budget).
+stream as keyboard and mouse. ``accept`` (filename suffixes such as ``.png``)
+and ``max_bytes`` are the application's policy; windows classify the choice
+with `selected_file_policy_status` (type before size) and clamp size to 32 MiB
+so a client cannot raise the cap. Empty ``accept`` (the default) allows any
+type; omit ``max_bytes`` to use the 32 MiB ceiling. Read ``status`` for the
+outcome (`ok`, `cancelled`, `too_large`, `disallowed_type`, `unavailable`);
+``files`` is non-empty only on `ok`.
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The
 [`slangpy_ui_demo` integration](../../../integrations_v2/slangpy_ui_demo/README.md)

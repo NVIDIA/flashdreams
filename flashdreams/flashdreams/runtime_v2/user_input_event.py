@@ -299,6 +299,55 @@ class XRControllerUserInputEvent(UserInputEvent):
     """Optional controller quaternion in client XR space."""
 
 
+class SelectedFilesStatus(Enum):
+    """Outcome of one client file-selector request."""
+
+    OK = "ok"
+    """The client chose a file that passed type and size checks."""
+
+    CANCELLED = "cancelled"
+    """The user dismissed the selector."""
+
+    TOO_LARGE = "too_large"
+    """The chosen file exceeded ``max_bytes``."""
+
+    DISALLOWED_TYPE = "disallowed_type"
+    """The chosen file did not match ``accept``. Checked before size."""
+
+    UNAVAILABLE = "unavailable"
+    """No picker could run: ``--mode mp4``, a dropped peer, or an unreadable file."""
+
+
+def selected_file_policy_status(
+    name: str,
+    size: int | None,
+    *,
+    accept: tuple[str, ...] = (),
+    max_bytes: int,
+) -> SelectedFilesStatus | None:
+    """Return why a chosen file is rejected, or ``None`` if it is allowed.
+
+    Windows call this so every client uses the same order: type before size.
+    A too-large disallowed file is ``DISALLOWED_TYPE``. Applications only read
+    :class:`SelectedFilesUserInputEvent` ``status``. Pass ``size=None`` to
+    check only the name.
+
+    Args:
+        name: File name to match against ``accept``.
+        size: File size in bytes, or ``None`` to skip the size check.
+        accept: Filename suffixes such as ``.png``. Empty allows any type.
+        max_bytes: Maximum allowed size in bytes.
+
+    Returns:
+        ``DISALLOWED_TYPE``, ``TOO_LARGE``, or ``None`` when the file passes.
+    """
+    if not selected_file_suffix_allowed(name, accept):
+        return SelectedFilesStatus.DISALLOWED_TYPE
+    if size is not None and size > max_bytes:
+        return SelectedFilesStatus.TOO_LARGE
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class SelectedFile:
     """One file chosen by a client file selector."""
@@ -314,9 +363,8 @@ class SelectedFile:
 class SelectedFilesUserInputEvent(UserInputEvent):
     """Files chosen for one :meth:`IClientWindow.request_selected_files` call.
 
-    An empty ``files`` tuple is a cancelled or unavailable selector: dismiss,
-    oversize, disallowed type, unreadable, a dropped WebRTC peer, or
-    ``--mode mp4``.
+    ``status`` is why the request completed. ``OK`` is the only value with
+    files; every other value uses an empty ``files`` tuple.
     """
 
     @classmethod
@@ -327,8 +375,21 @@ class SelectedFilesUserInputEvent(UserInputEvent):
     request_id: str
     """Identifier supplied with the matching file-selection request."""
 
+    status: SelectedFilesStatus
+    """Why this request completed. ``OK`` is the only value with files."""
+
     files: tuple[SelectedFile, ...] = ()
-    """Chosen files, empty when the selector was cancelled or unavailable."""
+    """Chosen files. Empty unless ``status`` is ``OK``."""
+
+    def __post_init__(self) -> None:
+        """Reject an ``ok`` event without files, or files on a failed pick."""
+        has_files = bool(self.files)
+        if self.status is SelectedFilesStatus.OK:
+            if not has_files:
+                raise ValueError("ok selected-files events must include files.")
+            return
+        if has_files:
+            raise ValueError("failed selected-files events must not include files.")
 
 
 @dataclass(frozen=True, slots=True, eq=False)

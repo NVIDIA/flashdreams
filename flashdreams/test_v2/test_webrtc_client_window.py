@@ -44,6 +44,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEvent,
     MouseUserInputEvent,
     QueryStringUserInputEvent,
+    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
     TouchUserInputEvent,
     XRControllerUserInputEvent,
@@ -194,10 +195,9 @@ async def test_browser_file_upload_reaches_the_input_stream() -> None:
         event = events[0]
         assert isinstance(event, SelectedFilesUserInputEvent)
         assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.OK
         assert event.files[0].name == "hello.txt"
         assert event.files[0].data == b"hello"
-
-        window.request_selected_files("open-1", "/tmp")
     finally:
         window.close()
 
@@ -223,39 +223,7 @@ async def test_unsolicited_file_upload_is_rejected() -> None:
 
 
 @pytest.mark.asyncio
-async def test_browser_file_selector_omits_host_path() -> None:
-    window = WebRTCClientWindow()
-    window.open(_session_desc())
-    peer: RTCPeerConnection | None = None
-    try:
-        peer, channel, _ = await _connect_browser(window)
-        messages: list[dict[str, object]] = []
-
-        @channel.on("message")
-        def on_message(message: object) -> None:
-            if isinstance(message, str):
-                messages.append(json.loads(message))
-
-        window.request_selected_files("open-1", "/home/secret")
-        for _ in range(100):
-            if any(item.get("type") == "file_selector" for item in messages):
-                break
-            await asyncio.sleep(0.01)
-        payload = next(item for item in messages if item.get("type") == "file_selector")
-        assert payload == {
-            "type": "file_selector",
-            "id": "open-1",
-            "accept": [],
-            "max_bytes": MAX_SELECTED_FILE_BYTES,
-        }
-    finally:
-        if peer is not None:
-            await peer.close()
-        window.close()
-
-
-@pytest.mark.asyncio
-async def test_browser_file_selector_forwards_accept_and_clamps_max_bytes() -> None:
+async def test_browser_file_selector_sends_clamped_policy_without_host_path() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     peer: RTCPeerConnection | None = None
@@ -270,6 +238,7 @@ async def test_browser_file_selector_forwards_accept_and_clamps_max_bytes() -> N
 
         window.request_selected_files(
             "open-1",
+            "/home/secret",
             accept=(".png", ".jpg"),
             max_bytes=MAX_SELECTED_FILE_BYTES * 2,
         )
@@ -315,6 +284,7 @@ async def test_file_upload_rejects_disallowed_suffix() -> None:
         assert await _post_selected_file(window, "open-1", b"hello", "hello.txt") == 204
         event = await _wait_selected_files_event(window)
         assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.DISALLOWED_TYPE
         assert event.files == ()
     finally:
         window.close()
@@ -331,8 +301,56 @@ async def test_file_upload_rejects_oversize() -> None:
         assert status == 413
         event = await _wait_selected_files_event(window)
         assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.TOO_LARGE
         assert event.files == ()
     finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_file_upload_prefers_disallowed_suffix_over_oversize() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        window.request_selected_files("open-1", accept=(".png",), max_bytes=1)
+        await _wait_file_armed(window, "open-1")
+        assert (
+            await _post_selected_file(window, "open-1", b"x" * 8192, "hello.txt")
+            == 204
+        )
+        event = await _wait_selected_files_event(window)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.DISALLOWED_TYPE
+        assert event.files == ()
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_file_selector_result_reports_status() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, channel, _ = await _connect_browser(window)
+        window.request_selected_files("open-1")
+        await _wait_file_armed(window, "open-1")
+        channel.send(
+            json.dumps(
+                {
+                    "type": "file_selector_result",
+                    "id": "open-1",
+                    "status": "cancelled",
+                }
+            )
+        )
+        event = await _wait_selected_files_event(window)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.CANCELLED
+        assert event.files == ()
+    finally:
+        if peer is not None:
+            await peer.close()
         window.close()
 
 
@@ -390,7 +408,10 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert 'id="reset"' not in browser_page
                 assert '<video id="video" autoplay muted playsinline>' in browser_page
                 assert 'id="status"' in browser_page
-                assert 'id="file-pick"' in browser_page
+                assert 'id="prompt-dialog"' in browser_page
+                assert 'id="prompt-dialog-confirm"' in browser_page
+                assert 'id="prompt-dialog-details"' in browser_page
+                assert 'id="prompt-backdrop"' in browser_page
                 assert '<script src="/app.js"></script>' in browser_page
             async with client.get(f"{window.server.url}app.js") as response:
                 browser_script = await response.text()
@@ -429,6 +450,9 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert 'type: "touch"' in browser_script
                 assert "openFileSelector" in browser_script
                 assert 'type === "file_selector"' in browser_script
+                assert "completeFileSelection" in browser_script
+                assert '"too_large"' in browser_script
+                assert '"disallowed_type"' in browser_script
                 assert (
                     "fetch(`/api/files?request_id=${encodeURIComponent(requestId)}`"
                     in browser_script
@@ -436,7 +460,13 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert "input.accept" in browser_script
                 assert "file.size" in browser_script
                 assert 'addEventListener("cancel"' in browser_script
-                assert "Choose file" in browser_page
+                assert "selectedFilePolicyStatus" in browser_script
+                assert "showPromptDialog" in browser_script
+                assert "showModal" not in browser_script
+                assert "The app wants to open a file" in browser_script
+                assert 'label: "Accepted types"' in browser_script
+                assert 'label: "Max size allowed"' in browser_script
+                assert "Choose file" not in browser_page
                 assert "response.ok" in browser_script
 
         window.request_hide_cursor(True)

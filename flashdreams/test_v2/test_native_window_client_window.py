@@ -29,6 +29,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
 )
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
@@ -620,26 +621,57 @@ def test_native_window_reports_a_selected_file(
     event = events[0]
     assert isinstance(event, SelectedFilesUserInputEvent)
     assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.OK
     assert event.files[0].name == "seed.png"
     assert event.files[0].data == b"png-bytes"
+
+
+def test_native_window_reports_cancelled_file_selection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        native_window_module,
+        "_ask_open_filename",
+        lambda *, initial_dir, accept=(): "",
+    )
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.CANCELLED
+    assert event.files == ()
 
 
 def test_selected_file_from_path_skips_unreadable_and_oversize(
     tmp_path: Path,
 ) -> None:
     missing = tmp_path / "gone.png"
-    assert native_window_module._selected_file_from_path(missing) is None
+    chosen, status = native_window_module._selected_file_from_path(missing)
+    assert chosen is None
+    assert status is SelectedFilesStatus.UNAVAILABLE
 
     too_big = tmp_path / "big.bin"
     too_big.write_bytes(b"abcd")
-    assert native_window_module._selected_file_from_path(too_big, max_bytes=3) is None
+    chosen, status = native_window_module._selected_file_from_path(too_big, max_bytes=3)
+    assert chosen is None
+    assert status is SelectedFilesStatus.TOO_LARGE
 
     wrong_type = tmp_path / "notes.txt"
     wrong_type.write_bytes(b"hi")
-    assert (
-        native_window_module._selected_file_from_path(wrong_type, accept=(".png",))
-        is None
+    chosen, status = native_window_module._selected_file_from_path(
+        wrong_type, accept=(".png",)
     )
+    assert chosen is None
+    assert status is SelectedFilesStatus.DISALLOWED_TYPE
 
 
 def test_ask_open_filename_linux_uses_zenity(
@@ -650,12 +682,10 @@ def test_ask_open_filename_linux_uses_zenity(
         "which",
         lambda name: "/usr/bin/zenity" if name == "zenity" else None,
     )
+    calls: list[list[str]] = []
 
     def fake_run(argv: list[str], **kwargs: object) -> object:
-        assert argv[0] == "/usr/bin/zenity"
-        assert "--file-selection" in argv
-        assert any(arg.startswith("--filename=/tmp/") for arg in argv)
-        assert not any(arg.startswith("--file-filter=") for arg in argv)
+        calls.append(argv)
         return SimpleNamespace(returncode=0, stdout="/tmp/seed.png\n")
 
     monkeypatch.setattr(native_window_module.subprocess, "run", fake_run)
@@ -663,22 +693,10 @@ def test_ask_open_filename_linux_uses_zenity(
         native_window_module._ask_open_filename_linux(initial_dir="/tmp")
         == "/tmp/seed.png"
     )
-
-
-def test_ask_open_filename_linux_applies_accept_filter(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        native_window_module.shutil,
-        "which",
-        lambda name: "/usr/bin/zenity" if name == "zenity" else None,
-    )
-
-    def fake_run(argv: list[str], **kwargs: object) -> object:
-        assert "--file-filter=Accepted | *.png *.jpg" in argv
-        return SimpleNamespace(returncode=0, stdout="/tmp/seed.png\n")
-
-    monkeypatch.setattr(native_window_module.subprocess, "run", fake_run)
+    assert calls[0][0] == "/usr/bin/zenity"
+    assert "--file-selection" in calls[0]
+    assert any(arg.startswith("--filename=/tmp/") for arg in calls[0])
+    assert not any(arg.startswith("--file-filter=") for arg in calls[0])
     assert (
         native_window_module._ask_open_filename_linux(
             initial_dir="/tmp",
@@ -686,6 +704,7 @@ def test_ask_open_filename_linux_applies_accept_filter(
         )
         == "/tmp/seed.png"
     )
+    assert "--file-filter=Accepted | *.png *.jpg" in calls[1]
 
 
 def test_ask_open_filename_linux_cancel_is_empty(
