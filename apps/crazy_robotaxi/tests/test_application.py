@@ -27,6 +27,7 @@ from crazy_robotaxi.headless_ui import CrazyRobotaxiHeadlessUILoop
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
+    LiveEditMapContextConfig,
     LiveEditObstacleConfig,
     LiveEditStyleConfig,
     LiveEditWeatherConfig,
@@ -589,6 +590,10 @@ def test_diagnostics_flag_does_not_enable_pipeline_profiling(
             LiveEditConfig(
                 obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=1.0)
             ),
+            "disabled",
+        ),
+        (
+            LiveEditConfig(dynamic_prompts=LiveEditMapContextConfig(enabled=True)),
             "disabled",
         ),
         (LiveEditConfig(coins=LiveEditCoinsConfig(enabled=True)), "required"),
