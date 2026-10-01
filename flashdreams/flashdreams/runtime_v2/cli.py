@@ -69,7 +69,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     if parsed.stats_path is not None:
         os.environ["FLASHDREAMS_SYNC_AND_PROFILE"] = "1"
 
-    mode = client_window_mode(parsed.mode)
+    mode = client_window_mode(parsed.mode, modes=parsed._client_window_modes)
     if parsed.mode == "mp4" and parsed.presentation_mode is None:
         parsed.presentation_mode = PresentationMode.ON_DEMAND
     # Asking an application what it takes is answered by the application alone,
