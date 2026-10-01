@@ -10,6 +10,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import torch
@@ -1925,6 +1926,49 @@ def test_run_session_closes_both_when_a_step_raises(
     assert completed == [True, False]
     assert log.calls[-2:] == ["window.close", "session.close"]
     assert [result.step_index for result in window.results] == [1]
+
+
+@pytest.mark.parametrize("fail_at", [None, 0])
+def test_run_session_preserves_first_failure_and_finishes_cleanup(
+    fail_at: int | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    log = CallLog()
+    desc = replace(
+        _session_desc(),
+        metadata={
+            "trace_chunk_lifecycle": True,
+            "trace_chunk_lifecycle_path": str(tmp_path / "trace.log"),
+        },
+    )
+    session = FakeSession(desc, log, fail_at=fail_at, fail_to_close=True)
+    window = RecordingClientWindow(log, fail_to_close=True)
+    metrics = MetricsOutputSink(tmp_path / "metrics.json")
+    trace_logger = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
+    original_handlers = list(trace_logger.handlers)
+    original_level = trace_logger.level
+    original_propagate = trace_logger.propagate
+
+    def fail_metrics_close() -> None:
+        log.record("metrics.close")
+        raise RuntimeError("metrics close failed")
+
+    monkeypatch.setattr(metrics, "close", fail_metrics_close)
+    expected_failure = "metrics close failed" if fail_at is None else "step failed"
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match=expected_failure):
+            run_session(session, window, metrics_output_sink=metrics, steps=1)
+
+    assert log.calls[-3:] == ["metrics.close", "window.close", "session.close"]
+    assert "RuntimeError: close failed" in caplog.text
+    assert "session close failed" in caplog.text
+    if fail_at is not None:
+        assert "metrics close failed" in caplog.text
+    assert trace_logger.handlers == original_handlers
+    assert trace_logger.level == original_level
+    assert trace_logger.propagate is original_propagate
 
 
 def test_run_session_reports_a_window_that_fails_to_close() -> None:
