@@ -430,12 +430,17 @@ SPDX-License-Identifier: Apache-2.0
 <span class="k">def</span><span class="w"> </span><span class="nf">_safe_destroy_pg</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Tear down the default process group on interpreter exit.</span>
 
-<span class="sd">    Registered via :func:`atexit.register` from :func:`init` so NCCL stops</span>
-<span class="sd">    printing the ``destroy_process_group() was not called before program</span>
-<span class="sd">    exit`` warning at the end of every ``flashdreams-run`` / ``torchrun``</span>
-<span class="sd">    invocation. Best-effort: never raises, so a teardown failure cannot</span>
-<span class="sd">    mask the original exit code or exception.</span>
+<span class="sd">    Registered via :func:`atexit.register` when a FlashDreams initializer owns</span>
+<span class="sd">    the default group, so NCCL does not warn about a leaked group after a clean</span>
+<span class="sd">    exit. An uncaught exception may leave peers inside collectives, so failure</span>
+<span class="sd">    exits skip destruction and let the process supervisor stop the world.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="p">(</span>
+        <span class="nb">getattr</span><span class="p">(</span><span class="n">sys</span><span class="p">,</span> <span class="s2">&quot;last_exc&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="ow">or</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">sys</span><span class="p">,</span> <span class="s2">&quot;last_value&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="p">):</span>
+        <span class="k">return</span>
+
     <span class="k">try</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_initialized</span><span class="p">():</span>
             <span class="n">dist</span><span class="o">.</span><span class="n">destroy_process_group</span><span class="p">()</span>
@@ -459,7 +464,11 @@ SPDX-License-Identifier: Apache-2.0
             <span class="k">return</span>
         <span class="k">if</span> <span class="n">synchronize</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Synchronizing distributed ranks before shutdown.&quot;</span><span class="p">)</span>
-            <span class="n">dist</span><span class="o">.</span><span class="n">barrier</span><span class="p">(</span><span class="n">device_ids</span><span class="o">=</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_device</span><span class="p">()])</span>
+            <span class="n">dist</span><span class="o">.</span><span class="n">barrier</span><span class="p">(</span>
+                <span class="n">device_ids</span><span class="o">=</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_device</span><span class="p">()]</span>
+                <span class="k">if</span> <span class="n">dist</span><span class="o">.</span><span class="n">get_backend</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;nccl&quot;</span>
+                <span class="k">else</span> <span class="kc">None</span>
+            <span class="p">)</span>
             <span class="n">synchronization_complete</span> <span class="o">=</span> <span class="kc">True</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Distributed shutdown synchronization complete.&quot;</span><span class="p">)</span>
     <span class="k">finally</span><span class="p">:</span>
