@@ -46,9 +46,7 @@ _APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications_v2"
 _COMMAND_SEPARATOR = ":::"
 """Separator between this tool's options and a complete runtime command."""
 
-_FAILURE_GUIDANCE = (
-    "Packager failed. This is either a packager bug, missing environment variable, or packaged application crash."
-)
+_FAILURE_GUIDANCE = "Packager failed. This is either a packager bug, missing environment variable, or packaged application crash."
 """Guidance appended to application-preload failures."""
 
 _SAFE_SLUG = re.compile(r"^[A-Za-z0-9_.-]+$")
