@@ -16,6 +16,7 @@ from numpy import uint64
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_event import (
+    MAX_SELECTED_FILE_BYTES,
     SelectedFile,
     SelectedFilesUserInputEvent,
 )
@@ -90,6 +91,8 @@ def test_open_file_button_requests_a_client_file() -> None:
     assert requests is not None
     assert len(requests.file_selections) == 1
     assert requests.file_selections[0].request_id
+    assert requests.file_selections[0].accept == (".bin", ".raw")
+    assert requests.file_selections[0].max_bytes == MAX_SELECTED_FILE_BYTES
 
 
 def test_selected_files_event_updates_file_picker_status() -> None:

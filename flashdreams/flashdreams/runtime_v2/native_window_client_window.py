@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -36,6 +36,9 @@ from flashdreams.runtime_v2.user_input_event import (
     MouseUserInputEvent,
     SelectedFile,
     SelectedFilesUserInputEvent,
+    clamp_selected_file_max_bytes,
+    normalize_selected_file_accept,
+    selected_file_suffix_allowed,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
@@ -46,14 +49,19 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _ask_open_filename(*, initial_dir: str) -> str:
+def _ask_open_filename(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
     """Return a path from the OS file picker, or ``""`` when cancelled."""
     if sys.platform.startswith("linux"):
-        return _ask_open_filename_linux(initial_dir=initial_dir)
-    return _ask_open_filename_tkinter(initial_dir=initial_dir)
+        return _ask_open_filename_linux(initial_dir=initial_dir, accept=accept)
+    return _ask_open_filename_tkinter(initial_dir=initial_dir, accept=accept)
 
 
-def _ask_open_filename_linux(*, initial_dir: str) -> str:
+def _accept_filter_patterns(accept: tuple[str, ...]) -> str:
+    """Return glob patterns for ``accept`` suffixes, such as ``*.png *.jpg``."""
+    return " ".join(f"*{suffix}" for suffix in accept)
+
+
+def _ask_open_filename_linux(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
     """Open the desktop file picker via ``zenity`` or ``kdialog``.
 
     ``zenity --file-selection`` uses ``GtkFileChooserNative``, which is the
@@ -61,6 +69,7 @@ def _ask_open_filename_linux(*, initial_dir: str) -> str:
     GLFW window does not host GTK.
     """
     directory = str(Path(initial_dir))
+    patterns = _accept_filter_patterns(accept)
     zenity = shutil.which("zenity")
     if zenity is not None:
         argv = [
@@ -69,6 +78,8 @@ def _ask_open_filename_linux(*, initial_dir: str) -> str:
             f"--filename={directory}/",
             "--title=Select a file",
         ]
+        if patterns:
+            argv.append(f"--file-filter=Accepted | {patterns}")
     else:
         kdialog = shutil.which("kdialog")
         if kdialog is None:
@@ -76,6 +87,8 @@ def _ask_open_filename_linux(*, initial_dir: str) -> str:
                 "Native file picker needs a desktop chooser (zenity or kdialog)."
             )
         argv = [kdialog, "--getopenfilename", directory]
+        if patterns:
+            argv.append(f"Accepted ({patterns})")
     completed = subprocess.run(
         argv,
         check=False,
@@ -87,7 +100,9 @@ def _ask_open_filename_linux(*, initial_dir: str) -> str:
     return completed.stdout.strip()
 
 
-def _ask_open_filename_tkinter(*, initial_dir: str) -> str:
+def _ask_open_filename_tkinter(
+    *, initial_dir: str, accept: tuple[str, ...] = ()
+) -> str:
     """Open the Tk file dialog (native Explorer / macOS panel)."""
     import tkinter as tk
     from tkinter import filedialog
@@ -99,24 +114,35 @@ def _ask_open_filename_tkinter(*, initial_dir: str) -> str:
     except tk.TclError:
         pass
     try:
-        selected = filedialog.askopenfilename(
-            initialdir=initial_dir,
-            title="Select a file",
-        )
+        kwargs: dict[str, Any] = {
+            "initialdir": initial_dir,
+            "title": "Select a file",
+        }
+        if accept:
+            kwargs["filetypes"] = [("Accepted", _accept_filter_patterns(accept))]
+        selected = filedialog.askopenfilename(**kwargs)
     finally:
         root.destroy()
     return str(selected or "")
 
 
-def _selected_file_from_path(path: Path) -> SelectedFile | None:
+def _selected_file_from_path(
+    path: Path,
+    *,
+    accept: tuple[str, ...] = (),
+    max_bytes: int | None = None,
+) -> SelectedFile | None:
     """Load one picked file, or ``None`` when it cannot be used."""
+    budget = MAX_SELECTED_FILE_BYTES if max_bytes is None else max_bytes
+    if not selected_file_suffix_allowed(path.name, accept):
+        return None
     try:
-        if path.stat().st_size > MAX_SELECTED_FILE_BYTES:
+        if path.stat().st_size > budget:
             return None
         data = path.read_bytes()
     except OSError:
         return None
-    if len(data) > MAX_SELECTED_FILE_BYTES:
+    if len(data) > budget:
         return None
     return SelectedFile(name=path.name, data=data)
 
@@ -250,7 +276,12 @@ class NativeWindowClientWindow(IClientWindow):
         self._window_size = presenter.resize(*new_window_size)
 
     def request_selected_files(
-        self, request_id: str, initial_path: str | None = None
+        self,
+        request_id: str,
+        initial_path: str | None = None,
+        *,
+        accept: Sequence[str] = (),
+        max_bytes: int | None = None,
     ) -> None:
         """Ask the OS file selector and enqueue the chosen file.
 
@@ -261,7 +292,11 @@ class NativeWindowClientWindow(IClientWindow):
             request_id: Correlation token for the later input event.
             initial_path: Directory the selector should start in; ``None`` uses
                 the current user's home directory.
+            accept: Filename suffixes such as ``.png``. Empty allows any type.
+            max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
         """
+        suffixes = normalize_selected_file_accept(accept)
+        budget = clamp_selected_file_max_bytes(max_bytes)
         with self._file_request_lock:
             if request_id in self._in_flight_file_requests:
                 _LOGGER.warning(
@@ -272,19 +307,34 @@ class NativeWindowClientWindow(IClientWindow):
             self._in_flight_file_requests.add(request_id)
         worker = threading.Thread(
             target=self._complete_file_selection,
-            args=(request_id, initial_path or str(Path.home())),
+            args=(
+                request_id,
+                initial_path or str(Path.home()),
+                suffixes,
+                budget,
+            ),
             name="flashdreams-file-picker",
             daemon=True,
         )
         worker.start()
 
-    def _complete_file_selection(self, request_id: str, initial_dir: str) -> None:
+    def _complete_file_selection(
+        self,
+        request_id: str,
+        initial_dir: str,
+        accept: tuple[str, ...],
+        max_bytes: int,
+    ) -> None:
         """Run the OS picker and enqueue a selected-files event."""
         try:
-            selected = _ask_open_filename(initial_dir=initial_dir)
+            selected = _ask_open_filename(initial_dir=initial_dir, accept=accept)
             files: tuple[SelectedFile, ...] = ()
             if selected:
-                chosen = _selected_file_from_path(Path(selected))
+                chosen = _selected_file_from_path(
+                    Path(selected),
+                    accept=accept,
+                    max_bytes=max_bytes,
+                )
                 if chosen is not None:
                     files = (chosen,)
             started_ns = self._session_started_ns

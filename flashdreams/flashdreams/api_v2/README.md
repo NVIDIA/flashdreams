@@ -224,11 +224,14 @@ UI control that needs a fresh application session calls
 `request_new_session(session_desc)` with a fully resolved replacement
 description; the runtime cleans the current session and passes that description
 to `ApplicationRunner` unchanged. A control that needs a file from the client
-calls `request_selected_files(request_id)`; the window later reports
-`SelectedFilesUserInputEvent` through the same input stream as keyboard and
-mouse. The application reads ``name`` and ``data`` from that event. An empty
-``files`` tuple is a cancelled or unavailable pick (including MP4 and files
-that exceed the window size cap).
+calls `request_selected_files(request_id, accept=..., max_bytes=...)`; the
+window later reports `SelectedFilesUserInputEvent` through the same input
+stream as keyboard and mouse. The application reads ``name`` and ``data`` from
+that event. ``accept`` (filename suffixes such as ``.png``) and ``max_bytes``
+are the application's policy; windows enforce them and clamp size to 32 MiB
+so a client cannot raise the cap. An empty ``files`` tuple is a cancelled or
+unavailable pick (including MP4, disallowed type, and files that exceed the
+budget).
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The
 [`slangpy_ui_demo` integration](../../../integrations_v2/slangpy_ui_demo/README.md)

@@ -403,7 +403,12 @@ def _apply_window_requests(window: IClientWindow, request: UILoopRequests) -> No
     if request.new_window_size is not None:
         window.request_new_window_size(request.new_window_size)
     for selection in request.file_selections:
-        window.request_selected_files(selection.request_id, selection.initial_path)
+        window.request_selected_files(
+            selection.request_id,
+            selection.initial_path,
+            accept=selection.accept,
+            max_bytes=selection.max_bytes,
+        )
 
 
 def _open_chunk_trace(path_value: object) -> _ChunkTraceLog:

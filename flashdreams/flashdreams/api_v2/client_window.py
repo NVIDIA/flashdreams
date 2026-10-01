@@ -4,6 +4,7 @@
 """Client window abstract interface."""
 
 from abc import ABC
+from collections.abc import Sequence
 
 from .input_source import InputSource
 from .output_sink import OutputSink
@@ -49,16 +50,24 @@ class IClientWindow(InputSource, OutputSink, ABC):
 
     # Optional to implement
     def request_selected_files(
-        self, request_id: str, initial_path: str | None = None
+        self,
+        request_id: str,
+        initial_path: str | None = None,
+        *,
+        accept: Sequence[str] = (),
+        max_bytes: int | None = None,
     ) -> None:
         """Ask this client to pick files and report them as input events.
 
         The chosen files arrive later through
-        :meth:`InputSource.get_user_input_events`.
+        :meth:`InputSource.get_user_input_events`. Windows enforce ``accept``
+        and ``max_bytes`` and clamp the size to the 32 MiB ceiling.
 
         Args:
             request_id: Correlation token for the later input event.
             initial_path: Directory the selector should start in; ``None`` lets
                 the window choose a default.
+            accept: Filename suffixes such as ``.png``. Empty allows any type.
+            max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
         """
         pass

@@ -605,7 +605,7 @@ def test_native_window_reports_a_selected_file(
     monkeypatch.setattr(
         native_window_module,
         "_ask_open_filename",
-        lambda *, initial_dir: str(chosen),
+        lambda *, initial_dir, accept=(): str(chosen),
     )
     presenter = _Presenter()
     window = NativeWindowClientWindow(
@@ -625,15 +625,21 @@ def test_native_window_reports_a_selected_file(
 
 
 def test_selected_file_from_path_skips_unreadable_and_oversize(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    tmp_path: Path,
 ) -> None:
     missing = tmp_path / "gone.png"
     assert native_window_module._selected_file_from_path(missing) is None
 
     too_big = tmp_path / "big.bin"
     too_big.write_bytes(b"abcd")
-    monkeypatch.setattr(native_window_module, "MAX_SELECTED_FILE_BYTES", 3)
-    assert native_window_module._selected_file_from_path(too_big) is None
+    assert native_window_module._selected_file_from_path(too_big, max_bytes=3) is None
+
+    wrong_type = tmp_path / "notes.txt"
+    wrong_type.write_bytes(b"hi")
+    assert (
+        native_window_module._selected_file_from_path(wrong_type, accept=(".png",))
+        is None
+    )
 
 
 def test_ask_open_filename_linux_uses_zenity(
@@ -649,11 +655,35 @@ def test_ask_open_filename_linux_uses_zenity(
         assert argv[0] == "/usr/bin/zenity"
         assert "--file-selection" in argv
         assert any(arg.startswith("--filename=/tmp/") for arg in argv)
+        assert not any(arg.startswith("--file-filter=") for arg in argv)
         return SimpleNamespace(returncode=0, stdout="/tmp/seed.png\n")
 
     monkeypatch.setattr(native_window_module.subprocess, "run", fake_run)
     assert (
         native_window_module._ask_open_filename_linux(initial_dir="/tmp")
+        == "/tmp/seed.png"
+    )
+
+
+def test_ask_open_filename_linux_applies_accept_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        native_window_module.shutil,
+        "which",
+        lambda name: "/usr/bin/zenity" if name == "zenity" else None,
+    )
+
+    def fake_run(argv: list[str], **kwargs: object) -> object:
+        assert "--file-filter=Accepted | *.png *.jpg" in argv
+        return SimpleNamespace(returncode=0, stdout="/tmp/seed.png\n")
+
+    monkeypatch.setattr(native_window_module.subprocess, "run", fake_run)
+    assert (
+        native_window_module._ask_open_filename_linux(
+            initial_dir="/tmp",
+            accept=(".png", ".jpg"),
+        )
         == "/tmp/seed.png"
     )
 

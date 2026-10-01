@@ -15,7 +15,10 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.user_input_event import SelectedFilesUserInputEvent
+from flashdreams.runtime_v2.user_input_event import (
+    MAX_SELECTED_FILE_BYTES,
+    SelectedFilesUserInputEvent,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -31,7 +34,7 @@ class FilePickerState:
 
 
 class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
-    """Request a client file pick and display the chosen name and size."""
+    """Request a ``.bin`` / ``.raw`` pick and show the chosen name and size."""
 
     def step_ui(
         self,
@@ -55,7 +58,11 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
         imgui.begin("File picker")
         try:
             if imgui.button("Open file"):
-                self.request_selected_files(uuid.uuid4().hex)
+                self.request_selected_files(
+                    uuid.uuid4().hex,
+                    accept=(".bin", ".raw"),
+                    max_bytes=MAX_SELECTED_FILE_BYTES,
+                )
             imgui.text(self.state.status)
         finally:
             imgui.end()

@@ -6,6 +6,7 @@
 import logging
 import threading
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import replace
 
 from numpy import uint64
@@ -110,7 +111,12 @@ class WebRTCClientWindow(IClientWindow):
         self.server.request_new_window_size(new_window_size)
 
     def request_selected_files(
-        self, request_id: str, initial_path: str | None = None
+        self,
+        request_id: str,
+        initial_path: str | None = None,
+        *,
+        accept: Sequence[str] = (),
+        max_bytes: int | None = None,
     ) -> None:
         """Ask the connected browser to open a file selector.
 
@@ -118,6 +124,8 @@ class WebRTCClientWindow(IClientWindow):
             request_id: Correlation token for the later input event.
             initial_path: Ignored by the browser picker; kept so the window
                 signature matches :meth:`IClientWindow.request_selected_files`.
+            accept: Filename suffixes forwarded to the browser picker.
+            max_bytes: Size budget forwarded to the browser and upload handler.
         """
         if request_id in self._in_flight_file_requests:
             _LOGGER.warning(
@@ -126,7 +134,12 @@ class WebRTCClientWindow(IClientWindow):
             )
             return
         self._in_flight_file_requests.add(request_id)
-        self.server.request_selected_files(request_id, initial_path=initial_path)
+        self.server.request_selected_files(
+            request_id,
+            initial_path=initial_path,
+            accept=accept,
+            max_bytes=max_bytes,
+        )
 
     def open(self, session_desc: SessionDesc) -> None:
         """Implement ``OutputSink.open`` by configuring WebRTC output.

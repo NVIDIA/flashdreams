@@ -3,6 +3,7 @@
 
 """Client window that writes an MP4 file."""
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from numpy import uint64
@@ -50,15 +51,22 @@ class Mp4ClientWindow(IClientWindow):
         return UserInputEvents(events)
 
     def request_selected_files(
-        self, request_id: str, initial_path: str | None = None
+        self,
+        request_id: str,
+        initial_path: str | None = None,
+        *,
+        accept: Sequence[str] = (),
+        max_bytes: int | None = None,
     ) -> None:
         """Complete a file-selector request with no files.
 
         Args:
             request_id: Correlation token from the UI loop.
             initial_path: Ignored; an MP4 has no selector.
+            accept: Ignored; an MP4 has no selector.
+            max_bytes: Ignored; an MP4 has no selector.
         """
-        del initial_path
+        del initial_path, accept, max_bytes
         self._pending_events.append(
             SelectedFilesUserInputEvent(
                 timestamp=uint64(0),

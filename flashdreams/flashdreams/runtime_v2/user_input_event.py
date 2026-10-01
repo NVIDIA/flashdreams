@@ -3,6 +3,7 @@
 
 """Concrete user input events for supported input modalities."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
@@ -10,7 +11,72 @@ from typing import Literal
 from flashdreams.api_v2.user_input_event import UserInputEvent
 
 MAX_SELECTED_FILE_BYTES = 32 * 1024 * 1024
-"""Maximum bytes one selected file may carry into the application."""
+"""Hard ceiling for one selected file. Windows clamp requested budgets to this."""
+
+
+def clamp_selected_file_max_bytes(max_bytes: int | None) -> int:
+    """Return a file-size budget that cannot exceed ``MAX_SELECTED_FILE_BYTES``.
+
+    Args:
+        max_bytes: Requested budget in bytes, or ``None`` for the ceiling.
+
+    Returns:
+        The requested budget when it is below the ceiling, otherwise the ceiling.
+
+    Raises:
+        TypeError: ``max_bytes`` is not ``None`` or an integer.
+        ValueError: ``max_bytes`` is not positive.
+    """
+    if max_bytes is None:
+        return MAX_SELECTED_FILE_BYTES
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int):
+        raise TypeError("max_bytes must be an integer.")
+    if max_bytes <= 0:
+        raise ValueError("max_bytes must be > 0.")
+    return min(max_bytes, MAX_SELECTED_FILE_BYTES)
+
+
+def normalize_selected_file_accept(accept: Sequence[str] = ()) -> tuple[str, ...]:
+    """Return accepted filename suffixes such as ``.png``.
+
+    Args:
+        accept: Suffixes the client may choose. Empty means any type.
+
+    Returns:
+        The suffixes as a tuple, unchanged except for the sequence type.
+
+    Raises:
+        TypeError: ``accept`` is not a sequence of strings.
+        ValueError: A suffix is missing the leading ``.`` or contains a path.
+    """
+    if isinstance(accept, str) or not isinstance(accept, Sequence):
+        raise TypeError("accept must be a sequence of suffixes.")
+    suffixes: list[str] = []
+    for suffix in accept:
+        if not isinstance(suffix, str):
+            raise TypeError("accept suffixes must be strings.")
+        if (
+            not suffix.startswith(".")
+            or suffix == "."
+            or "/" in suffix
+            or "\\" in suffix
+        ):
+            raise ValueError(
+                "accept suffixes must look like ``.png`` and cannot contain a path."
+            )
+        suffixes.append(suffix)
+    return tuple(suffixes)
+
+
+def selected_file_suffix_allowed(name: str, accept: tuple[str, ...]) -> bool:
+    """Return whether ``name`` matches ``accept``.
+
+    Empty ``accept`` allows any name. Comparison is case-insensitive.
+    """
+    if not accept:
+        return True
+    lower = name.lower()
+    return any(lower.endswith(suffix.lower()) for suffix in accept)
 
 
 class KeyboardInputState(Enum):
@@ -249,7 +315,8 @@ class SelectedFilesUserInputEvent(UserInputEvent):
     """Files chosen for one :meth:`IClientWindow.request_selected_files` call.
 
     An empty ``files`` tuple is a cancelled or unavailable selector: dismiss,
-    oversize, unreadable, a dropped WebRTC peer, or ``--mode mp4``.
+    oversize, disallowed type, unreadable, a dropped WebRTC peer, or
+    ``--mode mp4``.
     """
 
     @classmethod

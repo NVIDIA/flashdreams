@@ -29,7 +29,8 @@ uv run --no-sync flashdreams-run-v2 imgui-ui-text-input --mode native-window
 Run the file-picker application. Native Linux needs `zenity` or `kdialog`
 (the desktop portal picker). Windows and macOS use Tk. WebRTC shows a
 **Choose file** control in the viewer (the picker must open from a browser
-click). Picks larger than 32 MiB are rejected in every mode.
+click). The demo asks for `.bin` / `.raw` at the 32 MiB ceiling. Picks larger
+than 32 MiB are rejected in every mode.
 ```bash
 uv run --no-sync flashdreams-run-v2 imgui-ui-file-picker --mode native-window
 uv run --no-sync flashdreams-run-v2 imgui-ui-file-picker --mode webrtc \

@@ -75,10 +75,10 @@ const applyCursorOptions = options => {
   }
 };
 
-let pendingFileRequestId = null;
+let pendingFileRequest = null;
 
 const hideFilePicker = () => {
-  pendingFileRequestId = null;
+  pendingFileRequest = null;
   if (filePick !== null) {
     filePick.hidden = true;
   }
@@ -88,28 +88,48 @@ const cancelFileSelection = requestId => {
   send({type: "file_selector_result", id: requestId, cancelled: true});
 };
 
+const fileNameMatchesAccept = (name, accept) => {
+  if (!Array.isArray(accept) || accept.length === 0) {
+    return true;
+  }
+  const lower = name.toLowerCase();
+  return accept.some(
+    suffix => typeof suffix === "string" && lower.endsWith(suffix.toLowerCase()),
+  );
+};
+
 const openFileSelector = options => {
   const requestId = options?.id;
   if (typeof requestId !== "string" || !requestId || filePick === null) {
     return;
   }
-  if (pendingFileRequestId !== null && pendingFileRequestId !== requestId) {
-    cancelFileSelection(pendingFileRequestId);
+  if (pendingFileRequest !== null && pendingFileRequest.id !== requestId) {
+    cancelFileSelection(pendingFileRequest.id);
   }
-  pendingFileRequestId = requestId;
+  const accept = Array.isArray(options.accept) ? options.accept : [];
+  const maxBytes = Number(options.max_bytes);
+  pendingFileRequest = {
+    id: requestId,
+    accept,
+    maxBytes: Number.isFinite(maxBytes) ? maxBytes : 0,
+  };
   filePick.hidden = false;
 };
 
 filePick?.addEventListener("click", () => {
-  const requestId = pendingFileRequestId;
-  if (typeof requestId !== "string" || !requestId) {
+  const pending = pendingFileRequest;
+  const requestId = pending?.id;
+  if (typeof requestId !== "string" || !requestId || pending === null) {
     return;
   }
   const input = document.createElement("input");
   input.type = "file";
+  if (pending.accept.length > 0) {
+    input.accept = pending.accept.join(",");
+  }
   let settled = false;
   const finishCancelled = () => {
-    if (settled || pendingFileRequestId !== requestId) {
+    if (settled || pendingFileRequest === null || pendingFileRequest.id !== requestId) {
       return;
     }
     settled = true;
@@ -122,12 +142,21 @@ filePick?.addEventListener("click", () => {
       finishCancelled();
       return;
     }
+    if (
+      !fileNameMatchesAccept(file.name || "", pending.accept)
+      || file.size > pending.maxBytes
+    ) {
+      finishCancelled();
+      return;
+    }
     const body = new FormData();
-    body.append("request_id", requestId);
     body.append("file", file, file.name);
-    fetch("/api/files", {method: "POST", body})
+    fetch(`/api/files?request_id=${encodeURIComponent(requestId)}`, {
+      method: "POST",
+      body,
+    })
       .then(response => {
-        if (settled || pendingFileRequestId !== requestId) {
+        if (settled || pendingFileRequest === null || pendingFileRequest.id !== requestId) {
           return;
         }
         if (!response.ok) {

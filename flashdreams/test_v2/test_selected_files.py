@@ -16,8 +16,12 @@ from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    MAX_SELECTED_FILE_BYTES,
     SelectedFile,
     SelectedFilesUserInputEvent,
+    clamp_selected_file_max_bytes,
+    normalize_selected_file_accept,
+    selected_file_suffix_allowed,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -70,6 +74,42 @@ def test_ui_loop_ignores_duplicate_file_selection_ids() -> None:
     assert len(requests.file_selections) == 1
     assert requests.file_selections[0].request_id == "open-1"
     assert requests.file_selections[0].initial_path == "/tmp"
+    assert requests.file_selections[0].accept == ()
+    assert requests.file_selections[0].max_bytes is None
+
+
+def test_ui_loop_queues_accept_and_max_bytes_without_clamping() -> None:
+    loop = _ui_loop()
+    loop.request_selected_files(
+        "open-1",
+        "/tmp",
+        accept=(".png", ".JPG"),
+        max_bytes=MAX_SELECTED_FILE_BYTES * 2,
+    )
+
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None
+    selection = requests.file_selections[0]
+    assert selection.accept == (".png", ".JPG")
+    assert selection.max_bytes == MAX_SELECTED_FILE_BYTES * 2
+
+
+def test_selected_file_policy_helpers() -> None:
+    assert clamp_selected_file_max_bytes(None) == MAX_SELECTED_FILE_BYTES
+    assert clamp_selected_file_max_bytes(16) == 16
+    assert clamp_selected_file_max_bytes(MAX_SELECTED_FILE_BYTES * 2) == (
+        MAX_SELECTED_FILE_BYTES
+    )
+    assert normalize_selected_file_accept([".png", ".jpg"]) == (".png", ".jpg")
+    assert selected_file_suffix_allowed("seed.PNG", (".png",))
+    assert not selected_file_suffix_allowed("seed.txt", (".png",))
+    assert selected_file_suffix_allowed("seed.txt", ())
+
+
+def test_ui_loop_rejects_invalid_accept() -> None:
+    loop = _ui_loop()
+    with pytest.raises(ValueError, match="accept suffixes"):
+        loop.request_selected_files("open-1", accept=("png",))
 
 
 def test_mp4_window_completes_file_selection_with_no_files(tmp_path: Path) -> None:

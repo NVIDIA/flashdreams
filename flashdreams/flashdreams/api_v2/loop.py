@@ -10,7 +10,7 @@ import queue
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -24,6 +24,7 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     UserInputEvent,
+    normalize_selected_file_accept,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -85,6 +86,12 @@ class FileSelectionRequest:
 
     initial_path: str
     """Directory the selector should start in."""
+
+    accept: tuple[str, ...] = ()
+    """Filename suffixes the client may choose, empty for any type."""
+
+    max_bytes: int | None = None
+    """Requested size budget in bytes, or ``None`` for the window ceiling."""
 
 
 @dataclass(slots=True)
@@ -538,7 +545,12 @@ class IUILoop(ILoop[StateT], ABC):
 
     @final
     def request_selected_files(
-        self, request_id: str, initial_path: str | None = None
+        self,
+        request_id: str,
+        initial_path: str | None = None,
+        *,
+        accept: Sequence[str] = (),
+        max_bytes: int | None = None,
     ) -> None:
         """Ask the client window to open a file selector.
 
@@ -547,14 +559,22 @@ class IUILoop(ILoop[StateT], ABC):
         A second call with the same ``request_id`` while the first is still
         queued is ignored so the original picker can still complete.
 
+        ``accept`` and ``max_bytes`` are the application's policy. Windows
+        enforce them and clamp ``max_bytes`` to the 32 MiB ceiling so a client
+        cannot raise the cap.
+
         Args:
             request_id: Correlation token for the later input event.
             initial_path: Directory the selector should start in; ``None`` uses
                 the current user's home directory.
+            accept: Filename suffixes such as ``.png``. Empty allows any type.
+            max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
 
         Raises:
-            TypeError: ``request_id`` or ``initial_path`` is not a string.
-            ValueError: ``request_id`` is empty or ``initial_path`` is empty.
+            TypeError: ``request_id`` or ``initial_path`` is not a string, or
+                ``accept`` / ``max_bytes`` has the wrong type.
+            ValueError: ``request_id`` is empty, ``initial_path`` is empty, or
+                ``accept`` / ``max_bytes`` is invalid.
         """
         if not isinstance(request_id, str):
             raise TypeError("request_id must be a string.")
@@ -568,6 +588,12 @@ class IUILoop(ILoop[StateT], ABC):
             if not initial_path:
                 raise ValueError("initial_path must be a non-empty string.")
             resolved_initial_path = initial_path
+        suffixes = normalize_selected_file_accept(accept)
+        if max_bytes is not None:
+            if isinstance(max_bytes, bool) or not isinstance(max_bytes, int):
+                raise TypeError("max_bytes must be an integer.")
+            if max_bytes <= 0:
+                raise ValueError("max_bytes must be > 0.")
         requests = self.get_or_create_ui_loop_requests()
         if any(
             selection.request_id == request_id for selection in requests.file_selections
@@ -581,6 +607,8 @@ class IUILoop(ILoop[StateT], ABC):
             FileSelectionRequest(
                 request_id=request_id,
                 initial_path=resolved_initial_path,
+                accept=suffixes,
+                max_bytes=max_bytes,
             )
         )
 
