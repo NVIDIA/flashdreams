@@ -4,6 +4,8 @@
 
 The selected runner chooses a model preset. The fields below are editable overrides of that preset: **SAVE** writes changed values to `config.yaml`, and the application uses them when it next starts. A mismatched checkpoint, network shape, latent format, or scheduler can prevent startup or change generated video. The pipeline's internal name is fixed by the runner and is not editable.
 
+See [Runner presets](presets.md) for the values selected by each runner and how performance, hardware, and responsive presets relate to these fields.
+
 | On-screen label | `config.yaml` key | Defined by | CLI flag | What it changes |
 | --- | --- | --- | --- | --- |
 | **Device:** | `model.device` | Crazy Robotaxi | `--device` | Device used for the world model, normally `cuda`. |

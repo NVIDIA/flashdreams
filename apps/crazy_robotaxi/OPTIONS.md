@@ -14,6 +14,10 @@ Open **OPTIONS** from **SELECT GAME MODE**. Use the guide for the page you are v
 
 The MODEL guide links to separate documents for the transformer, optimized attention, scheduler, and encoders.
 
+## Runner presets
+
+See [Runner presets and their settings](options/presets.md) for all twelve OmniDreams presets, their inherited defaults, render sizes, and exact Options/YAML mappings. The guide also explains how saved overrides affect preset comparisons.
+
 ## Settings ownership
 
 **Defined by** identifies the project that declares each setting's name and type. **Crazy Robotaxi** fields belong to this app and can be renamed here. **Game engine** fields come from the shared `omnidreams_game_engine` package. **OmniDreams** and **FlashDreams** fields come from the model integration and framework. Crazy Robotaxi saves all four kinds in the same `config.yaml`; the source names of shared engine, OmniDreams, and FlashDreams fields should be kept intact. A more readable menu label for one of those fields may therefore differ from its YAML key. For inherited fields, **Defined by** names the project that first declared the field, even when Crazy Robotaxi overrides its default value.

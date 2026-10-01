@@ -36,7 +36,9 @@ Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
 connecting remotely. The first run downloads model assets and may take time to
 compile and autotune kernels.
 
-Twelve OmniDreams runner configurations are registered:
+Twelve OmniDreams runner configurations are registered. See
+[Runner presets and their settings](options/presets.md) for preset inheritance,
+exact Options/YAML values, render sizes, and the effect of saved overrides.
 
 | Runner | Configuration |
 | --- | --- |
