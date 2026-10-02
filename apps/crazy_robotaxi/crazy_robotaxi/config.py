@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
-from typing import Literal
 
 from omnidreams_game_engine.yaml_config import (
     StrictConfigError,
@@ -18,6 +17,7 @@ from omnidreams_game_engine.yaml_config import (
 )
 
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
+from crazy_robotaxi.game_selection import GameMode
 from crazy_robotaxi.live_edit.config import LiveEditConfig
 from crazy_robotaxi.rules import TaxiGameConfig
 
@@ -81,7 +81,7 @@ class GameDiagnosticsSettings:
 class CrazyRobotaxiSettings:
     """Complete durable game configuration for the V2 application."""
 
-    mode: Literal["taxi", "race"] = "taxi"
+    mode: GameMode = "taxi"
     """Gameplay mode selected for the session."""
 
     effects: GameEffectsSettings = field(default_factory=GameEffectsSettings)

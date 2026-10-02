@@ -22,6 +22,7 @@ from crazy_robotaxi.controls import (
     InputBinding,
     load_controls_documents,
 )
+from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import (
     GameMapOption,
     GameRaceCourseOption,
@@ -1283,6 +1284,37 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
     assert compass[0][1] == 110.0
 
 
+def test_free_roam_hud_has_blue_status_without_objective_markers() -> None:
+    video = torch.zeros(1, 3, 360, 640)
+    state = TaxiHudState(640, 360, _calibration())
+    frame = build_hud_frames(
+        video,
+        (FreeRoamSnapshot(),),
+        np.eye(4, dtype=np.float32)[None],
+    )[0]
+    state.publish((frame,))
+    state._current = frame
+    state._menu_stage = "game"
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+    state._bev_rect = (0, 0, 96, 96)
+    state._draw_bev_navigation(imgui, frame)
+
+    text = [
+        args[-1] for name, args in imgui.background_draw_list.commands if name == "text"
+    ]
+    assert "FREE-ROAM" in text
+    blue = imgui.color_convert_float4_to_u32((0.0, 98.0 / 255.0, 1.0, 1.0))
+    assert any(
+        name == "text" and args[-1] == "FREE-ROAM" and args[-2] == blue
+        for name, args in imgui.background_draw_list.commands
+    )
+    assert not any(
+        name == "triangle_filled" for name, _args in imgui.background_draw_list.commands
+    )
+
+
 def test_prominent_gameplay_text_uses_droid_sans() -> None:
     state = TaxiHudState(640, 360, _calibration())
     state.publish(
@@ -1423,11 +1455,15 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
         flags = imgui.window_flags[title]
         assert flags & imgui.WindowFlags_.no_title_bar
         assert flags & imgui.WindowFlags_.always_auto_resize
-        assert flags & imgui.WindowFlags_.no_scrollbar
-        assert flags & imgui.WindowFlags_.no_scroll_with_mouse
+        if title == "Crazy Robotaxi - Select Game Mode":
+            assert not flags & imgui.WindowFlags_.no_scrollbar
+            assert not flags & imgui.WindowFlags_.no_scroll_with_mouse
+        else:
+            assert flags & imgui.WindowFlags_.no_scrollbar
+            assert flags & imgui.WindowFlags_.no_scroll_with_mouse
     button_sizes = dict(imgui.button_sizes)
     button_positions = dict(imgui.button_positions)
-    assert button_sizes["TAXI"] == button_sizes["RACE"]
+    assert button_sizes["TAXI"] == button_sizes["RACE"] == button_sizes["FREE-ROAM"]
     for label in ("TAXI", "Test City##map-0", "DOWNTOWN SPRINT##course-0"):
         size = button_sizes[label]
         assert size is not None and size[0] > 0.0
@@ -1465,6 +1501,33 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     assert [command for command, _args in imgui.background_draw_list.commands].count(
         "rect_filled"
     ) == 3
+
+
+def test_mode_card_scrolls_within_a_small_viewport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    imgui = _FakeImGui()
+    constraints: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    monkeypatch.setattr(
+        imgui,
+        "set_next_window_size_constraints",
+        lambda minimum, maximum: constraints.append((minimum, maximum)),
+    )
+
+    state.draw(imgui)
+
+    assert constraints == [((1.0, 1.0), (612.0, 332.0))]
+    flags = imgui.window_flags["Crazy Robotaxi - Select Game Mode"]
+    assert not flags & imgui.WindowFlags_.no_scrollbar
+    assert not flags & imgui.WindowFlags_.no_scroll_with_mouse
+    assert "OPTIONS" in imgui.buttons
+    assert "EXIT" in imgui.buttons
 
 
 def test_race_map_grid_uses_filtered_positions_for_layout() -> None:
@@ -1902,6 +1965,40 @@ def test_race_menu_selects_map_then_course() -> None:
             map_option=option,
             race_course_id="downtown-sprint",
         )
+    ]
+
+
+def test_free_roam_menu_selects_any_map_without_a_course() -> None:
+    option = GameMapOption(
+        map_id="test-city",
+        name="Test City",
+        path=Path("test-city.robotaxi.yaml"),
+    )
+    state = TaxiHudState(640, 360, _calibration(), map_options=(option,))
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+    imgui = _FakeImGui()
+    imgui.clicked_buttons.add("FREE-ROAM")
+
+    state.draw(imgui)
+
+    assert state._menu_stage == "map"
+    blue = (0.0, 98.0 / 255.0, 1.0)
+    assert (imgui.Col_.button_hovered, (*blue, 1.0)) in imgui.pushed_style_colors
+    imgui.clicked_buttons = {"Test City##map-0"}
+    state.draw(imgui)
+    model_loop._run_message_batch()
+
+    assert state._menu_stage == "loading"
+    assert "FREE-ROAM MODE" in imgui.windows["Crazy Robotaxi - Select Map"]
+    assert model_loop.state.selections == [
+        GameSelection(mode="free-roam", map_option=option)
     ]
 
 

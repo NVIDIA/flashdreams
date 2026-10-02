@@ -11,7 +11,7 @@ import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from ludus_renderer import prepare_ludus
 from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
@@ -153,7 +153,7 @@ class ApplicationConfig:
     initial_race_course_id: str | None = None
     """Configured race course that skips the course menu, if any."""
 
-    game_mode: Literal["taxi", "race"] = "taxi"
+    game_mode: GameMode = "taxi"
     """Rules mode selected for every session created by the application."""
 
     race_course_id: str | None = None
@@ -709,7 +709,9 @@ def _parser(
     parser.add_argument("--game-seed", type=int)
     parser.add_argument("--model-seed", type=int)
     parser.add_argument("--high-scores", type=Path)
-    parser.add_argument("--game-mode", choices=("taxi", "race"), default="taxi")
+    parser.add_argument(
+        "--game-mode", choices=("taxi", "race", "free-roam"), default="taxi"
+    )
     parser.add_argument(
         "--visual-flare",
         action=argparse.BooleanOptionalAction,
