@@ -503,7 +503,9 @@ def test_replacement_session_reuses_native_window_and_rebases_input() -> None:
         clock_ns=lambda: next(clock_values),
     )
     window.open(_session_desc())
-    window._on_keyboard_event(_KeyboardEvent("up", pressed=True))
+    window._on_keyboard_event(
+        cast("spy.KeyboardEvent", _KeyboardEvent("up", pressed=True))
+    )
     window.open(_session_desc())
     presenter.pending_events.put(("keyboard", _KeyboardEvent("up", pressed=True)))
 
