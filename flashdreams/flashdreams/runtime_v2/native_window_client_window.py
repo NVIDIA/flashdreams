@@ -165,41 +165,43 @@ class NativeWindowClientWindow(IClientWindow):
         self._window_size = presenter.resize(*new_window_size)
 
     def open(self, session_desc: SessionDesc) -> None:
-        """Create the GLFW window on the runtime's UI thread.
+        """Open a session in the GLFW window on the runtime's UI thread.
+
+        Replacement sessions reuse the existing presenter and clear input
+        buffered for the completed session.
 
         Args:
             session_desc: Resolved output dimensions and tensor layout.
 
         Raises:
-            RuntimeError: The window is already open or initialization fails.
+            RuntimeError: Window initialization fails.
         """
         if threading.current_thread() is not threading.main_thread():
             raise RuntimeError(
                 "NativeWindowClientWindow.open() must run on the process main thread for event polling."
             )
-        if self._presenter is not None:
-            raise RuntimeError("NativeWindowClientWindow is already open.")
-        presenter_factory = self._presenter_factory or _SlangPyNativeWindowPresenter
-
-        presenter = presenter_factory(
-            width=session_desc.video_width,
-            height=session_desc.video_height,
-            title=self.title,
-        )
-        try:
-            presenter.set_input_callbacks(
-                on_keyboard_event=self._on_keyboard_event,
-                on_mouse_event=self._on_mouse_event,
-                on_gamepad_event=self._on_gamepad_event,
-                on_gamepad_state=self._on_gamepad_state,
+        presenter = self._presenter
+        if presenter is None:
+            presenter_factory = self._presenter_factory or _SlangPyNativeWindowPresenter
+            presenter = presenter_factory(
+                width=session_desc.video_width,
+                height=session_desc.video_height,
+                title=self.title,
             )
-            presenter.configure_cursor(
-                hide_cursor=self._hide_cursor,
-                lock_cursor_to_window=self._lock_cursor_to_window,
-            )
-        except BaseException:
-            presenter.close()
-            raise
+            try:
+                presenter.set_input_callbacks(
+                    on_keyboard_event=self._on_keyboard_event,
+                    on_mouse_event=self._on_mouse_event,
+                    on_gamepad_event=self._on_gamepad_event,
+                    on_gamepad_state=self._on_gamepad_state,
+                )
+                presenter.configure_cursor(
+                    hide_cursor=self._hide_cursor,
+                    lock_cursor_to_window=self._lock_cursor_to_window,
+                )
+            except BaseException:
+                presenter.close()
+                raise
 
         self._session_started_ns = self._clock_ns()
         self._session_desc = session_desc
