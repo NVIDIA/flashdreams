@@ -62,14 +62,16 @@ class TestTextEncoders:
 
     @pytest.mark.ci_cpu
     def test_wan_text_encoder_uses_eager_attention(self, monkeypatch):
+        from transformers import T5Tokenizer, UMT5EncoderModel
+
         from flashdreams.infra.encoder.text import umt5
 
         text_encoder = MagicMock()
         from_pretrained = MagicMock(return_value=text_encoder)
         monkeypatch.setattr(umt5, "maybe_download_hf_repo_on_rank0", MagicMock())
-        monkeypatch.setattr(umt5.UMT5EncoderModel, "from_pretrained", from_pretrained)
+        monkeypatch.setattr(UMT5EncoderModel, "from_pretrained", from_pretrained)
         monkeypatch.setattr(
-            umt5.T5Tokenizer,
+            T5Tokenizer,
             "from_pretrained",
             MagicMock(return_value=MagicMock()),
         )

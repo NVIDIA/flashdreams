@@ -324,7 +324,10 @@ def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
     Robotaxi's CLI parsing correctly mutates OmniDreams's pipeline config, which
     is inherently an adapter-level (app x model) concern."""
     app = CrazyRobotaxiApplication(
-        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS
+        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: cast(Any, object()),
+        native_preparer=lambda: None,
     )
 
     app.init(
@@ -333,7 +336,7 @@ def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
             "7",
             "--no-compile",
             "--profile-pipeline",
-        ]
+        ],
     )
 
     pipeline = cast(Any, app._pipeline_config)
@@ -351,7 +354,10 @@ def test_crazy_robotaxi_map_context_disables_only_native_dit_on_selected_preset(
     """Moved from apps/crazy_robotaxi/tests/test_application.py; same reasoning
     as test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides."""
     app = CrazyRobotaxiApplication(
-        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS
+        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: cast(Any, object()),
+        native_preparer=lambda: None,
     )
 
     app.init(["--live-edit-map-context"])
@@ -390,10 +396,11 @@ def test_each_application_owns_its_parsed_config(
     scene = tmp_path / "scene.usdz"
     scene.touch()
     app = factory()
+    assert isinstance(app, InteractiveDriveApplication)
+    app._backend_factory = cast(Any, lambda _: object())
 
     app.init(["--scene", str(scene)])
 
-    assert isinstance(app, InteractiveDriveApplication)
     assert app._config is not None
     assert app._config.app.raster.resolution_wh == resolution_wh
     assert type(app._config) is InteractiveDriveConfig

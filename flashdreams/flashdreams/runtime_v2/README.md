@@ -55,7 +55,6 @@ Presenting it:
 - `slangpy_ui_loop.py` and `slangpy_ui_renderer.py` provide retained SlangPy
   widgets over the model output. `imgui_ui_loop.py` and `imgui_ui_renderer.py`
   provide immediate Dear ImGui controls rendered through SlangPy.
-- `mp4_client_window.py` and `webrtc_client_window.py` are the two windows.
 - `mp4_output_sink.py`, `metrics_output_sink.py`, `video_encoder.py` and
   `video_tensor.py` are what output is written through.
 - `serving/` is the HTTP and WebRTC server behind the browser window.

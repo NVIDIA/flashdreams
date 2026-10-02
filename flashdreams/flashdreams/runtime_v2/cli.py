@@ -32,7 +32,10 @@ from flashdreams.runtime_v2.application_registry import (
     create_application,
     registered_application_slugs,
 )
-from flashdreams.runtime_v2.application_runner import ApplicationRunner
+from flashdreams.runtime_v2.application_runner import (
+    ApplicationFlags,
+    ApplicationRunner,
+)
 from flashdreams.runtime_v2.client_window_factory import (
     add_client_window_arguments,
     client_window_mode,
@@ -68,6 +71,14 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         parser.error("--timeout must be a finite number greater than zero.")
     if parsed.stats_path is not None:
         os.environ["FLASHDREAMS_SYNC_AND_PROFILE"] = "1"
+    if parsed.preload_application and any(
+        argument == "--mode" or argument.startswith("--mode=") for argument in own_args
+    ):
+        parser.error("--mode cannot be used with --preload-application.")
+    if parsed.skip_preload_validation and not parsed.preload_application:
+        parser.error("--skip-preload-validation requires --preload-application.")
+    if parsed.preload_application:
+        parsed.mode = "null"
 
     mode = client_window_mode(parsed.mode)
     if parsed.mode == "mp4" and parsed.presentation_mode is None:
@@ -105,6 +116,10 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
             application,
             window,
             metrics_output_sink=metrics_output_sink,
+            application_flags=ApplicationFlags(
+                preload=parsed.preload_application,
+                skip_preload_validation=parsed.skip_preload_validation,
+            ),
         ).run(
             session_desc,
             application_args,
@@ -151,6 +166,16 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("slug", help="Application to run.")
+    parser.add_argument(
+        "--preload-application",
+        action="store_true",
+        help="Initialize the application and validate one runtime step.",
+    )
+    parser.add_argument(
+        "--skip-preload-validation",
+        action="store_true",
+        help="Initialize a preloaded application without validating a runtime step.",
+    )
     parser.add_argument(
         "--timeout",
         type=float,

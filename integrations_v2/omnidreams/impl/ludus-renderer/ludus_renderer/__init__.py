@@ -88,6 +88,7 @@ from .augmentation import mirror_augment_scene
 from .clipgt import (
     ClipgtGpuScene,
     EgoTrackData,
+    _get_camera_cpp_ext,
     is_clipgt,
     load_av2_scene,
     load_clipgt_scene,
@@ -126,6 +127,16 @@ from .util import (
     resample_timestamps,
     rgb,
 )
+
+
+def prepare_ludus() -> None:
+    """Load all native dependencies used by Ludus gameplay rendering."""
+    from ._ops._plugin import _get_plugin
+
+    _get_plugin()
+    _get_camera_cpp_ext()
+    prepare_physx()
+
 
 __all__ = [
     # Version
@@ -187,6 +198,7 @@ __all__ = [
     "PhysicsObjectGraph",
     "PhysicsStep",
     "PhysXWorld",
+    "prepare_ludus",
     "prepare_physx",
     "RigidBodyModel",
     "SceneObject",
