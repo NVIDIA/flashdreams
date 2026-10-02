@@ -76,6 +76,10 @@ model.
 
 ## Options and user configuration
 
+See the [Options menu index](OPTIONS.md) for field-by-field guides to each page.
+The guides map menu labels to YAML keys, identify which project defines each
+setting, and list available application arguments.
+
 The mode menu has **CONTROLS** and **OPTIONS** buttons. The Options screen is
 generated from the same typed settings tree used at startup, with pages for
 game, model, renderer, presentation, live edit, runtime, and diagnostics. **SAVE**
