@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ```bash
 uv run --package flashdreams-causal-forcing flashdreams-run-v2 \
-  t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise --output-path clip.mp4 -- \
+  t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise --output-path clip.mp4 --timeout unbound -- \
   --prompt "A cat surfing" --total-blocks 7 --no-compile
 ```
 

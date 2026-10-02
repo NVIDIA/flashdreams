@@ -10,7 +10,9 @@ would generate, with whatever the frame arguments here override.
 
 What the modes are, and what each one takes, belongs to
 :mod:`flashdreams.runtime_v2.client_window_factory`. Nothing here reads an
-argument that only one of them uses.
+argument that only one of them uses. ``--timeout`` and ``--total-model-steps``
+belong to this command; ``--mode mp4`` requires that at least one of them is
+present. A named steps count is remaining for the whole application run.
 """
 
 import argparse
@@ -35,6 +37,7 @@ from flashdreams.runtime_v2.application_registry import (
 from flashdreams.runtime_v2.application_runner import (
     ApplicationFlags,
     ApplicationRunner,
+    Unbound,
 )
 from flashdreams.runtime_v2.client_window_factory import (
     add_client_window_arguments,
@@ -65,10 +68,6 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     own_args, application_args = split_arguments(arguments)
     parser = _parser()
     parsed = parser.parse_args(own_args)
-    if parsed.timeout is not None and (
-        not math.isfinite(parsed.timeout) or parsed.timeout <= 0
-    ):
-        parser.error("--timeout must be a finite number greater than zero.")
     if parsed.stats_path is not None:
         os.environ["FLASHDREAMS_SYNC_AND_PROFILE"] = "1"
     if parsed.preload_application and any(
@@ -100,6 +99,12 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         parser.error(str(error))
     if parsed.mode == "mp4" and parsed.presentation_mode is None:
         parsed.presentation_mode = PresentationMode.ON_DEMAND
+    if (
+        parsed.mode == "mp4"
+        and parsed.timeout is None
+        and parsed.total_model_steps is None
+    ):
+        parser.error("--mode mp4 requires --timeout and/or --total-model-steps.")
     session_desc = _session_desc(application, parsed)
     worker = get_global_rank_for_logging() != 0
     window = None if worker else mode.create(parsed)
@@ -124,7 +129,14 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         ).run(
             session_desc,
             application_args,
-            timeout_seconds=parsed.timeout,
+            timeout_seconds=(
+                Unbound.unbound if parsed.timeout is None else parsed.timeout
+            ),
+            steps=(
+                Unbound.unbound
+                if parsed.total_model_steps is None
+                else parsed.total_model_steps
+            ),
         )
         if window is not None:
             _report(mode.finished(window))
@@ -179,10 +191,25 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--timeout",
-        type=float,
+        type=_parse_timeout_seconds,
         default=None,
-        metavar="SECONDS",
-        help="Stop the application after this many seconds.",
+        metavar=f"{{SECONDS,{Unbound.unbound.value}}}",
+        help=(
+            "Stop the application after this many seconds. "
+            f"{Unbound.unbound.value} means no time-limit. Remaining time is "
+            "what a replacement session receives."
+        ),
+    )
+    parser.add_argument(
+        "--total-model-steps",
+        type=_parse_total_model_steps,
+        default=None,
+        metavar=f"{{N,{Unbound.unbound.value}}}",
+        help=(
+            "Maximum model steps for the application run. "
+            f"{Unbound.unbound.value} means no steps limit. Remaining "
+            "steps are what a replacement session receives."
+        ),
     )
     add_client_window_arguments(parser)
     _add_session_arguments(parser)
@@ -193,6 +220,44 @@ def _report(message: str | None) -> None:
     """Print what the mode has to say about the run, if it has anything."""
     if message is not None:
         print(message, flush=True)
+
+
+def _parse_timeout_seconds(value: str) -> float | Unbound:
+    """Parse ``--timeout`` as seconds, or ``unbound`` as no time-limit."""
+    if value == Unbound.unbound.value:
+        return Unbound.unbound
+    try:
+        seconds = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            f"--timeout must be a finite number greater than zero, or "
+            f"{Unbound.unbound.value}."
+        ) from error
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError(
+            f"--timeout must be a finite number greater than zero, or "
+            f"{Unbound.unbound.value}."
+        )
+    return seconds
+
+
+def _parse_total_model_steps(value: str) -> int | Unbound:
+    """Parse ``--total-model-steps`` as a count, or ``unbound`` as no steps limit."""
+    if value == Unbound.unbound.value:
+        return Unbound.unbound
+    try:
+        steps = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            f"--total-model-steps must be a non-negative integer, or "
+            f"{Unbound.unbound.value}."
+        ) from error
+    if steps < 0:
+        raise argparse.ArgumentTypeError(
+            f"--total-model-steps must be a non-negative integer, or "
+            f"{Unbound.unbound.value}."
+        )
+    return steps
 
 
 def _add_session_arguments(parser: argparse.ArgumentParser) -> None:

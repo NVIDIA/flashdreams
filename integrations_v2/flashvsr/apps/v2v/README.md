@@ -19,7 +19,7 @@ Launch any slug with the v2 application runner:
 
 ```bash
 uv sync --package flashdreams-flashvsr --inexact
-uv run --no-sync flashdreams-run-v2 v2v-flashvsr-v1.1-sparse-ratio-2.0 --output-path upscaled.mp4 -- --video-path input.mp4
+uv run --no-sync flashdreams-run-v2 v2v-flashvsr-v1.1-sparse-ratio-2.0 --output-path upscaled.mp4 --timeout unbound -- --video-path input.mp4
 ```
 
 Omit <code>--video-path</code> to use the bounded Big Buck Bunny default. See

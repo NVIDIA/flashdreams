@@ -62,7 +62,7 @@ Generate a seven-block MP4 with the v2 application:
 ```bash
 uv run --package flashdreams-fastvideo-causal-wan22 flashdreams-run-v2 \
   t2v-fastvideo-causal-wan2.2-t2v-14b \
-  --output-path artifacts/t2v-fastvideo-causal-wan2.2-t2v-14b.mp4 -- \
+  --output-path artifacts/t2v-fastvideo-causal-wan2.2-t2v-14b.mp4 --timeout unbound -- \
   --total-blocks 7 --prompt "A cat surfing." --no-compile
 ```
 

@@ -281,6 +281,7 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
     event_buffer = EventBuffer()
     event_buffer.register(0)
     step_timings: list[float] = []
+    steps_run_out: list[int] = []
 
     def publish(
         generation: int,
@@ -297,8 +298,10 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
         reader_id=0,
         publish=publish,
         max_steps=2,
+        steps_run_out=steps_run_out,
     )
 
+    assert steps_run_out == [2]
     assert failure_queue.empty()
     assert step_timings == pytest.approx([0.9, 0.9])
     assert model_loop.inference_state is ModelInferenceState.FINISHED
@@ -734,9 +737,11 @@ def test_run_session_presents_every_step_in_order() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
     window = RecordingClientWindow(log)
+    completed_steps: list[int] = []
 
-    run_session(session, window, steps=3)
+    run_session(session, window, steps=3, completed_steps=completed_steps)
 
+    assert completed_steps == [3]
     assert [
         result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
     ] == [0, 1, 2]
@@ -1891,8 +1896,10 @@ def test_run_session_with_no_steps_still_opens_and_closes() -> None:
     session = FakeSession(_session_desc(), log)
     window = RecordingClientWindow(log)
 
-    run_session(session, window, steps=0)
+    completed_steps: list[int] = []
+    run_session(session, window, steps=0, completed_steps=completed_steps)
 
+    assert completed_steps == [0]
     assert "window.open" in log.calls
     assert log.calls[-2:] == ["window.close", "session.close"]
     assert window.results == []
