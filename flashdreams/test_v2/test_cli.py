@@ -374,9 +374,7 @@ def test_inherited_default_remains_mp4(monkeypatch: pytest.MonkeyPatch) -> None:
     application = _Application()
     mode, runs = _install(monkeypatch, application)
 
-    cli.entrypoint(
-        ["test-app", "--output-path", "output.mp4", "--timeout", "unbound"]
-    )
+    cli.entrypoint(["test-app", "--output-path", "output.mp4", "--timeout", "unbound"])
 
     assert application.initialized
     assert not mode.created
