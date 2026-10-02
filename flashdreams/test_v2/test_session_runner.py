@@ -653,6 +653,7 @@ class RecordingClientWindow(IClientWindow):
         """
         self._log = log
         self._scripted = list(scripted_events or [])
+        self._requested_events: list[UserInputEvent] = []
         self._fail_to_open = fail_to_open
         self._fail_to_close = fail_to_close
         self._hold_writes = hold_writes
@@ -671,12 +672,19 @@ class RecordingClientWindow(IClientWindow):
         self._log.record("window.request_lock_cursor_to_window")
         self.cursor_requests.append(("lock", lock_cursor_to_window))
 
+    def request_reset(self) -> None:
+        self._log.record("window.request_reset")
+        with self._lock:
+            self._requested_events.append(ResetUserInputEvent(timestamp=uint64(0)))
+
     def get_user_input_events(self) -> UserInputEvents:
         self._log.record("window.get_user_input_events")
         with self._lock:
+            events = self._requested_events
+            self._requested_events = []
             if self._scripted:
-                return self._scripted.pop(0)
-        return UserInputEvents([])
+                events.extend(self._scripted.pop(0).get_events())
+        return UserInputEvents(events)
 
     def open(self, session_desc: SessionDesc) -> None:
         self._log.record("window.open")
@@ -1498,8 +1506,16 @@ def test_run_session_resets_the_session_and_the_step_index() -> None:
     ] == [0, 1]
 
 
-def test_ui_reset_request_retains_the_session_and_window() -> None:
+def test_ui_reset_request_retains_the_session_and_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     log = CallLog()
+    reset_collected = threading.Event()
+
+    def reset_ui(loop: FakeUILoop) -> None:
+        reset_collected.set()
+
+    monkeypatch.setattr(FakeUILoop, "reset", reset_ui)
 
     class ResettingSession(FakeSession):
         def init(self) -> None:
@@ -1507,11 +1523,16 @@ def test_ui_reset_request_retains_the_session_and_window() -> None:
             self.ui_loop.request_reset()
             self.ui_loop.request_reset()
 
-    session = ResettingSession(_session_desc(), log)
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            assert reset_collected.wait(2), "Window did not return the requested reset"
+            return super().step(step_index, events)
+
+    session = ResettingSession(_session_desc(model_fps=1_000), log)
     window = RecordingClientWindow(log)
 
-    run_session(session, window, steps=2)
+    run_session(session, window, steps=3)
 
+    assert log.calls.count("window.request_reset") == 1
     assert log.calls.count("session.init") == 1
     assert log.calls.count("session.reset") == 1
     assert log.calls.count("window.open") == 1
@@ -1519,6 +1540,190 @@ def test_ui_reset_request_retains_the_session_and_window() -> None:
     assert [
         result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
     ] == [0, 1]
+
+
+@pytest.mark.parametrize("reset_source", ["request", "event"])
+def test_ui_reset_restarts_completed_model_without_closing_it(
+    reset_source: str,
+) -> None:
+    log = CallLog()
+    requested = False
+
+    class ResettingUILoop(FakeUILoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            nonlocal requested
+            if (
+                self.model_inference_state is ModelInferenceState.FINISHED
+                and not requested
+            ):
+                assert "model.close" not in log.calls
+                if reset_source == "request":
+                    self.request_reset()
+                requested = True
+            return super().step(step_index, events)
+
+    class RetainedModelLoop(FakeModelLoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            assert not self._closed
+            return super().step(step_index, events)
+
+        def close(self) -> None:
+            log.record("model.close")
+
+    class ResettingSession(FiniteSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_ui_loop(ResettingUILoop, state=self)
+            self.register_model_loop(RetainedModelLoop, state=self)
+
+    session = ResettingSession(_session_desc(model_fps=1_000), log, length=1)
+
+    class ClosingWindow(RecordingClientWindow):
+        closed_by_input = False
+        reset_sent = False
+
+        def get_user_input_events(self) -> UserInputEvents:
+            if reset_source == "event" and requested and not self.reset_sent:
+                self.reset_sent = True
+                return _lifecycle_event(ResetUserInputEvent)
+            if (
+                session.model_loop._generation == 1
+                and session.model_loop.inference_state is ModelInferenceState.FINISHED
+                and not session._presentation_manager.has_pending_frames()
+            ):
+                self.closed_by_input = True
+                return _lifecycle_event(CloseUserInputEvent)
+            return super().get_user_input_events()
+
+    window = ClosingWindow(log)
+    run_session(session, window, timeout_seconds=2)
+
+    assert requested
+    assert window.closed_by_input
+    assert [call for call in log.calls if call.startswith("session.step(")] == [
+        "session.step(0)",
+        "session.step(0)",
+    ]
+    assert log.calls.count("session.reset") == 1
+    assert log.calls.count("session.init") == 1
+    assert log.calls.count("window.open") == log.calls.count("window.close") == 1
+    assert log.calls.count("model.close") == log.calls.count("session.close") == 1
+    assert log.calls.index("model.close") > log.calls.index("session.reset")
+
+
+@pytest.mark.parametrize("steps", [2, 3])
+def test_completed_model_reset_preserves_total_step_budget(steps: int) -> None:
+    log = CallLog()
+    session = FiniteSession(_session_desc(model_fps=1_000), log, length=2)
+
+    class ResettingWindow(RecordingClientWindow):
+        def write(self, result: StepResult) -> None:
+            super().write(result)
+            if len(self.results) == 2:
+                session.ui_loop.request_reset()
+
+    window = ResettingWindow(log)
+    run_session(session, window, steps=steps, timeout_seconds=2)
+
+    expected = ["session.step(0)", "session.step(1)"]
+    if steps == 3:
+        expected.append("session.step(0)")
+    assert [call for call in log.calls if call.startswith("session.step(")] == expected
+    assert log.calls.count("session.reset") == steps - 2
+    assert log.calls.count("window.request_reset") == 1
+    assert log.calls.count("window.open") == log.calls.count("window.close") == 1
+
+
+def test_repeated_ui_resets_do_not_keep_an_exhausted_step_budget_open() -> None:
+    log = CallLog()
+
+    class ResettingUILoop(FakeUILoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            self.request_reset()
+            return super().step(step_index, events)
+
+    class ResettingSession(FakeSession):
+        def init(self) -> None:
+            self.register_ui_loop(ResettingUILoop, state=self)
+            self.register_model_loop(FakeModelLoop, state=self)
+
+    class BoundedWindow(RecordingClientWindow):
+        polls = 0
+        fallback_close = False
+
+        def get_user_input_events(self) -> UserInputEvents:
+            self.polls += 1
+            if self.polls >= 20:
+                self.fallback_close = True
+                return _lifecycle_event(CloseUserInputEvent)
+            return super().get_user_input_events()
+
+    session = ResettingSession(_session_desc(model_fps=1_000), log)
+    window = BoundedWindow(log)
+    run_session(session, window, steps=1)
+
+    assert not window.fallback_close
+    assert [call for call in log.calls if call.startswith("session.step(")] == [
+        "session.step(0)"
+    ]
+
+
+@pytest.mark.parametrize("presentation_mode", list(PresentationMode))
+def test_ui_reset_preserves_keyboard_input_on_the_request_tick(
+    presentation_mode: PresentationMode,
+) -> None:
+    log = CallLog()
+    release_model = threading.Event()
+    ui_keys: list[str] = []
+    ui_steps: list[tuple[int, int]] = []
+    requested = False
+
+    class ResettingUILoop(FakeUILoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            nonlocal requested
+            ui_steps.append((self._generation, step_index))
+            if not requested:
+                self.request_reset()
+                requested = True
+            ui_keys.extend(
+                event.key
+                for event in events.get_events()
+                if isinstance(event, KeyboardUserInputEvent)
+            )
+            if ui_keys and presentation_mode is PresentationMode.CONTINUOUS:
+                release_model.set()
+            return super().step(step_index, events)
+
+        def reset(self) -> None:
+            if presentation_mode is PresentationMode.ON_DEMAND:
+                release_model.set()
+
+    class WaitingSession(FakeSession):
+        def init(self) -> None:
+            self.register_ui_loop(ResettingUILoop, state=self)
+            self.register_model_loop(FakeModelLoop, state=self)
+
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            assert release_model.wait(2), "UI did not process the reset-request tick"
+            return super().step(step_index, events)
+
+    session = WaitingSession(
+        _session_desc(presentation_mode=presentation_mode, model_fps=1_000),
+        log,
+    )
+    window = RecordingClientWindow(log, [UserInputEvents([]), _key_event()])
+    run_session(session, window, steps=2, timeout_seconds=3)
+
+    assert ui_keys == ["a"]
+    if presentation_mode is PresentationMode.ON_DEMAND:
+        restarted_steps = [index for generation, index in ui_steps if generation == 1]
+        assert restarted_steps[0] == 0
+    assert [
+        event.key
+        for events in session.observed_events
+        for event in events.get_events()
+        if isinstance(event, KeyboardUserInputEvent)
+    ] == ["a"]
 
 
 def test_run_session_keeps_the_ui_alive_after_model_inference_finishes() -> None:
@@ -1650,9 +1855,16 @@ def test_run_session_drops_a_result_the_reset_interrupted(
     monkeypatch.setattr(FakeUILoop, "reset", reset_ui)
 
     class ResettingWindow(RecordingClientWindow):
+        _request_sent = False
+
         def get_user_input_events(self) -> UserInputEvents:
             events = super().get_user_input_events()
-            if events.get_events() and reset_source == "request":
+            if (
+                events.get_events()
+                and reset_source == "request"
+                and not self._request_sent
+            ):
+                self._request_sent = True
                 invoke_async(session.ui_loop, lambda _: session.ui_loop.request_reset())
                 return UserInputEvents([])
             return events

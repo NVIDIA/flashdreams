@@ -115,3 +115,8 @@ def test_client_window_for_null_model() -> None:
         current_step_index += 1
         current_timestamp += 100
     client_window.close()
+
+
+def test_unsupported_window_reset_request_is_explicit() -> None:
+    with pytest.raises(NotImplementedError, match="does not support reset requests"):
+        FakeClientWindow().request_reset()

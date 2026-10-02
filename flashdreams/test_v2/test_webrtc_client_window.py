@@ -29,6 +29,7 @@ from aiortc import (
 )
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
+from numpy import uint64
 from yarl import URL
 
 from flashdreams.runtime_v2.serving import webrtc_server
@@ -43,6 +44,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEvent,
     MouseUserInputEvent,
     QueryStringUserInputEvent,
+    ResetUserInputEvent,
     TouchUserInputEvent,
     XRControllerUserInputEvent,
 )
@@ -1119,3 +1121,51 @@ async def test_video_track_close_discards_both_queued_frames() -> None:
     assert metrics["webrtc_sender_dropped_for_lag_count"] == 0
     with pytest.raises(MediaStreamError):
         await track.recv()
+
+
+def test_reset_request_preserves_browser_input_and_rebases_timestamps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = WebRTCClientWindow()
+    monkeypatch.setattr(
+        window.server,
+        "event_timestamp_us",
+        Mock(side_effect=[uint64(value) for value in (1000, 1002, 1004, 2000, 2002)]),
+    )
+    try:
+        window.open(_session_desc())
+        window.server._append_event(
+            KeyboardUserInputEvent(
+                timestamp=uint64(1001), key="w", state=KeyboardInputState.PRESSED
+            )
+        )
+        window.request_reset()
+        window.server._append_event(
+            KeyboardUserInputEvent(
+                timestamp=uint64(1003), key="w", state=KeyboardInputState.RELEASED
+            )
+        )
+
+        events = window.get_user_input_events().get_events()
+
+        assert [event.get_timestamp() for event in events] == [1, 2, 3]
+        assert isinstance(events[1], ResetUserInputEvent)
+        assert [
+            (event.key, event.state)
+            for event in events
+            if isinstance(event, KeyboardUserInputEvent)
+        ] == [
+            ("w", KeyboardInputState.PRESSED),
+            ("w", KeyboardInputState.RELEASED),
+        ]
+        assert window.get_user_input_events().get_events() == []
+
+        window.request_reset()
+        window.open(_session_desc())
+        window.request_reset()
+        (event,) = window.get_user_input_events().get_events()
+        assert isinstance(event, ResetUserInputEvent)
+        assert event.get_timestamp() == 2
+        assert window.get_user_input_events().get_events() == []
+    finally:
+        window.close()

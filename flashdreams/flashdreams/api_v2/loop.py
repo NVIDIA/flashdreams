@@ -83,7 +83,7 @@ class UILoopRequests:
     """Replacement session description, or ``None`` to keep this session."""
 
     reset: bool = False
-    """Reset both loops and discard pending output without replacing the session."""
+    """Ask the client window to enqueue a regular reset input event."""
 
     hide_cursor: bool | None = None
     """Cursor visibility change, or ``None`` to leave it unchanged."""
@@ -185,7 +185,11 @@ class ILoop(ABC, Generic[StateT]):
         raise NotImplementedError(f"{type(self).__name__} does not support reset.")
 
     def close(self) -> None:
-        """Release resources owned by this loop."""
+        """Release resources owned by this loop at session teardown.
+
+        The session calls this on its calling thread after model work has stopped.
+        Model completion alone retains resources so a reset can reuse them.
+        """
         return
 
     @final
@@ -237,6 +241,8 @@ class ILoop(ABC, Generic[StateT]):
     ) -> None:
         """Finish one prepared run, saving its completed step when present.
 
+        Keep input until a step consumes it, including skipped UI ticks.
+
         Args:
             result: Value returned by the completed step, or ``None`` when no
                 step ran.
@@ -245,8 +251,8 @@ class ILoop(ABC, Generic[StateT]):
         """
         if step_completed:
             self.latest_result = result
-        self._step_index += 1
-        self._pending_user_events.clear()
+            self._pending_user_events.clear()
+            self._step_index += 1
 
     @final
     def _shutdown(self) -> None:
@@ -341,8 +347,8 @@ class IModelLoop(ILoop[StateT], ABC):
         max_steps: int | None = None,
         step_control: _ModelStepControl | None = None,
         device: torch.device | None = None,
-    ) -> None:
-        """Run model steps until shutdown or completion.
+    ) -> int:
+        """Run model steps until shutdown or completion, retaining loop resources.
 
         Args:
             event_buffer: Client input shared by both loops.
@@ -352,6 +358,10 @@ class IModelLoop(ILoop[StateT], ABC):
             max_steps: Maximum steps; ``None`` runs until stopped.
             step_control: Admission and input synchronization; ``None`` runs locally.
             device: Mesh device to bind on this model thread before running hooks.
+
+        Returns:
+            Number of completed steps, counted against the session-wide budget.
+            The session closes this loop after all model runs have stopped.
         """
         steps_run = 0
         last_run_started: float | None = None
@@ -418,10 +428,7 @@ class IModelLoop(ILoop[StateT], ABC):
             self._failure_queue.put(error)
         finally:
             self._set_inference_state(ModelInferenceState.FINISHED)
-            try:
-                self._shutdown()
-            except BaseException as error:
-                self._failure_queue.put(error)
+        return steps_run
 
 
 class IUILoop(ILoop[StateT], ABC):
@@ -483,11 +490,17 @@ class IUILoop(ILoop[StateT], ABC):
 
     @final
     def request_reset(self) -> None:
-        """Ask the runtime to reset both loops while keeping the window open.
+        """Ask the client window to synthesize a ``ResetUserInputEvent``.
 
-        Pending model output is discarded and step indices restart at zero.
-        The session is retained; each loop's ``reset`` hook owns its state reset.
-        Call from the UI thread, or use :func:`invoke_async` from another loop.
+        Once collected, the event follows the regular reset path: pending model
+        output is discarded, both loops reset, and step indices restart at zero.
+        The session and window are retained. A completed model can restart while
+        the session remains open, but reset does not extend its total step budget
+        or timeout. Each loop's ``reset`` hook owns its state reset.
+
+        The request takes effect when the window next returns input, rather than
+        interrupting the current UI step. Call from the UI thread, or use
+        :func:`invoke_async` from another loop. The window must support reset.
         """
         self.get_or_create_ui_loop_requests().reset = True
 

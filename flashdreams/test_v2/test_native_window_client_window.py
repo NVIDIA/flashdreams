@@ -27,6 +27,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    ResetUserInputEvent,
 )
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -874,3 +875,31 @@ def test_native_window_must_open_on_the_process_main_thread() -> None:
     error = errors.get_nowait()
     assert isinstance(error, RuntimeError)
     assert "process main thread" in str(error)
+
+
+def test_native_reset_request_preserves_input_and_uses_its_clock() -> None:
+    presenter = _Presenter()
+    clock_values = iter((1_000_000, 1_001_000, 1_002_000, 1_003_000))
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+        clock_ns=lambda: next(clock_values),
+    )
+    window.open(_session_desc())
+    try:
+        window._on_keyboard_event(
+            cast("spy.KeyboardEvent", _KeyboardEvent("up", pressed=True))
+        )
+        window.request_reset()
+        presenter.pending_events.put(("keyboard", _KeyboardEvent("up", pressed=False)))
+
+        events = window.get_user_input_events().get_events()
+
+        assert [event.get_timestamp() for event in events] == [1, 2, 3]
+        assert isinstance(events[1], ResetUserInputEvent)
+        assert _keyboard_edges(events) == [
+            ("up", KeyboardInputState.PRESSED),
+            ("up", KeyboardInputState.RELEASED),
+        ]
+        assert window.get_user_input_events().get_events() == []
+    finally:
+        window.close()

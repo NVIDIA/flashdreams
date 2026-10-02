@@ -99,6 +99,9 @@ class _Model(IModelLoop):
 
 
 class _UI(IUILoop):
+    def reset(self):
+        pass
+
     def is_finished(self):
         return False
 
@@ -109,6 +112,13 @@ class _UI(IUILoop):
         self.state.post_inference_ui_steps += 1
         if self.state.scenario == "replacement":
             self.request_new_session(replace(self.session_desc, video_width=4))
+        if (
+            self.state.scenario == "completed_reset"
+            and not self.state.reset_sent.is_set()
+        ):
+            assert self.state.model_closes == 0
+            self.state.reset_sent.set()
+            self.request_reset()
         return []
 
 
@@ -144,7 +154,7 @@ class _Session(ISession):
 
     def init(self):
         assert threading.get_ident() == self.main_thread
-        if self.scenario in ("unfinished_ui", "replacement"):
+        if self.scenario in ("unfinished_ui", "replacement", "completed_reset"):
             self.register_ui_loop(_UI, state=self)
         if self.scenario == "init_failure" and self.ctx.is_main:
             raise ValueError("injected session initialization failure")
@@ -159,6 +169,7 @@ class _Window(IClientWindow):
     def __init__(self, session):
         self.session = session
         self.writes = 0
+        self.pending_reset = False
 
     def _main_thread(self):
         assert threading.get_ident() == self.session.main_thread
@@ -167,8 +178,21 @@ class _Window(IClientWindow):
     def open(self, desc):
         self._main_thread()
 
+    def request_reset(self):
+        self._main_thread()
+        self.pending_reset = True
+
     def get_user_input_events(self):
         self._main_thread()
+        if self.pending_reset:
+            self.pending_reset = False
+            return UserInputEvents([ResetUserInputEvent(timestamp=uint64(0))])
+        if (
+            self.session.scenario == "completed_reset"
+            and self.session.resets == 1
+            and self.session.model_loop.inference_state is ModelInferenceState.FINISHED
+        ):
+            return UserInputEvents([CloseUserInputEvent(timestamp=uint64(0))])
         if (
             self.session.scenario == "unfinished_ui"
             and self.session.post_inference_ui_steps >= 600
@@ -317,6 +341,7 @@ def _worker(rank, scenario, rendezvous, output):
         "stop_after_admission",
         "worker_finished",
         "reset",
+        "completed_reset",
         "prepare_failure",
         "step_failure",
         "init_failure",
@@ -393,6 +418,10 @@ def test_runtime_ranks_stop_reset_and_fail_together(scenario, tmp_path):
             assert leader["indices"] == [0]
         elif scenario == "bounded":
             assert leader["indices"] == [0, 1]
+        elif scenario == "completed_reset":
+            assert leader["resets"] == worker["resets"] == 1
+            assert leader["indices"] == [0, 1, 2, 0, 1, 2]
+            assert leader["window_closes"] == 1
         elif scenario == "reset":
             assert leader["resets"] == worker["resets"] == 1
             assert leader["keys"] == worker["keys"] == ["w"]
