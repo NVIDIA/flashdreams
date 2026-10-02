@@ -1498,6 +1498,29 @@ def test_run_session_resets_the_session_and_the_step_index() -> None:
     ] == [0, 1]
 
 
+def test_ui_reset_request_retains_the_session_and_window() -> None:
+    log = CallLog()
+
+    class ResettingSession(FakeSession):
+        def init(self) -> None:
+            super().init()
+            self.ui_loop.request_reset()
+            self.ui_loop.request_reset()
+
+    session = ResettingSession(_session_desc(), log)
+    window = RecordingClientWindow(log)
+
+    run_session(session, window, steps=2)
+
+    assert log.calls.count("session.init") == 1
+    assert log.calls.count("session.reset") == 1
+    assert log.calls.count("window.open") == 1
+    assert session.ui_loop._generation == session.model_loop._generation == 1
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1]
+
+
 def test_run_session_keeps_the_ui_alive_after_model_inference_finishes() -> None:
     """Model completion alone does not end an interactive session."""
     log = CallLog()
@@ -1603,7 +1626,10 @@ def test_run_session_keeps_polling_while_the_final_result_is_pending() -> None:
     assert window.results == []
 
 
-def test_run_session_drops_a_result_the_reset_interrupted() -> None:
+@pytest.mark.parametrize("reset_source", ["event", "request"])
+def test_run_session_drops_a_result_the_reset_interrupted(
+    monkeypatch, reset_source: str
+) -> None:
     log = CallLog()
     reset_reported = threading.Event()
 
@@ -1615,13 +1641,20 @@ def test_run_session_drops_a_result_the_reset_interrupted() -> None:
                 reset_reported.wait()
             return super().step(step_index, events)
 
-    class ResettingWindow(RecordingClientWindow):
-        """Announce the reset, which is the only input this window reports."""
+    original_reset = FakeUILoop.reset
 
+    def reset_ui(loop: FakeUILoop) -> None:
+        original_reset(loop)
+        reset_reported.set()
+
+    monkeypatch.setattr(FakeUILoop, "reset", reset_ui)
+
+    class ResettingWindow(RecordingClientWindow):
         def get_user_input_events(self) -> UserInputEvents:
             events = super().get_user_input_events()
-            if events.get_events():
-                reset_reported.set()
+            if events.get_events() and reset_source == "request":
+                invoke_async(session.ui_loop, lambda _: session.ui_loop.request_reset())
+                return UserInputEvents([])
             return events
 
     session = SlowFirstStep(_session_desc(), log)

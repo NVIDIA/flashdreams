@@ -82,6 +82,9 @@ class UILoopRequests:
     new_session: SessionDesc | None = None
     """Replacement session description, or ``None`` to keep this session."""
 
+    reset: bool = False
+    """Reset both loops and discard pending output without replacing the session."""
+
     hide_cursor: bool | None = None
     """Cursor visibility change, or ``None`` to leave it unchanged."""
 
@@ -477,6 +480,16 @@ class IUILoop(ILoop[StateT], ABC):
             session_desc: Fully resolved description for the replacement session.
         """
         self.get_or_create_ui_loop_requests().new_session = session_desc
+
+    @final
+    def request_reset(self) -> None:
+        """Ask the runtime to reset both loops while keeping the window open.
+
+        Pending model output is discarded and step indices restart at zero.
+        The session is retained; each loop's ``reset`` hook owns its state reset.
+        Call from the UI thread, or use :func:`invoke_async` from another loop.
+        """
+        self.get_or_create_ui_loop_requests().reset = True
 
     @final
     def request_hide_cursor(self, hide_cursor: bool) -> None:

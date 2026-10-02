@@ -11,6 +11,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from numpy import uint64
+
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import (
     IModelLoop,
@@ -24,6 +26,8 @@ from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import ResetUserInputEvent
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _LOGGER = logging.getLogger(__name__)
 _MODEL_THREAD_NAME = "flashdreams-model-generation-thread"
@@ -173,6 +177,14 @@ def run_session(
                         next_session_desc = request.new_session
                         stop.set()
                         return
+                    if request.reset:
+                        timestamp = uint64(
+                            (time.monotonic_ns() - session_started_ns) // 1000
+                        )
+                        event_buffer.append(
+                            UserInputEvents([ResetUserInputEvent(timestamp=timestamp)])
+                        )
+                        return
                 if loop_result.step_index is None or not step_requested:
                     return
                 raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
@@ -255,6 +267,7 @@ def run_session(
         event_buffer.register(_UI_READER_ID)
         event_buffer.register(_MODEL_READER_ID)
 
+        session_started_ns = time.monotonic_ns()
         if window is not None:
             window.open(session_desc)
         if metrics_output_sink is not None:
