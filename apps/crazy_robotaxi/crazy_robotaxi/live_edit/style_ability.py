@@ -1026,12 +1026,12 @@ class StyleAbility:
         )
 
     def _guard_transformer(self, transformer: Any) -> None:
-        """Reject built pipeline configs the unfused corrector cannot ride.
+        """Reject built pipeline configs the configured corrector cannot ride.
 
-        Fused mode needs no rejection (the per-state dispatch copies into
-        fixed parameter storages, which captured CUDA graphs and the
-        compiled network read by address — the whole point of the mode),
-        and ``off`` deploys no corrector at all.
+        Layer-wise offload keeps the authoritative parameters in CPU master
+        buffers, so neither drift-corrector mode nor runtime text-edit LoRA can
+        mutate them through the live module weights. Corrector mode ``off``
+        remains compatible when no text-edit LoRA is configured.
 
         The manifest only carries ``compile_net`` / ``native_dit_*``; the
         transformer's ``use_cuda_graph`` defaults to True in the recipe, so
@@ -1040,10 +1040,28 @@ class StyleAbility:
         runs outside any captured graph), and ``compile_network`` re-traces
         around the _LoRALinear wrap.
         """
-        if self._config.corrector_mode != "unfused":
-            return
         config = getattr(transformer, "config", None)
         if config is None:
+            return
+        if self._corrector_enabled() and getattr(
+            config, "enable_layerwise_offload", False
+        ):
+            raise RuntimeError(
+                "Live-edit drift correction is not compatible with layer-wise "
+                "offload; set enable_layerwise_offload=False or set the "
+                "live-edit corrector mode to 'off'"
+            )
+        if (
+            self._config.enabled
+            and self._config.lora_checkpoint is not None
+            and getattr(config, "enable_layerwise_offload", False)
+        ):
+            raise RuntimeError(
+                "Runtime text-edit LoRA is not compatible with layer-wise "
+                "offload; set enable_layerwise_offload=False or disable the "
+                "text-edit LoRA"
+            )
+        if self._config.corrector_mode != "unfused":
             return
         needs_corrector = self._config.corrector_checkpoint is not None
         if needs_corrector and getattr(config, "use_cuda_graph", False):
