@@ -548,9 +548,9 @@ and an <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</sp
 uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--extra<span class="w"> </span>interactive-drive
 </pre></div>
 </div>
-<p>Optionally, pre-download scenes and checkpoints so the first launch
-isn’t blocked on network I/O:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>omnidreams-prepare
+<p>Optionally, preload the application and validate its first model block:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>interactive-drive-omnidreams<span class="w"> </span>--preload-application
 </pre></div>
 </div>
 <p>Run the WebRTC demo:</p>
