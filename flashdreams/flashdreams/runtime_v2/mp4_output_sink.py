@@ -52,6 +52,8 @@ class Mp4OutputSink(OutputSink):
             ValueError: The frames are an odd number of pixels wide or high,
                 which this cannot encode.
         """
+        if self._encoder is not None:
+            self.close()
         self._session_desc = session_desc
         self._encoder = Mp4Encoder(
             self._path,
