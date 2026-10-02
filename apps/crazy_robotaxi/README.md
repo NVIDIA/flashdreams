@@ -36,7 +36,9 @@ Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
 connecting remotely. The first run downloads model assets and may take time to
 compile and autotune kernels.
 
-Twelve OmniDreams runner configurations are registered:
+Twelve OmniDreams runner configurations are registered. See
+[Runner presets and their settings](options/presets.md) for preset inheritance,
+exact Options/YAML values, render sizes, and the effect of saved overrides.
 
 | Runner | Configuration |
 | --- | --- |
@@ -75,6 +77,10 @@ game rebuilds its simulation and autoregressive cache without reloading the
 model.
 
 ## Options and user configuration
+
+See the [Options menu index](OPTIONS.md) for field-by-field guides to each page.
+The guides map menu labels to YAML keys, identify which project defines each
+setting, and list available application arguments.
 
 The mode menu has **CONTROLS** and **OPTIONS** buttons. The Options screen is
 generated from the same typed settings tree used at startup, with pages for
