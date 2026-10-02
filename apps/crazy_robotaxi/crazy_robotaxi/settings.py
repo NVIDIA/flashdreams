@@ -10,7 +10,7 @@ import io
 import os
 import tempfile
 import types
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import MISSING, Field, dataclass, fields, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -782,7 +782,7 @@ def iter_setting_fields(
     return tuple(
         (item, hints.get(item.name, type(getattr(value, item.name))))
         for item in fields(value)
-        if _is_user_setting_field(value, item, (*path, item.name))
+        if _is_user_setting_field(value, item, (*path, item.name), hints.get(item.name))
     )
 
 
@@ -790,8 +790,19 @@ def _is_user_setting_field(
     value: object,
     item: Field[Any],
     path: SettingPath,
+    annotation: Any,
 ) -> bool:
     if item.name == "_target" or path in _NON_USER_SETTING_PATHS:
+        return False
+    alternatives = (
+        get_args(annotation)
+        if get_origin(annotation) in (Union, types.UnionType)
+        else (annotation,)
+    )
+    if any(
+        candidate is Callable or get_origin(candidate) is Callable
+        for candidate in alternatives
+    ):
         return False
     current = getattr(value, item.name)
     if isinstance(current, type) or callable(current):
