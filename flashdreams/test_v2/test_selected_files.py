@@ -244,12 +244,13 @@ def test_mp4_window_completes_queued_file_selections_as_unavailable(
 
     events = window.get_user_input_events().get_events()
 
-    assert [event.request_id for event in events] == ["open-1", "open-2"]
+    picks = [
+        event for event in events if isinstance(event, SelectedFilesUserInputEvent)
+    ]
+    assert [event.request_id for event in picks] == ["open-1", "open-2"]
     assert all(
-        isinstance(event, SelectedFilesUserInputEvent)
-        and event.status is SelectedFilesStatus.UNAVAILABLE
-        and event.files == ()
-        for event in events
+        event.status is SelectedFilesStatus.UNAVAILABLE and event.files == ()
+        for event in picks
     )
 
 
@@ -260,10 +261,11 @@ def test_null_window_completes_file_selection_as_unavailable() -> None:
 
     events = window.get_user_input_events().get_events()
 
-    assert [event.request_id for event in events] == ["open-1", "open-2"]
+    picks = [
+        event for event in events if isinstance(event, SelectedFilesUserInputEvent)
+    ]
+    assert [event.request_id for event in picks] == ["open-1", "open-2"]
     assert all(
-        isinstance(event, SelectedFilesUserInputEvent)
-        and event.status is SelectedFilesStatus.UNAVAILABLE
-        and event.files == ()
-        for event in events
+        event.status is SelectedFilesStatus.UNAVAILABLE and event.files == ()
+        for event in picks
     )

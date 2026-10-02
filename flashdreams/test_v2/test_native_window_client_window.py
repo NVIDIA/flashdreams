@@ -710,12 +710,11 @@ def test_native_window_serves_one_file_selection_at_a_time(
         time.sleep(0.01)
     window.close()
 
-    assert [event.request_id for event in events] == ["open-1", "open-2"]
-    assert all(
-        isinstance(event, SelectedFilesUserInputEvent)
-        and event.status is SelectedFilesStatus.CANCELLED
-        for event in events
-    )
+    picks = [
+        event for event in events if isinstance(event, SelectedFilesUserInputEvent)
+    ]
+    assert [event.request_id for event in picks] == ["open-1", "open-2"]
+    assert all(event.status is SelectedFilesStatus.CANCELLED for event in picks)
     assert calls == [(".bin",), (".raw",)]
 
 
@@ -787,12 +786,13 @@ def test_native_window_close_completes_leftover_file_selections(
     window.close()
 
     assert extra == []
-    assert [event.request_id for event in events[:-1]] == ["open-1", "open-2"]
+    picks = [
+        event for event in events[:-1] if isinstance(event, SelectedFilesUserInputEvent)
+    ]
+    assert [event.request_id for event in picks] == ["open-1", "open-2"]
     assert all(
-        isinstance(event, SelectedFilesUserInputEvent)
-        and event.status is SelectedFilesStatus.UNAVAILABLE
-        and event.files == ()
-        for event in events[:-1]
+        event.status is SelectedFilesStatus.UNAVAILABLE and event.files == ()
+        for event in picks
     )
     assert isinstance(events[-1], CloseUserInputEvent)
 

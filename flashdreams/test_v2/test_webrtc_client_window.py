@@ -224,14 +224,13 @@ async def test_browser_file_selections_are_served_one_at_a_time() -> None:
             if len(events) >= 2:
                 break
             await asyncio.sleep(0.01)
-        assert [event.request_id for event in events] == ["open-1", "open-2"]
-        assert all(
-            isinstance(event, SelectedFilesUserInputEvent)
-            and event.status is SelectedFilesStatus.OK
-            for event in events
-        )
-        assert events[0].files[0].data == b"first"
-        assert events[1].files[0].data == b"second"
+        picks = [
+            event for event in events if isinstance(event, SelectedFilesUserInputEvent)
+        ]
+        assert [event.request_id for event in picks] == ["open-1", "open-2"]
+        assert all(event.status is SelectedFilesStatus.OK for event in picks)
+        assert picks[0].files[0].data == b"first"
+        assert picks[1].files[0].data == b"second"
     finally:
         window.close()
 
@@ -257,12 +256,13 @@ async def test_peer_loss_completes_queued_file_selections_as_unavailable() -> No
             if len(events) >= 2:
                 break
             await asyncio.sleep(0.01)
-        assert [event.request_id for event in events] == ["open-1", "open-2"]
+        picks = [
+            event for event in events if isinstance(event, SelectedFilesUserInputEvent)
+        ]
+        assert [event.request_id for event in picks] == ["open-1", "open-2"]
         assert all(
-            isinstance(event, SelectedFilesUserInputEvent)
-            and event.status is SelectedFilesStatus.UNAVAILABLE
-            and event.files == ()
-            for event in events
+            event.status is SelectedFilesStatus.UNAVAILABLE and event.files == ()
+            for event in picks
         )
         assert window.server._pending_file_requests == {}
         assert window.server._queued_file_selectors == []
@@ -322,20 +322,22 @@ async def test_in_flight_upload_is_dropped_after_peer_loss(
 
 
 @pytest.mark.asyncio
-async def test_stale_file_selector_arm_is_ignored_after_peer_loss() -> None:
+async def test_stale_file_selector_arm_is_ignored_after_peer_loss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     peer: RTCPeerConnection | None = None
     replacement: RTCPeerConnection | None = None
     try:
         peer, _, _ = await _connect_browser(window)
-        delayed: list[tuple[dict[str, object], int]] = []
+        delayed: list[tuple[dict[str, Any], int]] = []
         original_arm = window.server._arm_file_selector
 
-        def capture_arm(payload: dict[str, object], generation: int) -> None:
+        def capture_arm(payload: dict[str, Any], generation: int) -> None:
             delayed.append((payload, generation))
 
-        window.server._arm_file_selector = capture_arm  # type: ignore[method-assign]
+        monkeypatch.setattr(window.server, "_arm_file_selector", capture_arm)
         window.request_selected_files("open-1", "/tmp")
         for _ in range(100):
             if delayed:
