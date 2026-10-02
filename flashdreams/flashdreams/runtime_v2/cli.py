@@ -80,25 +80,26 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     if parsed.preload_application:
         parsed.mode = "null"
 
-    mode = client_window_mode(parsed.mode)
-    if parsed.mode == "mp4" and parsed.presentation_mode is None:
-        parsed.presentation_mode = PresentationMode.ON_DEMAND
     # Asking an application what it takes is answered by the application alone,
     # so a run that only wants its help neither checks the arguments for a
     # window nor opens one.
     wants_application_help = bool(_HELP_FLAGS.intersection(application_args))
-    if not wants_application_help:
-        try:
-            mode.check_arguments(parsed)
-        except ValueError as error:
-            parser.error(str(error))
-
     # Before the window, so a slug this cannot run costs nothing to find out.
     application = create_application(parsed.slug)
     if wants_application_help:
         # Parsing is init's first job, so this prints the help and exits.
         application.init(application_args)
         return
+    if parsed.mode is None:
+        preferred_mode = application.default_client_window_mode()
+        parsed.mode = "mp4" if preferred_mode is None else preferred_mode
+    try:
+        mode = client_window_mode(parsed.mode, modes=parsed._client_window_modes)
+        mode.check_arguments(parsed)
+    except ValueError as error:
+        parser.error(str(error))
+    if parsed.mode == "mp4" and parsed.presentation_mode is None:
+        parsed.presentation_mode = PresentationMode.ON_DEMAND
     session_desc = _session_desc(application, parsed)
     worker = get_global_rank_for_logging() != 0
     window = None if worker else mode.create(parsed)
