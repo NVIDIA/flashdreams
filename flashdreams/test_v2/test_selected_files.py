@@ -121,11 +121,12 @@ def test_file_selection_gate_ignores_duplicates_and_serves_one_at_a_time() -> No
     assert gate.submit(_queued("open-1")) is None
     assert gate.submit(_queued("open-2")) is None
     assert gate.submit(_queued("open-2")) is None
-    assert gate.complete("open-2") is None
-    nxt = gate.complete("open-1")
+    assert gate.complete("open-2") == (False, None)
+    claimed, nxt = gate.complete("open-1")
+    assert claimed
     assert nxt is not None
     assert nxt.request_id == "open-2"
-    assert gate.complete("open-2") is None
+    assert gate.complete("open-2") == (True, None)
 
 
 def test_file_selection_gate_clear_drops_queued_requests() -> None:
@@ -133,7 +134,7 @@ def test_file_selection_gate_clear_drops_queued_requests() -> None:
     assert gate.submit(_queued("open-1")) is not None
     assert gate.submit(_queued("open-2")) is None
     gate.clear()
-    assert gate.complete("open-1") is None
+    assert gate.complete("open-1") == (False, None)
     started = gate.submit(_queued("open-2"))
     assert started is not None
     assert started.request_id == "open-2"
@@ -143,7 +144,8 @@ def test_file_selection_gate_drain_returns_active_then_queued() -> None:
     gate = FileSelectionGate()
     assert gate.submit(_queued("open-1")) is not None
     assert gate.submit(_queued("open-2")) is None
-    nxt = gate.complete("open-1")
+    claimed, nxt = gate.complete("open-1")
+    assert claimed
     assert nxt is not None
     assert [item.request_id for item in gate.drain()] == ["open-2"]
     assert gate.drain() == ()
@@ -158,9 +160,18 @@ def test_file_selection_gate_stale_complete_does_not_release_new_request() -> No
     second = gate.submit(_queued("open-1"))
     assert second is not None
     assert second.generation != stale_generation
-    assert gate.complete("open-1", generation=stale_generation) is None
+    assert gate.complete("open-1", generation=stale_generation) == (False, None)
     assert gate.is_current("open-1", second.generation)
-    assert gate.complete("open-1", generation=second.generation) is None
+    assert gate.complete("open-1", generation=second.generation) == (True, None)
+
+
+def test_file_selection_gate_complete_after_drain_is_not_claimed() -> None:
+    gate = FileSelectionGate()
+    first = gate.submit(_queued("open-1"))
+    assert first is not None
+    leftover = gate.drain()
+    assert leftover[0].request_id == "open-1"
+    assert gate.complete("open-1", first.generation) == (False, None)
 
 
 def test_selected_file_policy_helpers() -> None:

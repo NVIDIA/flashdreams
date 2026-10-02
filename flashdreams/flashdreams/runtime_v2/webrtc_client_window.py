@@ -42,7 +42,8 @@ class WebRTCClientWindow(IClientWindow):
 
     Disconnecting releases only that browser's peer connection. The server and
     current session stay available for a refreshed or replacement client until
-    the application is explicitly stopped.
+    the application is explicitly stopped. Leftover and in-flight file picks
+    complete as unavailable; a replacement viewer does not inherit them.
     """
 
     def __init__(
@@ -81,13 +82,20 @@ class WebRTCClientWindow(IClientWindow):
             nxt = None
             with self._input_lock:
                 if isinstance(event, SelectedFilesUserInputEvent):
-                    nxt = self._file_gate.complete(event.request_id)
+                    claimed, nxt = self._file_gate.complete(
+                        event.request_id, event.generation
+                    )
+                    if not claimed:
+                        return
                 self._input_events.append(event)
             if nxt is not None:
                 self._start_file_selection(nxt)
 
         self.server.register_input_callback(handle_input)
-        self.server.register_client_gone_callback(self._abandon_file_selections)
+        self.server.register_file_selection_current_callback(self._file_gate.is_current)
+        self.server.register_file_selection_invalidate_callback(
+            self._invalidate_file_selections
+        )
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor in the browser window."""
@@ -128,7 +136,8 @@ class WebRTCClientWindow(IClientWindow):
         """Ask the connected browser to open a file selector.
 
         A second distinct ``request_id`` waits until the active selector
-        completes so the viewer shows one dialog at a time.
+        completes so the viewer shows one dialog at a time. A dropped peer
+        completes leftovers and in-flight picks as unavailable.
 
         Args:
             request_id: Stable selector-slot id from the UI control.
@@ -148,10 +157,10 @@ class WebRTCClientWindow(IClientWindow):
         if started is not None:
             self._start_file_selection(started)
 
-    def _abandon_file_selections(self) -> None:
-        """Complete leftover picks as unavailable; do not arm them for a later viewer."""
+    def _invalidate_file_selections(self, deliver_unavailable: bool) -> None:
+        """Finish this client generation; optionally report leftovers as unavailable."""
         leftover = self._file_gate.drain()
-        if not leftover:
+        if not deliver_unavailable or not leftover:
             return
         timestamp = self.server.event_timestamp_us()
         with self._input_lock:
@@ -161,6 +170,7 @@ class WebRTCClientWindow(IClientWindow):
                         timestamp=timestamp,
                         request_id=item.request_id,
                         status=SelectedFilesStatus.UNAVAILABLE,
+                        generation=item.generation,
                     )
                 )
 
@@ -171,6 +181,7 @@ class WebRTCClientWindow(IClientWindow):
             initial_path=pending.initial_path,
             accept=pending.accept,
             max_bytes=pending.max_bytes,
+            generation=pending.generation,
         )
 
     def open(self, session_desc: SessionDesc) -> None:
@@ -183,7 +194,6 @@ class WebRTCClientWindow(IClientWindow):
         session_event_offset_us = self.server.event_timestamp_us()
         with self._input_lock:
             self._input_events.clear()
-            self._file_gate.clear()
             self._session_event_offset_us = session_event_offset_us
 
     def get_user_input_events(self) -> UserInputEvents:
@@ -225,5 +235,5 @@ class WebRTCClientWindow(IClientWindow):
 
     def close(self) -> None:
         """Implement ``OutputSink.close`` by releasing WebRTC resources."""
-        self._file_gate.clear()
+        self._invalidate_file_selections(False)
         self.server.close()

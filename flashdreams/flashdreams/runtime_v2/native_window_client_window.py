@@ -301,7 +301,8 @@ class NativeWindowClientWindow(IClientWindow):
 
         The desktop dialog runs on a worker thread so the UI loop can keep
         polling and presenting while the picker is open. A second distinct
-        ``request_id`` waits until this picker completes.
+        ``request_id`` waits until this picker completes. Closing the window
+        completes leftovers and in-flight picks as unavailable.
 
         Args:
             request_id: Stable selector-slot id from the UI control.
@@ -368,22 +369,22 @@ class NativeWindowClientWindow(IClientWindow):
                     files = () if chosen is None else (chosen,)
                 else:
                     status = SelectedFilesStatus.CANCELLED
-            if not self._file_gate.is_current(request_id, generation):
-                return
-            started_ns = self._session_started_ns
-            elapsed_ns = (
-                0 if started_ns is None else max(0, self._clock_ns() - started_ns)
-            )
-            self._input_events.put(
-                SelectedFilesUserInputEvent(
-                    timestamp=uint64(elapsed_ns // 1_000),
-                    request_id=request_id,
-                    status=status,
-                    files=files,
-                )
-            )
         finally:
-            nxt = self._file_gate.complete(request_id, generation)
+            claimed, nxt = self._file_gate.complete(request_id, generation)
+            if claimed:
+                started_ns = self._session_started_ns
+                elapsed_ns = (
+                    0 if started_ns is None else max(0, self._clock_ns() - started_ns)
+                )
+                self._input_events.put(
+                    SelectedFilesUserInputEvent(
+                        timestamp=uint64(elapsed_ns // 1_000),
+                        request_id=request_id,
+                        status=status,
+                        files=files,
+                        generation=generation,
+                    )
+                )
             if nxt is not None and self._presenter is not None:
                 self._spawn_file_picker(nxt)
 
@@ -506,7 +507,7 @@ class NativeWindowClientWindow(IClientWindow):
 
     def close(self) -> None:
         """Release SlangPy and the GLFW window on the runtime's UI thread."""
-        self._file_gate.clear()
+        self._invalidate_file_selections(deliver_unavailable=False)
         presenter = self._presenter
         self._presenter = None
         self._session_started_ns = None
@@ -601,18 +602,21 @@ class NativeWindowClientWindow(IClientWindow):
         if self._close_event_enqueued:
             return
         self._close_event_enqueued = True
-        self._abandon_file_selections()
+        self._invalidate_file_selections(deliver_unavailable=True)
         self._put_input(CloseUserInputEvent(timestamp=uint64(0)))
 
-    def _abandon_file_selections(self) -> None:
-        """Complete leftover picks as unavailable; a late OS dialog cannot finish them."""
+    def _invalidate_file_selections(self, *, deliver_unavailable: bool) -> None:
+        """Finish this client generation; optionally report leftovers as unavailable."""
         leftover = self._file_gate.drain()
+        if not deliver_unavailable:
+            return
         for item in leftover:
             self._put_input(
                 SelectedFilesUserInputEvent(
                     timestamp=uint64(0),
                     request_id=item.request_id,
                     status=SelectedFilesStatus.UNAVAILABLE,
+                    generation=item.generation,
                 )
             )
 

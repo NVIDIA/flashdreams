@@ -90,7 +90,7 @@ class Mp4ClientWindow(IClientWindow):
                     status=SelectedFilesStatus.UNAVAILABLE,
                 )
             )
-            started = self._file_gate.complete(started.request_id)
+            _, started = self._file_gate.complete(started.request_id)
 
     def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
         """Change the MP4 presentation dimensions without replacing the session.

@@ -761,12 +761,14 @@ def test_native_window_close_completes_leftover_file_selections(
 ) -> None:
     entered = threading.Event()
     released = threading.Event()
+    late = tmp_path / "late.bin"
+    late.write_bytes(b"late")
 
     def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
         del initial_dir, accept
         entered.set()
         assert released.wait(timeout=2.0)
-        return ""
+        return str(late)
 
     monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
     presenter = _Presenter()
@@ -780,8 +782,11 @@ def test_native_window_close_completes_leftover_file_selections(
     presenter.pending_events.put(("close", None))
     events = window.get_user_input_events().get_events()
     released.set()
+    time.sleep(0.05)
+    extra = window.get_user_input_events().get_events()
     window.close()
 
+    assert extra == []
     assert [event.request_id for event in events[:-1]] == ["open-1", "open-2"]
     assert all(
         isinstance(event, SelectedFilesUserInputEvent)

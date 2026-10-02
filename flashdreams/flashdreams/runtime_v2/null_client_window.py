@@ -72,7 +72,7 @@ class NullClientWindow(IClientWindow):
                     status=SelectedFilesStatus.UNAVAILABLE,
                 )
             )
-            started = self._file_gate.complete(started.request_id)
+            _, started = self._file_gate.complete(started.request_id)
 
     def open(self, session_desc: SessionDesc) -> None:
         """Accept a session without opening an output."""

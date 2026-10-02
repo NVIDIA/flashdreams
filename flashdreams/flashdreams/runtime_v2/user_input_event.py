@@ -315,7 +315,7 @@ class SelectedFilesStatus(Enum):
     """The chosen file did not match ``accept``. Checked before size."""
 
     UNAVAILABLE = "unavailable"
-    """No picker could run: headless output, a gone client, or an unreadable file."""
+    """The picker could not complete: headless output, a gone client, or an unreadable file."""
 
 
 def selected_file_policy_status(
@@ -380,6 +380,9 @@ class SelectedFilesUserInputEvent(UserInputEvent):
 
     files: tuple[SelectedFile, ...] = ()
     """Chosen files. Empty unless ``status`` is ``OK``."""
+
+    generation: int = 0
+    """Window generation that admitted this request. Applications ignore it."""
 
     def __post_init__(self) -> None:
         """Reject an ``ok`` event without files, or files on a failed pick."""

@@ -12,7 +12,8 @@ Small ImGui applications for the FlashDreams v2 loop runtime:
   name and size (the file bytes are on the event; apps should use those).
   Each Open control uses a stable `request_id`. Extra clicks on the same
   control while a picker is open are ignored; **Open A then B** queues both
-  selectors one at a time.
+  selectors one at a time. Closing the native window or dropping the WebRTC
+  tab completes leftover picks as unavailable.
 - `imgui-ui-query-string` sets background from a `?(r,g,b)` browser URL.
 - `imgui-ui-window-size` resizes native window or UI render target without
   resetting session.

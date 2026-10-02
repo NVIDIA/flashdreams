@@ -74,10 +74,11 @@ class IClientWindow(InputSource, OutputSink, ABC):
         so two controls still run one dialog at a time. Every accepted request
         later produces one event. ``cancelled`` is only a user dismiss. If the
         interactive client is gone while the session continues (dropped WebRTC
-        peer, closed native window), leftovers complete as ``unavailable``. A
-        picker that outlives that client cannot complete a later request that
-        reused the id. Window ``close`` / session replacement finish leftovers
-        without delivering them to the next session.
+        peer, closed native window), leftovers complete as ``unavailable``.
+        In-flight picks are dropped the same way. A picker that outlives that
+        client cannot complete a later request that reused the id. Window
+        ``close`` / session replacement finish leftovers without delivering
+        them to the next session.
 
         Args:
             request_id: Stable id for this selector slot, typically one per

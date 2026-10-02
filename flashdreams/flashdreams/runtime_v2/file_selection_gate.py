@@ -38,8 +38,9 @@ class FileSelectionGate:
 
     A duplicate ``request_id`` that is already active or queued is ignored.
     A different id waits until :meth:`complete` for the active request.
-    :meth:`drain` finishes the current client generation so a late picker
-    cannot complete a later request that reused the id.
+    Callers emit a selected-files event only after :meth:`complete` claims
+    the slot. :meth:`drain` finishes the current client generation so a late
+    picker or upload cannot complete a later request that reused the id.
     """
 
     def __init__(self) -> None:
@@ -75,29 +76,33 @@ class FileSelectionGate:
 
     def complete(
         self, request_id: str, generation: int | None = None
-    ) -> QueuedFileSelection | None:
-        """Release ``request_id`` and return the next request to start.
+    ) -> tuple[bool, QueuedFileSelection | None]:
+        """Claim ``request_id`` if it is still current and return the next start.
+
+        Callers emit a result only when this returns ``claimed=True``. Client-gone
+        :meth:`drain` wins the race against in-flight pickers and uploads.
 
         Args:
-            request_id: Id of the selector that just emitted an event.
+            request_id: Id of the in-flight selector.
             generation: Client generation of that selector, or ``None`` to
                 match only the id.
 
         Returns:
-            The next queued request, or ``None`` when this id was not active,
-            the generation does not match, or the queue is empty.
+            ``(True, next)`` when this in-flight work still owned the slot.
+            ``next`` is the request that should start now, or ``None`` if the
+            queue is empty. ``(False, None)`` when the id is not current.
         """
         with self._lock:
             if self._active is None or self._active.request_id != request_id:
-                return None
+                return False, None
             if generation is not None and self._active.generation != generation:
-                return None
+                return False, None
             self._active = None
             if not self._queued:
-                return None
+                return True, None
             nxt = self._queued.popleft()
             self._active = nxt
-            return nxt
+            return True, nxt
 
     def is_current(self, request_id: str, generation: int) -> bool:
         """Return whether ``request_id`` is still the active selector for ``generation``."""

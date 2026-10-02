@@ -558,16 +558,18 @@ class IUILoop(ILoop[StateT], ABC):
         :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`.
         Read ``status`` for cancel, oversize, disallowed type, or unavailable;
         ``files`` is non-empty only when the pick succeeded. A second call with
-        the same ``request_id`` while the first is still queued is ignored so
-        the original picker can still complete. Distinct ids are forwarded in
-        order; the window shows one client selector at a time. Use one stable
-        ``request_id`` per UI control so extra clicks while the picker is
-        opening are ignored; two controls use two ids and are served in order.
-        A new id on every click is a new control and queues another dialog.
-        Every accepted request later produces one event. ``cancelled`` is only
-        a user dismiss. If the interactive client is gone while the session
-        continues (dropped WebRTC peer, closed native window), leftovers
-        complete as ``unavailable``.
+        the same ``request_id`` while the first is still active or queued is
+        ignored so the original picker can still complete. Distinct ids are
+        forwarded in order; the window shows one client selector at a time.
+        Use one stable ``request_id`` per UI control so extra clicks while the
+        picker is opening are ignored; two controls use two ids and are served
+        in order. A new id on every click is a new control and queues another
+        dialog. Every accepted request later produces one event. ``cancelled``
+        is only a user dismiss. If the interactive client is gone while the
+        session continues (dropped WebRTC peer, closed native window), leftovers
+        complete as ``unavailable``. In-flight picks are dropped the same way.
+        A picker that outlives that client cannot complete a later request that
+        reused the id.
 
         ``accept`` and ``max_bytes`` are the application's policy. Windows
         classify the choice with

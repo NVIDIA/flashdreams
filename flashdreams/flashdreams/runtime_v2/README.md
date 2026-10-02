@@ -346,7 +346,8 @@ fully resolved replacement description. `run_session` stops and cleans the
 current session, leaves the interactive window open, and returns that
 description unchanged. `ApplicationRunner` creates the replacement from it. A
 WebRTC browser disconnect releases only its peer connection, so refreshing the
-page does not stop the session, server, or application.
+page does not stop the session, server, or application. Leftover and in-flight
+file picks complete as `unavailable`; a replacement viewer does not inherit them.
 
 The UI thread owns WebRTC cadence. Each `write` synchronously materializes one
 owned video frame and admits it to a two-frame FIFO of unsent frames. The WebRTC
