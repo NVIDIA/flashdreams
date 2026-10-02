@@ -236,7 +236,11 @@ outcome (`ok`, `cancelled`, `too_large`, `disallowed_type`, `unavailable`);
 `request_id` and reuse it after the matching event: extra clicks on that
 control while a picker is opening are ignored. A new id on every click is
 a new control and queues another dialog. Distinct controls use distinct
-ids and are served one client dialog at a time.
+ids and are served one client dialog at a time. Every accepted request later
+produces one event. `cancelled` is only a user dismiss. If the interactive
+client is gone while the session continues (dropped WebRTC peer, closed native
+window), leftovers complete as `unavailable`. A picker that outlives that
+client cannot complete a later request that reused the id.
 
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The

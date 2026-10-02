@@ -327,6 +327,7 @@ class NativeWindowClientWindow(IClientWindow):
             target=self._complete_file_selection,
             args=(
                 pending.request_id,
+                pending.generation,
                 pending.initial_path or str(Path.home()),
                 pending.accept,
                 pending.max_bytes
@@ -341,6 +342,7 @@ class NativeWindowClientWindow(IClientWindow):
     def _complete_file_selection(
         self,
         request_id: str,
+        generation: int,
         initial_dir: str,
         accept: tuple[str, ...],
         max_bytes: int,
@@ -366,6 +368,8 @@ class NativeWindowClientWindow(IClientWindow):
                     files = () if chosen is None else (chosen,)
                 else:
                     status = SelectedFilesStatus.CANCELLED
+            if not self._file_gate.is_current(request_id, generation):
+                return
             started_ns = self._session_started_ns
             elapsed_ns = (
                 0 if started_ns is None else max(0, self._clock_ns() - started_ns)
@@ -379,7 +383,7 @@ class NativeWindowClientWindow(IClientWindow):
                 )
             )
         finally:
-            nxt = self._file_gate.complete(request_id)
+            nxt = self._file_gate.complete(request_id, generation)
             if nxt is not None and self._presenter is not None:
                 self._spawn_file_picker(nxt)
 
@@ -597,7 +601,20 @@ class NativeWindowClientWindow(IClientWindow):
         if self._close_event_enqueued:
             return
         self._close_event_enqueued = True
+        self._abandon_file_selections()
         self._put_input(CloseUserInputEvent(timestamp=uint64(0)))
+
+    def _abandon_file_selections(self) -> None:
+        """Complete leftover picks as unavailable; a late OS dialog cannot finish them."""
+        leftover = self._file_gate.drain()
+        for item in leftover:
+            self._put_input(
+                SelectedFilesUserInputEvent(
+                    timestamp=uint64(0),
+                    request_id=item.request_id,
+                    status=SelectedFilesStatus.UNAVAILABLE,
+                )
+            )
 
 
 class _SlangPyNativeWindowPresenter:

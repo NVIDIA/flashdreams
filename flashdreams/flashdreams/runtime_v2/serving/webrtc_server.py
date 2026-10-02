@@ -347,6 +347,7 @@ class WebRTCServer:
         self._port = port
         self._startup_timeout_seconds = startup_timeout_seconds
         self._input_callback: Callable[[UserInputEvent], None] | None = None
+        self._client_gone_callback: Callable[[], None] | None = None
         self._started = threading.Event()
         self._startup_error: BaseException | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -529,20 +530,11 @@ class WebRTCServer:
             self._queued_file_selectors.clear()
 
     def _complete_abandoned_file_selectors(self) -> None:
-        """Complete pending selector requests as unavailable."""
-        timestamp_us = self._timestamp_us()
-        with self._file_selector_lock:
-            pending = tuple(self._pending_file_requests)
-            self._pending_file_requests.clear()
-            self._queued_file_selectors.clear()
-        if timestamp_us is None:
-            return
-        for request_id in pending:
-            self._emit_selected_files(
-                timestamp_us,
-                request_id,
-                status=SelectedFilesStatus.UNAVAILABLE,
-            )
+        """Finish leftover picks because the interactive client is gone."""
+        self._invalidate_file_selectors()
+        callback = self._client_gone_callback
+        if callback is not None:
+            callback()
 
     def _send_file_selector(self, payload: dict[str, Any]) -> None:
         """Send one file-selector request on the WebRTC event-loop thread."""
@@ -678,6 +670,19 @@ class WebRTCServer:
         if self._input_callback is not None:
             raise RuntimeError("An input callback is already registered.")
         self._input_callback = callback
+
+    def register_client_gone_callback(self, callback: Callable[[], None]) -> None:
+        """Register the function called when the browser peer is gone.
+
+        Args:
+            callback: Function with no arguments.
+
+        Raises:
+            RuntimeError: A callback has already been registered.
+        """
+        if self._client_gone_callback is not None:
+            raise RuntimeError("A client-gone callback is already registered.")
+        self._client_gone_callback = callback
 
     def write(self, result: StepResult) -> None:
         """Materialize and admit one generated result to the sender mailbox.

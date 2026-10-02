@@ -564,6 +564,10 @@ class IUILoop(ILoop[StateT], ABC):
         ``request_id`` per UI control so extra clicks while the picker is
         opening are ignored; two controls use two ids and are served in order.
         A new id on every click is a new control and queues another dialog.
+        Every accepted request later produces one event. ``cancelled`` is only
+        a user dismiss. If the interactive client is gone while the session
+        continues (dropped WebRTC peer, closed native window), leftovers
+        complete as ``unavailable``.
 
         ``accept`` and ``max_bytes`` are the application's policy. Windows
         classify the choice with

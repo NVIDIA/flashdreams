@@ -139,6 +139,30 @@ def test_file_selection_gate_clear_drops_queued_requests() -> None:
     assert started.request_id == "open-2"
 
 
+def test_file_selection_gate_drain_returns_active_then_queued() -> None:
+    gate = FileSelectionGate()
+    assert gate.submit(_queued("open-1")) is not None
+    assert gate.submit(_queued("open-2")) is None
+    nxt = gate.complete("open-1")
+    assert nxt is not None
+    assert [item.request_id for item in gate.drain()] == ["open-2"]
+    assert gate.drain() == ()
+
+
+def test_file_selection_gate_stale_complete_does_not_release_new_request() -> None:
+    gate = FileSelectionGate()
+    first = gate.submit(_queued("open-1"))
+    assert first is not None
+    stale_generation = first.generation
+    gate.drain()
+    second = gate.submit(_queued("open-1"))
+    assert second is not None
+    assert second.generation != stale_generation
+    assert gate.complete("open-1", generation=stale_generation) is None
+    assert gate.is_current("open-1", second.generation)
+    assert gate.complete("open-1", generation=second.generation) is None
+
+
 def test_selected_file_policy_helpers() -> None:
     assert clamp_selected_file_max_bytes(None) == MAX_SELECTED_FILE_BYTES
     assert clamp_selected_file_max_bytes(16) == 16

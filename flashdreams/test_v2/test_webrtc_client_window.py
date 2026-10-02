@@ -237,6 +237,48 @@ async def test_browser_file_selections_are_served_one_at_a_time() -> None:
 
 
 @pytest.mark.asyncio
+async def test_peer_loss_completes_queued_file_selections_as_unavailable() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    replacement: RTCPeerConnection | None = None
+    try:
+        peer, _, _ = await _connect_browser(window)
+        window.request_selected_files("open-1", "/tmp")
+        window.request_selected_files("open-2", "/tmp")
+        await _wait_file_armed(window, "open-1")
+        assert "open-2" not in window.server._pending_file_requests
+        await peer.close()
+        peer = None
+
+        events = []
+        for _ in range(100):
+            events.extend(window.get_user_input_events().get_events())
+            if len(events) >= 2:
+                break
+            await asyncio.sleep(0.01)
+        assert [event.request_id for event in events] == ["open-1", "open-2"]
+        assert all(
+            isinstance(event, SelectedFilesUserInputEvent)
+            and event.status is SelectedFilesStatus.UNAVAILABLE
+            and event.files == ()
+            for event in events
+        )
+        assert window.server._pending_file_requests == {}
+        assert window.server._queued_file_selectors == []
+
+        replacement, _, _ = await _connect_browser(window)
+        assert "open-2" not in window.server._pending_file_requests
+        assert window.server._queued_file_selectors == []
+    finally:
+        if peer is not None:
+            await peer.close()
+        if replacement is not None:
+            await replacement.close()
+        window.close()
+
+
+@pytest.mark.asyncio
 async def test_unsolicited_file_upload_is_rejected() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
