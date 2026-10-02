@@ -236,6 +236,16 @@ class _SwiftVRPostProcessorSession(VideoPostProcessorSession):
         self._processor.prepare(self._spec)
         self._ensure_stream()
 
+    def reset(self) -> None:
+        """Start a fresh temporal stream while retaining resident model weights."""
+        self._stream = None
+        self._buffer = None
+        self._last_frame = None
+        self._metadata_spans.clear()
+        self._input_frames = 0
+        self._output_frames = 0
+        self._closed = False
+
     @torch.inference_mode()
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
         """Buffer input and emit complete SwiftVR chunks."""

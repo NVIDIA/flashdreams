@@ -4,13 +4,14 @@
 """Create v2 client windows from runtime arguments.
 
 A mode is one way to watch a run: an MP4 file, a browser, whatever comes after
-them. Each mode owns its arguments and user-facing messages, so a command line
-offering the modes never has to know what any of them are, and adding one is
-adding it here.
+them. Each mode owns its arguments and user-facing messages. Integrations add
+modes through the ``flashdreams.client_windows_v2`` entry-point group.
 """
 
 import argparse
+import logging
 from abc import ABC, abstractmethod
+from importlib.metadata import EntryPoint, entry_points
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -20,6 +21,8 @@ from flashdreams.runtime_v2.null_client_window import NullClientWindow
 
 if TYPE_CHECKING:
     from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class ClientWindowMode(ABC):
@@ -69,6 +72,10 @@ class _NullMode(ClientWindowMode):
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
         del parsed_args
         return NullClientWindow()
+
+
+CLIENT_WINDOW_ENTRY_POINT_GROUP = "flashdreams.client_windows_v2"
+"""Entry-point group whose values expose client-window modes or factories."""
 
 
 class _Mp4Mode(ClientWindowMode):
@@ -138,13 +145,83 @@ class _NativeWindowMode(ClientWindowMode):
         return NativeWindowClientWindow(title=parsed_args.window_title)
 
 
-_MODES: tuple[ClientWindowMode, ...] = (
+_BUILTIN_MODES: tuple[ClientWindowMode, ...] = (
     _Mp4Mode(),
     _WebRTCMode(),
     _NativeWindowMode(),
     _NullMode(),
 )
-"""Modes a run can be presented through, the first being the default."""
+"""Built-in modes a run can be presented through."""
+
+
+def client_window_modes() -> tuple[ClientWindowMode, ...]:
+    """Return built-in and installed client-window modes in a stable order.
+
+    Plugin entry points may expose a :class:`ClientWindowMode` directly or a
+    zero-argument callable returning one. Their entry-point names are the
+    public ``--mode`` values and therefore must match the returned mode names.
+    Import and factory failures are logged and skipped; invalid registrations
+    still fail validation.
+
+    Raises:
+        TypeError: A plugin does not expose a client-window mode.
+        ValueError: A mode name is invalid, mismatched, or already registered.
+    """
+    modes = list(_BUILTIN_MODES)
+    origins = {mode.name: "FlashDreams" for mode in modes}
+    discovered = sorted(
+        entry_points(group=CLIENT_WINDOW_ENTRY_POINT_GROUP),
+        key=lambda item: (item.name, item.value),
+    )
+    for entry_point in discovered:
+        existing = origins.get(entry_point.name)
+        if existing is not None:
+            raise ValueError(
+                f"Client-window mode {entry_point.name!r} from "
+                f"{entry_point.value!r} is already registered by {existing}."
+            )
+        origins[entry_point.name] = entry_point.value
+        mode = _mode_from_entry_point(entry_point)
+        if mode is None:
+            continue
+        if not isinstance(mode.name, str) or not mode.name.strip():
+            raise ValueError(
+                f"Client-window mode from {entry_point.value!r} must have a "
+                "non-empty string name."
+            )
+        if mode.name != entry_point.name:
+            raise ValueError(
+                f"Client-window entry point {entry_point.name!r} loaded mode "
+                f"{mode.name!r}; the names must match."
+            )
+        modes.append(mode)
+    return tuple(modes)
+
+
+def _mode_from_entry_point(entry_point: EntryPoint) -> ClientWindowMode | None:
+    """Load and validate one installed client-window mode."""
+    try:
+        value = entry_point.load()
+        mode = (
+            value()
+            if callable(value) and not isinstance(value, ClientWindowMode)
+            else value
+        )
+    except Exception as error:
+        _LOGGER.warning(
+            "Skipping unavailable client-window mode %r from %r: %s: %s",
+            entry_point.name,
+            entry_point.value,
+            type(error).__name__,
+            error,
+        )
+        return None
+    if not isinstance(mode, ClientWindowMode):
+        raise TypeError(
+            f"Client-window entry point {entry_point.value!r} returned "
+            f"{type(mode).__name__}; expected a ClientWindowMode."
+        )
+    return mode
 
 
 def add_client_window_arguments(parser: argparse.ArgumentParser) -> None:
@@ -152,12 +229,18 @@ def add_client_window_arguments(parser: argparse.ArgumentParser) -> None:
 
     Every mode's arguments are added, since which mode was asked for is not
     known until they are parsed. A mode reads its own and no others.
+    The parsed namespace retains these mode instances for window creation.
+    An omitted ``--mode`` is left as ``None`` for the caller to resolve.
+
+    Args:
+        parser: Parser receiving the shared and mode-specific arguments.
     """
+    modes = client_window_modes()
+    parser.set_defaults(_client_window_modes=modes)
     parser.add_argument(
         "--mode",
-        choices=tuple(mode.name for mode in _MODES),
-        default=_MODES[0].name,
-        help="Where the run goes. Default: %(default)s.",
+        choices=tuple(mode.name for mode in modes),
+        help="Where the run goes. Default: the application's preference, otherwise mp4.",
     )
     parser.add_argument(
         "--stats-path",
@@ -170,17 +253,24 @@ def add_client_window_arguments(parser: argparse.ArgumentParser) -> None:
             "final session."
         ),
     )
-    for mode in _MODES:
+    for mode in modes:
         mode.add_arguments(parser)
 
 
-def client_window_mode(name: str) -> ClientWindowMode:
+def client_window_mode(
+    name: str, *, modes: tuple[ClientWindowMode, ...] | None = None
+) -> ClientWindowMode:
     """Return the mode of that name.
+
+    Args:
+        name: Public client-window mode name.
+        modes: Modes already discovered for this invocation; ``None`` performs
+            fresh discovery.
 
     Raises:
         ValueError: Nothing here presents a run that way.
     """
-    for mode in _MODES:
+    for mode in client_window_modes() if modes is None else modes:
         if mode.name == name:
             return mode
     raise ValueError(f"Unsupported client-window mode: {name!r}.")
@@ -199,4 +289,6 @@ def create_client_window(parsed_args: argparse.Namespace) -> IClientWindow:
     Raises:
         ValueError: ``mode`` is unsupported, or its arguments are incomplete.
     """
-    return client_window_mode(parsed_args.mode).create(parsed_args)
+    return client_window_mode(
+        parsed_args.mode, modes=getattr(parsed_args, "_client_window_modes", None)
+    ).create(parsed_args)

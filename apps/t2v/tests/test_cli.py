@@ -336,7 +336,7 @@ def _install(
         monkeypatch.setattr(
             cli,
             "client_window_mode",
-            lambda name: StubMode(name, window),
+            lambda name, *, modes=None: StubMode(name, window),
         )
 
 
@@ -562,7 +562,7 @@ def test_the_run_goes_to_the_window_the_mode_asked_for(
     monkeypatch.setattr(
         cli,
         "client_window_mode",
-        lambda name: (asked_for.append(name), StubMode(name, window))[1],
+        lambda name, *, modes=None: (asked_for.append(name), StubMode(name, window))[1],
     )
 
     cli.entrypoint(
@@ -612,7 +612,8 @@ def test_the_command_rejects_an_invalid_timeout(timeout: str) -> None:
         cli.entrypoint(["stub", "--mode", "webrtc", "--timeout", timeout])
 
 
-def test_the_command_needs_somewhere_to_write() -> None:
+def test_the_command_needs_somewhere_to_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install(monkeypatch, UndescribedApplication())
     with pytest.raises(SystemExit):
         cli.entrypoint(["stub"])
 

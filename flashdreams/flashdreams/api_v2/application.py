@@ -27,6 +27,15 @@ class IApplication(ABC):
         """Parse application arguments and start preparation."""
         ...
 
+    def default_client_window_mode(self) -> str | None:
+        """Return the preferred CLI mode when ``--mode`` is omitted.
+
+        Asked before :meth:`init`, so this must not load models or acquire
+        resources. Return an installed client-window mode name, or ``None``
+        to retain the runtime's MP4 default. An explicit ``--mode`` wins.
+        """
+        return None
+
     def session_desc(self) -> SessionDesc | None:
         """Return the description of a session this application would generate.
 
