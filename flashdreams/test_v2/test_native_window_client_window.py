@@ -488,6 +488,35 @@ def test_window_lifecycle_and_presentation_stay_on_the_ui_thread(
     )
 
 
+def test_replacement_session_reuses_native_window_and_rebases_input() -> None:
+    presenter = _Presenter()
+    factory_calls = 0
+    clock_values = iter((1_000_000, 1_001_000, 2_000_000, 2_001_000))
+
+    def create_presenter(**_kwargs: object) -> _Presenter:
+        nonlocal factory_calls
+        factory_calls += 1
+        return presenter
+
+    window = NativeWindowClientWindow(
+        presenter_factory=cast(Any, create_presenter),
+        clock_ns=lambda: next(clock_values),
+    )
+    window.open(_session_desc())
+    window._on_keyboard_event(
+        cast("spy.KeyboardEvent", _KeyboardEvent("up", pressed=True))
+    )
+    window.open(_session_desc())
+    presenter.pending_events.put(("keyboard", _KeyboardEvent("up", pressed=True)))
+
+    (event,) = window.get_user_input_events().get_events()
+    window.close()
+
+    assert factory_calls == 1
+    assert event.get_timestamp() == 1
+    assert len(presenter.close_threads) == 1
+
+
 def test_presentation_context_copies_frames_to_its_render_device() -> None:
     source_device = torch.device("cuda", 2)
     render_device = torch.device("cuda", 1)
