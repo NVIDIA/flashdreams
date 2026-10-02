@@ -9,10 +9,10 @@ so what is covered here is each mode answering for itself.
 
 import argparse
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
-
 from flashdreams.runtime_v2 import client_window_factory
 from flashdreams.runtime_v2.cli import _parser
 from flashdreams.runtime_v2.client_window_factory import (
@@ -27,6 +27,9 @@ from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
 )
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
+from flashdreams.runtime_v2.synthetic_input_mp4_client_window import (
+    SyntheticInputMp4ClientWindow,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -85,6 +88,37 @@ def _installed_modes(
 
 def test_an_omitted_mode_is_left_for_the_application() -> None:
     assert _parsed([]).mode is None
+
+
+def test_an_mp4_run_can_replay_a_synthetic_input_file(tmp_path: Path) -> None:
+    descriptor = tmp_path / "input.json"
+    descriptor.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "events": [
+                    {"on": "ui_loop", "at": 0, "event": {"type": "reset"}}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    window = create_client_window(
+        _parsed(
+            [
+                "--mode",
+                "mp4",
+                "--output-path",
+                str(tmp_path / "clip.mp4"),
+                "--synthetic-input-file",
+                str(descriptor),
+            ]
+        )
+    )
+
+    assert isinstance(window, SyntheticInputMp4ClientWindow)
+    assert window.path == tmp_path / "clip.mp4"
 
 
 def test_a_file_run_with_nowhere_to_write_says_so() -> None:
