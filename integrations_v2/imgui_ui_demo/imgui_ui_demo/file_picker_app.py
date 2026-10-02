@@ -46,8 +46,8 @@ _FILE_SELECTION_STATUS_TEXT = {
         "SelectedFilesStatus.DISALLOWED_TYPE: suffix not in accept=('.bin', '.raw')."
     ),
     SelectedFilesStatus.UNAVAILABLE: (
-        "SelectedFilesStatus.UNAVAILABLE: picker did not run "
-        "(--mode mp4 or null, dropped WebRTC peer, or unreadable path / OSError)."
+        "SelectedFilesStatus.UNAVAILABLE: picker could not complete "
+        "(no interactive client, gone client, failed chooser, or unreadable file)."
     ),
 }
 _FILE_SELECTION_ERROR_COLOR = (1.0, 0.25, 0.25, 1.0)

@@ -315,7 +315,7 @@ class SelectedFilesStatus(Enum):
     """The chosen file did not match ``accept``. Checked before size."""
 
     UNAVAILABLE = "unavailable"
-    """The picker could not complete: headless output, a gone client, or an unreadable file."""
+    """The picker could not complete: headless output, a gone client, a failed chooser, a missing upload, or an unreadable file."""
 
 
 def selected_file_policy_status(

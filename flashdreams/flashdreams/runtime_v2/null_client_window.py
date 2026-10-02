@@ -65,18 +65,25 @@ class NullClientWindow(IClientWindow):
             )
         )
         while started is not None:
-            self._pending_events.append(
-                SelectedFilesUserInputEvent(
-                    timestamp=uint64(0),
-                    request_id=started.request_id,
-                    status=SelectedFilesStatus.UNAVAILABLE,
-                )
+            claimed, nxt = self._file_gate.complete(
+                started.request_id, started.generation
             )
-            _, started = self._file_gate.complete(started.request_id)
+            if claimed:
+                self._pending_events.append(
+                    SelectedFilesUserInputEvent(
+                        timestamp=uint64(0),
+                        request_id=started.request_id,
+                        status=SelectedFilesStatus.UNAVAILABLE,
+                        generation=started.generation,
+                    )
+                )
+            started = nxt
 
     def open(self, session_desc: SessionDesc) -> None:
         """Accept a session without opening an output."""
         del session_desc
+        self._file_gate.clear()
+        self._pending_events.clear()
 
     def write(self, result: StepResult) -> None:
         """Discard one result."""

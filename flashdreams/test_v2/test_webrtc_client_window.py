@@ -468,6 +468,26 @@ async def test_file_upload_rejects_disallowed_suffix() -> None:
 
 
 @pytest.mark.asyncio
+async def test_file_upload_without_file_is_unavailable() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        window.request_selected_files("open-1")
+        await _wait_file_armed(window, "open-1")
+        form = FormData()
+        form.add_field("not_file", "hello")
+        async with ClientSession() as client:
+            async with client.post(_files_url(window, "open-1"), data=form) as response:
+                assert response.status == 400
+        event = await _wait_selected_files_event(window)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.UNAVAILABLE
+        assert event.files == ()
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
 async def test_file_upload_rejects_oversize() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())

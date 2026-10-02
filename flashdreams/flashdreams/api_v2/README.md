@@ -237,7 +237,9 @@ outcome (`ok`, `cancelled`, `too_large`, `disallowed_type`, `unavailable`);
 control while a picker is opening are ignored. A new id on every click is
 a new control and queues another dialog. Distinct controls use distinct
 ids and are served one client dialog at a time. Every accepted request later
-produces one event. `cancelled` is only a user dismiss. If the interactive
+produces one event. `cancelled` is only a user dismiss. `unavailable` is a
+pick that could not complete: no interactive client, a gone client, a failed
+chooser, a missing upload, or an unreadable file. If the interactive
 client is gone while the session continues (dropped WebRTC peer, closed native
 window), leftovers complete as `unavailable`. In-flight picks are dropped the
 same way. A picker that outlives that client cannot complete a later request that

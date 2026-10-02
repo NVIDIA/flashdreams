@@ -55,7 +55,11 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _ask_open_filename(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
-    """Return a path from the OS file picker, or ``""`` when cancelled."""
+    """Return a path from the OS file picker, or ``""`` when cancelled.
+
+    Raises:
+        RuntimeError: The desktop chooser is missing or failed.
+    """
     if sys.platform.startswith("linux"):
         return _ask_open_filename_linux(initial_dir=initial_dir, accept=accept)
     return _ask_open_filename_tkinter(initial_dir=initial_dir, accept=accept)
@@ -100,8 +104,14 @@ def _ask_open_filename_linux(*, initial_dir: str, accept: tuple[str, ...] = ()) 
         capture_output=True,
         text=True,
     )
-    if completed.returncode != 0:
+    if completed.returncode == 1:
         return ""
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise RuntimeError(
+            f"Native file picker failed with exit {completed.returncode}"
+            + (f": {detail}" if detail else ".")
+        )
     return completed.stdout.strip()
 
 

@@ -918,6 +918,25 @@ def test_ask_open_filename_linux_cancel_is_empty(
     assert native_window_module._ask_open_filename_linux(initial_dir="/tmp") == ""
 
 
+def test_ask_open_filename_linux_error_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        native_window_module.shutil,
+        "which",
+        lambda name: "/usr/bin/zenity" if name == "zenity" else None,
+    )
+    monkeypatch.setattr(
+        native_window_module.subprocess,
+        "run",
+        lambda argv, **kwargs: SimpleNamespace(
+            returncode=5, stdout="", stderr="no display"
+        ),
+    )
+    with pytest.raises(RuntimeError, match="exit 5"):
+        native_window_module._ask_open_filename_linux(initial_dir="/tmp")
+
+
 def test_native_window_reports_standard_gamepad_events() -> None:
     presenter = _Presenter()
     clock_values = iter((1_000_000, 1_001_000, 1_002_000, 1_003_000))

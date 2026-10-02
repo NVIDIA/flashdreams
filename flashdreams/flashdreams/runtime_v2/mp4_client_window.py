@@ -83,14 +83,19 @@ class Mp4ClientWindow(IClientWindow):
             )
         )
         while started is not None:
-            self._pending_events.append(
-                SelectedFilesUserInputEvent(
-                    timestamp=uint64(0),
-                    request_id=started.request_id,
-                    status=SelectedFilesStatus.UNAVAILABLE,
-                )
+            claimed, nxt = self._file_gate.complete(
+                started.request_id, started.generation
             )
-            _, started = self._file_gate.complete(started.request_id)
+            if claimed:
+                self._pending_events.append(
+                    SelectedFilesUserInputEvent(
+                        timestamp=uint64(0),
+                        request_id=started.request_id,
+                        status=SelectedFilesStatus.UNAVAILABLE,
+                        generation=started.generation,
+                    )
+                )
+            started = nxt
 
     def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
         """Change the MP4 presentation dimensions without replacing the session.
@@ -107,6 +112,8 @@ class Mp4ClientWindow(IClientWindow):
 
     def open(self, session_desc: SessionDesc) -> None:
         """Prepare to write a session's output."""
+        self._file_gate.clear()
+        self._pending_events.clear()
         self._video_sink.open(session_desc)
 
     def write(self, result: StepResult) -> None:

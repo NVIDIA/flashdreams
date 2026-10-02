@@ -953,10 +953,13 @@ class WebRTCServer:
                 reason="No pending file selection for this request_id."
             )
 
+        emitted = False
+
         def emit(
             status: SelectedFilesStatus,
             files: tuple[SelectedFile, ...] = (),
         ) -> None:
+            nonlocal emitted
             if not self._file_selection_is_current(request_id, policy.generation):
                 raise web.HTTPConflict(
                     reason="No pending file selection for this request_id."
@@ -968,35 +971,43 @@ class WebRTCServer:
                 files=files,
                 generation=policy.generation,
             )
+            emitted = True
 
         try:
-            post = await request.post()
-        except web.HTTPRequestEntityTooLarge:
-            emit(SelectedFilesStatus.TOO_LARGE)
-            raise
-        upload = post.get("file")
-        if not isinstance(upload, FileField):
-            emit(SelectedFilesStatus.UNAVAILABLE)
-            raise web.HTTPBadRequest(reason="File upload requires a file.")
-        data = upload.file.read()
-        name = upload.filename or "upload"
-        rejected = selected_file_policy_status(
-            name, len(data), accept=policy.accept, max_bytes=policy.max_bytes
-        )
-        if rejected is SelectedFilesStatus.DISALLOWED_TYPE:
-            emit(rejected)
-            return web.Response(status=204)
-        if rejected is SelectedFilesStatus.TOO_LARGE:
-            emit(rejected)
-            raise web.HTTPRequestEntityTooLarge(
-                max_size=policy.max_bytes,
-                actual_size=len(data),
+            try:
+                post = await request.post()
+            except web.HTTPRequestEntityTooLarge:
+                emit(SelectedFilesStatus.TOO_LARGE)
+                raise
+            upload = post.get("file")
+            if not isinstance(upload, FileField):
+                emit(SelectedFilesStatus.UNAVAILABLE)
+                raise web.HTTPBadRequest(reason="File upload requires a file.")
+            data = upload.file.read()
+            name = upload.filename or "upload"
+            rejected = selected_file_policy_status(
+                name, len(data), accept=policy.accept, max_bytes=policy.max_bytes
             )
-        emit(
-            SelectedFilesStatus.OK,
-            files=(SelectedFile(name=name, data=data),),
-        )
-        return web.Response(status=204)
+            if rejected is SelectedFilesStatus.DISALLOWED_TYPE:
+                emit(rejected)
+                return web.Response(status=204)
+            if rejected is SelectedFilesStatus.TOO_LARGE:
+                emit(rejected)
+                raise web.HTTPRequestEntityTooLarge(
+                    max_size=policy.max_bytes,
+                    actual_size=len(data),
+                )
+            emit(
+                SelectedFilesStatus.OK,
+                files=(SelectedFile(name=name, data=data),),
+            )
+            return web.Response(status=204)
+        finally:
+            if not emitted:
+                try:
+                    emit(SelectedFilesStatus.UNAVAILABLE)
+                except web.HTTPConflict:
+                    pass
 
     async def _offer(self, request: web.Request) -> web.Response:
         """Negotiate one browser peer connection."""
