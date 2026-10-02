@@ -8,24 +8,28 @@ gamepad, or steering wheel.
 ## Requirements
 
 Crazy Robotaxi uses the same model assets and GPU runtime as the OmniDreams
-integration. Set `HF_TOKEN` to a token with access to the NVIDIA OmniDreams
-repositories. See the [OmniDreams integration guide](../../integrations_v2/omnidreams/README.md)
-for the supported platform, model preparation, and controller setup.
+integration. See the [repository requirements](../../README.md#system-requirements)
+and [OmniDreams installation guide](../../integrations_v2/omnidreams/README.md#install).
+Set `HF_TOKEN` to a Hugging Face token with access to the NVIDIA OmniDreams
+model repositories.
+
+The default menus and HUD use Dear ImGui rendered through SlangPy's
+Vulkan/CUDA interop on the server, including in browser mode. Native-window
+mode also needs a local display.
 
 ## Quick start
 
 From the repository root:
 
 ```bash
-export HF_TOKEN=<YOUR-HF-TOKEN>
+export HF_TOKEN=hf_...
 
-uv sync --package flashdreams-omnidreams --extra interactive-drive
+uv sync --package flashdreams-omnidreams
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
   crazy-robotaxi-omnidreams --mode native-window
 ```
 
-Native-window mode requires a local display and SlangPy's Vulkan/CUDA interop.
-To use a browser client instead:
+To use a browser client:
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
@@ -33,8 +37,12 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
 ```
 
 Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
-connecting remotely. The first run downloads model assets and may take time to
-compile and autotune kernels.
+connecting remotely. Choose **TAXI** or **RACE**, then a map; race mode also asks
+for a course. **CONTROLS** and **OPTIONS** are available from the mode menu.
+The world model loads when a game is selected. The first game downloads missing
+model assets and may take time to compile and autotune kernels.
+
+### Runner presets
 
 Twelve OmniDreams runner configurations are registered:
 
@@ -46,7 +54,7 @@ Twelve OmniDreams runner configurations are registered:
 | `crazy-robotaxi-omnidreams-perf` | Performance optimized |
 | `crazy-robotaxi-omnidreams-fast-perf` | Fast performance optimized |
 | `crazy-robotaxi-omnidreams-rtx-5090` | Performance schedule fitted to a 32 GB GeForce RTX 5090 at 1168x640 |
-| `crazy-robotaxi-omnidreams-rtx-5090-fast` | RTX 5090 schedule with the native FP8 VAE at 1024x560 (real time) |
+| `crazy-robotaxi-omnidreams-rtx-5090-fast` | Schedule fitted to 32 GB VRAM on a GeForce RTX 5090, with the native FP8 VAE at 1024x560 |
 | `crazy-robotaxi-omnidreams-responsive` | Standard with responsive model history |
 | `crazy-robotaxi-omnidreams-perf-responsive` | Performance schedule with responsive model history |
 | `crazy-robotaxi-omnidreams-fast-perf-responsive` | Native FP8 VAE with responsive model history |
@@ -56,10 +64,12 @@ Twelve OmniDreams runner configurations are registered:
 The five presets whose names end in `-responsive` disable native DiT.
 `fast-perf-responsive` still uses the native FP8 VAE.
 
-The two `rtx-5090` presets fit a 32 GB GeForce RTX 5090: they run the
-Cosmos-Reason1 text encoder on the host CPU, use a 4-chunk temporal window,
-and use SageAttention-3 FP8 attention on Linux (cuDNN FP8 on Windows, where
-SageAttention-3 is unavailable).
+The two `rtx-5090` presets fit in 32 GB of VRAM on a GeForce RTX 5090. They
+run the Cosmos-Reason1 text encoder on the host CPU and use a 4-chunk temporal
+window. They prefer SageAttention-3 FP8 attention
+when available, falling back to cuDNN when unavailable, including on Windows.
+
+### Application arguments
 
 Application arguments follow `--`. For example:
 
@@ -70,9 +80,21 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
   --game-time-s 90
 ```
 
-Run the application with `-- --help` to list all game options. Restarting a
-game rebuilds its simulation and autoregressive cache without reloading the
-model.
+List all application arguments without loading the model:
+
+```bash
+uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+  crazy-robotaxi-omnidreams -- --help
+```
+
+Restarting a game with `R` rebuilds its simulation and autoregressive cache
+while retaining the loaded model weights. Applying startup settings requires
+closing and launching the application again.
+
+For raw model frames without menus or HUD, pass `--no-ui` together with explicit
+`--game-mode`, `--map`, and `--total-blocks` values. Race mode also requires
+`--race-course`. With a `webrtc` or `mp4` client this skips the Vulkan UI;
+model generation still needs the OmniDreams GPU runtime.
 
 ## Options and user configuration
 
@@ -81,10 +103,9 @@ generated from the same typed settings tree used at startup, with pages for
 game, model, renderer, presentation, live edit, runtime, and diagnostics. **SAVE**
 atomically updates the user YAML without leaving the screen. **EXIT** returns
 to the mode menu and changes to **EXIT WITHOUT SAVING** while the draft is
-dirty. **RESET TO DEFAULTS** resets the draft. HUD visibility settings apply
-when saved; presentation dimensions and other startup settings display
-**RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT** because they need a new
-process.
+dirty. **RESET TO DEFAULTS** resets the draft. Presentation settings apply
+when saved; other startup settings display **RESTART REQUIRED FOR SETTINGS TO
+TAKE EFFECT** because they need a new process.
 
 By default, settings are loaded from
 `$XDG_CONFIG_HOME/crazy-robotaxi/config.yaml`, or
@@ -118,12 +139,15 @@ live_edit:
     enabled: true
 ```
 
-Mode, map, and race-course selections are intentionally CLI-only and do not
-appear in the YAML or Options screen. Passing `--game-mode`, `--map`, and
-`--race-course` skips their corresponding startup menus; omitted selections
-remain in the normal menu flow. Model diffusion and gameplay seeds are
-independent. Selecting mystery items automatically enables style editing, while
-rain or snow items automatically enable weather editing.
+Choose the game mode, map, and race course in the startup menus, or pass
+`--game-mode`, `--map`, and `--race-course` to skip their respective menus.
+These selections are outside the saved settings tree. Model diffusion and
+gameplay seeds are independent. Selecting mystery items automatically enables
+style editing, while rain or snow items automatically enable weather editing.
+
+`renderer.raster.width` and `renderer.raster.height` control the generated
+video's resolution. `presentation.width` and `presentation.height` control the
+display resolution, with the generated video scaled to fit.
 
 ## Controls
 
@@ -142,7 +166,7 @@ Bindings are stored as three independent sparse YAML documents under
 `--controls-dir PATH` option to select another directory. Control changes take
 effect after restarting the current application process.
 
-### Keyboard
+### Default keyboard bindings
 
 | Control | Action |
 | --- | --- |
@@ -153,12 +177,20 @@ effect after restarting the current application process.
 | `Space` | Apply the handbrake and cancel throttle |
 | `R` | Restart the current game |
 | `H` | Hide or show the HUD control tooltips |
-| `Escape` | Return to the previous menu, then exit from the mode screen (fixed) |
-| `Enter` | Submit the focused leaderboard name (fixed) |
+| `M` | Switch between generated video and the HD-map conditioning view |
+| `Escape` | Leave the current game for the map menu |
+| `K` | Cycle styles when style editing is enabled |
+| `V` | Cycle weather when weather editing is enabled |
+| `C` | Toggle coins when coins are enabled |
+| `O` | Spawn an obstacle when obstacles are enabled |
 
-Menu choices and leaderboard buttons can also be clicked with the mouse.
+All bindings above can be changed in **CONTROLS**. Menu navigation uses fixed
+`Escape` and gamepad `B` bindings (`Circle` with PlayStation labels), independent
+of the gameplay return-to-menu binding. Backing out of the mode menu exits the
+application. `Enter` submits the focused leaderboard name. Menu choices and
+leaderboard buttons can be clicked with the mouse.
 
-### Controller
+### Default gamepad bindings
 
 The Gamepad Controls screen uses one button-label convention at a time. Set
 `game.gamepad_button_style` to `Xbox`, `PlayStation`, or `Nintendo Switch` in
@@ -166,18 +198,29 @@ the Options screen or user-authored settings YAML. Xbox labels are the default.
 
 | Control | Action |
 | --- | --- |
-| Left stick | Steer |
-| Right trigger (`RT` by default) | Throttle |
-| Left trigger (`LT` by default) | Brake, then reverse after stopping |
-| Menu button | Restart the current game |
-| Steering wheel and pedals | Use normalized steering, throttle, and brake input |
+| Left stick, horizontal axis | Steer |
+| `RT` | Throttle |
+| `LT` | Brake, then reverse after stopping |
+| `A` or `LB` | Apply the handbrake and cancel throttle |
+| `START / MENU` | Restart the current game |
+| `BACK / VIEW` | Leave the current game for the map menu |
+| `RB` | Hide or show the HUD control tooltips |
+| `X` | Switch between generated video and the HD-map conditioning view |
+| D-pad Left | Cycle styles when style editing is enabled |
+| D-pad Right | Cycle weather when weather editing is enabled |
+| D-pad Up | Toggle coins when coins are enabled |
+| D-pad Down | Spawn an obstacle when obstacles are enabled |
 
-A connected gamepad or wheel takes precedence over keyboard driving input.
-Menu navigation remains mouse and keyboard controlled. Gamepad and wheel
-handbrake, control-hint, and live-edit actions are supported but unbound by
-default. Wheel bindings use the semantic steering, throttle, brake, clutch, and
-button values supplied by the runtime; physical device calibration remains a
-runtime concern.
+### Steering wheels and input switching
+
+Wheel steering, throttle, and brake axes are bound by default. Other wheel
+actions start unbound; assign them in **CONTROLS**. Wheel bindings use the
+semantic axes and button values supplied by the runtime; physical device
+calibration remains a runtime concern.
+
+Driving input switches to the keyboard when a driving key is pressed and to
+the gamepad or wheel when it receives deliberate driving input. Connecting an
+idle controller alone does not take over keyboard driving.
 
 ## Race mode
 
@@ -196,8 +239,8 @@ different leaderboard file.
 
 ## Optional live-edit abilities
 
-Live-edit features are disabled by default. Enable them with application
-arguments:
+Live-edit features are disabled by default. Enable them on the **LIVE EDIT**
+Options page or with application arguments:
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
@@ -206,40 +249,56 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
   --live-edit-items \
   --live-edit-weather \
   --live-edit-style \
+  --live-edit-obstacle \
   --live-edit-map-context
 ```
 
 When enabled, `C` toggles coins, `K` cycles style skins, `V` cycles weather,
 and `O` spawns a crossing obstacle. The same enabled actions appear as buttons
 in the live-edit HUD card alongside frame-aligned ability status. Weather cannot
-change while a non-base style is active. Style mode downloads its additional
-model assets on first use and caches them under
-`artifacts/crazy_robotaxi/live_edit`.
+change while a non-base style is active. Required additional checkpoints are
+downloaded during application startup when the features are enabled, unless
+explicit checkpoint paths are configured. Downloaded assets are cached under
+`artifacts/crazy_robotaxi/live_edit` relative to the working directory.
 
 Map context appends authored road and landmark descriptions plus topology,
 curve, and vehicle-motion clauses to the active prompt. Complete combined
 prompts are encoded and retained lazily, so the first visit to a new context
 may pause briefly and maps with many unique contexts retain more GPU memory.
 
-Style, weather, and guided obstacles need the Python transformer hooks. When
-one of those features is enabled, the application automatically disables native
-DiT acceleration and logs the reason. Native VAE acceleration and the remaining
-performance configuration stay enabled; pixel-only features such as coins,
-items, and unguided obstacles keep native DiT acceleration.
+Style, weather, map context, and obstacles with a positive `guide_scale` need
+the Python transformer hooks. Enabling any of them automatically disables
+native DiT acceleration and logs the reason. Native VAE acceleration remains
+available. Coins, nitro-only items, and unguided obstacles can retain native
+DiT. The default item types include rain, snow, and mystery, which also enable
+weather and style and therefore disable native DiT.
 
 ## Authored maps
 
-Maps are strict semantic `.robotaxi.yaml` documents. Validate or preview them
-without loading a model:
+Maps are strict semantic `.robotaxi.yaml` documents. See the
+[map format guide](../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md) for
+nodes, roads, profiles, traffic, spawns, and race courses. The map menu discovers
+bundled maps and maps in the directory of the path supplied by `--map`.
+
+From the repository root, validate, compile, or preview the bundled boulevard
+map without loading a world model or using a GPU:
 
 ```bash
-uv run --package crazy-robotaxi crazy-robotaxi-map validate path/to/city.robotaxi.yaml
-uv run --package crazy-robotaxi crazy-robotaxi-map compile path/to/city.robotaxi.yaml
+ROBOTAXI_MAP=apps/crazy_robotaxi/crazy_robotaxi/maps/boulevard_district.robotaxi.yaml
+
+uv run --package crazy-robotaxi crazy-robotaxi-map validate "$ROBOTAXI_MAP"
+uv run --package crazy-robotaxi crazy-robotaxi-map compile "$ROBOTAXI_MAP"
 uv run --package crazy-robotaxi crazy-robotaxi-map preview \
-  path/to/city.robotaxi.yaml --output city.svg
+  "$ROBOTAXI_MAP" --output boulevard.svg
 uv run --package crazy-robotaxi crazy-robotaxi-map preview-spawn \
-  path/to/city.robotaxi.yaml --spawn taxi_start --output taxi_start.png
+  "$ROBOTAXI_MAP" --spawn original_area_start --output boulevard_spawn.png
 ```
+
+Compiled scene archives are cached under
+`$FLASHDREAMS_CACHE_DIR/omnidreams-game-engine/game-maps`, defaulting to
+`~/.cache/flashdreams/omnidreams-game-engine/game-maps`. Use
+`compile --force-map-recompile` to rebuild an archive. The application accepts
+the source YAML directly and compiles it as needed.
 
 Each spawn can define both a full `prompt` for normal play and a shorter
 `prompt_context` base for `--live-edit-map-context`; dynamic road and motion
