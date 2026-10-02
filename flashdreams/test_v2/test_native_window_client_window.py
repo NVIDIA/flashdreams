@@ -676,6 +676,86 @@ def test_native_window_reports_unavailable_when_picker_raises(
     assert event.files == ()
 
 
+def test_native_window_serves_one_file_selection_at_a_time(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    first_entered = threading.Event()
+    first_released = threading.Event()
+    calls: list[tuple[str, ...]] = []
+
+    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+        del initial_dir
+        calls.append(accept)
+        if len(calls) == 1:
+            first_entered.set()
+            assert first_released.wait(timeout=2.0)
+        return ""
+
+    monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path), accept=(".bin",))
+    assert first_entered.wait(timeout=2.0)
+    window.request_selected_files("open-2", str(tmp_path), accept=(".raw",))
+    assert calls == [(".bin",)]
+    first_released.set()
+    events = []
+    for _ in range(200):
+        events.extend(window.get_user_input_events().get_events())
+        if len(events) >= 2:
+            break
+        time.sleep(0.01)
+    window.close()
+
+    assert [event.request_id for event in events] == ["open-1", "open-2"]
+    assert all(
+        isinstance(event, SelectedFilesUserInputEvent)
+        and event.status is SelectedFilesStatus.CANCELLED
+        for event in events
+    )
+    assert calls == [(".bin",), (".raw",)]
+
+
+def test_native_window_ignores_duplicate_in_flight_file_selection_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    released = threading.Event()
+    entered = threading.Event()
+    calls: list[int] = []
+
+    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+        del initial_dir, accept
+        calls.append(1)
+        entered.set()
+        if len(calls) == 1:
+            assert released.wait(timeout=2.0)
+        return ""
+
+    monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    assert entered.wait(timeout=2.0)
+    window.request_selected_files("open-1", str(tmp_path))
+    time.sleep(0.05)
+    assert calls == [1]
+    released.set()
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.CANCELLED
+
+
 def test_selected_file_from_path_skips_unreadable_and_oversize(
     tmp_path: Path,
 ) -> None:

@@ -203,6 +203,40 @@ async def test_browser_file_upload_reaches_the_input_stream() -> None:
 
 
 @pytest.mark.asyncio
+async def test_browser_file_selections_are_served_one_at_a_time() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        window.request_selected_files("open-1", "/tmp")
+        window.request_selected_files("open-2", "/tmp")
+        await _wait_file_armed(window, "open-1")
+        assert "open-2" not in window.server._pending_file_requests
+        assert await _post_selected_file(window, "open-2", b"early", "early.txt") == 409
+        assert await _post_selected_file(window, "open-1", b"first", "first.txt") == 204
+        await _wait_file_armed(window, "open-2")
+        assert (
+            await _post_selected_file(window, "open-2", b"second", "second.txt") == 204
+        )
+
+        events = []
+        for _ in range(100):
+            events.extend(window.get_user_input_events().get_events())
+            if len(events) >= 2:
+                break
+            await asyncio.sleep(0.01)
+        assert [event.request_id for event in events] == ["open-1", "open-2"]
+        assert all(
+            isinstance(event, SelectedFilesUserInputEvent)
+            and event.status is SelectedFilesStatus.OK
+            for event in events
+        )
+        assert events[0].files[0].data == b"first"
+        assert events[1].files[0].data == b"second"
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
 async def test_unsolicited_file_upload_is_rejected() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
@@ -492,6 +526,11 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert "openFileSelector" in browser_script
                 assert 'type === "file_selector"' in browser_script
                 assert "completeFileSelection" in browser_script
+                assert (
+                    'completeFileSelection(pendingFileRequest.id, "cancelled")'
+                    not in browser_script
+                )
+                assert "queuedFileSelectors" in browser_script
                 assert '"too_large"' in browser_script
                 assert '"disallowed_type"' in browser_script
                 assert (

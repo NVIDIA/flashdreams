@@ -66,10 +66,16 @@ class IClientWindow(InputSource, OutputSink, ABC):
         (type before size) and clamp size to the 32 MiB ceiling. The event
         carries a ``status`` so cancel, oversize, and disallowed type are
         distinct. Applications read that ``status``; they do not re-check type
-        or size.
+        or size. A second call with the same ``request_id`` while the first is
+        still active or queued is ignored. Use one stable id per UI control so
+        extra clicks while the picker is opening do not enqueue more dialogs.
+        A new id on every click is a new control and queues another dialog.
+        A different ``request_id`` waits until the active selector completes,
+        so two controls still run one dialog at a time.
 
         Args:
-            request_id: Correlation token for the later input event.
+            request_id: Stable id for this selector slot, typically one per
+                UI control. Reuse it after the matching event arrives.
             initial_path: Directory the selector should start in; ``None`` lets
                 the window choose a default.
             accept: Filename suffixes such as ``.png``. Empty allows any type.

@@ -12,6 +12,11 @@ import pytest
 from imgui_ui_demo.file_picker_app import (
     _FILE_SELECTION_ERROR_COLOR,
     _FILE_SELECTION_STATUS_TEXT,
+    _OPEN_A_THEN_B_LABEL,
+    _OPEN_FILE_A_LABEL,
+    _OPEN_FILE_A_REQUEST_ID,
+    _OPEN_FILE_B_LABEL,
+    _OPEN_FILE_B_REQUEST_ID,
     FilePickerImGuiUILoop,
     FilePickerState,
 )
@@ -78,7 +83,8 @@ def _file_picker_loop() -> tuple[FilePickerState, FilePickerImGuiUILoop]:
     return state, loop
 
 
-def _file_picker_imgui(*, button: bool = False) -> SimpleNamespace:
+def _file_picker_imgui(*, pressed: str | tuple[str, ...] = ()) -> SimpleNamespace:
+    labels = (pressed,) if isinstance(pressed, str) else pressed
     return SimpleNamespace(
         ImVec2=lambda x, y: (x, y),
         ImVec4=lambda x, y, z, w: (x, y, z, w),
@@ -92,22 +98,52 @@ def _file_picker_imgui(*, button: bool = False) -> SimpleNamespace:
         text_wrapped=Mock(),
         push_style_color=Mock(),
         pop_style_color=Mock(),
-        button=Mock(return_value=button),
+        button=Mock(side_effect=lambda label: label in labels),
     )
 
 
 def test_open_file_button_requests_a_client_file() -> None:
     _state, loop = _file_picker_loop()
-    imgui = _file_picker_imgui(button=True)
+    imgui = _file_picker_imgui(pressed=_OPEN_FILE_A_LABEL)
+
+    loop.step_ui(imgui, 0, UserInputEvents([]))
+    loop.step_ui(imgui, 1, UserInputEvents([]))
+    requests = loop.flush_ui_loop_requests()
+
+    assert requests is not None
+    assert [item.request_id for item in requests.file_selections] == [
+        _OPEN_FILE_A_REQUEST_ID
+    ]
+    assert requests.file_selections[0].accept == (".bin", ".raw")
+    assert requests.file_selections[0].max_bytes == MAX_SELECTED_FILE_BYTES
+
+
+def test_open_a_then_b_queues_both_request_ids() -> None:
+    _state, loop = _file_picker_loop()
+    imgui = _file_picker_imgui(pressed=_OPEN_A_THEN_B_LABEL)
 
     loop.step_ui(imgui, 0, UserInputEvents([]))
     requests = loop.flush_ui_loop_requests()
 
     assert requests is not None
-    assert len(requests.file_selections) == 1
-    assert requests.file_selections[0].request_id
-    assert requests.file_selections[0].accept == (".bin", ".raw")
-    assert requests.file_selections[0].max_bytes == MAX_SELECTED_FILE_BYTES
+    assert [item.request_id for item in requests.file_selections] == [
+        _OPEN_FILE_A_REQUEST_ID,
+        _OPEN_FILE_B_REQUEST_ID,
+    ]
+
+
+def test_two_file_buttons_queue_distinct_request_ids() -> None:
+    _state, loop = _file_picker_loop()
+    imgui = _file_picker_imgui(pressed=(_OPEN_FILE_A_LABEL, _OPEN_FILE_B_LABEL))
+
+    loop.step_ui(imgui, 0, UserInputEvents([]))
+    requests = loop.flush_ui_loop_requests()
+
+    assert requests is not None
+    assert [item.request_id for item in requests.file_selections] == [
+        _OPEN_FILE_A_REQUEST_ID,
+        _OPEN_FILE_B_REQUEST_ID,
+    ]
 
 
 def test_selected_files_event_updates_file_picker_status() -> None:

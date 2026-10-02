@@ -473,7 +473,7 @@ class WebRTCServer:
         """Ask the connected browser to open a file selector.
 
         Args:
-            request_id: Correlation token for the later input event.
+            request_id: Stable selector-slot id from the UI control.
             initial_path: Ignored; the browser picker cannot use a host path.
             accept: Filename suffixes such as ``.png``. Empty allows any type.
             max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.

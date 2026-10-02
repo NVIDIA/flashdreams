@@ -11,7 +11,12 @@ import pytest
 from numpy import uint64
 
 from flashdreams.api_v2.loop import IUILoop
+from flashdreams.runtime_v2.file_selection_gate import (
+    FileSelectionGate,
+    QueuedFileSelection,
+)
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
+from flashdreams.runtime_v2.null_client_window import NullClientWindow
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -88,6 +93,52 @@ def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
     assert selection.max_bytes == MAX_SELECTED_FILE_BYTES * 2
 
 
+def test_ui_loop_forwards_distinct_file_selection_ids() -> None:
+    loop = _ui_loop()
+    loop.request_selected_files("open-1", "/tmp")
+    loop.request_selected_files("open-2", "/var")
+
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None
+    assert [item.request_id for item in requests.file_selections] == [
+        "open-1",
+        "open-2",
+    ]
+
+
+def _queued(request_id: str) -> QueuedFileSelection:
+    return QueuedFileSelection(
+        request_id=request_id,
+        initial_path="/tmp",
+        accept=(".bin",),
+        max_bytes=16,
+    )
+
+
+def test_file_selection_gate_ignores_duplicates_and_serves_one_at_a_time() -> None:
+    gate = FileSelectionGate()
+    assert gate.submit(_queued("open-1")) is not None
+    assert gate.submit(_queued("open-1")) is None
+    assert gate.submit(_queued("open-2")) is None
+    assert gate.submit(_queued("open-2")) is None
+    assert gate.complete("open-2") is None
+    nxt = gate.complete("open-1")
+    assert nxt is not None
+    assert nxt.request_id == "open-2"
+    assert gate.complete("open-2") is None
+
+
+def test_file_selection_gate_clear_drops_queued_requests() -> None:
+    gate = FileSelectionGate()
+    assert gate.submit(_queued("open-1")) is not None
+    assert gate.submit(_queued("open-2")) is None
+    gate.clear()
+    assert gate.complete("open-1") is None
+    started = gate.submit(_queued("open-2"))
+    assert started is not None
+    assert started.request_id == "open-2"
+
+
 def test_selected_file_policy_helpers() -> None:
     assert clamp_selected_file_max_bytes(None) == MAX_SELECTED_FILE_BYTES
     assert clamp_selected_file_max_bytes(16) == 16
@@ -147,3 +198,37 @@ def test_mp4_window_completes_file_selection_as_unavailable(tmp_path: Path) -> N
     assert event.status is SelectedFilesStatus.UNAVAILABLE
     assert event.files == ()
     assert window.get_user_input_events().get_events() == []
+
+
+def test_mp4_window_completes_queued_file_selections_as_unavailable(
+    tmp_path: Path,
+) -> None:
+    window = Mp4ClientWindow(tmp_path / "clip.mp4")
+    window.request_selected_files("open-1", "/tmp")
+    window.request_selected_files("open-2", "/var")
+
+    events = window.get_user_input_events().get_events()
+
+    assert [event.request_id for event in events] == ["open-1", "open-2"]
+    assert all(
+        isinstance(event, SelectedFilesUserInputEvent)
+        and event.status is SelectedFilesStatus.UNAVAILABLE
+        and event.files == ()
+        for event in events
+    )
+
+
+def test_null_window_completes_file_selection_as_unavailable() -> None:
+    window = NullClientWindow()
+    window.request_selected_files("open-1", "/tmp")
+    window.request_selected_files("open-2", "/var")
+
+    events = window.get_user_input_events().get_events()
+
+    assert [event.request_id for event in events] == ["open-1", "open-2"]
+    assert all(
+        isinstance(event, SelectedFilesUserInputEvent)
+        and event.status is SelectedFilesStatus.UNAVAILABLE
+        and event.files == ()
+        for event in events
+    )

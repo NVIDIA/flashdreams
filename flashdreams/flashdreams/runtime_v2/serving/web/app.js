@@ -212,6 +212,7 @@ if (promptBackdrop !== null) {
 }
 
 let pendingFileRequest = null;
+let queuedFileSelectors = [];
 
 const hideFilePicker = () => {
   pendingFileRequest = null;
@@ -220,6 +221,12 @@ const hideFilePicker = () => {
     promptOnConfirm = null;
     promptOnCancel = null;
     closePromptDialog();
+  }
+  const next = queuedFileSelectors.shift();
+  if (next !== undefined) {
+    // The runtime may arm the next selector before this viewer's fetch
+    // callback runs; show it after the current dialog has fully settled.
+    window.queueMicrotask(() => openFileSelector(next));
   }
 };
 
@@ -325,8 +332,14 @@ const openFileSelector = options => {
   if (typeof requestId !== "string" || !requestId) {
     return;
   }
-  if (pendingFileRequest !== null && pendingFileRequest.id !== requestId) {
-    completeFileSelection(pendingFileRequest.id, "cancelled");
+  if (pendingFileRequest !== null) {
+    if (
+      pendingFileRequest.id !== requestId
+      && queuedFileSelectors.every(item => item.id !== requestId)
+    ) {
+      queuedFileSelectors.push(options);
+    }
+    return;
   }
   const accept = Array.isArray(options.accept) ? options.accept : [];
   const maxBytes = Number(options.max_bytes);
@@ -360,7 +373,7 @@ const openFileSelector = options => {
         return;
       }
       completeFileSelection(requestId, "cancelled");
-      pendingFileRequest = null;
+      hideFilePicker();
     },
   });
 };

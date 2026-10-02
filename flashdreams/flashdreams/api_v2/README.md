@@ -232,7 +232,12 @@ with `selected_file_policy_status` (type before size) and clamp size to 32 MiB
 so a client cannot raise the cap. Empty ``accept`` (the default) allows any
 type; omit ``max_bytes`` to use the 32 MiB ceiling. Read ``status`` for the
 outcome (`ok`, `cancelled`, `too_large`, `disallowed_type`, `unavailable`);
-``files`` is non-empty only on `ok`.
+``files`` is non-empty only on `ok`. Give each UI control a stable
+`request_id` and reuse it after the matching event: extra clicks on that
+control while a picker is opening are ignored. A new id on every click is
+a new control and queues another dialog. Distinct controls use distinct
+ids and are served one client dialog at a time.
+
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The
 [`slangpy_ui_demo` integration](../../../integrations_v2/slangpy_ui_demo/README.md)

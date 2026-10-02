@@ -315,7 +315,7 @@ class SelectedFilesStatus(Enum):
     """The chosen file did not match ``accept``. Checked before size."""
 
     UNAVAILABLE = "unavailable"
-    """No picker could run: ``--mode mp4``, a dropped peer, or an unreadable file."""
+    """No picker could run: headless output, a dropped peer, or an unreadable file."""
 
 
 def selected_file_policy_status(

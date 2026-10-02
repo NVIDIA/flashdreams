@@ -9,6 +9,10 @@ from pathlib import Path
 from numpy import uint64
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.runtime_v2.file_selection_gate import (
+    FileSelectionGate,
+    QueuedFileSelection,
+)
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -39,6 +43,7 @@ class Mp4ClientWindow(IClientWindow):
         self._path = Path(path)
         self._video_sink = Mp4OutputSink(path)
         self._pending_events: list[UserInputEvent] = []
+        self._file_gate = FileSelectionGate()
 
     @property
     def path(self) -> Path:
@@ -61,20 +66,31 @@ class Mp4ClientWindow(IClientWindow):
     ) -> None:
         """Complete a file-selector request as unavailable.
 
+        Overlapping distinct ids are completed in order, each as unavailable.
+
         Args:
-            request_id: Correlation token from the UI loop.
+            request_id: Stable selector-slot id from the UI control.
             initial_path: Ignored; this window has no selector.
             accept: Ignored; this window has no selector.
             max_bytes: Ignored; this window has no selector.
         """
-        del initial_path, accept, max_bytes
-        self._pending_events.append(
-            SelectedFilesUserInputEvent(
-                timestamp=uint64(0),
+        started = self._file_gate.submit(
+            QueuedFileSelection(
                 request_id=request_id,
-                status=SelectedFilesStatus.UNAVAILABLE,
+                initial_path=initial_path,
+                accept=tuple(accept),
+                max_bytes=max_bytes,
             )
         )
+        while started is not None:
+            self._pending_events.append(
+                SelectedFilesUserInputEvent(
+                    timestamp=uint64(0),
+                    request_id=started.request_id,
+                    status=SelectedFilesStatus.UNAVAILABLE,
+                )
+            )
+            started = self._file_gate.complete(started.request_id)
 
     def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
         """Change the MP4 presentation dimensions without replacing the session.
@@ -100,3 +116,4 @@ class Mp4ClientWindow(IClientWindow):
     def close(self) -> None:
         """Finish the MP4 file."""
         self._video_sink.close()
+        self._file_gate.clear()

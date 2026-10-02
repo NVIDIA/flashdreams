@@ -82,7 +82,7 @@ class FileSelectionRequest:
     """One client file-selector request queued by a UI loop."""
 
     request_id: str
-    """Correlation token for the later selected-files input event."""
+    """Stable selector-slot id from the UI control that asked for a file."""
 
     initial_path: str
     """Directory the selector should start in."""
@@ -559,7 +559,11 @@ class IUILoop(ILoop[StateT], ABC):
         Read ``status`` for cancel, oversize, disallowed type, or unavailable;
         ``files`` is non-empty only when the pick succeeded. A second call with
         the same ``request_id`` while the first is still queued is ignored so
-        the original picker can still complete.
+        the original picker can still complete. Distinct ids are forwarded in
+        order; the window shows one client selector at a time. Use one stable
+        ``request_id`` per UI control so extra clicks while the picker is
+        opening are ignored; two controls use two ids and are served in order.
+        A new id on every click is a new control and queues another dialog.
 
         ``accept`` and ``max_bytes`` are the application's policy. Windows
         classify the choice with
@@ -568,7 +572,8 @@ class IUILoop(ILoop[StateT], ABC):
         client cannot raise the cap.
 
         Args:
-            request_id: Correlation token for the later input event.
+            request_id: Stable id for this selector slot, typically one per
+                UI control. Reuse it after the matching event arrives.
             initial_path: Directory the selector should start in; ``None`` uses
                 the current user's home directory.
             accept: Filename suffixes such as ``.png``. Empty allows any type.

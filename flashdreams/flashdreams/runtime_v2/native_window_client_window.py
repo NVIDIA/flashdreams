@@ -25,6 +25,10 @@ from torch import Tensor
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.user_input_event import UserInputEvent
+from flashdreams.runtime_v2.file_selection_gate import (
+    FileSelectionGate,
+    QueuedFileSelection,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -246,8 +250,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._pressed_key_values: dict[str, str] = {}
         self._hide_cursor = False
         self._lock_cursor_to_window = False
-        self._in_flight_file_requests: set[str] = set()
-        self._file_request_lock = threading.Lock()
+        self._file_gate = FileSelectionGate()
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor in the native window."""
@@ -297,32 +300,38 @@ class NativeWindowClientWindow(IClientWindow):
         """Ask the OS file selector and enqueue the chosen file.
 
         The desktop dialog runs on a worker thread so the UI loop can keep
-        polling and presenting while the picker is open.
+        polling and presenting while the picker is open. A second distinct
+        ``request_id`` waits until this picker completes.
 
         Args:
-            request_id: Correlation token for the later input event.
+            request_id: Stable selector-slot id from the UI control.
             initial_path: Directory the selector should start in; ``None`` uses
                 the current user's home directory.
             accept: Filename suffixes such as ``.png``. Empty allows any type.
             max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
         """
-        suffixes = normalize_selected_file_accept(accept)
-        budget = clamp_selected_file_max_bytes(max_bytes)
-        with self._file_request_lock:
-            if request_id in self._in_flight_file_requests:
-                _LOGGER.warning(
-                    "Ignoring duplicate file-selection request id %r.",
-                    request_id,
-                )
-                return
-            self._in_flight_file_requests.add(request_id)
+        started = self._file_gate.submit(
+            QueuedFileSelection(
+                request_id=request_id,
+                initial_path=initial_path or str(Path.home()),
+                accept=normalize_selected_file_accept(accept),
+                max_bytes=clamp_selected_file_max_bytes(max_bytes),
+            )
+        )
+        if started is not None:
+            self._spawn_file_picker(started)
+
+    def _spawn_file_picker(self, pending: QueuedFileSelection) -> None:
+        """Run one OS picker on a worker thread."""
         worker = threading.Thread(
             target=self._complete_file_selection,
             args=(
-                request_id,
-                initial_path or str(Path.home()),
-                suffixes,
-                budget,
+                pending.request_id,
+                pending.initial_path or str(Path.home()),
+                pending.accept,
+                pending.max_bytes
+                if pending.max_bytes is not None
+                else MAX_SELECTED_FILE_BYTES,
             ),
             name="flashdreams-file-picker",
             daemon=True,
@@ -370,8 +379,9 @@ class NativeWindowClientWindow(IClientWindow):
                 )
             )
         finally:
-            with self._file_request_lock:
-                self._in_flight_file_requests.discard(request_id)
+            nxt = self._file_gate.complete(request_id)
+            if nxt is not None and self._presenter is not None:
+                self._spawn_file_picker(nxt)
 
     def open(self, session_desc: SessionDesc) -> None:
         """Create the GLFW window on the runtime's UI thread.
@@ -492,6 +502,7 @@ class NativeWindowClientWindow(IClientWindow):
 
     def close(self) -> None:
         """Release SlangPy and the GLFW window on the runtime's UI thread."""
+        self._file_gate.clear()
         presenter = self._presenter
         self._presenter = None
         self._session_started_ns = None

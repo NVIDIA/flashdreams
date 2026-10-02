@@ -4,7 +4,6 @@
 """ImGui file-picker application for the v2 loop runtime."""
 
 import math
-import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -48,11 +47,26 @@ _FILE_SELECTION_STATUS_TEXT = {
     ),
     SelectedFilesStatus.UNAVAILABLE: (
         "SelectedFilesStatus.UNAVAILABLE: picker did not run "
-        "(--mode mp4, dropped WebRTC peer, or unreadable path / OSError)."
+        "(--mode mp4 or null, dropped WebRTC peer, or unreadable path / OSError)."
     ),
 }
 _FILE_SELECTION_ERROR_COLOR = (1.0, 0.25, 0.25, 1.0)
 """RGBA used for cancelled and other failed selector results."""
+
+_OPEN_FILE_A_REQUEST_ID = "open-file-a"
+"""Selector slot for Open file (A). Mash uses this same id."""
+
+_OPEN_FILE_B_REQUEST_ID = "open-file-b"
+"""Selector slot for Open file (B). Queued behind A when both are requested."""
+
+_OPEN_FILE_A_LABEL = "Open file (A)"
+"""ImGui label for selector slot A."""
+
+_OPEN_FILE_B_LABEL = "Open file (B)"
+"""ImGui label for selector slot B."""
+
+_OPEN_A_THEN_B_LABEL = "Open A then B"
+"""ImGui label that requests A then B in the same UI tick."""
 
 
 class BreathingBackgroundModelLoop(IModelLoop[tuple[SessionDesc, torch.device | str]]):
@@ -114,15 +128,16 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
             self.state.status = f"{chosen.name} ({len(chosen.data)} bytes)"
 
         imgui.set_next_window_pos(imgui.ImVec2(16.0, 16.0), imgui.Cond_.once)
-        imgui.set_next_window_size(imgui.ImVec2(520.0, 180.0), imgui.Cond_.once)
+        imgui.set_next_window_size(imgui.ImVec2(520.0, 260.0), imgui.Cond_.once)
         imgui.begin("File picker")
         try:
-            if imgui.button("Open file"):
-                self.request_selected_files(
-                    uuid.uuid4().hex,
-                    accept=(".bin", ".raw"),
-                    max_bytes=MAX_SELECTED_FILE_BYTES,
-                )
+            if imgui.button(_OPEN_FILE_A_LABEL):
+                self._request_demo_file(_OPEN_FILE_A_REQUEST_ID)
+            if imgui.button(_OPEN_FILE_B_LABEL):
+                self._request_demo_file(_OPEN_FILE_B_REQUEST_ID)
+            if imgui.button(_OPEN_A_THEN_B_LABEL):
+                self._request_demo_file(_OPEN_FILE_A_REQUEST_ID)
+                self._request_demo_file(_OPEN_FILE_B_REQUEST_ID)
             if self.state.status in _FILE_SELECTION_STATUS_TEXT.values():
                 imgui.push_style_color(
                     imgui.Col_.text,
@@ -137,6 +152,14 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
         finally:
             imgui.end()
         return self.presented_model_frame()
+
+    def _request_demo_file(self, request_id: str) -> None:
+        """Ask for a ``.bin`` / ``.raw`` pick on one selector slot."""
+        self.request_selected_files(
+            request_id,
+            accept=(".bin", ".raw"),
+            max_bytes=MAX_SELECTED_FILE_BYTES,
+        )
 
     def reset(self) -> None:
         """Clear the last selector result for a new generation."""
