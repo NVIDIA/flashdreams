@@ -347,9 +347,7 @@ class WebRTCServer:
         self._port = port
         self._startup_timeout_seconds = startup_timeout_seconds
         self._input_callback: Callable[[UserInputEvent], None] | None = None
-        self._file_selection_current_callback: (
-            Callable[[str, int], bool] | None
-        ) = None
+        self._file_selection_current_callback: Callable[[str, int], bool] | None = None
         self._file_selection_invalidate_callback: Callable[[bool], None] | None = None
         self._started = threading.Event()
         self._startup_error: BaseException | None = None
@@ -568,9 +566,9 @@ class WebRTCServer:
             if channel is None or channel.readyState != "open":
                 with self._file_selector_lock:
                     request_id = payload["id"]
-                    if isinstance(
-                        request_id, str
-                    ) and self._file_selection_is_current(request_id, generation):
+                    if isinstance(request_id, str) and self._file_selection_is_current(
+                        request_id, generation
+                    ):
                         self._queued_file_selectors.append((payload, generation))
                 continue
             channel.send(json.dumps(payload))
