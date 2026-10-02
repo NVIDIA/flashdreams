@@ -31,3 +31,18 @@ class InputSource(Protocol):
             Events in timestamp order, empty when nothing arrived.
         """
         ...
+
+
+@runtime_checkable
+class SessionInputSource(InputSource, Protocol):
+    """Provide user input with explicit session lifecycle."""
+
+    @abstractmethod
+    def open(self) -> None:
+        """Start a new input session."""
+        ...
+
+    @abstractmethod
+    def close(self) -> None:
+        """Finish the active input session."""
+        ...

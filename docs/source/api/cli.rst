@@ -60,6 +60,35 @@ It defaults to warning; use ``FLASHDREAMS_PREPARATION_POLICY`` to select
 the FlashDreams cache, or ``FLASHDREAMS_PREPARATION_ISSUES_PATH`` when set.
 Add ``--skip-preload-validation`` to skip validation (running first-block of `ISession`).
 
+Synthetic MP4 input
+-------------------
+
+An MP4 run can replay deterministic input from a version 1 JSON descriptor:
+
+.. code-block:: bash
+
+    uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+          --mode mp4 --output-path outputs/replay.mp4 \
+          --synthetic-input-file inputs.json -- --example-data
+
+Each descriptor has ``version: 1`` and an ``events`` array. V1 supports only
+the zero-based ``ui_loop`` cadence; ``at: 0`` releases an event on the first
+input poll. Event payloads use the corresponding ``UserInputEvent`` fields and
+omit ``timestamp``, which the runtime assigns when it releases the event:
+
+.. code-block:: json
+
+    {
+       "version": 1,
+       "events": [
+          {
+             "on": "ui_loop",
+             "at": 0,
+             "event": {"type": "keyboard", "key": "w", "state": "Pressed"}
+          }
+       ]
+    }
+
 The common command shape is ``flashdreams-run <runner> [mode]``. A runner only
 advertises modes it implements; unsupported pairs fail before CUDA
 initialization. Shared modes are ``run``, ``mp4``, ``null``, ``webrtc``, and

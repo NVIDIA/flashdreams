@@ -18,6 +18,10 @@ from typing import TYPE_CHECKING, cast
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
+from flashdreams.runtime_v2.synthetic_input_mp4_client_window import (
+    SyntheticInputMp4ClientWindow,
+)
+from flashdreams.runtime_v2.synthetic_input_source import SyntheticInputSource
 
 if TYPE_CHECKING:
     from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
@@ -87,6 +91,11 @@ class _Mp4Mode(ClientWindowMode):
         parser.add_argument(
             "--output-path", type=Path, help="MP4 file to write. Required for mp4."
         )
+        parser.add_argument(
+            "--synthetic-input-file",
+            type=Path,
+            help="JSON file that replays synthetic input while writing an MP4.",
+        )
 
     def check_arguments(self, parsed_args: argparse.Namespace) -> None:
         if parsed_args.output_path is None:
@@ -94,11 +103,19 @@ class _Mp4Mode(ClientWindowMode):
 
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
         self.check_arguments(parsed_args)
-        return Mp4ClientWindow(parsed_args.output_path)
+        output = Mp4ClientWindow(parsed_args.output_path)
+        if parsed_args.synthetic_input_file is None:
+            return output
+        return SyntheticInputMp4ClientWindow(
+            output,
+            SyntheticInputSource(parsed_args.synthetic_input_file),
+        )
 
     def finished(self, client_window: IClientWindow) -> str | None:
         """Return the file, now that there is something in it to watch."""
-        return str(cast(Mp4ClientWindow, client_window).path)
+        return str(
+            cast(Mp4ClientWindow | SyntheticInputMp4ClientWindow, client_window).path
+        )
 
 
 class _WebRTCMode(ClientWindowMode):
