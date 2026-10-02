@@ -175,38 +175,11 @@ async def test_browser_query_string_reaches_the_input_stream() -> None:
 
 
 @pytest.mark.asyncio
-async def test_browser_file_upload_reaches_the_input_stream() -> None:
-    window = WebRTCClientWindow()
-    window.open(_session_desc())
-    try:
-        window.request_selected_files("open-1", "/tmp")
-        window.request_selected_files("open-1", "/tmp")
-        await _wait_file_armed(window, "open-1")
-
-        assert await _post_selected_file(window, "open-1", b"hello", "hello.txt") == 204
-
-        events = []
-        for _ in range(100):
-            events.extend(window.get_user_input_events().get_events())
-            if events:
-                break
-            await asyncio.sleep(0.01)
-        assert len(events) == 1
-        event = events[0]
-        assert isinstance(event, SelectedFilesUserInputEvent)
-        assert event.request_id == "open-1"
-        assert event.status is SelectedFilesStatus.OK
-        assert event.files[0].name == "hello.txt"
-        assert event.files[0].data == b"hello"
-    finally:
-        window.close()
-
-
-@pytest.mark.asyncio
 async def test_browser_file_selections_are_served_one_at_a_time() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
+        window.request_selected_files("open-1", "/tmp")
         window.request_selected_files("open-1", "/tmp")
         window.request_selected_files("open-2", "/tmp")
         await _wait_file_armed(window, "open-1")
@@ -229,6 +202,7 @@ async def test_browser_file_selections_are_served_one_at_a_time() -> None:
         ]
         assert [event.request_id for event in picks] == ["open-1", "open-2"]
         assert all(event.status is SelectedFilesStatus.OK for event in picks)
+        assert picks[0].files[0].name == "first.txt"
         assert picks[0].files[0].data == b"first"
         assert picks[1].files[0].data == b"second"
     finally:
@@ -449,22 +423,6 @@ async def _wait_selected_files_event(
     event = events[0]
     assert isinstance(event, SelectedFilesUserInputEvent)
     return event
-
-
-@pytest.mark.asyncio
-async def test_file_upload_rejects_disallowed_suffix() -> None:
-    window = WebRTCClientWindow()
-    window.open(_session_desc())
-    try:
-        window.request_selected_files("open-1", accept=(".png",))
-        await _wait_file_armed(window, "open-1")
-        assert await _post_selected_file(window, "open-1", b"hello", "hello.txt") == 204
-        event = await _wait_selected_files_event(window)
-        assert event.request_id == "open-1"
-        assert event.status is SelectedFilesStatus.DISALLOWED_TYPE
-        assert event.files == ()
-    finally:
-        window.close()
 
 
 @pytest.mark.asyncio

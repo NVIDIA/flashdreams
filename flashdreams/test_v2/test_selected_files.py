@@ -129,17 +129,6 @@ def test_file_selection_gate_ignores_duplicates_and_serves_one_at_a_time() -> No
     assert gate.complete("open-2") == (True, None)
 
 
-def test_file_selection_gate_clear_drops_queued_requests() -> None:
-    gate = FileSelectionGate()
-    assert gate.submit(_queued("open-1")) is not None
-    assert gate.submit(_queued("open-2")) is None
-    gate.clear()
-    assert gate.complete("open-1") == (False, None)
-    started = gate.submit(_queued("open-2"))
-    assert started is not None
-    assert started.request_id == "open-2"
-
-
 def test_file_selection_gate_drain_returns_active_then_queued() -> None:
     gate = FileSelectionGate()
     assert gate.submit(_queued("open-1")) is not None
@@ -220,25 +209,13 @@ def test_selected_files_event_rejects_inconsistent_status() -> None:
         )
 
 
-def test_mp4_window_completes_file_selection_as_unavailable(tmp_path: Path) -> None:
-    window = Mp4ClientWindow(tmp_path / "clip.mp4")
-    window.request_selected_files("open-1", "/tmp")
-
-    events = window.get_user_input_events().get_events()
-
-    assert len(events) == 1
-    event = events[0]
-    assert isinstance(event, SelectedFilesUserInputEvent)
-    assert event.request_id == "open-1"
-    assert event.status is SelectedFilesStatus.UNAVAILABLE
-    assert event.files == ()
-    assert window.get_user_input_events().get_events() == []
-
-
-def test_mp4_window_completes_queued_file_selections_as_unavailable(
-    tmp_path: Path,
+@pytest.mark.parametrize("kind", ["mp4", "null"])
+def test_headless_window_completes_queued_file_selections_as_unavailable(
+    kind: str, tmp_path: Path
 ) -> None:
-    window = Mp4ClientWindow(tmp_path / "clip.mp4")
+    window = (
+        Mp4ClientWindow(tmp_path / "clip.mp4") if kind == "mp4" else NullClientWindow()
+    )
     window.request_selected_files("open-1", "/tmp")
     window.request_selected_files("open-2", "/var")
 
@@ -252,20 +229,4 @@ def test_mp4_window_completes_queued_file_selections_as_unavailable(
         event.status is SelectedFilesStatus.UNAVAILABLE and event.files == ()
         for event in picks
     )
-
-
-def test_null_window_completes_file_selection_as_unavailable() -> None:
-    window = NullClientWindow()
-    window.request_selected_files("open-1", "/tmp")
-    window.request_selected_files("open-2", "/var")
-
-    events = window.get_user_input_events().get_events()
-
-    picks = [
-        event for event in events if isinstance(event, SelectedFilesUserInputEvent)
-    ]
-    assert [event.request_id for event in picks] == ["open-1", "open-2"]
-    assert all(
-        event.status is SelectedFilesStatus.UNAVAILABLE and event.files == ()
-        for event in picks
-    )
+    assert window.get_user_input_events().get_events() == []

@@ -102,18 +102,23 @@ def _file_picker_imgui(*, pressed: str | tuple[str, ...] = ()) -> SimpleNamespac
     )
 
 
-def test_open_file_button_requests_a_client_file() -> None:
+@pytest.mark.parametrize(
+    ("label", "request_id"),
+    [
+        (_OPEN_FILE_A_LABEL, _OPEN_FILE_A_REQUEST_ID),
+        (_OPEN_FILE_B_LABEL, _OPEN_FILE_B_REQUEST_ID),
+    ],
+)
+def test_open_file_button_requests_a_client_file(label: str, request_id: str) -> None:
     _state, loop = _file_picker_loop()
-    imgui = _file_picker_imgui(pressed=_OPEN_FILE_A_LABEL)
+    imgui = _file_picker_imgui(pressed=label)
 
     loop.step_ui(imgui, 0, UserInputEvents([]))
     loop.step_ui(imgui, 1, UserInputEvents([]))
     requests = loop.flush_ui_loop_requests()
 
     assert requests is not None
-    assert [item.request_id for item in requests.file_selections] == [
-        _OPEN_FILE_A_REQUEST_ID
-    ]
+    assert [item.request_id for item in requests.file_selections] == [request_id]
     assert requests.file_selections[0].accept == (".bin", ".raw")
     assert requests.file_selections[0].max_bytes == MAX_SELECTED_FILE_BYTES
 
@@ -121,20 +126,6 @@ def test_open_file_button_requests_a_client_file() -> None:
 def test_open_a_then_b_queues_both_request_ids() -> None:
     _state, loop = _file_picker_loop()
     imgui = _file_picker_imgui(pressed=_OPEN_A_THEN_B_LABEL)
-
-    loop.step_ui(imgui, 0, UserInputEvents([]))
-    requests = loop.flush_ui_loop_requests()
-
-    assert requests is not None
-    assert [item.request_id for item in requests.file_selections] == [
-        _OPEN_FILE_A_REQUEST_ID,
-        _OPEN_FILE_B_REQUEST_ID,
-    ]
-
-
-def test_two_file_buttons_queue_distinct_request_ids() -> None:
-    _state, loop = _file_picker_loop()
-    imgui = _file_picker_imgui(pressed=(_OPEN_FILE_A_LABEL, _OPEN_FILE_B_LABEL))
 
     loop.step_ui(imgui, 0, UserInputEvents([]))
     requests = loop.flush_ui_loop_requests()
