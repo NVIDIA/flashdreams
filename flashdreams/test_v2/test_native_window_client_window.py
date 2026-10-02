@@ -826,6 +826,41 @@ def test_native_window_close_completes_leftover_file_selections(
     assert isinstance(events[-1], CloseUserInputEvent)
 
 
+def test_native_window_replacement_open_drops_leftover_file_selections(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    entered = threading.Event()
+    released = threading.Event()
+    calls: list[int] = []
+
+    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+        del initial_dir, accept
+        calls.append(1)
+        entered.set()
+        assert released.wait(timeout=2.0)
+        return str(tmp_path / "late.bin")
+
+    monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    window.request_selected_files("open-2", str(tmp_path))
+    assert entered.wait(timeout=2.0)
+    window.open(_session_desc())
+    events = window.get_user_input_events().get_events()
+    released.set()
+    time.sleep(0.05)
+    extra = window.get_user_input_events().get_events()
+    window.close()
+
+    assert events == []
+    assert extra == []
+    assert calls == [1]
+
+
 def test_native_window_stale_picker_does_not_complete_reused_request_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

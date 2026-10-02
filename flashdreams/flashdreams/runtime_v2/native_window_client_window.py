@@ -402,7 +402,8 @@ class NativeWindowClientWindow(IClientWindow):
         """Open a session in the GLFW window on the runtime's UI thread.
 
         Replacement sessions reuse the existing presenter and clear input
-        buffered for the completed session.
+        buffered for the completed session. Leftover and in-flight file picks
+        are dropped rather than delivered to the replacement.
 
         Args:
             session_desc: Resolved output dimensions and tensor layout.
@@ -437,6 +438,7 @@ class NativeWindowClientWindow(IClientWindow):
                 presenter.close()
                 raise
 
+        self._invalidate_file_selections(deliver_unavailable=False)
         self._session_started_ns = self._clock_ns()
         self._session_desc = session_desc
         self._window_size = presenter.size
