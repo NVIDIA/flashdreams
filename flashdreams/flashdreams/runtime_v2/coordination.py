@@ -67,10 +67,10 @@ class StepAgreement:
         return result
 
     def session_result(
-        self, next_session: SessionDesc | None, *, stopping: bool
-    ) -> tuple[bool, SessionDesc | None]:
-        """Broadcast rank zero's continue, terminal, or replacement result."""
-        payload = [(stopping, next_session) if self._ctx.is_main else None]
+        self, next_session: SessionDesc | None, *, stopping: bool, restarting: bool
+    ) -> tuple[bool, SessionDesc | None, bool]:
+        """Broadcast rank zero's stop, replacement, or model-restart decision."""
+        payload = [(stopping, next_session, restarting) if self._ctx.is_main else None]
         dist.broadcast_object_list(payload, src=0, group=self._group)
         result = payload[0]
         if result is None:

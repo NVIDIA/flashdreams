@@ -24,6 +24,7 @@ from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import ResetUserInputEvent
 
 _LOGGER = logging.getLogger(__name__)
 _MODEL_THREAD_NAME = "flashdreams-model-generation-thread"
@@ -64,7 +65,7 @@ def run_session(
     model loop. Returns when the client closes the window, requests a new
     session, when the UI finishes, or when either loop fails. While the model
     is not running, an unfinished UI ticks regardless of presentation mode so
-    it can request another session.
+    it can reset the retained model or request another session.
 
     Both loops, the metrics sink, and the session are closed before this returns
     or raises. The client window stays open only when a clean replacement was
@@ -75,8 +76,8 @@ def run_session(
         window: Input and output on rank zero; ``None`` on model workers.
         metrics_output_sink: Sink for model measurements, if requested. Receives
             the model loop's results rather than the UI loop's.
-        steps: Maximum model steps before ending the session; ``None`` leaves
-            session completion to the UI or client window.
+        steps: Maximum completed model steps across all resets before ending
+            the session; ``None`` leaves completion to the UI or client window.
         timeout_seconds: Maximum session runtime; ``None`` means session does not have a time-limit. Timeout expiry signals both registered loops to stop.
 
     Returns:
@@ -116,6 +117,8 @@ def run_session(
     stop: threading.Event | None = None
     presentation_manager = None
     trace_log: _ChunkTraceLog | None = None
+    reset_pending = False
+    steps_run = 0
 
     def cleanup(action: Callable[[], None]) -> None:
         """Keep releasing resources after a cleanup failure."""
@@ -148,13 +151,19 @@ def run_session(
             return False
 
         def collect_input() -> None:
+            nonlocal reset_pending
             if window is None:
                 return
-            event_buffer.append(window.get_user_input_events())
+            events = window.get_user_input_events()
+            event_buffer.append(events)
+            if any(
+                isinstance(event, ResetUserInputEvent) for event in events.get_events()
+            ):
+                reset_pending = False
 
         def run_ui_once(*, step_requested: bool = True) -> None:
             """Process UI lifecycle control and run a requested UI step."""
-            nonlocal next_session_desc
+            nonlocal next_session_desc, reset_pending
             if ui_loop is None or window is None:
                 return
             events, generation = event_buffer.read(_UI_READER_ID)
@@ -173,6 +182,9 @@ def run_session(
                         next_session_desc = request.new_session
                         stop.set()
                         return
+                    if request.reset:
+                        window.request_reset()
+                        reset_pending = True
                 if loop_result.step_index is None or not step_requested:
                     return
                 raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
@@ -264,23 +276,32 @@ def run_session(
 
         expire_if_due()
         if not stop.is_set() or agreement is not None:
-            model_thread_handle = threading.Thread(
-                target=model_loop._run_model_loop,
-                kwargs={
-                    "event_buffer": event_buffer,
-                    "reader_id": _MODEL_READER_ID,
-                    "publish": publish_model_results,
-                    "max_steps": steps,
-                    "step_control": agreement,
-                    "device": None if parallel is None else parallel.device,
-                },
-                name=_MODEL_THREAD_NAME,
-            )
-            model_thread_handle.start()
+
+            def run_model() -> None:
+                nonlocal steps_run
+                steps_run += model_loop._run_model_loop(
+                    event_buffer=event_buffer,
+                    reader_id=_MODEL_READER_ID,
+                    publish=publish_model_results,
+                    max_steps=None if steps is None else steps - steps_run,
+                    step_control=agreement,
+                    device=None if parallel is None else parallel.device,
+                )
+
+            def start_model_thread() -> None:
+                nonlocal model_thread_handle
+                model_loop._set_inference_state(ModelInferenceState.RUNNING)
+                model_thread_handle = threading.Thread(
+                    target=run_model, name=_MODEL_THREAD_NAME
+                )
+                model_thread_handle.start()
+
+            start_model_thread()
             next_tick_at = time.monotonic() + tick_seconds
 
             def should_end_ui() -> bool:
                 nonlocal next_session_desc
+                assert model_thread_handle is not None
                 if model_thread_handle.is_alive():
                     return False
                 if not session._failure_queue.empty():
@@ -299,26 +320,41 @@ def run_session(
                     if steps is not None or ui_finished:
                         collect_input()
                         run_ui_once(step_requested=False)
+                restarting = (
+                    not stop.is_set()
+                    and next_session_desc is None
+                    and event_buffer.generation != model_loop._generation
+                    and (steps is None or steps_run < steps)
+                )
                 stopping = (
                     stop.is_set()
                     or next_session_desc is not None
-                    or (not pending_frames and steps is not None)
-                    or ui_finished
+                    or (not pending_frames and steps is not None and steps_run >= steps)
+                    or (
+                        not restarting
+                        and not reset_pending
+                        and ((not pending_frames and steps is not None) or ui_finished)
+                    )
                 )
-                if agreement is None:
-                    return stopping
-                finished, replacement = agreement.session_result(
-                    next_session_desc, stopping=stopping
-                )
-                if finished:
-                    next_session_desc = replacement
-                return finished
+                if agreement is not None:
+                    stopping, replacement, restarting = agreement.session_result(
+                        next_session_desc, stopping=stopping, restarting=restarting
+                    )
+                    if stopping:
+                        next_session_desc = replacement
+                if restarting and not stopping:
+                    # Every caller rank leaves the result collective before its
+                    # model thread re-enters step admission on the same group.
+                    model_thread_handle.join()
+                    start_model_thread()
+                return stopping
 
             while True:
                 expire_if_due()
                 if should_end_ui():
                     break
                 if stop.is_set():
+                    assert model_thread_handle is not None
                     model_thread_handle.join()
                     continue
                 wait_seconds = max(0.0, next_tick_at - time.monotonic())

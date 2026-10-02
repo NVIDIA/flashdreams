@@ -26,6 +26,20 @@ class IClientWindow(InputSource, OutputSink, ABC):
     Created by the runtime, never by an application.
     """
 
+    def request_reset(self) -> None:
+        """Queue a synthetic ``ResetUserInputEvent`` in this window's input.
+
+        Return the event once through ``get_user_input_events``, together with
+        any other pending input, using the window's input timestamp clock.
+        The runtime handles it like a reset event received from the client.
+
+        Raises:
+            NotImplementedError: This window cannot synthesize reset events.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support reset requests."
+        )
+
     # Optional to implement
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor for this client window."""

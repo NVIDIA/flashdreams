@@ -29,6 +29,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    ResetUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
@@ -126,6 +127,15 @@ class NativeWindowClientWindow(IClientWindow):
         self._pressed_key_values: dict[str, str] = {}
         self._hide_cursor = False
         self._lock_cursor_to_window = False
+
+    def request_reset(self) -> None:
+        """Queue a reset alongside pending native input.
+
+        Raises:
+            RuntimeError: The window is not open.
+        """
+        self._session_desc_or_raise()
+        self._put_input(ResetUserInputEvent(timestamp=uint64(0)))
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor in the native window."""
