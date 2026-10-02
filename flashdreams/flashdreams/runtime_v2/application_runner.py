@@ -8,11 +8,16 @@ import math
 import sys
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from enum import Enum
 
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
+from flashdreams.runtime_v2.preparation_guard import (
+    PreparationGuard,
+    resolve_preparation_policy,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 
@@ -27,6 +32,18 @@ class Unbound(Enum):
     """No limit."""
 
 
+@dataclass(frozen=True, slots=True)
+class ApplicationFlags:
+    """Optional behavior for one application run."""
+
+    preload: bool = False
+    skip_preload_validation: bool = False
+
+    def __post_init__(self) -> None:
+        if self.skip_preload_validation and not self.preload:
+            raise ValueError("skip_preload_validation requires preload.")
+
+
 class ApplicationRunner:
     """Initialize one application and run its requested sessions."""
 
@@ -36,6 +53,7 @@ class ApplicationRunner:
         client_window: IClientWindow | None,
         *,
         metrics_output_sink: MetricsOutputSink | None = None,
+        application_flags: ApplicationFlags = ApplicationFlags(),
     ) -> None:
         """
         Args:
@@ -44,10 +62,12 @@ class ApplicationRunner:
                 worker.
             metrics_output_sink: Optional sink for model-step metrics. It is
                 opened and closed once for each session.
+            application_flags: Optional preload behavior.
         """
         self._application = application
         self._client_window = client_window
         self._metrics_output_sink = metrics_output_sink
+        self._application_flags = application_flags
 
     def run(
         self,
@@ -85,6 +105,8 @@ class ApplicationRunner:
             ValueError: ``timeout_seconds`` is not a finite number greater
                 than zero or ``Unbound``, or ``steps`` is not a non-negative
                 integer or ``Unbound``.
+            PreparationPhaseError: The preparation policy is ``error`` and
+                preparation work occurs after ``IApplication.init`` returns.
         """
         if timeout_seconds is Unbound.unbound:
             deadline = None
@@ -106,45 +128,58 @@ class ApplicationRunner:
         session_run_started = False
         parallel = None
         window_needs_close = True
+        preparation_guard = PreparationGuard(
+            policy=resolve_preparation_policy(
+                "warn" if self._application_flags.preload else "none"
+            )
+        )
         try:
             self._application.init(commandline_args)
-            next_session_desc: SessionDesc | None = session_desc
-            while next_session_desc is not None:
-                # Only multi-rank replacements have an agreed decision that
-                # must survive a deadline crossed during session cleanup.
-                if (
-                    (parallel is None or parallel.world_size <= 1)
-                    and deadline is not None
-                    and time.monotonic() >= deadline
-                ):
-                    break
-                session = self._application.create_session(next_session_desc)
-                parallel = session.parallel_context
-                session_run_started = True
-                remaining_seconds = (
-                    None if deadline is None else max(0.0, deadline - time.monotonic())
-                )
-                completed_steps: list[int] = []
-                try:
-                    next_session_desc = run_session(
-                        session,
-                        self._client_window,
-                        metrics_output_sink=self._metrics_output_sink,
-                        steps=remaining_steps,
-                        timeout_seconds=remaining_seconds,
-                        completed_steps=completed_steps,
+            if self._application_flags.skip_preload_validation:
+                return
+            with preparation_guard:
+                next_session_desc: SessionDesc | None = session_desc
+                while next_session_desc is not None:
+                    # Only multi-rank replacements have an agreed decision that
+                    # must survive a deadline crossed during session cleanup.
+                    if (
+                        (parallel is None or parallel.world_size <= 1)
+                        and deadline is not None
+                        and time.monotonic() >= deadline
+                    ):
+                        break
+                    session = self._application.create_session(next_session_desc)
+                    parallel = session.parallel_context
+                    session_run_started = True
+                    remaining_seconds = (
+                        None
+                        if deadline is None
+                        else max(0.0, deadline - time.monotonic())
                     )
-                except BaseException:
-                    # ``run_session`` closes the window on every failure.
-                    window_needs_close = False
-                    raise
-                window_needs_close = next_session_desc is not None
-                # Subtract what this session used; a replacement gets leftover, not a fresh N.
-                if remaining_steps is not None:
-                    used = completed_steps[0] if completed_steps else 0
-                    remaining_steps = max(0, remaining_steps - used)
-                    if remaining_steps == 0:
-                        next_session_desc = None
+                    session_steps = (
+                        1 if self._application_flags.preload else remaining_steps
+                    )
+                    completed_steps: list[int] = []
+                    try:
+                        next_session_desc = run_session(
+                            session,
+                            self._client_window,
+                            metrics_output_sink=self._metrics_output_sink,
+                            steps=session_steps,
+                            timeout_seconds=remaining_seconds,
+                            completed_steps=completed_steps,
+                        )
+                    except BaseException:
+                        # ``run_session`` closes the window on every failure.
+                        window_needs_close = False
+                        raise
+                    window_needs_close = next_session_desc is not None
+                    # Subtract what this session used; a replacement gets leftover, not a fresh N.
+                    if remaining_steps is not None:
+                        used = completed_steps[0] if completed_steps else 0
+                        remaining_steps = max(0, remaining_steps - used)
+                        if remaining_steps == 0:
+                            next_session_desc = None
         finally:
             if window_needs_close:
                 _close_client_window(self._client_window)

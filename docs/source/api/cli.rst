@@ -47,6 +47,19 @@ Launch the LingBot v2 Cam2V application:
    uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
        --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 
+Preload and validate a v2 application without opening a window:
+
+.. code-block:: bash
+
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --preload-application -- --example-data
+
+Preload runs ``IApplication.init`` and one model block without opening a window.
+It defaults to warning; use ``FLASHDREAMS_PREPARATION_POLICY`` to select
+``none``, ``warn``, or ``error``. Findings go to ``preparation_issues.txt`` in
+the FlashDreams cache, or ``FLASHDREAMS_PREPARATION_ISSUES_PATH`` when set.
+Add ``--skip-preload-validation`` to skip validation (running first-block of `ISession`).
+
 The common command shape is ``flashdreams-run <runner> [mode]``. A runner only
 advertises modes it implements; unsupported pairs fail before CUDA
 initialization. Shared modes are ``run``, ``mp4``, ``null``, ``webrtc``, and

@@ -457,7 +457,15 @@ def test_worker_cli_constructs_no_io_and_shuts_down_distributed(
             cli.entrypoint(arguments)
     else:
         cli.entrypoint(arguments)
-    assert received == [(None, {"metrics_output_sink": None})]
+    assert received == [
+        (
+            None,
+            {
+                "metrics_output_sink": None,
+                "application_flags": cli.ApplicationFlags(),
+            },
+        )
+    ]
     assert shutdown_calls == [
         {"synchronize": not fails, "terminate_process": not fails}
     ]

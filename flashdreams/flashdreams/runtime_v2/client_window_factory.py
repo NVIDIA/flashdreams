@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, cast
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
+from flashdreams.runtime_v2.null_client_window import NullClientWindow
 
 if TYPE_CHECKING:
     from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
@@ -58,6 +59,16 @@ class ClientWindowMode(ABC):
         """Return what to tell the user after a run that generated everything."""
         del client_window
         return None
+
+
+class _NullMode(ClientWindowMode):
+    """Discard output from an internal preload run."""
+
+    name = "null"
+
+    def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
+        del parsed_args
+        return NullClientWindow()
 
 
 class _Mp4Mode(ClientWindowMode):
@@ -131,6 +142,7 @@ _MODES: tuple[ClientWindowMode, ...] = (
     _Mp4Mode(),
     _WebRTCMode(),
     _NativeWindowMode(),
+    _NullMode(),
 )
 """Modes a run can be presented through, the first being the default."""
 

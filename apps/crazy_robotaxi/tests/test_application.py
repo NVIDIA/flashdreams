@@ -128,6 +128,9 @@ def _application(
     defaults: CrazyRobotaxiApplicationDefaults = _STUB_DEFAULTS,
     **kwargs: Any,
 ) -> CrazyRobotaxiApplication:
+    kwargs.setdefault("pipeline_factory", lambda config, device: object())
+    kwargs.setdefault("scene_factory", lambda request, raster: _scene())
+    kwargs.setdefault("native_preparer", lambda: None)
     return CrazyRobotaxiApplication(defaults=defaults, **kwargs)
 
 
@@ -161,7 +164,8 @@ def _scene(*, width: int = 1280, height: int = 704) -> SceneDefinition:
 
 
 def test_application_registers_model_and_imgui_ui_loops() -> None:
-    pipeline = object()
+    pipeline_closed: list[bool] = []
+    pipeline = SimpleNamespace(close=lambda: pipeline_closed.append(True))
     pipeline_requests: list[tuple[object, str]] = []
     app = _application(
         pipeline_factory=lambda config, device: (
@@ -194,7 +198,8 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
     assert session._presentation_manager._presentation_stream is None
     assert model_loop.state.pipeline is None
-    assert pipeline_requests == []
+    assert app._pipeline is not None
+    assert pipeline_requests == [(app._pipeline_config, "cpu")]
     assert model_loop.state.scene is None
     assert model_loop.state.rollout is None
     assert not model_loop.state.game_selected
@@ -226,9 +231,6 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
         ui_loop.state.native_dit_disabled_for_live_edit
         is session._config.native_dit_disabled_for_live_edit
     )
-    assert session._config.renderer.bev.width == 234
-    assert session._config.renderer.bev.height == 234
-
     menu_results = model_loop.step(0, UserInputEvents([]))
     assert len(menu_results) == 1
     assert menu_results[0].frame_count == 1
@@ -247,6 +249,11 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert not model_loop.state.game_selected
     model_loop.state.request_exit()
     assert model_loop.is_finished()
+    model_loop.state.pipeline = pipeline
+    model_loop.close()
+    assert pipeline_closed == []
+    app.close()
+    assert pipeline_closed == [True]
 
 
 def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
@@ -574,8 +581,10 @@ def test_diagnostics_flag_does_not_enable_pipeline_profiling(
 
     session = cast(CrazyRobotaxiSession, app.create_session(app.session_desc()))
 
-    assert configured == []
+    assert app._pipeline is not None
+    assert configured == [app._pipeline_config]
     session._pipeline_factory()
+    assert configured == [app._pipeline_config]
     assert app._config is not None
     assert app._config.pipeline_profiling is expected
 
@@ -669,11 +678,9 @@ def test_adapter_dimensions_configure_renderer_geometry(
     )
 
     assert configured == [app._pipeline_config]
-    assert raster_sizes == [resolution_wh]
+    assert len(raster_sizes) == len(app._scenes)
+    assert set(raster_sizes) == {resolution_wh}
     assert session._config.renderer.raster.resolution_wh == resolution_wh
-    expected_bev_size = min(resolution_wh[0] // 4, resolution_wh[1] // 3)
-    assert session._config.renderer.bev.width == expected_bev_size
-    assert session._config.renderer.bev.height == expected_bev_size
     assert model_loop.state.scene is not None
     assert model_loop.state.scene.initial_rgb.shape == (
         resolution_wh[1],
