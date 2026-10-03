@@ -99,6 +99,8 @@ dev = [
 # FlashDreams generation, and DrivingGen adapter setup.
 omnidreams-eval = "omnidreams.impl.eval.cli:main"
 omnidreams-prepare = "omnidreams.impl.tools.prepare:main"
+omnidreams-build-alpasim-usdz = "omnidreams.impl.tools.clipgt_usdz:main"
+omnidreams-run-alpasim-closed-loop = "omnidreams.impl.tools.alpasim_closed_loop:main"
 
 [project.entry-points."flashdreams.applications_v2"]
 "interactive-drive-omnidreams" = "omnidreams.apps.interactive_drive.adapter:create_app"
