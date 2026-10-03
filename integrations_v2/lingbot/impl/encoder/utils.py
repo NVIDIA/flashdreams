@@ -24,11 +24,12 @@ from torch import Tensor
 _TEMPORAL_COMPRESSION_RATIO = 4
 """Lingbot World VAE temporal stride; one encoded frame per N video frames."""
 
-_TRANSFORMER_LEN_T = 3
-"""Latent frames the transformer consumes per AR chunk."""
 
-
-def preprocess_example_poses(poses: np.ndarray) -> tuple[np.ndarray, float]:
+def preprocess_example_poses(
+    poses: np.ndarray,
+    *,
+    transformer_len_t: int = 3,
+) -> tuple[np.ndarray, float]:
     """Preprocess the example poses carried over from the original Lingbot World repo.
 
     Truncates the raw camera stream to the largest length compatible with
@@ -39,6 +40,7 @@ def preprocess_example_poses(poses: np.ndarray) -> tuple[np.ndarray, float]:
 
     Args:
         poses: Raw camera-to-world poses of shape ``[T, 4, 4]``.
+        transformer_len_t: Latent frames consumed per autoregressive chunk.
 
     Returns:
         Tuple of ``(poses [T_clipped, 4, 4], world_scale)``.
@@ -46,19 +48,21 @@ def preprocess_example_poses(poses: np.ndarray) -> tuple[np.ndarray, float]:
     assert poses.ndim == 3 and poses.shape[1:] == (4, 4), (
         "Expected poses shape [T, 4, 4]"
     )
+    if transformer_len_t <= 0:
+        raise ValueError("transformer_len_t must be > 0.")
     T_raw = poses.shape[0]
     T = (T_raw - 1) // _TEMPORAL_COMPRESSION_RATIO * _TEMPORAL_COMPRESSION_RATIO + 1
     poses = poses[:T]
 
     T_after_encoding = int((T - 1) // _TEMPORAL_COMPRESSION_RATIO) + 1
-    if T_after_encoding < _TRANSFORMER_LEN_T:
-        min_raw_poses = (_TRANSFORMER_LEN_T - 1) * _TEMPORAL_COMPRESSION_RATIO + 1
+    if T_after_encoding < transformer_len_t:
+        min_raw_poses = (transformer_len_t - 1) * _TEMPORAL_COMPRESSION_RATIO + 1
         raise ValueError(
             "Expected at least "
             f"{min_raw_poses} raw poses to produce one transformer chunk, "
             f"got {T_raw}."
         )
-    T_after_encoding = int(T_after_encoding - (T_after_encoding % _TRANSFORMER_LEN_T))
+    T_after_encoding = int(T_after_encoding - (T_after_encoding % transformer_len_t))
 
     poses_after_encoding = interpolate_camera_poses(
         src_indices=np.linspace(0, T - 1, T),
@@ -296,7 +300,17 @@ def compute_relative_poses_causal(
     relative_poses = torch.bmm(
         SE3_inverse(c2ws_mat[..., :-1, :, :]), c2ws_mat[..., 1:, :, :]
     )
-    relative_poses[..., :, :3, 3] /= trans_normalizer
+    normalizer = torch.as_tensor(
+        trans_normalizer,
+        device=relative_poses.device,
+        dtype=relative_poses.dtype,
+    )
+    safe_normalizer = torch.where(
+        normalizer > 0,
+        normalizer,
+        torch.ones_like(normalizer),
+    )
+    relative_poses[..., :, :3, 3] /= safe_normalizer
     return relative_poses
 
 
