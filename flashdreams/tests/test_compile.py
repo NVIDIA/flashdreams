@@ -41,7 +41,11 @@ def test_configure_inductor_cache_uses_flashdreams_cache(
 
     _configure_inductor_cache()
 
-    assert os.environ["TORCHINDUCTOR_CACHE_DIR"] == str(tmp_path / "torchinductor")
+    from torch._inductor.runtime.cache_dir_utils import cache_dir
+
+    expected = str(tmp_path / "torchinductor")
+    assert os.environ["TORCHINDUCTOR_CACHE_DIR"] == expected
+    assert cache_dir() == expected
 
 
 def test_configure_inductor_cache_preserves_explicit_override(

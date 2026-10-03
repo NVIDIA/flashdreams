@@ -51,7 +51,15 @@ CompileMode = Literal[
 
 
 def _configure_inductor_cache() -> None:
-    """Place Inductor artifacts in the persistent FlashDreams cache by default."""
+    """Place Inductor artifacts in the persistent FlashDreams cache by default.
+
+    PyTorch already enables the local FX-graph cache. Inductor still defaults
+    that directory to ``/tmp/torchinductor_<user>``, which vanishes between
+    processes and CI jobs. Pin it under ``$FLASHDREAMS_CACHE_DIR/torchinductor``
+    (default ``~/.cache/flashdreams``) so FX-graph, AOTAutograd, and Triton
+    artifacts reuse across runs. An explicit ``TORCHINDUCTOR_CACHE_DIR`` that
+    is not PyTorch's default is left alone.
+    """
     from torch._inductor.runtime.cache_dir_utils import default_cache_dir
 
     cache_root = Path(
