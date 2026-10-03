@@ -349,7 +349,7 @@ const openFileSelector = options => {
     maxBytes: Number.isFinite(maxBytes) ? maxBytes : 0,
   };
   showPromptDialog({
-    title: "The app wants to open a file",
+    title: "The app requested a file",
     details: [
       {
         label: "Accepted types",
@@ -360,7 +360,7 @@ const openFileSelector = options => {
         items: [formatByteBudget(pendingFileRequest.maxBytes)],
       },
     ],
-    confirmLabel: "Open",
+    confirmLabel: "Select…",
     onConfirm: () => {
       const pending = pendingFileRequest;
       if (pending === null || pending.id !== requestId) {

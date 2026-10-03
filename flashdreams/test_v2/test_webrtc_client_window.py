@@ -664,7 +664,7 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert "selectedFilePolicyStatus" in browser_script
                 assert "showPromptDialog" in browser_script
                 assert "showModal" not in browser_script
-                assert "The app wants to open a file" in browser_script
+                assert "The app requested a file" in browser_script
                 assert 'label: "Accepted types"' in browser_script
                 assert 'label: "Max size allowed"' in browser_script
                 assert "Choose file" not in browser_page
