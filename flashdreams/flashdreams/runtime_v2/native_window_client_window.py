@@ -7,11 +7,15 @@ from __future__ import annotations
 
 import logging
 import queue
+import shutil
+import subprocess
+import sys
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -21,14 +25,25 @@ from torch import Tensor
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.user_input_event import UserInputEvent
+from flashdreams.runtime_v2.file_selection_gate import (
+    FileSelectionGate,
+    QueuedFileSelection,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    MAX_SELECTED_FILE_BYTES,
     CloseUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    SelectedFile,
+    SelectedFilesStatus,
+    SelectedFilesUserInputEvent,
+    clamp_selected_file_max_bytes,
+    normalize_selected_file_accept,
+    selected_file_policy_status,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
@@ -37,6 +52,125 @@ if TYPE_CHECKING:
     import slangpy as spy
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _ask_open_filename(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+    """Return a path from the OS file picker, or ``""`` when cancelled.
+
+    Raises:
+        RuntimeError: The desktop chooser is missing or failed.
+    """
+    if sys.platform.startswith("linux"):
+        return _ask_open_filename_linux(initial_dir=initial_dir, accept=accept)
+    return _ask_open_filename_tkinter(initial_dir=initial_dir, accept=accept)
+
+
+def _accept_filter_patterns(accept: tuple[str, ...]) -> str:
+    """Return glob patterns for ``accept`` suffixes, such as ``*.png *.jpg``."""
+    return " ".join(f"*{suffix}" for suffix in accept)
+
+
+def _ask_open_filename_linux(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+    """Open the desktop file picker via ``zenity`` or ``kdialog``.
+
+    ``zenity --file-selection`` uses ``GtkFileChooserNative``, which is the
+    xdg-desktop-portal chooser. The helper is a separate process so the
+    GLFW window does not host GTK.
+    """
+    directory = str(Path(initial_dir))
+    patterns = _accept_filter_patterns(accept)
+    zenity = shutil.which("zenity")
+    if zenity is not None:
+        argv = [
+            zenity,
+            "--file-selection",
+            f"--filename={directory}/",
+            "--title=Select a file",
+        ]
+        if patterns:
+            argv.append(f"--file-filter=Accepted | {patterns}")
+    else:
+        kdialog = shutil.which("kdialog")
+        if kdialog is None:
+            raise RuntimeError(
+                "Native file picker needs a desktop chooser (zenity or kdialog)."
+            )
+        argv = [kdialog, "--getopenfilename", directory]
+        if patterns:
+            argv.append(f"Accepted ({patterns})")
+    completed = subprocess.run(
+        argv,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode == 1:
+        return ""
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise RuntimeError(
+            f"Native file picker failed with exit {completed.returncode}"
+            + (f": {detail}" if detail else ".")
+        )
+    return completed.stdout.strip()
+
+
+def _ask_open_filename_tkinter(
+    *, initial_dir: str, accept: tuple[str, ...] = ()
+) -> str:
+    """Open the Tk file dialog (native Explorer / macOS panel)."""
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    try:
+        kwargs: dict[str, Any] = {
+            "initialdir": initial_dir,
+            "title": "Select a file",
+        }
+        if accept:
+            kwargs["filetypes"] = [("Accepted", _accept_filter_patterns(accept))]
+        selected = filedialog.askopenfilename(**kwargs)
+    finally:
+        root.destroy()
+    return str(selected or "")
+
+
+def _selected_file_from_path(
+    path: Path,
+    *,
+    accept: tuple[str, ...] = (),
+    max_bytes: int | None = None,
+) -> tuple[SelectedFile | None, SelectedFilesStatus]:
+    """Load one picked file, or ``None`` and a failure status."""
+    budget = MAX_SELECTED_FILE_BYTES if max_bytes is None else max_bytes
+    rejected = selected_file_policy_status(
+        path.name, None, accept=accept, max_bytes=budget
+    )
+    if rejected is not None:
+        return None, rejected
+    try:
+        size = path.stat().st_size
+        rejected = selected_file_policy_status(
+            path.name, size, accept=accept, max_bytes=budget
+        )
+        if rejected is not None:
+            return None, rejected
+        data = path.read_bytes()
+    except OSError:
+        return None, SelectedFilesStatus.UNAVAILABLE
+    rejected = selected_file_policy_status(
+        path.name, len(data), accept=accept, max_bytes=budget
+    )
+    if rejected is not None:
+        return None, rejected
+    return SelectedFile(name=path.name, data=data), SelectedFilesStatus.OK
+
 
 _PRINTABLE_KEY_NAMES = {
     "space": " ",
@@ -126,6 +260,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._pressed_key_values: dict[str, str] = {}
         self._hide_cursor = False
         self._lock_cursor_to_window = False
+        self._file_gate = FileSelectionGate()
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor in the native window."""
@@ -164,11 +299,111 @@ class NativeWindowClientWindow(IClientWindow):
             )
         self._window_size = presenter.resize(*new_window_size)
 
+    def request_selected_files(
+        self,
+        request_id: str,
+        initial_path: str | None = None,
+        *,
+        accept: Sequence[str] = (),
+        max_bytes: int | None = None,
+    ) -> None:
+        """Ask the OS file selector and enqueue the chosen file.
+
+        The desktop dialog runs on a worker thread so the UI loop can keep
+        polling and presenting while the picker is open. A second distinct
+        ``request_id`` waits until this picker completes. Closing the window
+        completes leftovers and in-flight picks as unavailable.
+
+        Args:
+            request_id: Stable selector-slot id from the UI control.
+            initial_path: Directory the selector should start in; ``None`` uses
+                the current user's home directory.
+            accept: Filename suffixes such as ``.png``. Empty allows any type.
+            max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
+        """
+        started = self._file_gate.submit(
+            QueuedFileSelection(
+                request_id=request_id,
+                initial_path=initial_path or str(Path.home()),
+                accept=normalize_selected_file_accept(accept),
+                max_bytes=clamp_selected_file_max_bytes(max_bytes),
+            )
+        )
+        if started is not None:
+            self._spawn_file_picker(started)
+
+    def _spawn_file_picker(self, pending: QueuedFileSelection) -> None:
+        """Run one OS picker on a worker thread."""
+        worker = threading.Thread(
+            target=self._complete_file_selection,
+            args=(
+                pending.request_id,
+                pending.generation,
+                pending.initial_path or str(Path.home()),
+                pending.accept,
+                pending.max_bytes
+                if pending.max_bytes is not None
+                else MAX_SELECTED_FILE_BYTES,
+            ),
+            name="flashdreams-file-picker",
+            daemon=True,
+        )
+        worker.start()
+
+    def _complete_file_selection(
+        self,
+        request_id: str,
+        generation: int,
+        initial_dir: str,
+        accept: tuple[str, ...],
+        max_bytes: int,
+    ) -> None:
+        """Run the OS picker and enqueue a selected-files event."""
+        files: tuple[SelectedFile, ...] = ()
+        status = SelectedFilesStatus.UNAVAILABLE
+        try:
+            try:
+                selected = _ask_open_filename(initial_dir=initial_dir, accept=accept)
+            except Exception:
+                _LOGGER.exception(
+                    "Native file picker failed for request id %r.",
+                    request_id,
+                )
+            else:
+                if selected:
+                    chosen, status = _selected_file_from_path(
+                        Path(selected),
+                        accept=accept,
+                        max_bytes=max_bytes,
+                    )
+                    files = () if chosen is None else (chosen,)
+                else:
+                    status = SelectedFilesStatus.CANCELLED
+        finally:
+            claimed, nxt = self._file_gate.complete(request_id, generation)
+            if claimed:
+                started_ns = self._session_started_ns
+                elapsed_ns = (
+                    0 if started_ns is None else max(0, self._clock_ns() - started_ns)
+                )
+                self._input_events.put(
+                    SelectedFilesUserInputEvent(
+                        timestamp=uint64(elapsed_ns // 1_000),
+                        request_id=request_id,
+                        status=status,
+                        files=files,
+                        generation=generation,
+                    )
+                )
+            if nxt is not None and self._presenter is not None:
+                self._spawn_file_picker(nxt)
+
     def open(self, session_desc: SessionDesc) -> None:
         """Open a session in the GLFW window on the runtime's UI thread.
 
         Replacement sessions reuse the existing presenter and clear input
-        buffered for the completed session.
+        buffered for the completed session. Leftover and in-flight file picks
+        are dropped rather than delivered to the replacement.
 
         Args:
             session_desc: Resolved output dimensions and tensor layout.
@@ -203,6 +438,7 @@ class NativeWindowClientWindow(IClientWindow):
                 presenter.close()
                 raise
 
+        self._invalidate_file_selections(deliver_unavailable=False)
         self._session_started_ns = self._clock_ns()
         self._session_desc = session_desc
         self._window_size = presenter.size
@@ -285,6 +521,7 @@ class NativeWindowClientWindow(IClientWindow):
 
     def close(self) -> None:
         """Release SlangPy and the GLFW window on the runtime's UI thread."""
+        self._invalidate_file_selections(deliver_unavailable=False)
         presenter = self._presenter
         self._presenter = None
         self._session_started_ns = None
@@ -379,7 +616,23 @@ class NativeWindowClientWindow(IClientWindow):
         if self._close_event_enqueued:
             return
         self._close_event_enqueued = True
+        self._invalidate_file_selections(deliver_unavailable=True)
         self._put_input(CloseUserInputEvent(timestamp=uint64(0)))
+
+    def _invalidate_file_selections(self, *, deliver_unavailable: bool) -> None:
+        """Finish this client generation; optionally report leftovers as unavailable."""
+        leftover = self._file_gate.drain()
+        if not deliver_unavailable:
+            return
+        for item in leftover:
+            self._put_input(
+                SelectedFilesUserInputEvent(
+                    timestamp=uint64(0),
+                    request_id=item.request_id,
+                    status=SelectedFilesStatus.UNAVAILABLE,
+                    generation=item.generation,
+                )
+            )
 
 
 class _SlangPyNativeWindowPresenter:

@@ -12,7 +12,7 @@ import socket
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from importlib.resources import files
@@ -21,6 +21,7 @@ from typing import Any, Literal, cast
 import numpy as np
 import torch
 from aiohttp import web
+from aiohttp.web_request import FileField
 from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
@@ -31,6 +32,7 @@ from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    MAX_SELECTED_FILE_BYTES,
     CloseUserInputEvent,
     FocusUserInputEvent,
     GamepadUserInputEvent,
@@ -40,9 +42,15 @@ from flashdreams.runtime_v2.user_input_event import (
     MouseUserInputEvent,
     QueryStringUserInputEvent,
     ResetUserInputEvent,
+    SelectedFile,
+    SelectedFilesStatus,
+    SelectedFilesUserInputEvent,
     TouchUserInputEvent,
     UserInputEvent,
     XRControllerUserInputEvent,
+    clamp_selected_file_max_bytes,
+    normalize_selected_file_accept,
+    selected_file_policy_status,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -294,6 +302,20 @@ class _VideoTrack(MediaStreamTrack):
             await self._frame_available.wait()
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingFileSelection:
+    """Accept suffixes and size budget for one armed file-selector request."""
+
+    accept: tuple[str, ...]
+    """Filename suffixes the client may upload, empty for any type."""
+
+    max_bytes: int
+    """Maximum file bytes, already clamped to the window ceiling."""
+
+    generation: int
+    """Gate generation that armed this request; a later generation drops it."""
+
+
 class WebRTCServer:
     """Own the HTTP, signaling, input buffering, and media transport."""
 
@@ -325,6 +347,8 @@ class WebRTCServer:
         self._port = port
         self._startup_timeout_seconds = startup_timeout_seconds
         self._input_callback: Callable[[UserInputEvent], None] | None = None
+        self._file_selection_current_callback: Callable[[str, int], bool] | None = None
+        self._file_selection_invalidate_callback: Callable[[bool], None] | None = None
         self._started = threading.Event()
         self._startup_error: BaseException | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -346,6 +370,9 @@ class WebRTCServer:
         self._client_connected = False
         self._hide_cursor = False
         self._lock_cursor_to_window = False
+        self._queued_file_selectors: list[tuple[dict[str, Any], int]] = []
+        self._pending_file_requests: dict[str, _PendingFileSelection] = {}
+        self._file_selector_lock = threading.Lock()
         self._thread = threading.Thread(
             target=self._run_server,
             name="flashdreams-webrtc",
@@ -436,6 +463,116 @@ class WebRTCServer:
 
         self._sent_cursor_options = cursor_options
 
+    def request_selected_files(
+        self,
+        request_id: str,
+        initial_path: str | None = None,
+        *,
+        accept: Sequence[str] = (),
+        max_bytes: int | None = None,
+        generation: int,
+    ) -> None:
+        """Ask the connected browser to open a file selector.
+
+        Args:
+            request_id: Stable selector-slot id from the UI control.
+            initial_path: Ignored; the browser picker cannot use a host path.
+            accept: Filename suffixes such as ``.png``. Empty allows any type.
+            max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
+            generation: Gate generation that admitted this request.
+        """
+        del initial_path
+        if not isinstance(request_id, str) or not request_id:
+            raise ValueError("request_id must be a non-empty string.")
+        suffixes = normalize_selected_file_accept(accept)
+        budget = clamp_selected_file_max_bytes(max_bytes)
+        payload: dict[str, Any] = {
+            "type": "file_selector",
+            "id": request_id,
+            "accept": list(suffixes),
+            "max_bytes": budget,
+        }
+        loop = self._loop
+        if loop is None:
+            raise RuntimeError("WebRTC server is not running.")
+        loop.call_soon_threadsafe(self._arm_file_selector, payload, generation)
+
+    def _arm_file_selector(self, payload: dict[str, Any], generation: int) -> None:
+        """Record pending policy and send or queue the selector request."""
+        request_id = payload["id"]
+        if not isinstance(request_id, str):
+            raise TypeError("file selector id must be a string.")
+        accept = payload["accept"]
+        max_bytes = payload["max_bytes"]
+        if not isinstance(accept, list) or not isinstance(max_bytes, int):
+            raise TypeError("file selector payload must include accept and max_bytes.")
+        with self._file_selector_lock:
+            if not self._file_selection_is_current(request_id, generation):
+                return
+            self._pending_file_requests[request_id] = _PendingFileSelection(
+                accept=tuple(accept),
+                max_bytes=max_bytes,
+                generation=generation,
+            )
+            channel = self._control_channel
+            if channel is None or channel.readyState != "open":
+                self._queued_file_selectors.append((payload, generation))
+                return
+        channel.send(json.dumps(payload))
+
+    def _take_pending_file_request(
+        self, request_id: str
+    ) -> _PendingFileSelection | None:
+        """Return and consume the policy for ``request_id``, if it was pending."""
+        with self._file_selector_lock:
+            return self._pending_file_requests.pop(request_id, None)
+
+    def _file_selection_is_current(self, request_id: str, generation: int) -> bool:
+        """Return whether the window gate still owns this in-flight request."""
+        if self._closed:
+            return False
+        callback = self._file_selection_current_callback
+        if callback is None:
+            return False
+        return callback(request_id, generation)
+
+    def _invalidate_file_selectors(self, *, deliver_unavailable: bool) -> None:
+        """Drop transport state and finish the window's current file generation."""
+        with self._file_selector_lock:
+            self._pending_file_requests.clear()
+            self._queued_file_selectors.clear()
+            callback = self._file_selection_invalidate_callback
+            if callback is not None:
+                callback(deliver_unavailable)
+
+    def _complete_abandoned_file_selectors(self) -> None:
+        """Finish leftover picks because the interactive client is gone."""
+        self._invalidate_file_selectors(deliver_unavailable=True)
+
+    def _flush_queued_file_selectors(self) -> None:
+        """Send file-selector requests that arrived before the datachannel opened."""
+        with self._file_selector_lock:
+            queued = self._queued_file_selectors
+            self._queued_file_selectors = []
+            ready: list[tuple[dict[str, Any], int]] = []
+            for payload, generation in queued:
+                request_id = payload["id"]
+                if isinstance(request_id, str) and self._file_selection_is_current(
+                    request_id, generation
+                ):
+                    ready.append((payload, generation))
+        for payload, generation in ready:
+            channel = self._control_channel
+            if channel is None or channel.readyState != "open":
+                with self._file_selector_lock:
+                    request_id = payload["id"]
+                    if isinstance(request_id, str) and self._file_selection_is_current(
+                        request_id, generation
+                    ):
+                        self._queued_file_selectors.append((payload, generation))
+                continue
+            channel.send(json.dumps(payload))
+
     def event_timestamp_us(self) -> np.uint64:
         """Return the current timestamp relative to this server's first session.
 
@@ -498,6 +635,7 @@ class WebRTCServer:
             # Keep timestamps comparable across sessions so events buffered
             # during a handoff retain their real order.
             self._event_origin_ns = time.monotonic_ns()
+        self._invalidate_file_selectors(deliver_unavailable=False)
 
     def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
         """Change the dimensions used to present subsequent UI frames.
@@ -553,6 +691,42 @@ class WebRTCServer:
         if self._input_callback is not None:
             raise RuntimeError("An input callback is already registered.")
         self._input_callback = callback
+
+    def register_file_selection_current_callback(
+        self, callback: Callable[[str, int], bool]
+    ) -> None:
+        """Register the gate check for in-flight file-selector work.
+
+        Args:
+            callback: ``True`` when ``request_id`` is still current for
+                ``generation``.
+
+        Raises:
+            RuntimeError: A callback has already been registered.
+        """
+        if self._file_selection_current_callback is not None:
+            raise RuntimeError(
+                "A file-selection current callback is already registered."
+            )
+        self._file_selection_current_callback = callback
+
+    def register_file_selection_invalidate_callback(
+        self, callback: Callable[[bool], None]
+    ) -> None:
+        """Register the function that finishes a file-selection generation.
+
+        Args:
+            callback: Called with ``True`` to emit ``unavailable`` for leftovers
+                and ``False`` to drop them without delivering.
+
+        Raises:
+            RuntimeError: A callback has already been registered.
+        """
+        if self._file_selection_invalidate_callback is not None:
+            raise RuntimeError(
+                "A file-selection invalidate callback is already registered."
+            )
+        self._file_selection_invalidate_callback = callback
 
     def write(self, result: StepResult) -> None:
         """Materialize and admit one generated result to the sender mailbox.
@@ -720,11 +894,12 @@ class WebRTCServer:
     async def _start_server(self) -> None:
         """Create and bind the standalone aiohttp application."""
         self._offer_lock = asyncio.Lock()
-        app = web.Application()
+        app = web.Application(client_max_size=MAX_SELECTED_FILE_BYTES + 1024 * 1024)
         app.router.add_get("/", self._serve_browser)
         app.router.add_get("/app.js", self._serve_browser_script)
         app.router.add_get("/healthz", self._health)
         app.router.add_post("/api/webrtc/offer", self._offer)
+        app.router.add_post("/api/files", self._upload_selected_file)
         runner = web.AppRunner(app)
         await runner.setup()
         address_family = socket.AF_INET6 if ":" in self._host else socket.AF_INET
@@ -761,6 +936,78 @@ class WebRTCServer:
                 "lock_cursor_to_window": self._lock_cursor_to_window,
             }
         )
+
+    async def _upload_selected_file(self, request: web.Request) -> web.Response:
+        """Turn a browser file upload into a selected-files input event."""
+        if self._closed:
+            raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
+        timestamp_us = self._timestamp_us()
+        if timestamp_us is None:
+            raise web.HTTPConflict(reason="WebRTC server is not open.")
+        request_id = request.query.get("request_id")
+        if not isinstance(request_id, str) or not request_id:
+            raise web.HTTPBadRequest(reason="File upload requires request_id.")
+        policy = self._take_pending_file_request(request_id)
+        if policy is None:
+            raise web.HTTPConflict(
+                reason="No pending file selection for this request_id."
+            )
+
+        emitted = False
+
+        def emit(
+            status: SelectedFilesStatus,
+            files: tuple[SelectedFile, ...] = (),
+        ) -> None:
+            nonlocal emitted
+            if not self._file_selection_is_current(request_id, policy.generation):
+                raise web.HTTPConflict(
+                    reason="No pending file selection for this request_id."
+                )
+            self._emit_selected_files(
+                timestamp_us,
+                request_id,
+                status=status,
+                files=files,
+                generation=policy.generation,
+            )
+            emitted = True
+
+        try:
+            try:
+                post = await request.post()
+            except web.HTTPRequestEntityTooLarge:
+                emit(SelectedFilesStatus.TOO_LARGE)
+                raise
+            upload = post.get("file")
+            if not isinstance(upload, FileField):
+                emit(SelectedFilesStatus.UNAVAILABLE)
+                raise web.HTTPBadRequest(reason="File upload requires a file.")
+            data = upload.file.read()
+            name = upload.filename or "upload"
+            rejected = selected_file_policy_status(
+                name, len(data), accept=policy.accept, max_bytes=policy.max_bytes
+            )
+            if rejected is SelectedFilesStatus.DISALLOWED_TYPE:
+                emit(rejected)
+                return web.Response(status=204)
+            if rejected is SelectedFilesStatus.TOO_LARGE:
+                emit(rejected)
+                raise web.HTTPRequestEntityTooLarge(
+                    max_size=policy.max_bytes,
+                    actual_size=len(data),
+                )
+            emit(
+                SelectedFilesStatus.OK,
+                files=(SelectedFile(name=name, data=data),),
+            )
+            return web.Response(status=204)
+        finally:
+            if not emitted:
+                try:
+                    emit(SelectedFilesStatus.UNAVAILABLE)
+                except web.HTTPConflict:
+                    pass
 
     async def _offer(self, request: web.Request) -> web.Response:
         """Negotiate one browser peer connection."""
@@ -815,12 +1062,14 @@ class WebRTCServer:
                     def on_open() -> None:
                         if self._peer_connection is peer_connection:
                             self._send_cursor_options()
+                            self._flush_queued_file_selectors()
 
                     if (
                         self._peer_connection is peer_connection
                         and channel.readyState == "open"
                     ):
                         self._send_cursor_options()
+                        self._flush_queued_file_selectors()
 
                 @channel.on("message")
                 def on_message(message: Any) -> None:
@@ -903,6 +1152,7 @@ class WebRTCServer:
             self._sent_cursor_options = None
             if control_channel is not None and control_channel.readyState == "open":
                 self._send_cursor_options()
+                self._flush_queued_file_selectors()
             query_string = request.rel_url.raw_query_string
             if query_string:
                 timestamp_us = self._timestamp_us()
@@ -1080,6 +1330,31 @@ class WebRTCServer:
             event = ResetUserInputEvent(timestamp=timestamp_us)
         elif event_type == "close":
             event = CloseUserInputEvent(timestamp=timestamp_us)
+        elif event_type == "file_selector_result":
+            request_id = payload.get("id")
+            if not isinstance(request_id, str) or not request_id:
+                raise ValueError("File selector result requires a non-empty id.")
+            try:
+                status = SelectedFilesStatus(payload.get("status"))
+            except ValueError as error:
+                raise ValueError("File selector result status is invalid.") from error
+            if status is SelectedFilesStatus.OK:
+                raise ValueError(
+                    "File selector result must not set status ok; send files "
+                    "with POST /api/files."
+                )
+            policy = self._take_pending_file_request(request_id)
+            if policy is None:
+                return
+            if not self._file_selection_is_current(request_id, policy.generation):
+                return
+            self._emit_selected_files(
+                timestamp_us,
+                request_id,
+                status=status,
+                generation=policy.generation,
+            )
+            return
         else:
             raise ValueError("Unsupported browser event type.")
         self._append_event(event)
@@ -1090,6 +1365,26 @@ class WebRTCServer:
         if callback is None:
             raise RuntimeError("WebRTC input callback is not registered.")
         callback(event)
+
+    def _emit_selected_files(
+        self,
+        timestamp_us: np.uint64,
+        request_id: str,
+        *,
+        status: SelectedFilesStatus,
+        files: tuple[SelectedFile, ...] = (),
+        generation: int,
+    ) -> None:
+        """Append one selected-files event."""
+        self._append_event(
+            SelectedFilesUserInputEvent(
+                timestamp=timestamp_us,
+                request_id=request_id,
+                status=status,
+                files=files,
+                generation=generation,
+            )
+        )
 
     async def _release_peer_connection(
         self,
@@ -1109,6 +1404,7 @@ class WebRTCServer:
             self._control_channel = None
             self._video_track = None
             self._sent_cursor_options = None
+            self._complete_abandoned_file_selectors()
         else:
             track = detached_video_track
         failures: list[BaseException] = []

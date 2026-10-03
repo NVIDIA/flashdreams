@@ -5,13 +5,15 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, final
 
 import torch
@@ -22,6 +24,7 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     UserInputEvent,
+    normalize_selected_file_accept,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -30,6 +33,8 @@ if TYPE_CHECKING:
     from flashdreams.runtime_v2.session_desc import SessionDesc
 
 StateT = TypeVar("StateT")
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class _ModelStepControl(Protocol):
@@ -72,6 +77,23 @@ class _Message(Generic[StateT]):
     """Operation to run before the loop's next step."""
 
 
+@dataclass(frozen=True, slots=True)
+class FileSelectionRequest:
+    """One client file-selector request queued by a UI loop."""
+
+    request_id: str
+    """Stable selector-slot id from the UI control that asked for a file."""
+
+    initial_path: str
+    """Directory the selector should start in."""
+
+    accept: tuple[str, ...] = ()
+    """Filename suffixes the client may choose, empty for any type."""
+
+    max_bytes: int | None = None
+    """Requested size budget in bytes, or ``None`` for the window ceiling."""
+
+
 @dataclass(slots=True)
 class UILoopRequests:
     """Changes requested by a UI loop for the session runtime to apply.
@@ -90,6 +112,9 @@ class UILoopRequests:
 
     new_window_size: tuple[int, int] | None = None
     """Requested downstream window size, or ``None`` to leave it unchanged."""
+
+    file_selections: list[FileSelectionRequest] = field(default_factory=list)
+    """File-selector requests to apply, in the order they were queued."""
 
 
 class ILoop(ABC, Generic[StateT]):
@@ -518,6 +543,93 @@ class IUILoop(ILoop[StateT], ABC):
             raise ValueError("new_window_size dimensions must be > 0.")
         self.get_or_create_ui_loop_requests().new_window_size = new_window_size
 
+    @final
+    def request_selected_files(
+        self,
+        request_id: str,
+        initial_path: str | None = None,
+        *,
+        accept: Sequence[str] = (),
+        max_bytes: int | None = None,
+    ) -> None:
+        """Ask the client window to open a file selector.
+
+        The window reports the result later as
+        :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`.
+        Read ``status`` for cancel, oversize, disallowed type, or unavailable;
+        ``files`` is non-empty only when the pick succeeded. A second call with
+        the same ``request_id`` while the first is still active or queued is
+        ignored so the original picker can still complete. Distinct ids are
+        forwarded in order; the window shows one client selector at a time.
+        Use one stable ``request_id`` per UI control so extra clicks while the
+        picker is opening are ignored; two controls use two ids and are served
+        in order. A new id on every click is a new control and queues another
+        dialog. Every accepted request later produces one event. ``cancelled``
+        is only a user dismiss. ``unavailable`` is a pick that could not
+        complete: no interactive client, a gone client, a failed chooser, a
+        missing upload, or an unreadable file. If the interactive client is
+        gone while the session continues (dropped WebRTC peer, closed native
+        window), leftovers complete as ``unavailable``. In-flight picks are
+        dropped the same way.
+        A picker that outlives that client cannot complete a later request that
+        reused the id.
+
+        ``accept`` and ``max_bytes`` are the application's policy. Windows
+        classify the choice with
+        :func:`~flashdreams.runtime_v2.user_input_event.selected_file_policy_status`
+        (type before size) and clamp ``max_bytes`` to the 32 MiB ceiling so a
+        client cannot raise the cap.
+
+        Args:
+            request_id: Stable id for this selector slot, typically one per
+                UI control. Reuse it after the matching event arrives.
+            initial_path: Directory the selector should start in; ``None`` uses
+                the current user's home directory.
+            accept: Filename suffixes such as ``.png``. Empty allows any type.
+            max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
+
+        Raises:
+            TypeError: ``request_id`` or ``initial_path`` is not a string, or
+                ``accept`` / ``max_bytes`` has the wrong type.
+            ValueError: ``request_id`` is empty, ``initial_path`` is empty, or
+                ``accept`` / ``max_bytes`` is invalid.
+        """
+        if not isinstance(request_id, str):
+            raise TypeError("request_id must be a string.")
+        if not request_id:
+            raise ValueError("request_id must be a non-empty string.")
+        if initial_path is None:
+            resolved_initial_path = str(Path.home())
+        else:
+            if not isinstance(initial_path, str):
+                raise TypeError("initial_path must be a string.")
+            if not initial_path:
+                raise ValueError("initial_path must be a non-empty string.")
+            resolved_initial_path = initial_path
+        suffixes = normalize_selected_file_accept(accept)
+        if max_bytes is not None:
+            if isinstance(max_bytes, bool) or not isinstance(max_bytes, int):
+                raise TypeError("max_bytes must be an integer.")
+            if max_bytes <= 0:
+                raise ValueError("max_bytes must be > 0.")
+        requests = self.get_or_create_ui_loop_requests()
+        if any(
+            selection.request_id == request_id for selection in requests.file_selections
+        ):
+            _LOGGER.warning(
+                "Ignoring duplicate file-selection request id %r.",
+                request_id,
+            )
+            return
+        requests.file_selections.append(
+            FileSelectionRequest(
+                request_id=request_id,
+                initial_path=resolved_initial_path,
+                accept=suffixes,
+                max_bytes=max_bytes,
+            )
+        )
+
     def get_or_create_ui_loop_requests(self) -> UILoopRequests:
         if self._ui_loop_requests is None:
             self._ui_loop_requests = UILoopRequests()
@@ -613,6 +725,7 @@ def invoke_async(loop: ILoop[StateT], operation: Callable[[StateT], None]) -> No
 
 
 __all__ = [
+    "FileSelectionRequest",
     "ILoop",
     "IModelLoop",
     "IUILoop",

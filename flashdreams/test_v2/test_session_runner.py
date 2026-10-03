@@ -7,7 +7,7 @@ import logging
 import queue
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -660,6 +660,9 @@ class RecordingClientWindow(IClientWindow):
         self.session_desc: SessionDesc | None = None
         self.results: list[StepResult] = []
         self.cursor_requests: list[tuple[str, bool]] = []
+        self.file_selection_requests: list[
+            tuple[str, str | None, tuple[str, ...], int | None]
+        ] = []
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Record one cursor visibility request."""
@@ -670,6 +673,20 @@ class RecordingClientWindow(IClientWindow):
         """Record one cursor capture request."""
         self._log.record("window.request_lock_cursor_to_window")
         self.cursor_requests.append(("lock", lock_cursor_to_window))
+
+    def request_selected_files(
+        self,
+        request_id: str,
+        initial_path: str | None = None,
+        *,
+        accept: Sequence[str] = (),
+        max_bytes: int | None = None,
+    ) -> None:
+        """Record one file-selector request."""
+        self._log.record("window.request_selected_files")
+        self.file_selection_requests.append(
+            (request_id, initial_path, tuple(accept), max_bytes)
+        )
 
     def get_user_input_events(self) -> UserInputEvents:
         self._log.record("window.get_user_input_events")
@@ -1363,6 +1380,29 @@ def test_run_session_returns_a_ui_requested_replacement_after_cleanup() -> None:
     assert "session.step(0)" not in log.calls
     assert log.calls[-1] == "session.close"
     assert "window.close" not in log.calls
+
+
+def test_run_session_forwards_file_selection_requests_to_the_window() -> None:
+    log = CallLog()
+
+    class RequestingSession(FakeSession):
+        def init(self) -> None:
+            super().init()
+            invoke_async(
+                self.ui_loop,
+                lambda _: self.ui_loop.request_selected_files(
+                    "open-1",
+                    "/tmp",
+                    accept=(".png",),
+                    max_bytes=1024,
+                ),
+            )
+
+    window = RecordingClientWindow(log)
+    run_session(RequestingSession(_session_desc(), log), window, steps=1)
+
+    assert window.file_selection_requests == [("open-1", "/tmp", (".png",), 1024)]
+    assert "window.request_selected_files" in log.calls
 
 
 def test_timeout_wins_over_a_ui_requested_replacement() -> None:

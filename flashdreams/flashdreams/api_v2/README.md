@@ -223,7 +223,28 @@ exposes `imgui_bundle.imgui` and an image-like pixel upload convenience form. A
 UI control that needs a fresh application session calls
 `request_new_session(session_desc)` with a fully resolved replacement
 description; the runtime cleans the current session and passes that description
-to `ApplicationRunner` unchanged.
+to `ApplicationRunner` unchanged. A control that needs a file from the client
+calls `request_selected_files(request_id, accept=..., max_bytes=...)`; the
+window later reports `SelectedFilesUserInputEvent` through the same input
+stream as keyboard and mouse. ``accept`` (filename suffixes such as ``.png``)
+and ``max_bytes`` are the application's policy; windows classify the choice
+with `selected_file_policy_status` (type before size) and clamp size to 32 MiB
+so a client cannot raise the cap. Empty ``accept`` (the default) allows any
+type; omit ``max_bytes`` to use the 32 MiB ceiling. Read ``status`` for the
+outcome (`ok`, `cancelled`, `too_large`, `disallowed_type`, `unavailable`);
+``files`` is non-empty only on `ok`. Give each UI control a stable
+`request_id` and reuse it after the matching event: extra clicks on that
+control while a picker is opening are ignored. A new id on every click is
+a new control and queues another dialog. Distinct controls use distinct
+ids and are served one client dialog at a time. Every accepted request later
+produces one event. `cancelled` is only a user dismiss. `unavailable` is a
+pick that could not complete: no interactive client, a gone client, a failed
+chooser, a missing upload, or an unreadable file. If the interactive
+client is gone while the session continues (dropped WebRTC peer, closed native
+window), leftovers complete as `unavailable`. In-flight picks are dropped the
+same way. A picker that outlives that client cannot complete a later request that
+reused the id.
+
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The
 [`slangpy_ui_demo` integration](../../../integrations_v2/slangpy_ui_demo/README.md)

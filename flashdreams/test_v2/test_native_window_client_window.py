@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
@@ -27,6 +29,8 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    SelectedFilesStatus,
+    SelectedFilesUserInputEvent,
 )
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -35,6 +39,15 @@ if TYPE_CHECKING:
     import slangpy as spy
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _wait_for_input_events(window: NativeWindowClientWindow) -> list[object]:
+    for _ in range(100):
+        events = window.get_user_input_events().get_events()
+        if events:
+            return list(events)
+        time.sleep(0.01)
+    return []
 
 
 def _session_desc() -> SessionDesc:
@@ -612,6 +625,380 @@ def test_cursor_options_can_change_while_native_window_is_running() -> None:
     unlocked_mouse = cast(MouseUserInputEvent, unlocked_events[0])
     assert (locked_mouse.x, locked_mouse.y) == (1.5, -0.5)
     assert (unlocked_mouse.x, unlocked_mouse.y) == (1.0, 0.0)
+
+
+def test_native_window_reports_a_selected_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    chosen = tmp_path / "seed.png"
+    chosen.write_bytes(b"png-bytes")
+    monkeypatch.setattr(
+        native_window_module,
+        "_ask_open_filename",
+        lambda *, initial_dir, accept=(): str(chosen),
+    )
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.OK
+    assert event.files[0].name == "seed.png"
+    assert event.files[0].data == b"png-bytes"
+
+
+def test_native_window_reports_cancelled_file_selection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        native_window_module,
+        "_ask_open_filename",
+        lambda *, initial_dir, accept=(): "",
+    )
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.CANCELLED
+    assert event.files == ()
+
+
+def test_native_window_reports_unavailable_when_picker_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fail_picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+        del initial_dir, accept
+        raise RuntimeError("Native file picker needs a desktop chooser.")
+
+    monkeypatch.setattr(native_window_module, "_ask_open_filename", fail_picker)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.UNAVAILABLE
+    assert event.files == ()
+
+
+def test_native_window_serves_one_file_selection_at_a_time(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    first_entered = threading.Event()
+    first_released = threading.Event()
+    calls: list[tuple[str, ...]] = []
+
+    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+        del initial_dir
+        calls.append(accept)
+        if len(calls) == 1:
+            first_entered.set()
+            assert first_released.wait(timeout=2.0)
+        return ""
+
+    monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path), accept=(".bin",))
+    assert first_entered.wait(timeout=2.0)
+    window.request_selected_files("open-2", str(tmp_path), accept=(".raw",))
+    assert calls == [(".bin",)]
+    first_released.set()
+    events = []
+    for _ in range(200):
+        events.extend(window.get_user_input_events().get_events())
+        if len(events) >= 2:
+            break
+        time.sleep(0.01)
+    window.close()
+
+    picks = [
+        event for event in events if isinstance(event, SelectedFilesUserInputEvent)
+    ]
+    assert [event.request_id for event in picks] == ["open-1", "open-2"]
+    assert all(event.status is SelectedFilesStatus.CANCELLED for event in picks)
+    assert calls == [(".bin",), (".raw",)]
+
+
+def test_native_window_ignores_duplicate_in_flight_file_selection_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    released = threading.Event()
+    entered = threading.Event()
+    calls: list[int] = []
+
+    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+        del initial_dir, accept
+        calls.append(1)
+        entered.set()
+        if len(calls) == 1:
+            assert released.wait(timeout=2.0)
+        return ""
+
+    monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    assert entered.wait(timeout=2.0)
+    window.request_selected_files("open-1", str(tmp_path))
+    time.sleep(0.05)
+    assert calls == [1]
+    released.set()
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.CANCELLED
+
+
+def test_native_window_close_completes_leftover_file_selections(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    entered = threading.Event()
+    released = threading.Event()
+    late = tmp_path / "late.bin"
+    late.write_bytes(b"late")
+
+    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+        del initial_dir, accept
+        entered.set()
+        assert released.wait(timeout=2.0)
+        return str(late)
+
+    monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    window.request_selected_files("open-2", str(tmp_path))
+    assert entered.wait(timeout=2.0)
+    presenter.pending_events.put(("close", None))
+    events = window.get_user_input_events().get_events()
+    released.set()
+    time.sleep(0.05)
+    extra = window.get_user_input_events().get_events()
+    window.close()
+
+    assert extra == []
+    picks = [
+        event for event in events[:-1] if isinstance(event, SelectedFilesUserInputEvent)
+    ]
+    assert [event.request_id for event in picks] == ["open-1", "open-2"]
+    assert all(
+        event.status is SelectedFilesStatus.UNAVAILABLE and event.files == ()
+        for event in picks
+    )
+    assert isinstance(events[-1], CloseUserInputEvent)
+
+
+def test_native_window_replacement_open_drops_leftover_file_selections(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    entered = threading.Event()
+    released = threading.Event()
+    calls: list[int] = []
+
+    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+        del initial_dir, accept
+        calls.append(1)
+        entered.set()
+        assert released.wait(timeout=2.0)
+        return str(tmp_path / "late.bin")
+
+    monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    window.request_selected_files("open-2", str(tmp_path))
+    assert entered.wait(timeout=2.0)
+    window.open(_session_desc())
+    events = window.get_user_input_events().get_events()
+    released.set()
+    time.sleep(0.05)
+    extra = window.get_user_input_events().get_events()
+    window.close()
+
+    assert events == []
+    assert extra == []
+    assert calls == [1]
+
+
+def test_native_window_stale_picker_does_not_complete_reused_request_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    first_entered = threading.Event()
+    first_released = threading.Event()
+    second_entered = threading.Event()
+    second_released = threading.Event()
+    zombie = tmp_path / "zombie.bin"
+    zombie.write_bytes(b"old")
+    calls: list[int] = []
+
+    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+        del initial_dir, accept
+        calls.append(1)
+        if len(calls) == 1:
+            first_entered.set()
+            assert first_released.wait(timeout=2.0)
+            return str(zombie)
+        second_entered.set()
+        assert second_released.wait(timeout=2.0)
+        return ""
+
+    monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    assert first_entered.wait(timeout=2.0)
+    window.close()
+    window.open(_session_desc())
+    window.request_selected_files("open-1", str(tmp_path))
+    assert second_entered.wait(timeout=2.0)
+    first_released.set()
+    time.sleep(0.05)
+    assert window.get_user_input_events().get_events() == []
+    second_released.set()
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.CANCELLED
+    assert event.files == ()
+
+
+def test_selected_file_from_path_skips_unreadable_and_oversize(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "gone.png"
+    chosen, status = native_window_module._selected_file_from_path(missing)
+    assert chosen is None
+    assert status is SelectedFilesStatus.UNAVAILABLE
+
+    too_big = tmp_path / "big.bin"
+    too_big.write_bytes(b"abcd")
+    chosen, status = native_window_module._selected_file_from_path(too_big, max_bytes=3)
+    assert chosen is None
+    assert status is SelectedFilesStatus.TOO_LARGE
+
+    wrong_type = tmp_path / "notes.txt"
+    wrong_type.write_bytes(b"hi")
+    chosen, status = native_window_module._selected_file_from_path(
+        wrong_type, accept=(".png",)
+    )
+    assert chosen is None
+    assert status is SelectedFilesStatus.DISALLOWED_TYPE
+
+
+def test_ask_open_filename_linux_uses_zenity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        native_window_module.shutil,
+        "which",
+        lambda name: "/usr/bin/zenity" if name == "zenity" else None,
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(argv: list[str], **kwargs: object) -> object:
+        calls.append(argv)
+        return SimpleNamespace(returncode=0, stdout="/tmp/seed.png\n")
+
+    monkeypatch.setattr(native_window_module.subprocess, "run", fake_run)
+    assert (
+        native_window_module._ask_open_filename_linux(initial_dir="/tmp")
+        == "/tmp/seed.png"
+    )
+    assert calls[0][0] == "/usr/bin/zenity"
+    assert "--file-selection" in calls[0]
+    assert any(arg.startswith("--filename=/tmp/") for arg in calls[0])
+    assert not any(arg.startswith("--file-filter=") for arg in calls[0])
+    assert (
+        native_window_module._ask_open_filename_linux(
+            initial_dir="/tmp",
+            accept=(".png", ".jpg"),
+        )
+        == "/tmp/seed.png"
+    )
+    assert "--file-filter=Accepted | *.png *.jpg" in calls[1]
+
+
+def test_ask_open_filename_linux_cancel_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        native_window_module.shutil,
+        "which",
+        lambda name: "/usr/bin/zenity" if name == "zenity" else None,
+    )
+    monkeypatch.setattr(
+        native_window_module.subprocess,
+        "run",
+        lambda argv, **kwargs: SimpleNamespace(returncode=1, stdout=""),
+    )
+    assert native_window_module._ask_open_filename_linux(initial_dir="/tmp") == ""
+
+
+def test_ask_open_filename_linux_error_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        native_window_module.shutil,
+        "which",
+        lambda name: "/usr/bin/zenity" if name == "zenity" else None,
+    )
+    monkeypatch.setattr(
+        native_window_module.subprocess,
+        "run",
+        lambda argv, **kwargs: SimpleNamespace(
+            returncode=5, stdout="", stderr="no display"
+        ),
+    )
+    with pytest.raises(RuntimeError, match="exit 5"):
+        native_window_module._ask_open_filename_linux(initial_dir="/tmp")
 
 
 def test_native_window_reports_standard_gamepad_events() -> None:

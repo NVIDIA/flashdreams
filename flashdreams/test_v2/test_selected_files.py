@@ -1,0 +1,232 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""CPU tests for client file selection through the v2 window contract."""
+
+import queue
+import threading
+from pathlib import Path
+
+import pytest
+from numpy import uint64
+
+from flashdreams.api_v2.loop import IUILoop
+from flashdreams.runtime_v2.file_selection_gate import (
+    FileSelectionGate,
+    QueuedFileSelection,
+)
+from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
+from flashdreams.runtime_v2.null_client_window import NullClientWindow
+from flashdreams.runtime_v2.presentation_manager import PresentationManager
+from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import (
+    MAX_SELECTED_FILE_BYTES,
+    SelectedFile,
+    SelectedFilesStatus,
+    SelectedFilesUserInputEvent,
+    clamp_selected_file_max_bytes,
+    normalize_selected_file_accept,
+    selected_file_policy_status,
+    selected_file_suffix_allowed,
+)
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
+pytestmark = pytest.mark.ci_cpu
+
+
+class _UILoop(IUILoop[None]):
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        del step_index, events
+        return []
+
+    def reset(self) -> None:
+        return
+
+
+def _ui_loop() -> _UILoop:
+    loop = _UILoop()
+    loop.register_session_loop_objects(
+        state=None,
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    loop.register_session_ui_loop_objects(
+        session_desc=SessionDesc(),
+        presentation_manager=PresentationManager(),
+    )
+    return loop
+
+
+def test_selected_files_event_carries_bytes_and_request_id() -> None:
+    event = SelectedFilesUserInputEvent(
+        timestamp=uint64(1),
+        request_id="open-1",
+        status=SelectedFilesStatus.OK,
+        files=(SelectedFile(name="seed.png", data=b"png"),),
+    )
+
+    assert event.get_type_name() == "selected_files"
+    assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.OK
+    assert event.files[0].data == b"png"
+
+
+def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
+    loop = _ui_loop()
+    loop.request_selected_files(
+        "open-1",
+        "/tmp",
+        accept=(".png", ".JPG"),
+        max_bytes=MAX_SELECTED_FILE_BYTES * 2,
+    )
+    loop.request_selected_files("open-1", "/var")
+
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None
+    assert len(requests.file_selections) == 1
+    selection = requests.file_selections[0]
+    assert selection.request_id == "open-1"
+    assert selection.initial_path == "/tmp"
+    assert selection.accept == (".png", ".JPG")
+    assert selection.max_bytes == MAX_SELECTED_FILE_BYTES * 2
+
+
+def test_ui_loop_forwards_distinct_file_selection_ids() -> None:
+    loop = _ui_loop()
+    loop.request_selected_files("open-1", "/tmp")
+    loop.request_selected_files("open-2", "/var")
+
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None
+    assert [item.request_id for item in requests.file_selections] == [
+        "open-1",
+        "open-2",
+    ]
+
+
+def _queued(request_id: str) -> QueuedFileSelection:
+    return QueuedFileSelection(
+        request_id=request_id,
+        initial_path="/tmp",
+        accept=(".bin",),
+        max_bytes=16,
+    )
+
+
+def test_file_selection_gate_ignores_duplicates_and_serves_one_at_a_time() -> None:
+    gate = FileSelectionGate()
+    assert gate.submit(_queued("open-1")) is not None
+    assert gate.submit(_queued("open-1")) is None
+    assert gate.submit(_queued("open-2")) is None
+    assert gate.submit(_queued("open-2")) is None
+    assert gate.complete("open-2") == (False, None)
+    claimed, nxt = gate.complete("open-1")
+    assert claimed
+    assert nxt is not None
+    assert nxt.request_id == "open-2"
+    assert gate.complete("open-2") == (True, None)
+
+
+def test_file_selection_gate_drain_returns_active_then_queued() -> None:
+    gate = FileSelectionGate()
+    assert gate.submit(_queued("open-1")) is not None
+    assert gate.submit(_queued("open-2")) is None
+    claimed, nxt = gate.complete("open-1")
+    assert claimed
+    assert nxt is not None
+    assert [item.request_id for item in gate.drain()] == ["open-2"]
+    assert gate.drain() == ()
+
+
+def test_file_selection_gate_stale_complete_does_not_release_new_request() -> None:
+    gate = FileSelectionGate()
+    first = gate.submit(_queued("open-1"))
+    assert first is not None
+    stale_generation = first.generation
+    gate.drain()
+    second = gate.submit(_queued("open-1"))
+    assert second is not None
+    assert second.generation != stale_generation
+    assert gate.complete("open-1", generation=stale_generation) == (False, None)
+    assert gate.is_current("open-1", second.generation)
+    assert gate.complete("open-1", generation=second.generation) == (True, None)
+
+
+def test_file_selection_gate_complete_after_drain_is_not_claimed() -> None:
+    gate = FileSelectionGate()
+    first = gate.submit(_queued("open-1"))
+    assert first is not None
+    leftover = gate.drain()
+    assert leftover[0].request_id == "open-1"
+    assert gate.complete("open-1", first.generation) == (False, None)
+
+
+def test_selected_file_policy_helpers() -> None:
+    assert clamp_selected_file_max_bytes(None) == MAX_SELECTED_FILE_BYTES
+    assert clamp_selected_file_max_bytes(16) == 16
+    assert clamp_selected_file_max_bytes(MAX_SELECTED_FILE_BYTES * 2) == (
+        MAX_SELECTED_FILE_BYTES
+    )
+    assert normalize_selected_file_accept([".png", ".jpg"]) == (".png", ".jpg")
+    assert selected_file_suffix_allowed("seed.PNG", (".png",))
+    assert not selected_file_suffix_allowed("seed.txt", (".png",))
+    assert selected_file_suffix_allowed("seed.txt", ())
+    assert (
+        selected_file_policy_status("seed.txt", 99, accept=(".png",), max_bytes=3)
+        is SelectedFilesStatus.DISALLOWED_TYPE
+    )
+    assert (
+        selected_file_policy_status("seed.png", 99, accept=(".png",), max_bytes=3)
+        is SelectedFilesStatus.TOO_LARGE
+    )
+    assert (
+        selected_file_policy_status("seed.png", 2, accept=(".png",), max_bytes=3)
+        is None
+    )
+
+
+def test_ui_loop_rejects_invalid_accept() -> None:
+    loop = _ui_loop()
+    with pytest.raises(ValueError, match="accept suffixes"):
+        loop.request_selected_files("open-1", accept=("png",))
+
+
+def test_selected_files_event_rejects_inconsistent_status() -> None:
+    with pytest.raises(ValueError, match="must include files"):
+        SelectedFilesUserInputEvent(
+            timestamp=uint64(1),
+            request_id="open-1",
+            status=SelectedFilesStatus.OK,
+        )
+    with pytest.raises(ValueError, match="must not include files"):
+        SelectedFilesUserInputEvent(
+            timestamp=uint64(1),
+            request_id="open-1",
+            status=SelectedFilesStatus.CANCELLED,
+            files=(SelectedFile(name="seed.png", data=b"png"),),
+        )
+
+
+@pytest.mark.parametrize("kind", ["mp4", "null"])
+def test_headless_window_completes_queued_file_selections_as_unavailable(
+    kind: str, tmp_path: Path
+) -> None:
+    window = (
+        Mp4ClientWindow(tmp_path / "clip.mp4") if kind == "mp4" else NullClientWindow()
+    )
+    window.request_selected_files("open-1", "/tmp")
+    window.request_selected_files("open-2", "/var")
+
+    events = window.get_user_input_events().get_events()
+
+    picks = [
+        event for event in events if isinstance(event, SelectedFilesUserInputEvent)
+    ]
+    assert [event.request_id for event in picks] == ["open-1", "open-2"]
+    assert all(
+        event.status is SelectedFilesStatus.UNAVAILABLE and event.files == ()
+        for event in picks
+    )
+    assert window.get_user_input_events().get_events() == []
