@@ -15,6 +15,7 @@ from flashdreams.accelerated.multi_head_attention.triton.flash_attention_2_kerne
     flash_attention_2,
 )
 from flashdreams.accelerated.multi_head_attention.triton.flash_attention_2_tma_kernel import (
+    _allocate_tma_workspace,
     flash_attention_2_tma,
     is_tma_flash_attention_supported,
 )
@@ -36,31 +37,34 @@ def _quantize_qk_rows_kernel(
     HEAD_DIM: tl.constexpr,
     BLOCK_D: tl.constexpr,
     SUBTRACT_MEAN: tl.constexpr,
+    BLOCK_S: tl.constexpr,
 ):
-    """Quantize one Q/K row and optionally fuse sequence-mean subtraction."""
+    """Quantize one Q/K token block with optional mean subtraction."""
     row = tl.program_id(0)
     head = row % num_heads
-    sequence = (row // num_heads) % sequence_length
-    batch = row // (num_heads * sequence_length)
+    block_count = tl.cdiv(sequence_length, BLOCK_S)
+    sequence = ((row // num_heads) % block_count) * BLOCK_S + tl.arange(0, BLOCK_S)
+    batch = row // (num_heads * block_count)
     feature_offsets = tl.arange(0, BLOCK_D)
-    mask = feature_offsets < HEAD_DIM
+    mask = (sequence[:, None] < sequence_length) & (feature_offsets[None, :] < HEAD_DIM)
     values = tl.load(
         input_ptr
         + batch * input_stride_b
-        + sequence * input_stride_s
+        + sequence[:, None] * input_stride_s
         + head * input_stride_h
-        + feature_offsets,
+        + feature_offsets[None, :],
         mask=mask,
         other=0.0,
     ).to(tl.float32)
     if SUBTRACT_MEAN:
         values -= tl.load(
             mean_ptr + batch * mean_stride_b + head * mean_stride_h + feature_offsets,
-            mask=mask,
+            mask=feature_offsets < HEAD_DIM,
             other=0.0,
-        )
+        )[None, :]
+        values = tl.where(mask, values, 0.0)
     scale = tl.maximum(
-        tl.max(tl.abs(values), axis=0) / 127.0,
+        tl.max(tl.max(tl.abs(values), axis=1), axis=0) / 127.0,
         torch.finfo(torch.float32).tiny,
     )
     quantized = tl.maximum(
@@ -69,9 +73,9 @@ def _quantize_qk_rows_kernel(
     tl.store(
         output_ptr
         + batch * input_stride_b
-        + sequence * input_stride_s
+        + sequence[:, None] * input_stride_s
         + head * input_stride_h
-        + feature_offsets,
+        + feature_offsets[None, :],
         quantized,
         mask=mask,
     )
@@ -79,19 +83,21 @@ def _quantize_qk_rows_kernel(
 
 
 def _quantize_qk_rows(
-    input: Tensor, mean: Tensor | None = None
+    input: Tensor, mean: Tensor | None = None, block_size: int = 1
 ) -> tuple[Tensor, Tensor]:
-    """Dynamically quantize Q/K rows, optionally subtracting K mean in-kernel."""
+    """Dynamically quantize Q/K token blocks with optional K mean subtraction."""
     batch_size, sequence_length, num_heads, head_dim = input.shape
     output = torch.empty_like(input, dtype=torch.int8)
     scale = torch.empty(
-        (batch_size, sequence_length, num_heads, 1),
+        (batch_size, triton.cdiv(sequence_length, block_size), num_heads, 1),
         device=input.device,
         dtype=torch.float32,
     )
     if mean is None:
         mean = input
-    _quantize_qk_rows_kernel[(batch_size * sequence_length * num_heads,)](
+    _quantize_qk_rows_kernel[
+        (batch_size * triton.cdiv(sequence_length, block_size) * num_heads,)
+    ](
         input,
         mean,
         output,
@@ -106,6 +112,7 @@ def _quantize_qk_rows(
         HEAD_DIM=head_dim,
         BLOCK_D=triton.next_power_of_2(head_dim),
         SUBTRACT_MEAN=mean is not input,
+        BLOCK_S=block_size,
         num_warps=4,
     )
     return output, scale
@@ -165,6 +172,7 @@ def _value_channel_scale_kernel(
     num_heads: tl.constexpr,
     HEAD_DIM: tl.constexpr,
     BLOCK_PARTIAL: tl.constexpr,
+    SCALE_MAX: tl.constexpr,
 ):
     """Reduce tile maxima to one FP32 FP8 scale per value channel."""
     channel = tl.program_id(0)
@@ -182,7 +190,7 @@ def _value_channel_scale_kernel(
         other=0.0,
     )
     scale = tl.maximum(
-        tl.max(maxima, axis=0) / 448.0,
+        tl.max(maxima, axis=0) / SCALE_MAX,
         torch.finfo(torch.float32).tiny,
     )
     tl.store(
@@ -199,6 +207,10 @@ def _quantize_value_channels_kernel(
     value_stride_b,
     value_stride_s,
     value_stride_h,
+    output_stride_b: tl.constexpr,
+    output_stride_s: tl.constexpr,
+    output_stride_h: tl.constexpr,
+    output_stride_d: tl.constexpr,
     scale_stride_b,
     scale_stride_h,
     sequence_length,
@@ -227,10 +239,27 @@ def _quantize_value_channels_kernel(
     quantized = tl.maximum(
         tl.minimum(libdevice.div_rn(values, scales[None, :]), 448.0), -448.0
     )
-    tl.store(output_ptr + offsets, quantized, mask=mask)
+    output_offsets = (
+        batch * output_stride_b
+        + sequence_offsets[:, None] * output_stride_s
+        + head * output_stride_h
+        + feature_offsets[None, :] * output_stride_d
+    )
+    if output_stride_s == 1:
+        output_desc = tl.make_tensor_descriptor(
+            output_ptr + batch * output_stride_b + head * output_stride_h,
+            shape=[HEAD_DIM, sequence_length],
+            strides=[output_stride_d, 1],
+            block_shape=[HEAD_DIM, BLOCK_S],
+        )
+        output_desc.store([0, sequence_block * BLOCK_S], tl.trans(quantized))
+    else:
+        tl.store(output_ptr + output_offsets, quantized, mask=mask)
 
 
-def _quantize_value_channels(value: Tensor) -> tuple[Tensor, Tensor]:
+def _quantize_value_channels(
+    value: Tensor, scale_max: float = 448.0, transpose_output: bool = False
+) -> tuple[Tensor, Tensor]:
     """Quantize token-major V coalescently with one scale per channel."""
     batch_size, sequence_length, num_heads, head_dim = value.shape
     block_s = 64
@@ -245,7 +274,15 @@ def _quantize_value_channels(value: Tensor) -> tuple[Tensor, Tensor]:
         device=value.device,
         dtype=torch.float32,
     )
-    output = torch.empty_like(value, dtype=torch.float8_e4m3fn)
+    if transpose_output:
+        triton.set_allocator(_allocate_tma_workspace)
+        output = torch.empty(
+            (batch_size, num_heads, head_dim, triton.cdiv(sequence_length, 64) * 64),
+            device=value.device,
+            dtype=torch.float8_e4m3fn,
+        )[..., :sequence_length].permute(0, 3, 1, 2)
+    else:
+        output = torch.empty_like(value, dtype=torch.float8_e4m3fn)
     grid = (partial_count, batch_size * num_heads)
     _value_channel_partial_max_kernel[grid](
         value,
@@ -274,6 +311,7 @@ def _quantize_value_channels(value: Tensor) -> tuple[Tensor, Tensor]:
         num_heads,
         HEAD_DIM=head_dim,
         BLOCK_PARTIAL=triton.next_power_of_2(partial_count),
+        SCALE_MAX=scale_max,
         num_warps=4,
     )
     _quantize_value_channels_kernel[grid](
@@ -283,6 +321,7 @@ def _quantize_value_channels(value: Tensor) -> tuple[Tensor, Tensor]:
         value.stride(0),
         value.stride(1),
         value.stride(2),
+        *output.stride(),
         scale.stride(0),
         scale.stride(2),
         sequence_length,
@@ -304,10 +343,12 @@ def scaled_fp8_attention(
     output_dtype: torch.dtype | None = None,
     smooth_key: bool = True,
     use_tma: bool = True,
+    qk_quantization_blocks: tuple[int, int] = (1, 1),
+    use_fp16_pv: bool = False,
 ) -> Tensor:
     """Apply Sage-inspired scale-aware low-precision attention.
 
-    Q and K use dynamic INT8 scales per token/head row. V uses dynamic FP8
+    Q and K use dynamic INT8 scales per token block and head. V uses dynamic FP8
     e4m3 scales per batch/head/channel across the sequence. The FA2 kernel
     consumes those scales directly, keeps its online softmax state and output
     accumulation in FP32, and uses compensated FP8 probabilities for ``P @ V``.
@@ -327,6 +368,8 @@ def scaled_fp8_attention(
         output_dtype: FP16/BF16 output dtype; ``None`` uses ``query.dtype``.
         smooth_key: Subtract the sequence mean from K before quantization.
         use_tma: Prefer the TMA kernel when tensor layouts support it.
+        qk_quantization_blocks: Tokens sharing each Q and K quantization scale.
+        use_fp16_pv: Use FP16 tile buffers with an FP32 running total on TMA.
 
     Returns:
         Attention output shaped ``[B, L, H, D]``.
@@ -361,23 +404,28 @@ def scaled_fp8_attention(
     if output_dtype not in (torch.float16, torch.bfloat16):
         raise RuntimeError("scaled FP8 attention requires an FP16 or BF16 output")
 
+    query_block, key_block = qk_quantization_blocks
+    if any(
+        type(block) is not int or block < 1 or block > 128 or block & (block - 1)
+        for block in qk_quantization_blocks
+    ):
+        raise ValueError("Q/K quantization blocks must be powers of two in [1, 128]")
+
     query = query.contiguous()
     key = key.contiguous()
     value = value.contiguous()
 
-    quantized_query, query_scale = _quantize_qk_rows(query)
-    key_mean = key.mean(dim=1, keepdim=True) if smooth_key else None
-    quantized_key, key_scale = _quantize_qk_rows(key, key_mean)
-    quantized_value, value_scale = _quantize_value_channels(value)
+    tma_supported = use_tma and is_tma_flash_attention_supported(query, key, value)
+    fp16_pv = use_fp16_pv and tma_supported and (scale is None or scale > 0)
 
-    attention = (
-        flash_attention_2_tma
-        if use_tma
-        and is_tma_flash_attention_supported(
-            quantized_query, quantized_key, quantized_value
-        )
-        else flash_attention_2
+    quantized_query, query_scale = _quantize_qk_rows(query, block_size=query_block)
+    key_mean = key.mean(dim=1, keepdim=True) if smooth_key else None
+    quantized_key, key_scale = _quantize_qk_rows(key, key_mean, block_size=key_block)
+    quantized_value, value_scale = _quantize_value_channels(
+        value, scale_max=2.0 if fp16_pv else 448.0, transpose_output=fp16_pv
     )
+
+    attention = flash_attention_2_tma if tma_supported else flash_attention_2
     return attention(
         quantized_query,
         quantized_key,
@@ -387,6 +435,9 @@ def scaled_fp8_attention(
         query_scale=query_scale,
         key_scale=key_scale,
         value_scale=value_scale,
+        query_scale_block=query_block,
+        key_scale_block=key_block,
+        **({"use_fp16_pv": fp16_pv} if tma_supported else {}),
     )
 
 

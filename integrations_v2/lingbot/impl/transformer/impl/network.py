@@ -94,7 +94,7 @@ class LingbotWorldDiTNetworkConfig(WanDiTNetworkConfig):
     linear_backend: Literal["torch", "rowwise_fp8"] = "torch"
     """Backend for large transformer-block linear projections."""
 
-    self_attention_backend: Literal["wan", "fp8_tma", "scaled_fp8"] = "wan"
+    self_attention_backend: Literal["wan", "fp8_tma", "scaled_fp8", "sage"] = "wan"
     """Self-attention implementation used by each transformer block."""
 
     self_attention_use_tma: bool = True

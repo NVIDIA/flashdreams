@@ -98,7 +98,14 @@ def is_tma_flash_attention_supported(
         return False
     if torch.cuda.get_device_capability(query.device)[0] < 9:
         return False
-    return all(_descriptor_layout_supported(x) for x in (query, key, value))
+    return all(
+        _descriptor_layout_supported(x)
+        for x in (
+            query,
+            key,
+            value if value.stride(3) == 1 else value.transpose(1, 3),
+        )
+    )
 
 
 def _allocate_tma_workspace(
@@ -207,6 +214,10 @@ def _prune_tma_attention_configs(
         "key_stride_s",
         "value_stride_s",
         "HEAD_DIM",
+        "QUERY_SCALE_BLOCK",
+        "KEY_SCALE_BLOCK",
+        "FP16_PV",
+        "VALUE_TRANSPOSED",
     ],
     prune_configs_by={"early_config_prune": _prune_tma_attention_configs},
     cache_results=True,
@@ -254,6 +265,10 @@ def _flash_attention_2_tma_kernel(
     SCALED_FP8: tl.constexpr,
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
+    QUERY_SCALE_BLOCK: tl.constexpr,
+    KEY_SCALE_BLOCK: tl.constexpr,
+    FP16_PV: tl.constexpr,
+    VALUE_TRANSPOSED: tl.constexpr,
 ):
     """Apply tiled non-causal FlashAttention2 with TMA loads and stores.
 
@@ -322,12 +337,20 @@ def _flash_attention_2_tma_kernel(
         strides=[key_stride_s, key_stride_d],
         block_shape=[BLOCK_N, HEAD_DIM],
     )
-    value_desc = tl.make_tensor_descriptor(
-        value_base,
-        shape=[key_length, HEAD_DIM],
-        strides=[value_stride_s, value_stride_d],
-        block_shape=[BLOCK_N, HEAD_DIM],
-    )
+    if VALUE_TRANSPOSED:
+        value_desc = tl.make_tensor_descriptor(
+            value_base,
+            shape=[HEAD_DIM, key_length],
+            strides=[value_stride_d, value_stride_s],
+            block_shape=[HEAD_DIM, BLOCK_N],
+        )
+    else:
+        value_desc = tl.make_tensor_descriptor(
+            value_base,
+            shape=[key_length, HEAD_DIM],
+            strides=[value_stride_s, value_stride_d],
+            block_shape=[BLOCK_N, HEAD_DIM],
+        )
     output_desc = tl.make_tensor_descriptor(
         output_base,
         shape=[query_length, HEAD_DIM],
@@ -350,15 +373,24 @@ def _flash_attention_2_tma_kernel(
     # exp2 is cheaper than exp. log2(e) preserves the requested softmax scale
     # while expressing the online recurrence in base two.
     qk_scale = scale.to(tl.float32) * 1.4426950408889634
+    probability_scale: tl.constexpr = 128.0 if FP16_PV else _FP8_PROBABILITY_SCALE
     if SCALED_FP8:
-        query_scales = tl.load(
-            query_scale_ptr
-            + batch * query_scale_stride_b
-            + query_offsets * query_scale_stride_l
-            + head * query_scale_stride_h,
-            mask=query_offsets < query_length,
-            other=0.0,
-        )
+        if QUERY_SCALE_BLOCK >= BLOCK_M:
+            query_scales = tl.load(
+                query_scale_ptr
+                + batch * query_scale_stride_b
+                + (query_start // QUERY_SCALE_BLOCK) * query_scale_stride_l
+                + head * query_scale_stride_h
+            )
+        else:
+            query_scales = tl.load(
+                query_scale_ptr
+                + batch * query_scale_stride_b
+                + (query_offsets // QUERY_SCALE_BLOCK) * query_scale_stride_l
+                + head * query_scale_stride_h,
+                mask=query_offsets < query_length,
+                other=0.0,
+            )
 
     for key_start in tl.range(0, key_length, BLOCK_N):
         # ``[BLOCK_M, D] @ [D, BLOCK_N] -> [BLOCK_M, BLOCK_N]``.
@@ -366,15 +398,36 @@ def _flash_attention_2_tma_kernel(
         key = key_desc.load([key_start, 0])
         scores = tl.dot(query, tl.trans(key))
         if SCALED_FP8:
-            key_scales = tl.load(
-                key_scale_ptr
-                + batch * key_scale_stride_b
-                + key_offsets * key_scale_stride_s
-                + head * key_scale_stride_h,
-                mask=key_offsets < key_length,
-                other=0.0,
-            )
-            scores *= qk_scale * query_scales[:, None] * key_scales[None, :]
+            if KEY_SCALE_BLOCK >= BLOCK_N:
+                key_scales = tl.load(
+                    key_scale_ptr
+                    + batch * key_scale_stride_b
+                    + (key_start // KEY_SCALE_BLOCK) * key_scale_stride_s
+                    + head * key_scale_stride_h
+                )
+            else:
+                key_scales = tl.load(
+                    key_scale_ptr
+                    + batch * key_scale_stride_b
+                    + (key_offsets // KEY_SCALE_BLOCK) * key_scale_stride_s
+                    + head * key_scale_stride_h,
+                    mask=key_offsets < key_length,
+                    other=0.0,
+                )
+            if QUERY_SCALE_BLOCK >= BLOCK_M and KEY_SCALE_BLOCK >= BLOCK_N:
+                score_scale = qk_scale * query_scales * key_scales
+                if FP16_PV:
+                    # Keep padded -inf * scale valid when zero Q/K scales
+                    # underflow on multiplication. Such logits round to zero.
+                    score_scale = tl.maximum(score_scale, 1.1754943508222875e-38)
+                else:
+                    scores *= score_scale
+            elif QUERY_SCALE_BLOCK >= BLOCK_M:
+                scores *= qk_scale * query_scales * key_scales[None, :]
+            elif KEY_SCALE_BLOCK >= BLOCK_N:
+                scores *= qk_scale * query_scales[:, None] * key_scales
+            else:
+                scores *= qk_scale * query_scales[:, None] * key_scales[None, :]
         else:
             scores *= qk_scale
         # TMA fills the final partial key tile with zeros, but a zero QK score
@@ -387,20 +440,38 @@ def _flash_attention_2_tma_kernel(
         # Rebase the previous numerator and denominator whenever a new row
         # maximum appears. FP32 state keeps long cache windows stable.
         tile_max = tl.max(scores, axis=1)
+        if FP16_PV and QUERY_SCALE_BLOCK >= BLOCK_M and KEY_SCALE_BLOCK >= BLOCK_N:
+            tile_max *= score_scale
         next_row_max = tl.maximum(row_max, tile_max)
         correction = tl.exp2(row_max - next_row_max)
-        probabilities = tl.exp2(scores - next_row_max[:, None])
+        if FP16_PV and QUERY_SCALE_BLOCK >= BLOCK_M and KEY_SCALE_BLOCK >= BLOCK_N:
+            probabilities = tl.exp2(
+                tl.fma(scores.to(tl.float32), score_scale, -next_row_max[:, None])
+            )
+        else:
+            probabilities = tl.exp2(scores - next_row_max[:, None])
         denominator = denominator * correction + tl.sum(probabilities, axis=1)
 
         # Accumulate ``P @ V`` into ``[BLOCK_M, D]`` after rebasing the prior
         # numerator to the updated per-row exponent origin.
-        value = value_desc.load([key_start, 0])
+        if VALUE_TRANSPOSED:
+            value = tl.trans(value_desc.load([0, key_start]))
+        else:
+            value = value_desc.load([key_start, 0])
         accumulator *= correction[:, None]
         if QUANTIZED_SDPA:
-            probabilities = (probabilities * _FP8_PROBABILITY_SCALE).to(tl.float8e4nv)
+            probabilities = (probabilities * probability_scale).to(tl.float8e4nv)
         else:
             probabilities = probabilities.to(value.dtype)
-        accumulator = tl.dot(probabilities, value, accumulator)
+        if FP16_PV:
+            # ponytail: larger tiles need smaller P/V scales or FP32 buffers.
+            # V <= 2, P <= 128, and BLOCK_N <= 128 bound each tile by 32768.
+            tl.static_assert(BLOCK_N <= 128)
+            accumulator += tl.dot(probabilities, value, out_dtype=tl.float16).to(
+                tl.float32
+            )
+        else:
+            accumulator = tl.dot(probabilities, value, accumulator)
         row_max = next_row_max
 
     # Normalize each query row in FP32. The descriptor converts to the output
@@ -408,7 +479,7 @@ def _flash_attention_2_tma_kernel(
     # output ``[B, L, H, D]``.
     output = accumulator / denominator[:, None]
     if QUANTIZED_SDPA:
-        output /= _FP8_PROBABILITY_SCALE
+        output /= probability_scale
     if SCALED_FP8:
         feature_offsets = tl.arange(0, HEAD_DIM)
         value_scales = tl.load(
@@ -431,6 +502,9 @@ def flash_attention_2_tma(
     query_scale: Tensor | None = None,
     key_scale: Tensor | None = None,
     value_scale: Tensor | None = None,
+    query_scale_block: int = 1,
+    key_scale_block: int = 1,
+    use_fp16_pv: bool = False,
 ) -> Tensor:
     """Apply non-causal TMA FlashAttention2 to logical Q/K/V tensors.
 
@@ -450,9 +524,13 @@ def flash_attention_2_tma(
         scale: Multiplier applied to QK scores before softmax; ``None`` uses
             ``1 / sqrt(D)``.
         output_dtype: Output storage dtype; ``None`` uses ``query.dtype``.
-        query_scale: Optional FP32 rowwise query scales ``[B, L, H, 1]``.
-        key_scale: Optional FP32 rowwise key scales ``[B, S, H, 1]``.
+        query_scale: FP32 scales shaped ``[B, ceil(L / query_scale_block), H, 1]``.
+        key_scale: FP32 scales shaped ``[B, ceil(S / key_scale_block), H, 1]``.
         value_scale: Optional FP32 channelwise value scales ``[B, 1, H, D]``.
+        query_scale_block: Query tokens sharing each scale; one by default.
+        key_scale_block: Key tokens sharing each scale; one by default.
+        use_fp16_pv: Use FP16 P/V tile buffers with an FP32 running total.
+            Requires scaled INT8 Q/K, FP8 V bounded by 2, and positive scale.
 
     Returns:
         Attention result with shape ``[B, L, H, D]`` on the query device and in
@@ -481,8 +559,19 @@ def flash_attention_2_tma(
             "[16, 256], and tensor-descriptor-compatible base pointers and strides"
         )
     scaled_fp8 = _validate_fp8_attention_scales(
-        query, key, value, query_scale, key_scale, value_scale
+        query,
+        key,
+        value,
+        query_scale,
+        key_scale,
+        value_scale,
+        query_scale_block,
+        key_scale_block,
     )
+    if use_fp16_pv and (not scaled_fp8 or (scale is not None and scale <= 0)):
+        raise ValueError(
+            "FP16 P/V buffers require scaled FP8 attention and positive scale"
+        )
 
     # Allocate output ``[B, L, H, D]``; empty outer axes require no launch.
     if output_dtype is None:
@@ -574,6 +663,10 @@ def flash_attention_2_tma(
         HEAD_DIM=head_dim,
         QUANTIZED_SDPA=value.dtype is torch.float8_e4m3fn,
         SCALED_FP8=scaled_fp8,
+        QUERY_SCALE_BLOCK=query_scale_block,
+        KEY_SCALE_BLOCK=key_scale_block,
+        FP16_PV=use_fp16_pv,
+        VALUE_TRANSPOSED=value.stride(3) != 1,
     )
     return output
 

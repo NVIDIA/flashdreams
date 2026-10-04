@@ -373,7 +373,7 @@ class Resample(nn.Module):
         rest: torch.Tensor, b: int, c: int, h: int, w: int
     ) -> torch.Tensor:
         """Last CACHE_T frames of ``rest``, zero-padded if too short."""
-        tail = rest[:, :, -CACHE_T:].clone()
+        tail = rest[:, :, -CACHE_T:].clone(memory_format=torch.contiguous_format)
         if tail.shape[2] < CACHE_T:
             tail = torch.cat([rest.new_zeros(b, c, 1, h, w), tail], dim=2)
         return tail

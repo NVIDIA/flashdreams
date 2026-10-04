@@ -19,6 +19,8 @@ from lingbot.config import (
     PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
     PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF,
     PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF_TAEHV,
+    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF,
+    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF_TAEHV,
     PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
     PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
 )
@@ -124,6 +126,20 @@ def create_app_v2_1p3b_causal_fast_max_perf_taehv() -> IApplication:
     )
 
 
+def create_app_v2_1p3b_causal_fast_rtx5090_perf() -> IApplication:
+    """Return the RTX 5090 SageAttention application with WAN decoding."""
+    return LingbotCam2VApplication(
+        pipeline_config=PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF
+    )
+
+
+def create_app_v2_1p3b_causal_fast_rtx5090_perf_taehv() -> IApplication:
+    """Return the RTX 5090 SageAttention application with TAEHV decoding."""
+    return LingbotCam2VApplication(
+        pipeline_config=PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF_TAEHV
+    )
+
+
 __all__ = [
     "LingbotCam2VApplication",
     "create_app",
@@ -131,6 +147,8 @@ __all__ = [
     "create_app_fast_taehv_window15_sink3",
     "create_app_v2_1p3b_causal_fast_max_perf",
     "create_app_v2_1p3b_causal_fast_max_perf_taehv",
+    "create_app_v2_1p3b_causal_fast_rtx5090_perf_taehv",
+    "create_app_v2_1p3b_causal_fast_rtx5090_perf",
     "create_app_v2_14b_causal_fast",
     "create_app_v2_14b_causal_fast_taehv_window15_sink3",
 ]

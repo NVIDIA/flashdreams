@@ -102,6 +102,29 @@ def _call_fp8_attention(
     return attention(query_fp8, key_fp8, value_fp8, output_dtype=query.dtype)
 
 
+@torch.library.custom_op("lingbot::sage_attention", mutates_args=())
+def _call_sage_attention(
+    query: Tensor, key: Tensor, value: Tensor, use_tma: bool = True
+) -> Tensor:
+    """Run in-tree scale-aware attention within the compiled transformer."""
+    return scaled_fp8_attention(
+        query,
+        key,
+        value,
+        use_tma=use_tma,
+        qk_quantization_blocks=(128, 64),
+        use_fp16_pv=True,
+    )
+
+
+@_call_sage_attention.register_fake
+def _sage_attention_fake(
+    query: Tensor, key: Tensor, value: Tensor, use_tma: bool = True
+) -> Tensor:
+    """Describe the output layout to the compiler."""
+    return torch.empty_like(query)
+
+
 class OptimizedSelfAttention(SelfAttention):
     """Wan self-attention with one fused FP8 QKV projection."""
 
@@ -114,7 +137,7 @@ class OptimizedSelfAttention(SelfAttention):
         n_heads: int,
         eps: float,
         *,
-        attention_backend: Literal["fp8_tma", "scaled_fp8"] = "scaled_fp8",
+        attention_backend: Literal["fp8_tma", "scaled_fp8", "sage"] = "scaled_fp8",
         use_tma: bool = True,
     ) -> None:
         super().__init__(
@@ -192,7 +215,11 @@ class OptimizedSelfAttention(SelfAttention):
         q = apply_rope_freqs(q, rope_freqs, interleaved=True)
         k = apply_rope_freqs(k, rope_freqs, interleaved=True)
         kv_cache.update(k, v)
-        if self.attention_backend == "fp8_tma":
+        if self.attention_backend == "sage":
+            output = _call_sage_attention(
+                q, kv_cache.cached_k(), kv_cache.cached_v(), self.use_tma
+            )
+        elif self.attention_backend == "fp8_tma":
             output = _call_fp8_attention(
                 q,
                 kv_cache.cached_k(),
@@ -233,7 +260,7 @@ class CamCtrlBlock(Block):
         cross_attn_norm: bool = True,
         eps: float = 1e-6,
         cp_method: Literal["ring", "ulysses"] = "ring",
-        self_attention_backend: Literal["wan", "fp8_tma", "scaled_fp8"] = "wan",
+        self_attention_backend: Literal["wan", "fp8_tma", "scaled_fp8", "sage"] = "wan",
         self_attention_use_tma: bool = True,
     ) -> None:
         super().__init__(
