@@ -148,9 +148,9 @@ PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3 = derive_config(
         ),
     ),
 )
-PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF = derive_config(
+PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_PERF = derive_config(
     PIPELINE_LINGBOT_WORLD_FAST,
-    name="lingbot-world-v2-1p3b-causal-fast-max-perf",
+    name="lingbot-world-v2-1p3b-causal-fast-perf",
     encoder=I2VCamCtrlEncoderConfig(
         i2v=LingbotI2VCtrlEncoderConfig(
             encoder=WanVAEEncoderConfig(use_cuda_graph=False),
@@ -170,7 +170,7 @@ PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF = derive_config(
                 control_type="cam",
                 in_dim=16 + 4 + 16,
                 linear_backend="rowwise_fp8",
-                self_attention_backend="fp8_tma",
+                self_attention_backend="sage",
                 self_attention_use_tma=True,
             ),
             checkpoint_min_free_gb=20.0,
@@ -204,25 +204,11 @@ PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF = derive_config(
         ),
     ),
 )
-"""Maximum-throughput 1.3B preset with the upstream 18-frame context."""
-
-PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF_TAEHV = derive_config(
-    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF,
-    name="lingbot-world-v2-1p3b-causal-fast-max-perf-taehv",
-    decoder=TaehvVAEDecoderConfig(),
-)
-"""Maximum-throughput 1.3B preset with the approximate TAEHV decoder."""
-
-PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF = derive_config(
-    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF,
-    name="lingbot-world-v2-1p3b-causal-fast-rtx5090-perf",
-    diffusion_model=dict(transformer=dict(network=dict(self_attention_backend="sage"))),
-)
 """RTX 5090 performance preset using SageAttention with WAN decoding."""
 
-PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF_TAEHV = derive_config(
-    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF,
-    name="lingbot-world-v2-1p3b-causal-fast-rtx5090-perf-taehv",
+PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_PERF_TAEHV = derive_config(
+    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_PERF,
+    name="lingbot-world-v2-1p3b-causal-fast-perf-taehv",
     decoder=TaehvVAEDecoderConfig(),
 )
 """RTX 5090 performance preset using SageAttention with TAEHV decoding."""
@@ -234,10 +220,8 @@ PIPELINE_CONFIGS: dict[str, LingbotWorldInferencePipelineConfig] = {
         PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
         PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
         PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
-        PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF,
-        PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF_TAEHV,
-        PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF,
-        PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF_TAEHV,
+        PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_PERF,
+        PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_PERF_TAEHV,
     )
 }
 """All shipped LingBot-World pipeline configs, keyed by ``name``."""

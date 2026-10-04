@@ -17,10 +17,8 @@ from flashdreams.infra.config import derive_config
 from lingbot.config import (
     PIPELINE_LINGBOT_WORLD_FAST,
     PIPELINE_LINGBOT_WORLD_FAST_TAEHV_WINDOW15_SINK3,
-    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF,
-    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF_TAEHV,
-    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF,
-    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF_TAEHV,
+    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_PERF,
+    PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_PERF_TAEHV,
     PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST,
     PIPELINE_LINGBOT_WORLD_V2_14B_CAUSAL_FAST_TAEHV_WINDOW15_SINK3,
 )
@@ -112,31 +110,17 @@ def create_app_v2_14b_causal_fast_taehv_window15_sink3() -> IApplication:
     )
 
 
-def create_app_v2_1p3b_causal_fast_max_perf() -> IApplication:
-    """Return the maximum-throughput Lingbot World v2 1.3B application."""
-    return LingbotCam2VApplication(
-        pipeline_config=PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF
-    )
-
-
-def create_app_v2_1p3b_causal_fast_max_perf_taehv() -> IApplication:
-    """Return the maximum-throughput 1.3B application with TAEHV decoding."""
-    return LingbotCam2VApplication(
-        pipeline_config=PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_MAX_PERF_TAEHV
-    )
-
-
-def create_app_v2_1p3b_causal_fast_rtx5090_perf() -> IApplication:
+def create_app_v2_1p3b_causal_fast_perf() -> IApplication:
     """Return the RTX 5090 SageAttention application with WAN decoding."""
     return LingbotCam2VApplication(
-        pipeline_config=PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF
+        pipeline_config=PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_PERF
     )
 
 
-def create_app_v2_1p3b_causal_fast_rtx5090_perf_taehv() -> IApplication:
+def create_app_v2_1p3b_causal_fast_perf_taehv() -> IApplication:
     """Return the RTX 5090 SageAttention application with TAEHV decoding."""
     return LingbotCam2VApplication(
-        pipeline_config=PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_RTX5090_PERF_TAEHV
+        pipeline_config=PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_PERF_TAEHV
     )
 
 
@@ -145,10 +129,8 @@ __all__ = [
     "create_app",
     "create_app_fast",
     "create_app_fast_taehv_window15_sink3",
-    "create_app_v2_1p3b_causal_fast_max_perf",
-    "create_app_v2_1p3b_causal_fast_max_perf_taehv",
-    "create_app_v2_1p3b_causal_fast_rtx5090_perf_taehv",
-    "create_app_v2_1p3b_causal_fast_rtx5090_perf",
+    "create_app_v2_1p3b_causal_fast_perf",
+    "create_app_v2_1p3b_causal_fast_perf_taehv",
     "create_app_v2_14b_causal_fast",
     "create_app_v2_14b_causal_fast_taehv_window15_sink3",
 ]
