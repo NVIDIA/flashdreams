@@ -13,6 +13,7 @@ from causal_forcing.config import (
     PIPELINE_WAN21_T2V_1PT3B_FRAMEWISE,
 )
 from flashdreams.api_v2.application import IApplication
+from flashdreams.infra.config import derive_config
 
 CAUSAL_FORCING_T2V_DEFAULTS = T2VApplicationDefaults(
     pipeline_config=PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE,
@@ -41,6 +42,13 @@ class CausalForcingT2VApplication(T2VApplication):
         if pipeline_config is not None:
             defaults = dataclasses.replace(defaults, pipeline_config=pipeline_config)
         super().__init__(defaults=defaults)
+
+    def _apply_compile_override(self, pipeline_config: Any, enabled: bool) -> Any:
+        """Reach the decoder too: this preset compiles it by default."""
+        return derive_config(
+            super()._apply_compile_override(pipeline_config, enabled),
+            decoder={"use_compile": enabled},
+        )
 
 
 def create_app() -> IApplication:
