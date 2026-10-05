@@ -21,7 +21,7 @@ from typing import Any, Literal, cast
 import numpy as np
 import torch
 from aiohttp import web
-from aiohttp.web_request import FileField
+from aiohttp.multipart import BodyPartReader, MultipartReader
 from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
@@ -35,6 +35,7 @@ from flashdreams.runtime_v2.selected_file import (
     SelectedFilesStatus,
     clamp_selected_file_max_bytes,
     normalize_selected_file_accept,
+    selected_file_suffix_allowed,
     selected_files_policy_status,
 )
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -992,48 +993,58 @@ class WebRTCServer:
             emitted = True
 
         try:
-            max_body = (
-                MAX_SELECTED_FILE_BATCH_BYTES if policy.multiple else policy.max_bytes
-            ) + 1024 * 1024
-            content_length = request.content_length
-            if content_length is not None and content_length > max_body:
-                emit(SelectedFilesStatus.TOO_LARGE)
-                raise web.HTTPRequestEntityTooLarge(
-                    max_size=max_body,
-                    actual_size=content_length,
-                )
+            if not request.content_type.startswith("multipart/"):
+                emit(SelectedFilesStatus.UNAVAILABLE)
+                raise web.HTTPBadRequest(reason="File upload requires a file.")
             try:
-                post = await request.post()
+                reader = await request.multipart()
             except web.HTTPRequestEntityTooLarge:
                 emit(SelectedFilesStatus.TOO_LARGE)
                 raise
-            uploads = [
-                upload
-                for upload in post.getall("file", [])
-                if isinstance(upload, FileField)
-            ]
-            if not policy.multiple:
-                uploads = uploads[:1]
-            if not uploads:
+            chosen: list[tuple[str, bytes]] = []
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if not isinstance(part, BodyPartReader):
+                    continue
+                if part.name != "file":
+                    await part.release()
+                    continue
+                if not policy.multiple and chosen:
+                    await part.release()
+                    continue
+                name = part.filename or "upload"
+                if not selected_file_suffix_allowed(name, policy.accept):
+                    emit(SelectedFilesStatus.DISALLOWED_TYPE)
+                    await _drain_multipart_reader(reader, part)
+                    return web.Response(status=204)
+                data = await _read_upload_part_bounded(part, max_bytes=policy.max_bytes)
+                if data is None:
+                    emit(SelectedFilesStatus.TOO_LARGE)
+                    await _drain_multipart_reader(reader)
+                    raise web.HTTPRequestEntityTooLarge(
+                        max_size=policy.max_bytes,
+                        actual_size=policy.max_bytes + 1,
+                    )
+                chosen.append((name, data))
+            if not chosen:
                 emit(SelectedFilesStatus.UNAVAILABLE)
                 raise web.HTTPBadRequest(reason="File upload requires a file.")
-            chosen: list[tuple[str, bytes]] = []
-            for upload in uploads:
-                chosen.append((upload.filename or "upload", upload.file.read()))
             rejected = selected_files_policy_status(
                 [(name, len(data)) for name, data in chosen],
                 accept=policy.accept,
                 max_bytes=policy.max_bytes,
             )
-            if rejected is SelectedFilesStatus.DISALLOWED_TYPE:
-                emit(rejected)
-                return web.Response(status=204)
             if rejected is SelectedFilesStatus.TOO_LARGE:
                 emit(rejected)
                 raise web.HTTPRequestEntityTooLarge(
                     max_size=policy.max_bytes,
                     actual_size=max(len(data) for _name, data in chosen),
                 )
+            if rejected is not None:
+                emit(rejected)
+                return web.Response(status=204)
             emit(
                 SelectedFilesStatus.OK,
                 files=tuple(
@@ -1041,6 +1052,10 @@ class WebRTCServer:
                 ),
             )
             return web.Response(status=204)
+        except web.HTTPRequestEntityTooLarge:
+            if not emitted:
+                emit(SelectedFilesStatus.TOO_LARGE)
+            raise
         finally:
             if not emitted:
                 try:
@@ -1518,6 +1533,51 @@ class WebRTCServer:
                     "Additional WebRTC cleanup failure"
                 )
             raise primary
+
+
+_UPLOAD_READ_CHUNK_BYTES = 64 * 1024
+"""Bytes read per multipart chunk while enforcing ``max_bytes``."""
+
+
+async def _read_upload_part_bounded(
+    part: BodyPartReader, *, max_bytes: int
+) -> bytes | None:
+    """Return the part body, or ``None`` when it exceeds ``max_bytes``.
+
+    Args:
+        part: Multipart file part whose headers have already been read.
+        max_bytes: Maximum allowed size of this file in bytes.
+
+    Returns:
+        The assembled bytes, or ``None`` when the part is larger than
+        ``max_bytes``.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await part.read_chunk(_UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            await part.release()
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def _drain_multipart_reader(
+    reader: MultipartReader, part: BodyPartReader | None = None
+) -> None:
+    """Consume leftover multipart parts so the request can finish."""
+    if part is not None:
+        await part.release()
+    while True:
+        leftover = await reader.next()
+        if leftover is None:
+            break
+        if isinstance(leftover, BodyPartReader):
+            await leftover.release()
 
 
 def _same_stream_format(first: SessionDesc, second: SessionDesc) -> bool:

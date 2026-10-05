@@ -105,7 +105,9 @@ def _ask_open_filename_linux(
             "--title=Select a file",
         ]
         if multiple:
-            argv.extend(("--multiple", "--separator=\n"))
+            # '/' cannot appear in a filename, so '//' joins two absolute
+            # paths. NUL cannot be passed in argv.
+            argv.extend(("--multiple", "--separator=/"))
         if patterns:
             argv.append(f"--file-filter=Accepted | {patterns}")
         return _parse_chooser_stdout(
@@ -162,7 +164,16 @@ def _parse_chooser_stdout(
         return (output,)
     if quoted:
         return tuple(shlex.split(output))
-    return tuple(line for line in output.splitlines() if line)
+    return _split_zenity_absolute_paths(output)
+
+
+def _split_zenity_absolute_paths(output: str) -> tuple[str, ...]:
+    """Split zenity ``--separator=/`` stdout into absolute paths.
+
+    A newline inside a filename stays in that path.
+    """
+    head, *tail = output.split("//")
+    return (head, *(f"/{part}" for part in tail if part))
 
 
 def _ask_open_filename_tkinter(

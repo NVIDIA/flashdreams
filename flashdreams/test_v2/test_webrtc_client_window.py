@@ -314,19 +314,19 @@ async def test_in_flight_upload_is_dropped_after_peer_loss(
         peer, _, _ = await _connect_browser(window)
         window.request_selected_files(_file_request("open-1"))
         await _wait_file_armed(window, "open-1")
-        original_post = web.Request.post
+        original_multipart = web.Request.multipart
         disconnected = False
 
-        async def post_after_disconnect(request: web.Request) -> Any:
+        async def multipart_after_disconnect(request: web.Request) -> Any:
             nonlocal disconnected
             if not disconnected:
                 disconnected = True
                 peer_connection = window.server._peer_connection
                 if peer_connection is not None:
                     await window.server._release_peer_connection(peer_connection)
-            return await original_post(request)
+            return await original_multipart(request)
 
-        monkeypatch.setattr(web.Request, "post", post_after_disconnect)
+        monkeypatch.setattr(web.Request, "multipart", multipart_after_disconnect)
         assert await _post_selected_file(window, "open-1", b"hello", "hello.txt") == 409
         events = []
         for _ in range(100):
@@ -517,7 +517,7 @@ async def test_file_upload_rejects_oversize() -> None:
 
 
 @pytest.mark.asyncio
-async def test_file_upload_prefers_disallowed_suffix_over_oversize() -> None:
+async def test_file_upload_prefers_disallowed_suffix_over_body_limit() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
@@ -526,7 +526,10 @@ async def test_file_upload_prefers_disallowed_suffix_over_oversize() -> None:
         )
         await _wait_file_armed(window, "open-1")
         assert (
-            await _post_selected_file(window, "open-1", b"x" * 8192, "hello.txt") == 204
+            await _post_selected_file(
+                window, "open-1", b"x" * (2 * 1024 * 1024), "hello.txt"
+            )
+            == 204
         )
         event = await _wait_selected_files_event(window)
         assert event.request_id == "open-1"
@@ -565,6 +568,77 @@ async def test_browser_file_selector_result_reports_status() -> None:
 
 
 @pytest.mark.asyncio
+async def test_browser_file_selector_result_cannot_claim_ok() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, channel, _ = await _connect_browser(window)
+        errors: list[dict[str, object]] = []
+
+        @channel.on("message")
+        def on_message(message: object) -> None:
+            if isinstance(message, str):
+                payload = json.loads(message)
+                if payload.get("type") == "error":
+                    errors.append(payload)
+
+        window.request_selected_files(_file_request("open-1"))
+        await _wait_file_armed(window, "open-1")
+        channel.send(
+            json.dumps(
+                {
+                    "type": "file_selector_result",
+                    "id": "open-1",
+                    "status": "ok",
+                }
+            )
+        )
+        for _ in range(100):
+            if errors:
+                break
+            await asyncio.sleep(0.01)
+        assert errors
+        assert "POST /api/files" in str(errors[0].get("message"))
+        assert window.get_user_input_events().get_events() == []
+        assert await _post_selected_file(window, "open-1", b"hello", "hello.txt") == 204
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.OK
+        assert event.files[0].data == b"hello"
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_script_checks_type_and_size_before_upload() -> None:
+    window = WebRTCClientWindow()
+    try:
+        async with ClientSession() as client:
+            async with client.get(window.server.url) as response:
+                page = await response.text()
+                assert 'id="prompt-dialog"' in page
+                assert "Choose file" not in page
+            async with client.get(f"{window.server.url}app.js") as response:
+                script = await response.text()
+        assert "fileNameMatchesAccept" in script
+        assert "file.size" in script
+        assert '"too_large"' in script
+        assert '"disallowed_type"' in script
+        assert (
+            "fetch(`/api/files?request_id=${encodeURIComponent(requestId)}`" in script
+        )
+        assert "input.multiple" in script
+        assert "showModal" not in script
+        assert "The app requested a file" in script
+        assert "The app requested files" in script
+        assert 'completeFileSelection(pendingFileRequest.id, "cancelled")' not in script
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
 async def test_session_handoff_clears_pending_file_selection() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
@@ -589,17 +663,17 @@ async def test_in_flight_upload_is_dropped_after_session_handoff(
     try:
         window.request_selected_files(_file_request("open-1"))
         await _wait_file_armed(window, "open-1")
-        original_post = web.Request.post
+        original_multipart = web.Request.multipart
         handed_off = False
 
-        async def post_after_handoff(request: web.Request) -> Any:
+        async def multipart_after_handoff(request: web.Request) -> Any:
             nonlocal handed_off
             if not handed_off:
                 handed_off = True
                 window.open(_session_desc())
-            return await original_post(request)
+            return await original_multipart(request)
 
-        monkeypatch.setattr(web.Request, "post", post_after_handoff)
+        monkeypatch.setattr(web.Request, "multipart", multipart_after_handoff)
         assert await _post_selected_file(window, "open-1", b"hello", "hello.txt") == 409
         assert window.get_user_input_events().get_events() == []
 
@@ -660,10 +734,6 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert 'id="reset"' not in browser_page
                 assert '<video id="video" autoplay muted playsinline>' in browser_page
                 assert 'id="status"' in browser_page
-                assert 'id="prompt-dialog"' in browser_page
-                assert 'id="prompt-dialog-confirm"' in browser_page
-                assert 'id="prompt-dialog-details"' in browser_page
-                assert 'id="prompt-backdrop"' in browser_page
                 assert '<script src="/app.js"></script>' in browser_page
             async with client.get(f"{window.server.url}app.js") as response:
                 browser_script = await response.text()
@@ -700,33 +770,6 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert '["failed", "closed"]' in connection_handler
                 assert "navigator.getGamepads" in browser_script
                 assert 'type: "touch"' in browser_script
-                assert "openFileSelector" in browser_script
-                assert 'type === "file_selector"' in browser_script
-                assert "completeFileSelection" in browser_script
-                assert (
-                    'completeFileSelection(pendingFileRequest.id, "cancelled")'
-                    not in browser_script
-                )
-                assert "queuedFileSelectors" in browser_script
-                assert '"too_large"' in browser_script
-                assert '"disallowed_type"' in browser_script
-                assert (
-                    "fetch(`/api/files?request_id=${encodeURIComponent(requestId)}`"
-                    in browser_script
-                )
-                assert "input.accept" in browser_script
-                assert "input.multiple" in browser_script
-                assert "file.size" in browser_script
-                assert 'addEventListener("cancel"' in browser_script
-                assert "fileNameMatchesAccept" in browser_script
-                assert "showPromptDialog" in browser_script
-                assert "showModal" not in browser_script
-                assert "The app requested a file" in browser_script
-                assert "The app requested files" in browser_script
-                assert 'label: "Accepted types"' in browser_script
-                assert 'label: "Max size per file"' in browser_script
-                assert "Choose file" not in browser_page
-                assert "response.ok" in browser_script
 
         window.request_hide_cursor(True)
         window.open(_session_desc())

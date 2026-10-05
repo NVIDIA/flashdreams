@@ -83,6 +83,7 @@ def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
         "/tmp",
         accept=(".png", ".JPG"),
         max_bytes=MAX_SELECTED_FILE_BYTES * 2,
+        multiple=True,
     )
     loop.request_selected_files("open-1", "/var")
 
@@ -94,16 +95,16 @@ def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
     assert selection.initial_path == "/tmp"
     assert selection.accept == (".png", ".JPG")
     assert selection.max_bytes == MAX_SELECTED_FILE_BYTES * 2
-    assert selection.multiple is False
+    assert selection.multiple is True
 
 
-def test_ui_loop_queues_multiple_file_selection() -> None:
+def test_ui_loop_uses_home_when_initial_path_is_omitted() -> None:
     loop = _ui_loop()
-    loop.request_selected_files("open-1", "/tmp", multiple=True)
+    loop.request_selected_files("open-1")
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
-    assert requests.file_selections[0].multiple is True
+    assert requests.file_selections[0].initial_path == str(Path.home())
 
 
 def test_ui_loop_forwards_distinct_file_selection_ids() -> None:
@@ -187,6 +188,14 @@ def test_selected_file_policy_helpers() -> None:
     assert not selected_file_suffix_allowed("seed.txt", (".png",))
     assert selected_file_suffix_allowed("seed.txt", ())
     assert (
+        selected_file_policy_status("seed.txt", None, accept=(".png",), max_bytes=3)
+        is SelectedFilesStatus.DISALLOWED_TYPE
+    )
+    assert (
+        selected_file_policy_status("seed.png", None, accept=(".png",), max_bytes=3)
+        is None
+    )
+    assert (
         selected_file_policy_status("seed.txt", 99, accept=(".png",), max_bytes=3)
         is SelectedFilesStatus.DISALLOWED_TYPE
     )
@@ -230,6 +239,12 @@ def test_selected_file_policy_helpers() -> None:
         )
         is None
     )
+
+
+def test_ui_loop_rejects_empty_request_id() -> None:
+    loop = _ui_loop()
+    with pytest.raises(ValueError, match="non-empty string"):
+        loop.request_selected_files("")
 
 
 def test_ui_loop_rejects_invalid_accept() -> None:

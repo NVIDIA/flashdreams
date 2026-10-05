@@ -988,6 +988,14 @@ def test_selected_files_from_paths_skips_unreadable_and_oversize(
     assert files == ()
     assert status is SelectedFilesStatus.DISALLOWED_TYPE
 
+    too_big_wrong_type = tmp_path / "huge.txt"
+    too_big_wrong_type.write_bytes(b"abcd")
+    files, status = native_window_module._selected_files_from_paths(
+        (str(too_big_wrong_type),), accept=(".png",), max_bytes=1
+    )
+    assert files == ()
+    assert status is SelectedFilesStatus.DISALLOWED_TYPE
+
 
 def test_ask_open_filename_linux_uses_zenity(
     monkeypatch: pytest.MonkeyPatch,
@@ -1053,7 +1061,7 @@ def test_ask_open_filename_linux_error_raises(
         native_window_module._ask_open_filename_linux(initial_dir="/tmp")
 
 
-def test_ask_open_filename_linux_multiple_uses_newline_separator(
+def test_ask_open_filename_linux_multiple_uses_slash_separator(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -1065,14 +1073,45 @@ def test_ask_open_filename_linux_multiple_uses_newline_separator(
 
     def fake_run(argv: list[str], **kwargs: object) -> object:
         calls.append(argv)
-        return SimpleNamespace(returncode=0, stdout="/tmp/a.bin\n/tmp/b.bin\n")
+        return SimpleNamespace(returncode=0, stdout="/tmp/foo\nbar.bin//tmp/baz.bin\n")
+
+    monkeypatch.setattr(native_window_module.subprocess, "run", fake_run)
+    assert native_window_module._ask_open_filename_linux(
+        initial_dir="/tmp", multiple=True
+    ) == ("/tmp/foo\nbar.bin", "/tmp/baz.bin")
+    assert "--multiple" in calls[0]
+    assert "--separator=/" in calls[0]
+
+
+def test_ask_open_filename_linux_falls_back_to_kdialog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        native_window_module.shutil,
+        "which",
+        lambda name: "/usr/bin/kdialog" if name == "kdialog" else None,
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(argv: list[str], **kwargs: object) -> object:
+        calls.append(argv)
+        return SimpleNamespace(returncode=0, stdout="'/tmp/a.bin' '/tmp/b.bin'\n")
 
     monkeypatch.setattr(native_window_module.subprocess, "run", fake_run)
     assert native_window_module._ask_open_filename_linux(
         initial_dir="/tmp", multiple=True
     ) == ("/tmp/a.bin", "/tmp/b.bin")
+    assert calls[0][0] == "/usr/bin/kdialog"
+    assert "--getopenfilename" in calls[0]
     assert "--multiple" in calls[0]
-    assert "--separator=\n" in calls[0]
+
+
+def test_ask_open_filename_linux_requires_a_desktop_chooser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(native_window_module.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="zenity or kdialog"):
+        native_window_module._ask_open_filename_linux(initial_dir="/tmp")
 
 
 def test_native_window_reports_multiple_selected_files(
