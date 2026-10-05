@@ -20,11 +20,11 @@ import torch
 from torch import Tensor
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
-from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.selected_file import (
     FileSelectionRequest,
     normalize_selected_file_accept,
 )
+from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     UserInputEvent,

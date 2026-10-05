@@ -6,6 +6,7 @@
 # ruff: noqa: E402 - optional WebRTC imports must follow importorskip.
 
 import asyncio
+import base64
 import json
 import time
 from dataclasses import replace
@@ -31,13 +32,13 @@ from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
 from yarl import URL
 
-from flashdreams.runtime_v2.serving import webrtc_server
-from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
 from flashdreams.runtime_v2.selected_file import (
     MAX_SELECTED_FILE_BYTES,
     FileSelectionRequest,
     SelectedFilesStatus,
 )
+from flashdreams.runtime_v2.serving import webrtc_server
+from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -512,6 +513,37 @@ async def test_file_upload_rejects_oversize() -> None:
         assert event.request_id == "open-1"
         assert event.status is SelectedFilesStatus.TOO_LARGE
         assert event.files == ()
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_file_upload_decodes_base64_transfer_encoding() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        window.request_selected_files(_file_request("open-1"))
+        await _wait_file_armed(window, "open-1")
+        boundary = "----flashdreams"
+        body = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="file"; filename="seed.bin"\r\n'
+            "Content-Transfer-Encoding: base64\r\n"
+            "\r\n"
+            f"{base64.b64encode(b'abc').decode()}\r\n"
+            f"--{boundary}--\r\n"
+        ).encode()
+        async with ClientSession() as client:
+            async with client.post(
+                _files_url(window, "open-1"),
+                data=body,
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            ) as response:
+                assert response.status == 204
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.OK
+        assert event.files[0].name == "seed.bin"
+        assert event.files[0].data == b"abc"
     finally:
         window.close()
 

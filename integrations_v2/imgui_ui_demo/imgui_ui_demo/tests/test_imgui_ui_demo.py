@@ -26,12 +26,12 @@ from imgui_ui_demo.text_input_app import TextInputImGuiUILoop, TextInputState
 from numpy import uint64
 
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
-from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.selected_file import (
     MAX_SELECTED_FILE_BYTES,
     SelectedFile,
     SelectedFilesStatus,
 )
+from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_event import SelectedFilesUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 

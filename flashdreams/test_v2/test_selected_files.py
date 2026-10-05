@@ -256,7 +256,7 @@ def test_ui_loop_rejects_invalid_accept() -> None:
 def test_ui_loop_rejects_invalid_multiple() -> None:
     loop = _ui_loop()
     with pytest.raises(TypeError, match="multiple must be a bool"):
-        loop.request_selected_files("open-1", multiple=1)  # type: ignore[arg-type]
+        loop.request_selected_files("open-1", multiple=1)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 def test_selected_files_event_rejects_inconsistent_status() -> None:

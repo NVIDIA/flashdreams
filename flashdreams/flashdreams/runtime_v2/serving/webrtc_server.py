@@ -1542,15 +1542,14 @@ _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 async def _read_upload_part_bounded(
     part: BodyPartReader, *, max_bytes: int
 ) -> bytes | None:
-    """Return the part body, or ``None`` when it exceeds ``max_bytes``.
+    """Return the decoded part body, or ``None`` when it exceeds ``max_bytes``.
 
     Args:
         part: Multipart file part whose headers have already been read.
-        max_bytes: Maximum allowed size of this file in bytes.
+        max_bytes: Maximum allowed size of the decoded file in bytes.
 
     Returns:
-        The assembled bytes, or ``None`` when the part is larger than
-        ``max_bytes``.
+        The decoded bytes, or ``None`` when they exceed ``max_bytes``.
     """
     chunks: list[bytes] = []
     total = 0
@@ -1558,11 +1557,13 @@ async def _read_upload_part_bounded(
         chunk = await part.read_chunk(_UPLOAD_READ_CHUNK_BYTES)
         if not chunk:
             break
-        total += len(chunk)
-        if total > max_bytes:
-            await part.release()
-            return None
-        chunks.append(chunk)
+        async for decoded in part.decode_iter(chunk):
+            piece = bytes(decoded)
+            total += len(piece)
+            if total > max_bytes:
+                await part.release()
+                return None
+            chunks.append(piece)
     return b"".join(chunks)
 
 
