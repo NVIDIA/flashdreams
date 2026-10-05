@@ -1420,8 +1420,10 @@ class WanVAEDecoderConfig(DecoderConfig):
     """Wrap the decoder forward in a CUDA graph for replay."""
 
     use_compile: bool = False
-    """``torch.compile(mode="max-autotune-no-cudagraphs")``. See
-    ``WanVAEEncoderConfig.use_compile`` for the VRAM caveat."""
+    """``torch.compile(mode="max-autotune-no-cudagraphs")``. On for the
+    streaming 1.3B presets (12-frame blocks); keep it off for whole-clip
+    decodes, where Inductor's intermediates OOM an 81-frame decode on 96 GB.
+    See ``WanVAEEncoderConfig.use_compile`` for the VRAM caveat."""
 
     # Wan 2.x VAE architecture knobs (default = Wan 2.1). The decoder
     # needs the encoder's ``base_dim`` too because the checkpoint's
@@ -1478,6 +1480,11 @@ class WanVAEDecoder(StreamingVideoDecoder[WanVAECache]):
             latent_std=config.latent_std,
             state_dict_transform=config.state_dict_transform,
         ).to(dtype=config.dtype)
+        # NDHWC is cuDNN's fast conv3d layout. Only rank-5 (conv3d) tensors
+        # take it; the conv2d weights (rank 4) and norms stay as they are.
+        for t in (*self.vae.parameters(), *self.vae.buffers()):
+            if t.dim() == 5:
+                t.data = t.data.contiguous(memory_format=torch.channels_last_3d)
 
     def initialize_autoregressive_cache(self) -> WanVAECache:
         return self.vae.prepare_cache()
@@ -1498,7 +1505,8 @@ class WanVAEDecoder(StreamingVideoDecoder[WanVAECache]):
         batch_size = math.prod(batch_shape)
         z = input.reshape(batch_size, T, C, H, W)
 
-        x = self.vae.decode(z.transpose(1, 2), cache=cache).transpose(1, 2)
+        z = z.transpose(1, 2).contiguous(memory_format=torch.channels_last_3d)
+        x = self.vae.decode(z, cache=cache).transpose(1, 2)
         return x.reshape(*batch_shape, *x.shape[1:])
 
     @property
