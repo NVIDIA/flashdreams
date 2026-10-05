@@ -259,17 +259,6 @@ const fileNameMatchesAccept = (name, accept) => {
   );
 };
 
-const selectedFilePolicyStatus = (name, size, accept, maxBytes) => {
-  // Same order as selected_file_policy_status: type, then size.
-  if (!fileNameMatchesAccept(name, accept)) {
-    return "disallowed_type";
-  }
-  if (size > maxBytes) {
-    return "too_large";
-  }
-  return null;
-};
-
 const startFileInput = pending => {
   const requestId = pending.id;
   const input = document.createElement("input");
@@ -277,6 +266,7 @@ const startFileInput = pending => {
   if (pending.accept.length > 0) {
     input.accept = pending.accept.join(",");
   }
+  input.multiple = pending.multiple === true;
   let settled = false;
   const finishFileSelection = status => {
     if (settled || pendingFileRequest === null || pendingFileRequest.id !== requestId) {
@@ -287,23 +277,36 @@ const startFileInput = pending => {
     hideFilePicker();
   };
   input.addEventListener("change", () => {
-    const file = input.files?.[0];
-    if (!file) {
+    const files = pending.multiple
+      ? Array.from(input.files || [])
+      : Array.from(input.files || []).slice(0, 1);
+    if (files.length === 0) {
       finishFileSelection("cancelled");
       return;
     }
-    const rejected = selectedFilePolicyStatus(
-      file.name || "",
-      file.size,
-      pending.accept,
-      pending.maxBytes,
-    );
+    let rejected = null;
+    for (const file of files) {
+      if (!fileNameMatchesAccept(file.name || "", pending.accept)) {
+        rejected = "disallowed_type";
+        break;
+      }
+    }
+    if (rejected === null) {
+      for (const file of files) {
+        if (file.size > pending.maxBytes) {
+          rejected = "too_large";
+          break;
+        }
+      }
+    }
     if (rejected !== null) {
       finishFileSelection(rejected);
       return;
     }
     const body = new FormData();
-    body.append("file", file, file.name);
+    for (const file of files) {
+      body.append("file", file, file.name);
+    }
     fetch(`/api/files?request_id=${encodeURIComponent(requestId)}`, {
       method: "POST",
       body,
@@ -347,16 +350,19 @@ const openFileSelector = options => {
     id: requestId,
     accept,
     maxBytes: Number.isFinite(maxBytes) ? maxBytes : 0,
+    multiple: options.multiple === true,
   };
   showPromptDialog({
-    title: "The app requested a file",
+    title: pendingFileRequest.multiple
+      ? "The app requested files"
+      : "The app requested a file",
     details: [
       {
         label: "Accepted types",
         items: accept.length > 0 ? accept : ["Any"],
       },
       {
-        label: "Max size allowed",
+        label: "Max size per file",
         items: [formatByteBudget(pendingFileRequest.maxBytes)],
       },
     ],

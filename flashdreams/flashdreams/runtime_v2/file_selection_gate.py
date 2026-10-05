@@ -10,15 +10,17 @@ import threading
 from collections import deque
 from dataclasses import dataclass, replace
 
+from flashdreams.runtime_v2.selected_file import FileSelectionRequest
+
 _LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
 class QueuedFileSelection:
-    """One file-selector request waiting to occupy the client dialog."""
+    """One file-selector request waiting to become active."""
 
     request_id: str
-    """Stable selector-slot id for the later selected-files input event."""
+    """Stable id for which button this request is for."""
 
     initial_path: str | None
     """Directory hint for the selector, or ``None`` for the window default."""
@@ -29,8 +31,22 @@ class QueuedFileSelection:
     max_bytes: int | None
     """Requested size budget in bytes, or ``None`` for the window ceiling."""
 
+    multiple: bool = False
+    """Whether the selector may return more than one file."""
+
     generation: int = 0
     """Client generation that admitted this request. Stale pickers do not match."""
+
+    @classmethod
+    def from_request(cls, request: FileSelectionRequest) -> QueuedFileSelection:
+        """Build a queued selection from a UI-loop request."""
+        return cls(
+            request_id=request.request_id,
+            initial_path=request.initial_path,
+            accept=request.accept,
+            max_bytes=request.max_bytes,
+            multiple=request.multiple,
+        )
 
 
 class FileSelectionGate:
@@ -39,8 +55,8 @@ class FileSelectionGate:
     A duplicate ``request_id`` that is already active or queued is ignored.
     A different id waits until :meth:`complete` for the active request.
     Callers emit a selected-files event only after :meth:`complete` claims
-    the slot. :meth:`drain` finishes the current client generation so a late
-    picker or upload cannot complete a later request that reused the id.
+    the slot. :meth:`drain` finishes the current client generation so late
+    in-flight work cannot complete a later request that reused the id.
     """
 
     def __init__(self) -> None:
@@ -80,7 +96,7 @@ class FileSelectionGate:
         """Claim ``request_id`` if it is still current and return the next start.
 
         Callers emit a result only when this returns ``claimed=True``. Client-gone
-        :meth:`drain` wins the race against in-flight pickers and uploads.
+        :meth:`drain` wins the race against in-flight work.
 
         Args:
             request_id: Id of the in-flight selector.

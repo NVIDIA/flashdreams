@@ -3,7 +3,6 @@
 
 """Client window that writes an MP4 file."""
 
-from collections.abc import Sequence
 from pathlib import Path
 
 from numpy import uint64
@@ -14,10 +13,13 @@ from flashdreams.runtime_v2.file_selection_gate import (
     QueuedFileSelection,
 )
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    SelectedFilesStatus,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
     UserInputEvent,
 )
@@ -56,32 +58,9 @@ class Mp4ClientWindow(IClientWindow):
         self._pending_events = []
         return UserInputEvents(events)
 
-    def request_selected_files(
-        self,
-        request_id: str,
-        initial_path: str | None = None,
-        *,
-        accept: Sequence[str] = (),
-        max_bytes: int | None = None,
-    ) -> None:
-        """Complete a file-selector request as unavailable.
-
-        Overlapping distinct ids are completed in order, each as unavailable.
-
-        Args:
-            request_id: Stable selector-slot id from the UI control.
-            initial_path: Ignored; this window has no selector.
-            accept: Ignored; this window has no selector.
-            max_bytes: Ignored; this window has no selector.
-        """
-        started = self._file_gate.submit(
-            QueuedFileSelection(
-                request_id=request_id,
-                initial_path=initial_path,
-                accept=tuple(accept),
-                max_bytes=max_bytes,
-            )
-        )
+    def request_selected_files(self, request: FileSelectionRequest) -> None:
+        """Complete a file-selector request as unavailable."""
+        started = self._file_gate.submit(QueuedFileSelection.from_request(request))
         while started is not None:
             claimed, nxt = self._file_gate.complete(
                 started.request_id, started.generation
@@ -92,7 +71,7 @@ class Mp4ClientWindow(IClientWindow):
                         timestamp=uint64(0),
                         request_id=started.request_id,
                         status=SelectedFilesStatus.UNAVAILABLE,
-                        generation=started.generation,
+                        _generation=started.generation,
                     )
                 )
             started = nxt

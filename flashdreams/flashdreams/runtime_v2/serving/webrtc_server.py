@@ -29,10 +29,17 @@ from loguru import logger
 from torch.nn import functional as F
 
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
+from flashdreams.runtime_v2.selected_file import (
+    MAX_SELECTED_FILE_BATCH_BYTES,
+    SelectedFile,
+    SelectedFilesStatus,
+    clamp_selected_file_max_bytes,
+    normalize_selected_file_accept,
+    selected_files_policy_status,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    MAX_SELECTED_FILE_BYTES,
     CloseUserInputEvent,
     FocusUserInputEvent,
     GamepadUserInputEvent,
@@ -42,15 +49,10 @@ from flashdreams.runtime_v2.user_input_event import (
     MouseUserInputEvent,
     QueryStringUserInputEvent,
     ResetUserInputEvent,
-    SelectedFile,
-    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
     TouchUserInputEvent,
     UserInputEvent,
     XRControllerUserInputEvent,
-    clamp_selected_file_max_bytes,
-    normalize_selected_file_accept,
-    selected_file_policy_status,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -312,6 +314,9 @@ class _PendingFileSelection:
     max_bytes: int
     """Maximum file bytes, already clamped to the window ceiling."""
 
+    multiple: bool
+    """Whether this request may include more than one file."""
+
     generation: int
     """Gate generation that armed this request; a later generation drops it."""
 
@@ -470,6 +475,7 @@ class WebRTCServer:
         *,
         accept: Sequence[str] = (),
         max_bytes: int | None = None,
+        multiple: bool = False,
         generation: int,
     ) -> None:
         """Ask the connected browser to open a file selector.
@@ -479,6 +485,7 @@ class WebRTCServer:
             initial_path: Ignored; the browser picker cannot use a host path.
             accept: Filename suffixes such as ``.png``. Empty allows any type.
             max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
+            multiple: Whether the selector may return more than one file.
             generation: Gate generation that admitted this request.
         """
         del initial_path
@@ -491,6 +498,7 @@ class WebRTCServer:
             "id": request_id,
             "accept": list(suffixes),
             "max_bytes": budget,
+            "multiple": multiple,
         }
         loop = self._loop
         if loop is None:
@@ -504,14 +512,22 @@ class WebRTCServer:
             raise TypeError("file selector id must be a string.")
         accept = payload["accept"]
         max_bytes = payload["max_bytes"]
-        if not isinstance(accept, list) or not isinstance(max_bytes, int):
-            raise TypeError("file selector payload must include accept and max_bytes.")
+        multiple = payload["multiple"]
+        if (
+            not isinstance(accept, list)
+            or not isinstance(max_bytes, int)
+            or not isinstance(multiple, bool)
+        ):
+            raise TypeError(
+                "file selector payload must include accept, max_bytes, and multiple."
+            )
         with self._file_selector_lock:
             if not self._file_selection_is_current(request_id, generation):
                 return
             self._pending_file_requests[request_id] = _PendingFileSelection(
                 accept=tuple(accept),
                 max_bytes=max_bytes,
+                multiple=multiple,
                 generation=generation,
             )
             channel = self._control_channel
@@ -894,7 +910,9 @@ class WebRTCServer:
     async def _start_server(self) -> None:
         """Create and bind the standalone aiohttp application."""
         self._offer_lock = asyncio.Lock()
-        app = web.Application(client_max_size=MAX_SELECTED_FILE_BYTES + 1024 * 1024)
+        app = web.Application(
+            client_max_size=MAX_SELECTED_FILE_BATCH_BYTES + 1024 * 1024
+        )
         app.router.add_get("/", self._serve_browser)
         app.router.add_get("/app.js", self._serve_browser_script)
         app.router.add_get("/healthz", self._health)
@@ -974,19 +992,38 @@ class WebRTCServer:
             emitted = True
 
         try:
+            max_body = (
+                MAX_SELECTED_FILE_BATCH_BYTES if policy.multiple else policy.max_bytes
+            ) + 1024 * 1024
+            content_length = request.content_length
+            if content_length is not None and content_length > max_body:
+                emit(SelectedFilesStatus.TOO_LARGE)
+                raise web.HTTPRequestEntityTooLarge(
+                    max_size=max_body,
+                    actual_size=content_length,
+                )
             try:
                 post = await request.post()
             except web.HTTPRequestEntityTooLarge:
                 emit(SelectedFilesStatus.TOO_LARGE)
                 raise
-            upload = post.get("file")
-            if not isinstance(upload, FileField):
+            uploads = [
+                upload
+                for upload in post.getall("file", [])
+                if isinstance(upload, FileField)
+            ]
+            if not policy.multiple:
+                uploads = uploads[:1]
+            if not uploads:
                 emit(SelectedFilesStatus.UNAVAILABLE)
                 raise web.HTTPBadRequest(reason="File upload requires a file.")
-            data = upload.file.read()
-            name = upload.filename or "upload"
-            rejected = selected_file_policy_status(
-                name, len(data), accept=policy.accept, max_bytes=policy.max_bytes
+            chosen: list[tuple[str, bytes]] = []
+            for upload in uploads:
+                chosen.append((upload.filename or "upload", upload.file.read()))
+            rejected = selected_files_policy_status(
+                [(name, len(data)) for name, data in chosen],
+                accept=policy.accept,
+                max_bytes=policy.max_bytes,
             )
             if rejected is SelectedFilesStatus.DISALLOWED_TYPE:
                 emit(rejected)
@@ -995,11 +1032,13 @@ class WebRTCServer:
                 emit(rejected)
                 raise web.HTTPRequestEntityTooLarge(
                     max_size=policy.max_bytes,
-                    actual_size=len(data),
+                    actual_size=max(len(data) for _name, data in chosen),
                 )
             emit(
                 SelectedFilesStatus.OK,
-                files=(SelectedFile(name=name, data=data),),
+                files=tuple(
+                    SelectedFile(name=name, data=data) for name, data in chosen
+                ),
             )
             return web.Response(status=204)
         finally:
@@ -1382,7 +1421,7 @@ class WebRTCServer:
                 request_id=request_id,
                 status=status,
                 files=files,
-                generation=generation,
+                _generation=generation,
             )
         )
 

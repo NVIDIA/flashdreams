@@ -5,7 +5,6 @@
 
 import threading
 from collections import deque
-from collections.abc import Sequence
 from dataclasses import replace
 
 from numpy import uint64
@@ -15,14 +14,16 @@ from flashdreams.runtime_v2.file_selection_gate import (
     FileSelectionGate,
     QueuedFileSelection,
 )
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    SelectedFilesStatus,
+)
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
     UserInputEvent,
-    normalize_selected_file_accept,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -83,7 +84,7 @@ class WebRTCClientWindow(IClientWindow):
             with self._input_lock:
                 if isinstance(event, SelectedFilesUserInputEvent):
                     claimed, nxt = self._file_gate.complete(
-                        event.request_id, event.generation
+                        event.request_id, event._generation
                     )
                     if not claimed:
                         return
@@ -125,35 +126,9 @@ class WebRTCClientWindow(IClientWindow):
         """
         self.server.request_new_window_size(new_window_size)
 
-    def request_selected_files(
-        self,
-        request_id: str,
-        initial_path: str | None = None,
-        *,
-        accept: Sequence[str] = (),
-        max_bytes: int | None = None,
-    ) -> None:
-        """Ask the connected browser to open a file selector.
-
-        A second distinct ``request_id`` waits until the active selector
-        completes so the viewer shows one dialog at a time. A dropped peer
-        completes leftovers and in-flight picks as unavailable.
-
-        Args:
-            request_id: Stable selector-slot id from the UI control.
-            initial_path: Ignored by the browser picker; kept so the window
-                signature matches :meth:`IClientWindow.request_selected_files`.
-            accept: Filename suffixes such as ``.png``. Empty allows any type.
-            max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
-        """
-        started = self._file_gate.submit(
-            QueuedFileSelection(
-                request_id=request_id,
-                initial_path=initial_path,
-                accept=normalize_selected_file_accept(accept),
-                max_bytes=max_bytes,
-            )
-        )
+    def request_selected_files(self, request: FileSelectionRequest) -> None:
+        """Ask the connected browser to open a file selector."""
+        started = self._file_gate.submit(QueuedFileSelection.from_request(request))
         if started is not None:
             self._start_file_selection(started)
 
@@ -170,7 +145,7 @@ class WebRTCClientWindow(IClientWindow):
                         timestamp=timestamp,
                         request_id=item.request_id,
                         status=SelectedFilesStatus.UNAVAILABLE,
-                        generation=item.generation,
+                        _generation=item.generation,
                     )
                 )
 
@@ -181,6 +156,7 @@ class WebRTCClientWindow(IClientWindow):
             initial_path=pending.initial_path,
             accept=pending.accept,
             max_bytes=pending.max_bytes,
+            multiple=pending.multiple,
             generation=pending.generation,
         )
 

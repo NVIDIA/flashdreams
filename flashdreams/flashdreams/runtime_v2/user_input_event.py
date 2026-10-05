@@ -3,80 +3,12 @@
 
 """Concrete user input events for supported input modalities."""
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
 from flashdreams.api_v2.user_input_event import UserInputEvent
-
-MAX_SELECTED_FILE_BYTES = 32 * 1024 * 1024
-"""Hard ceiling for one selected file. Windows clamp requested budgets to this."""
-
-
-def clamp_selected_file_max_bytes(max_bytes: int | None) -> int:
-    """Return a file-size budget that cannot exceed ``MAX_SELECTED_FILE_BYTES``.
-
-    Args:
-        max_bytes: Requested budget in bytes, or ``None`` for the ceiling.
-
-    Returns:
-        The requested budget when it is below the ceiling, otherwise the ceiling.
-
-    Raises:
-        TypeError: ``max_bytes`` is not ``None`` or an integer.
-        ValueError: ``max_bytes`` is not positive.
-    """
-    if max_bytes is None:
-        return MAX_SELECTED_FILE_BYTES
-    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int):
-        raise TypeError("max_bytes must be an integer.")
-    if max_bytes <= 0:
-        raise ValueError("max_bytes must be > 0.")
-    return min(max_bytes, MAX_SELECTED_FILE_BYTES)
-
-
-def normalize_selected_file_accept(accept: Sequence[str] = ()) -> tuple[str, ...]:
-    """Return accepted filename suffixes such as ``.png``.
-
-    Args:
-        accept: Suffixes the client may choose. Empty means any type.
-
-    Returns:
-        The suffixes as a tuple, unchanged except for the sequence type.
-
-    Raises:
-        TypeError: ``accept`` is not a sequence of strings.
-        ValueError: A suffix is missing the leading ``.`` or contains a path.
-    """
-    if isinstance(accept, str) or not isinstance(accept, Sequence):
-        raise TypeError("accept must be a sequence of suffixes.")
-    suffixes: list[str] = []
-    for suffix in accept:
-        if not isinstance(suffix, str):
-            raise TypeError("accept suffixes must be strings.")
-        if (
-            not suffix.startswith(".")
-            or suffix == "."
-            or "/" in suffix
-            or "\\" in suffix
-        ):
-            raise ValueError(
-                "accept suffixes must look like ``.png`` and cannot contain a path."
-            )
-        suffixes.append(suffix)
-    return tuple(suffixes)
-
-
-def selected_file_suffix_allowed(name: str, accept: tuple[str, ...]) -> bool:
-    """Return whether ``name`` matches ``accept``.
-
-    Empty ``accept`` allows any name. Comparison is case-insensitive.
-    """
-    if not accept:
-        return True
-    lower = name.lower()
-    return any(lower.endswith(suffix.lower()) for suffix in accept)
+from flashdreams.runtime_v2.selected_file import SelectedFile, SelectedFilesStatus
 
 
 class KeyboardInputState(Enum):
@@ -299,66 +231,6 @@ class XRControllerUserInputEvent(UserInputEvent):
     """Optional controller quaternion in client XR space."""
 
 
-class SelectedFilesStatus(Enum):
-    """Outcome of one client file-selector request."""
-
-    OK = "ok"
-    """The client chose a file that passed type and size checks."""
-
-    CANCELLED = "cancelled"
-    """The user dismissed the selector."""
-
-    TOO_LARGE = "too_large"
-    """The chosen file exceeded ``max_bytes``."""
-
-    DISALLOWED_TYPE = "disallowed_type"
-    """The chosen file did not match ``accept``. Checked before size."""
-
-    UNAVAILABLE = "unavailable"
-    """The picker could not complete: headless output, a gone client, a failed chooser, a missing upload, or an unreadable file."""
-
-
-def selected_file_policy_status(
-    name: str,
-    size: int | None,
-    *,
-    accept: tuple[str, ...] = (),
-    max_bytes: int,
-) -> SelectedFilesStatus | None:
-    """Return why a chosen file is rejected, or ``None`` if it is allowed.
-
-    Windows call this so every client uses the same order: type before size.
-    A too-large disallowed file is ``DISALLOWED_TYPE``. Applications only read
-    :class:`SelectedFilesUserInputEvent` ``status``. Pass ``size=None`` to
-    check only the name.
-
-    Args:
-        name: File name to match against ``accept``.
-        size: File size in bytes, or ``None`` to skip the size check.
-        accept: Filename suffixes such as ``.png``. Empty allows any type.
-        max_bytes: Maximum allowed size in bytes.
-
-    Returns:
-        ``DISALLOWED_TYPE``, ``TOO_LARGE``, or ``None`` when the file passes.
-    """
-    if not selected_file_suffix_allowed(name, accept):
-        return SelectedFilesStatus.DISALLOWED_TYPE
-    if size is not None and size > max_bytes:
-        return SelectedFilesStatus.TOO_LARGE
-    return None
-
-
-@dataclass(frozen=True, slots=True)
-class SelectedFile:
-    """One file chosen by a client file selector."""
-
-    name: str
-    """File name shown to the application."""
-
-    data: bytes
-    """File contents."""
-
-
 @dataclass(frozen=True, slots=True, eq=False)
 class SelectedFilesUserInputEvent(UserInputEvent):
     """Files chosen for one :meth:`IClientWindow.request_selected_files` call.
@@ -373,7 +245,7 @@ class SelectedFilesUserInputEvent(UserInputEvent):
         return "selected_files"
 
     request_id: str
-    """Identifier supplied with the matching file-selection request."""
+    """Stable id for which button this result is for. Same string the UI passed when it asked."""
 
     status: SelectedFilesStatus
     """Why this request completed. ``OK`` is the only value with files."""
@@ -381,7 +253,7 @@ class SelectedFilesUserInputEvent(UserInputEvent):
     files: tuple[SelectedFile, ...] = ()
     """Chosen files. Empty unless ``status`` is ``OK``."""
 
-    generation: int = 0
+    _generation: int = 0
     """Window generation that admitted this request. Applications ignore it."""
 
     def __post_init__(self) -> None:

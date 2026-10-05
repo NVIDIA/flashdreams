@@ -4,7 +4,8 @@
 """Client window abstract interface."""
 
 from abc import ABC
-from collections.abc import Sequence
+
+from flashdreams.runtime_v2.selected_file import FileSelectionRequest
 
 from .input_source import InputSource
 from .output_sink import OutputSink
@@ -49,45 +50,14 @@ class IClientWindow(InputSource, OutputSink, ABC):
         pass
 
     # Optional to implement
-    def request_selected_files(
-        self,
-        request_id: str,
-        initial_path: str | None = None,
-        *,
-        accept: Sequence[str] = (),
-        max_bytes: int | None = None,
-    ) -> None:
-        """Ask this client to pick files and report them as input events.
+    def request_selected_files(self, request: FileSelectionRequest) -> None:
+        """Request to open a file selector local to the client this window drives.
 
-        The chosen files arrive later through
-        :meth:`InputSource.get_user_input_events`. Windows classify the choice
-        with
-        :func:`~flashdreams.runtime_v2.user_input_event.selected_file_policy_status`
-        (type before size) and clamp size to the 32 MiB ceiling. The event
-        carries a ``status`` so cancel, oversize, and disallowed type are
-        distinct. Applications read that ``status``; they do not re-check type
-        or size. A second call with the same ``request_id`` while the first is
-        still active or queued is ignored. Use one stable id per UI control so
-        extra clicks while the picker is opening do not enqueue more dialogs.
-        A new id on every click is a new control and queues another dialog.
-        A different ``request_id`` waits until the active selector completes,
-        so two controls still run one dialog at a time. Every accepted request
-        later produces one event. ``cancelled`` is only a user dismiss.
-        ``unavailable`` is a pick that could not complete: no interactive
-        client, a gone client, a failed chooser, a missing upload, or an
-        unreadable file. If the interactive client is gone while the session
-        continues (dropped WebRTC peer, closed native window), leftovers
-        complete as ``unavailable``. In-flight picks are dropped the same way.
-        A picker that outlives that client cannot complete a later request that
-        reused the id. Window ``close`` / session replacement finish leftovers
-        without delivering them to the next session.
+        The result arrives later through
+        :meth:`InputSource.get_user_input_events` as
+        :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`.
 
         Args:
-            request_id: Stable id for this selector slot, typically one per
-                UI control. Reuse it after the matching event arrives.
-            initial_path: Directory the selector should start in; ``None`` lets
-                the window choose a default.
-            accept: Filename suffixes such as ``.png``. Empty allows any type.
-            max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
+            request: Selector request queued by the UI loop.
         """
         pass

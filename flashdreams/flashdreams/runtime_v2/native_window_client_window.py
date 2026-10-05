@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import shlex
 import shutil
 import subprocess
 import sys
@@ -29,21 +30,23 @@ from flashdreams.runtime_v2.file_selection_gate import (
     FileSelectionGate,
     QueuedFileSelection,
 )
+from flashdreams.runtime_v2.selected_file import (
+    MAX_SELECTED_FILE_BYTES,
+    FileSelectionRequest,
+    SelectedFile,
+    SelectedFilesStatus,
+    clamp_selected_file_max_bytes,
+    selected_files_policy_status,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    MAX_SELECTED_FILE_BYTES,
     CloseUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
-    SelectedFile,
-    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
-    clamp_selected_file_max_bytes,
-    normalize_selected_file_accept,
-    selected_file_policy_status,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
@@ -54,15 +57,24 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _ask_open_filename(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
-    """Return a path from the OS file picker, or ``""`` when cancelled.
+def _ask_open_filename(
+    *,
+    initial_dir: str,
+    accept: tuple[str, ...] = (),
+    multiple: bool = False,
+) -> tuple[str, ...]:
+    """Return paths from the OS file picker, or an empty tuple when cancelled.
 
     Raises:
         RuntimeError: The desktop chooser is missing or failed.
     """
     if sys.platform.startswith("linux"):
-        return _ask_open_filename_linux(initial_dir=initial_dir, accept=accept)
-    return _ask_open_filename_tkinter(initial_dir=initial_dir, accept=accept)
+        return _ask_open_filename_linux(
+            initial_dir=initial_dir, accept=accept, multiple=multiple
+        )
+    return _ask_open_filename_tkinter(
+        initial_dir=initial_dir, accept=accept, multiple=multiple
+    )
 
 
 def _accept_filter_patterns(accept: tuple[str, ...]) -> str:
@@ -70,7 +82,12 @@ def _accept_filter_patterns(accept: tuple[str, ...]) -> str:
     return " ".join(f"*{suffix}" for suffix in accept)
 
 
-def _ask_open_filename_linux(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
+def _ask_open_filename_linux(
+    *,
+    initial_dir: str,
+    accept: tuple[str, ...] = (),
+    multiple: bool = False,
+) -> tuple[str, ...]:
     """Open the desktop file picker via ``zenity`` or ``kdialog``.
 
     ``zenity --file-selection`` uses ``GtkFileChooserNative``, which is the
@@ -87,17 +104,31 @@ def _ask_open_filename_linux(*, initial_dir: str, accept: tuple[str, ...] = ()) 
             f"--filename={directory}/",
             "--title=Select a file",
         ]
+        if multiple:
+            argv.extend(("--multiple", "--separator=\n"))
         if patterns:
             argv.append(f"--file-filter=Accepted | {patterns}")
-    else:
-        kdialog = shutil.which("kdialog")
-        if kdialog is None:
-            raise RuntimeError(
-                "Native file picker needs a desktop chooser (zenity or kdialog)."
-            )
-        argv = [kdialog, "--getopenfilename", directory]
-        if patterns:
-            argv.append(f"Accepted ({patterns})")
+        return _parse_chooser_stdout(
+            _run_desktop_chooser(argv), multiple=multiple, quoted=False
+        )
+    kdialog = shutil.which("kdialog")
+    if kdialog is None:
+        raise RuntimeError(
+            "Native file picker needs a desktop chooser (zenity or kdialog)."
+        )
+    argv = [kdialog, "--getopenfilename"]
+    if multiple:
+        argv.append("--multiple")
+    argv.append(directory)
+    if patterns:
+        argv.append(f"Accepted ({patterns})")
+    return _parse_chooser_stdout(
+        _run_desktop_chooser(argv), multiple=multiple, quoted=True
+    )
+
+
+def _run_desktop_chooser(argv: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run one desktop file chooser and map non-cancel failures to errors."""
     completed = subprocess.run(
         argv,
         check=False,
@@ -105,19 +136,41 @@ def _ask_open_filename_linux(*, initial_dir: str, accept: tuple[str, ...] = ()) 
         text=True,
     )
     if completed.returncode == 1:
-        return ""
+        return completed
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "").strip()
         raise RuntimeError(
             f"Native file picker failed with exit {completed.returncode}"
             + (f": {detail}" if detail else ".")
         )
-    return completed.stdout.strip()
+    return completed
+
+
+def _parse_chooser_stdout(
+    completed: subprocess.CompletedProcess[str],
+    *,
+    multiple: bool,
+    quoted: bool,
+) -> tuple[str, ...]:
+    """Return selected paths from a chooser, or ``()`` when cancelled."""
+    if completed.returncode == 1:
+        return ()
+    output = completed.stdout.strip()
+    if not output:
+        return ()
+    if not multiple:
+        return (output,)
+    if quoted:
+        return tuple(shlex.split(output))
+    return tuple(line for line in output.splitlines() if line)
 
 
 def _ask_open_filename_tkinter(
-    *, initial_dir: str, accept: tuple[str, ...] = ()
-) -> str:
+    *,
+    initial_dir: str,
+    accept: tuple[str, ...] = (),
+    multiple: bool = False,
+) -> tuple[str, ...]:
     """Open the Tk file dialog (native Explorer / macOS panel)."""
     import tkinter as tk
     from tkinter import filedialog
@@ -135,41 +188,58 @@ def _ask_open_filename_tkinter(
         }
         if accept:
             kwargs["filetypes"] = [("Accepted", _accept_filter_patterns(accept))]
+        if multiple:
+            selected = filedialog.askopenfilenames(**kwargs)
+            return tuple(str(path) for path in selected if path)
         selected = filedialog.askopenfilename(**kwargs)
     finally:
         root.destroy()
-    return str(selected or "")
+    return (str(selected),) if selected else ()
 
 
-def _selected_file_from_path(
-    path: Path,
+def _selected_files_from_paths(
+    paths: Sequence[str],
     *,
     accept: tuple[str, ...] = (),
     max_bytes: int | None = None,
-) -> tuple[SelectedFile | None, SelectedFilesStatus]:
-    """Load one picked file, or ``None`` and a failure status."""
+) -> tuple[tuple[SelectedFile, ...], SelectedFilesStatus]:
+    """Load chosen files, or empty files and a failure status."""
     budget = MAX_SELECTED_FILE_BYTES if max_bytes is None else max_bytes
-    rejected = selected_file_policy_status(
-        path.name, None, accept=accept, max_bytes=budget
+    rejected = selected_files_policy_status(
+        [(Path(path).name, None) for path in paths],
+        accept=accept,
+        max_bytes=budget,
     )
     if rejected is not None:
-        return None, rejected
-    try:
-        size = path.stat().st_size
-        rejected = selected_file_policy_status(
-            path.name, size, accept=accept, max_bytes=budget
-        )
-        if rejected is not None:
-            return None, rejected
-        data = path.read_bytes()
-    except OSError:
-        return None, SelectedFilesStatus.UNAVAILABLE
-    rejected = selected_file_policy_status(
-        path.name, len(data), accept=accept, max_bytes=budget
+        return (), rejected
+    sized: list[tuple[str, int]] = []
+    for path in paths:
+        try:
+            sized.append((path, Path(path).stat().st_size))
+        except OSError:
+            return (), SelectedFilesStatus.UNAVAILABLE
+    rejected = selected_files_policy_status(
+        [(Path(path).name, size) for path, size in sized],
+        accept=accept,
+        max_bytes=budget,
     )
     if rejected is not None:
-        return None, rejected
-    return SelectedFile(name=path.name, data=data), SelectedFilesStatus.OK
+        return (), rejected
+    files: list[SelectedFile] = []
+    for path, _size in sized:
+        try:
+            data = Path(path).read_bytes()
+        except OSError:
+            return (), SelectedFilesStatus.UNAVAILABLE
+        files.append(SelectedFile(name=Path(path).name, data=data))
+    rejected = selected_files_policy_status(
+        [(chosen.name, len(chosen.data)) for chosen in files],
+        accept=accept,
+        max_bytes=budget,
+    )
+    if rejected is not None:
+        return (), rejected
+    return tuple(files), SelectedFilesStatus.OK
 
 
 _PRINTABLE_KEY_NAMES = {
@@ -299,34 +369,13 @@ class NativeWindowClientWindow(IClientWindow):
             )
         self._window_size = presenter.resize(*new_window_size)
 
-    def request_selected_files(
-        self,
-        request_id: str,
-        initial_path: str | None = None,
-        *,
-        accept: Sequence[str] = (),
-        max_bytes: int | None = None,
-    ) -> None:
-        """Ask the OS file selector and enqueue the chosen file.
-
-        The desktop dialog runs on a worker thread so the UI loop can keep
-        polling and presenting while the picker is open. A second distinct
-        ``request_id`` waits until this picker completes. Closing the window
-        completes leftovers and in-flight picks as unavailable.
-
-        Args:
-            request_id: Stable selector-slot id from the UI control.
-            initial_path: Directory the selector should start in; ``None`` uses
-                the current user's home directory.
-            accept: Filename suffixes such as ``.png``. Empty allows any type.
-            max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
-        """
+    def request_selected_files(self, request: FileSelectionRequest) -> None:
+        """Ask the OS file selector and enqueue the chosen files."""
         started = self._file_gate.submit(
-            QueuedFileSelection(
-                request_id=request_id,
-                initial_path=initial_path or str(Path.home()),
-                accept=normalize_selected_file_accept(accept),
-                max_bytes=clamp_selected_file_max_bytes(max_bytes),
+            replace(
+                QueuedFileSelection.from_request(request),
+                initial_path=request.initial_path or str(Path.home()),
+                max_bytes=clamp_selected_file_max_bytes(request.max_bytes),
             )
         )
         if started is not None:
@@ -344,6 +393,7 @@ class NativeWindowClientWindow(IClientWindow):
                 pending.max_bytes
                 if pending.max_bytes is not None
                 else MAX_SELECTED_FILE_BYTES,
+                pending.multiple,
             ),
             name="flashdreams-file-picker",
             daemon=True,
@@ -357,13 +407,18 @@ class NativeWindowClientWindow(IClientWindow):
         initial_dir: str,
         accept: tuple[str, ...],
         max_bytes: int,
+        multiple: bool,
     ) -> None:
         """Run the OS picker and enqueue a selected-files event."""
         files: tuple[SelectedFile, ...] = ()
         status = SelectedFilesStatus.UNAVAILABLE
         try:
             try:
-                selected = _ask_open_filename(initial_dir=initial_dir, accept=accept)
+                selected = _ask_open_filename(
+                    initial_dir=initial_dir,
+                    accept=accept,
+                    multiple=multiple,
+                )
             except Exception:
                 _LOGGER.exception(
                     "Native file picker failed for request id %r.",
@@ -371,12 +426,13 @@ class NativeWindowClientWindow(IClientWindow):
                 )
             else:
                 if selected:
-                    chosen, status = _selected_file_from_path(
-                        Path(selected),
+                    if not multiple:
+                        selected = selected[:1]
+                    files, status = _selected_files_from_paths(
+                        selected,
                         accept=accept,
                         max_bytes=max_bytes,
                     )
-                    files = () if chosen is None else (chosen,)
                 else:
                     status = SelectedFilesStatus.CANCELLED
         finally:
@@ -392,7 +448,7 @@ class NativeWindowClientWindow(IClientWindow):
                         request_id=request_id,
                         status=status,
                         files=files,
-                        generation=generation,
+                        _generation=generation,
                     )
                 )
             if nxt is not None and self._presenter is not None:
@@ -630,7 +686,7 @@ class NativeWindowClientWindow(IClientWindow):
                     timestamp=uint64(0),
                     request_id=item.request_id,
                     status=SelectedFilesStatus.UNAVAILABLE,
-                    generation=item.generation,
+                    _generation=item.generation,
                 )
             )
 

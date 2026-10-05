@@ -21,10 +21,13 @@ from torch import Tensor
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    normalize_selected_file_accept,
+)
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     UserInputEvent,
-    normalize_selected_file_accept,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -75,23 +78,6 @@ class _LoopRunResult:
 class _Message(Generic[StateT]):
     operation: Callable[[StateT], None]
     """Operation to run before the loop's next step."""
-
-
-@dataclass(frozen=True, slots=True)
-class FileSelectionRequest:
-    """One client file-selector request queued by a UI loop."""
-
-    request_id: str
-    """Stable selector-slot id from the UI control that asked for a file."""
-
-    initial_path: str
-    """Directory the selector should start in."""
-
-    accept: tuple[str, ...] = ()
-    """Filename suffixes the client may choose, empty for any type."""
-
-    max_bytes: int | None = None
-    """Requested size budget in bytes, or ``None`` for the window ceiling."""
 
 
 @dataclass(slots=True)
@@ -551,46 +537,30 @@ class IUILoop(ILoop[StateT], ABC):
         *,
         accept: Sequence[str] = (),
         max_bytes: int | None = None,
+        multiple: bool = False,
     ) -> None:
-        """Ask the client window to open a file selector.
+        """Request that the client window open a file selector local to the client.
 
-        The window reports the result later as
-        :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`.
-        Read ``status`` for cancel, oversize, disallowed type, or unavailable;
-        ``files`` is non-empty only when the pick succeeded. A second call with
-        the same ``request_id`` while the first is still active or queued is
-        ignored so the original picker can still complete. Distinct ids are
-        forwarded in order; the window shows one client selector at a time.
-        Use one stable ``request_id`` per UI control so extra clicks while the
-        picker is opening are ignored; two controls use two ids and are served
-        in order. A new id on every click is a new control and queues another
-        dialog. Every accepted request later produces one event. ``cancelled``
-        is only a user dismiss. ``unavailable`` is a pick that could not
-        complete: no interactive client, a gone client, a failed chooser, a
-        missing upload, or an unreadable file. If the interactive client is
-        gone while the session continues (dropped WebRTC peer, closed native
-        window), leftovers complete as ``unavailable``. In-flight picks are
-        dropped the same way.
-        A picker that outlives that client cannot complete a later request that
-        reused the id.
-
-        ``accept`` and ``max_bytes`` are the application's policy. Windows
-        classify the choice with
-        :func:`~flashdreams.runtime_v2.user_input_event.selected_file_policy_status`
-        (type before size) and clamp ``max_bytes`` to the 32 MiB ceiling so a
-        client cannot raise the cap.
+        The result arrives later as
+        :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`
+        with this ``request_id``. Read ``status`` to see whether the pick
+        succeeded; use ``files`` only when it did.
 
         Args:
-            request_id: Stable id for this selector slot, typically one per
-                UI control. Reuse it after the matching event arrives.
-            initial_path: Directory the selector should start in; ``None`` uses
-                the current user's home directory.
+            request_id: Stable id for which button this request is for. Reuse
+                it every time that button is pressed so a second click is the
+                same request, not another picker. Use a different id for a
+                different button so the later event can be told apart.
+            initial_path: Directory hint for the selector; ``None`` uses the
+                current user's home directory.
             accept: Filename suffixes such as ``.png``. Empty allows any type.
-            max_bytes: Maximum file size in bytes, or ``None`` for the ceiling.
+            max_bytes: Maximum size of each file in bytes, or ``None`` for the
+                ceiling.
+            multiple: Whether the selector may return more than one file.
 
         Raises:
             TypeError: ``request_id`` or ``initial_path`` is not a string, or
-                ``accept`` / ``max_bytes`` has the wrong type.
+                ``accept`` / ``max_bytes`` / ``multiple`` has the wrong type.
             ValueError: ``request_id`` is empty, ``initial_path`` is empty, or
                 ``accept`` / ``max_bytes`` is invalid.
         """
@@ -612,6 +582,8 @@ class IUILoop(ILoop[StateT], ABC):
                 raise TypeError("max_bytes must be an integer.")
             if max_bytes <= 0:
                 raise ValueError("max_bytes must be > 0.")
+        if not isinstance(multiple, bool):
+            raise TypeError("multiple must be a bool.")
         requests = self.get_or_create_ui_loop_requests()
         if any(
             selection.request_id == request_id for selection in requests.file_selections
@@ -627,6 +599,7 @@ class IUILoop(ILoop[StateT], ABC):
                 initial_path=resolved_initial_path,
                 accept=suffixes,
                 max_bytes=max_bytes,
+                multiple=multiple,
             )
         )
 

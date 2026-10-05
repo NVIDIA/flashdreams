@@ -21,6 +21,10 @@ from flashdreams.runtime_v2 import native_window_client_window as native_window_
 from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
 )
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    SelectedFilesStatus,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -29,7 +33,6 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
-    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
 )
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
@@ -39,6 +42,23 @@ if TYPE_CHECKING:
     import slangpy as spy
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _file_request(
+    request_id: str,
+    initial_path: str,
+    *,
+    accept: tuple[str, ...] = (),
+    max_bytes: int | None = None,
+    multiple: bool = False,
+) -> FileSelectionRequest:
+    return FileSelectionRequest(
+        request_id=request_id,
+        initial_path=initial_path,
+        accept=accept,
+        max_bytes=max_bytes,
+        multiple=multiple,
+    )
 
 
 def _wait_for_input_events(window: NativeWindowClientWindow) -> list[object]:
@@ -635,14 +655,14 @@ def test_native_window_reports_a_selected_file(
     monkeypatch.setattr(
         native_window_module,
         "_ask_open_filename",
-        lambda *, initial_dir, accept=(): str(chosen),
+        lambda *, initial_dir, accept=(), multiple=False: (str(chosen),),
     )
     presenter = _Presenter()
     window = NativeWindowClientWindow(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_selected_files("open-1", str(tmp_path))
+    window.request_selected_files(_file_request("open-1", str(tmp_path)))
     events = _wait_for_input_events(window)
     window.close()
 
@@ -661,14 +681,14 @@ def test_native_window_reports_cancelled_file_selection(
     monkeypatch.setattr(
         native_window_module,
         "_ask_open_filename",
-        lambda *, initial_dir, accept=(): "",
+        lambda *, initial_dir, accept=(), multiple=False: (),
     )
     presenter = _Presenter()
     window = NativeWindowClientWindow(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_selected_files("open-1", str(tmp_path))
+    window.request_selected_files(_file_request("open-1", str(tmp_path)))
     events = _wait_for_input_events(window)
     window.close()
 
@@ -683,8 +703,13 @@ def test_native_window_reports_cancelled_file_selection(
 def test_native_window_reports_unavailable_when_picker_raises(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    def fail_picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
-        del initial_dir, accept
+    def fail_picker(
+        *,
+        initial_dir: str,
+        accept: tuple[str, ...] = (),
+        multiple: bool = False,
+    ) -> tuple[str, ...]:
+        del initial_dir, accept, multiple
         raise RuntimeError("Native file picker needs a desktop chooser.")
 
     monkeypatch.setattr(native_window_module, "_ask_open_filename", fail_picker)
@@ -693,7 +718,7 @@ def test_native_window_reports_unavailable_when_picker_raises(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_selected_files("open-1", str(tmp_path))
+    window.request_selected_files(_file_request("open-1", str(tmp_path)))
     events = _wait_for_input_events(window)
     window.close()
 
@@ -712,13 +737,18 @@ def test_native_window_serves_one_file_selection_at_a_time(
     first_released = threading.Event()
     calls: list[tuple[str, ...]] = []
 
-    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
-        del initial_dir
+    def picker(
+        *,
+        initial_dir: str,
+        accept: tuple[str, ...] = (),
+        multiple: bool = False,
+    ) -> tuple[str, ...]:
+        del initial_dir, multiple
         calls.append(accept)
         if len(calls) == 1:
             first_entered.set()
             assert first_released.wait(timeout=2.0)
-        return ""
+        return ()
 
     monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
     presenter = _Presenter()
@@ -726,9 +756,13 @@ def test_native_window_serves_one_file_selection_at_a_time(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_selected_files("open-1", str(tmp_path), accept=(".bin",))
+    window.request_selected_files(
+        _file_request("open-1", str(tmp_path), accept=(".bin",))
+    )
     assert first_entered.wait(timeout=2.0)
-    window.request_selected_files("open-2", str(tmp_path), accept=(".raw",))
+    window.request_selected_files(
+        _file_request("open-2", str(tmp_path), accept=(".raw",))
+    )
     assert calls == [(".bin",)]
     first_released.set()
     events = []
@@ -754,13 +788,18 @@ def test_native_window_ignores_duplicate_in_flight_file_selection_id(
     entered = threading.Event()
     calls: list[int] = []
 
-    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
-        del initial_dir, accept
+    def picker(
+        *,
+        initial_dir: str,
+        accept: tuple[str, ...] = (),
+        multiple: bool = False,
+    ) -> tuple[str, ...]:
+        del initial_dir, accept, multiple
         calls.append(1)
         entered.set()
         if len(calls) == 1:
             assert released.wait(timeout=2.0)
-        return ""
+        return ()
 
     monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
     presenter = _Presenter()
@@ -768,9 +807,9 @@ def test_native_window_ignores_duplicate_in_flight_file_selection_id(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_selected_files("open-1", str(tmp_path))
+    window.request_selected_files(_file_request("open-1", str(tmp_path)))
     assert entered.wait(timeout=2.0)
-    window.request_selected_files("open-1", str(tmp_path))
+    window.request_selected_files(_file_request("open-1", str(tmp_path)))
     time.sleep(0.05)
     assert calls == [1]
     released.set()
@@ -792,11 +831,16 @@ def test_native_window_close_completes_leftover_file_selections(
     late = tmp_path / "late.bin"
     late.write_bytes(b"late")
 
-    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
-        del initial_dir, accept
+    def picker(
+        *,
+        initial_dir: str,
+        accept: tuple[str, ...] = (),
+        multiple: bool = False,
+    ) -> tuple[str, ...]:
+        del initial_dir, accept, multiple
         entered.set()
         assert released.wait(timeout=2.0)
-        return str(late)
+        return (str(late),)
 
     monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
     presenter = _Presenter()
@@ -804,8 +848,8 @@ def test_native_window_close_completes_leftover_file_selections(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_selected_files("open-1", str(tmp_path))
-    window.request_selected_files("open-2", str(tmp_path))
+    window.request_selected_files(_file_request("open-1", str(tmp_path)))
+    window.request_selected_files(_file_request("open-2", str(tmp_path)))
     assert entered.wait(timeout=2.0)
     presenter.pending_events.put(("close", None))
     events = window.get_user_input_events().get_events()
@@ -833,12 +877,17 @@ def test_native_window_replacement_open_drops_leftover_file_selections(
     released = threading.Event()
     calls: list[int] = []
 
-    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
-        del initial_dir, accept
+    def picker(
+        *,
+        initial_dir: str,
+        accept: tuple[str, ...] = (),
+        multiple: bool = False,
+    ) -> tuple[str, ...]:
+        del initial_dir, accept, multiple
         calls.append(1)
         entered.set()
         assert released.wait(timeout=2.0)
-        return str(tmp_path / "late.bin")
+        return (str(tmp_path / "late.bin"),)
 
     monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
     presenter = _Presenter()
@@ -846,8 +895,8 @@ def test_native_window_replacement_open_drops_leftover_file_selections(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_selected_files("open-1", str(tmp_path))
-    window.request_selected_files("open-2", str(tmp_path))
+    window.request_selected_files(_file_request("open-1", str(tmp_path)))
+    window.request_selected_files(_file_request("open-2", str(tmp_path)))
     assert entered.wait(timeout=2.0)
     window.open(_session_desc())
     events = window.get_user_input_events().get_events()
@@ -872,16 +921,21 @@ def test_native_window_stale_picker_does_not_complete_reused_request_id(
     zombie.write_bytes(b"old")
     calls: list[int] = []
 
-    def picker(*, initial_dir: str, accept: tuple[str, ...] = ()) -> str:
-        del initial_dir, accept
+    def picker(
+        *,
+        initial_dir: str,
+        accept: tuple[str, ...] = (),
+        multiple: bool = False,
+    ) -> tuple[str, ...]:
+        del initial_dir, accept, multiple
         calls.append(1)
         if len(calls) == 1:
             first_entered.set()
             assert first_released.wait(timeout=2.0)
-            return str(zombie)
+            return (str(zombie),)
         second_entered.set()
         assert second_released.wait(timeout=2.0)
-        return ""
+        return ()
 
     monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
     presenter = _Presenter()
@@ -889,11 +943,11 @@ def test_native_window_stale_picker_does_not_complete_reused_request_id(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_selected_files("open-1", str(tmp_path))
+    window.request_selected_files(_file_request("open-1", str(tmp_path)))
     assert first_entered.wait(timeout=2.0)
     window.close()
     window.open(_session_desc())
-    window.request_selected_files("open-1", str(tmp_path))
+    window.request_selected_files(_file_request("open-1", str(tmp_path)))
     assert second_entered.wait(timeout=2.0)
     first_released.set()
     time.sleep(0.05)
@@ -910,26 +964,28 @@ def test_native_window_stale_picker_does_not_complete_reused_request_id(
     assert event.files == ()
 
 
-def test_selected_file_from_path_skips_unreadable_and_oversize(
+def test_selected_files_from_paths_skips_unreadable_and_oversize(
     tmp_path: Path,
 ) -> None:
     missing = tmp_path / "gone.png"
-    chosen, status = native_window_module._selected_file_from_path(missing)
-    assert chosen is None
+    files, status = native_window_module._selected_files_from_paths((str(missing),))
+    assert files == ()
     assert status is SelectedFilesStatus.UNAVAILABLE
 
     too_big = tmp_path / "big.bin"
     too_big.write_bytes(b"abcd")
-    chosen, status = native_window_module._selected_file_from_path(too_big, max_bytes=3)
-    assert chosen is None
+    files, status = native_window_module._selected_files_from_paths(
+        (str(too_big),), max_bytes=3
+    )
+    assert files == ()
     assert status is SelectedFilesStatus.TOO_LARGE
 
     wrong_type = tmp_path / "notes.txt"
     wrong_type.write_bytes(b"hi")
-    chosen, status = native_window_module._selected_file_from_path(
-        wrong_type, accept=(".png",)
+    files, status = native_window_module._selected_files_from_paths(
+        (str(wrong_type),), accept=(".png",)
     )
-    assert chosen is None
+    assert files == ()
     assert status is SelectedFilesStatus.DISALLOWED_TYPE
 
 
@@ -948,21 +1004,17 @@ def test_ask_open_filename_linux_uses_zenity(
         return SimpleNamespace(returncode=0, stdout="/tmp/seed.png\n")
 
     monkeypatch.setattr(native_window_module.subprocess, "run", fake_run)
-    assert (
-        native_window_module._ask_open_filename_linux(initial_dir="/tmp")
-        == "/tmp/seed.png"
+    assert native_window_module._ask_open_filename_linux(initial_dir="/tmp") == (
+        "/tmp/seed.png",
     )
     assert calls[0][0] == "/usr/bin/zenity"
     assert "--file-selection" in calls[0]
     assert any(arg.startswith("--filename=/tmp/") for arg in calls[0])
     assert not any(arg.startswith("--file-filter=") for arg in calls[0])
-    assert (
-        native_window_module._ask_open_filename_linux(
-            initial_dir="/tmp",
-            accept=(".png", ".jpg"),
-        )
-        == "/tmp/seed.png"
-    )
+    assert native_window_module._ask_open_filename_linux(
+        initial_dir="/tmp",
+        accept=(".png", ".jpg"),
+    ) == ("/tmp/seed.png",)
     assert "--file-filter=Accepted | *.png *.jpg" in calls[1]
 
 
@@ -979,7 +1031,7 @@ def test_ask_open_filename_linux_cancel_is_empty(
         "run",
         lambda argv, **kwargs: SimpleNamespace(returncode=1, stdout=""),
     )
-    assert native_window_module._ask_open_filename_linux(initial_dir="/tmp") == ""
+    assert native_window_module._ask_open_filename_linux(initial_dir="/tmp") == ()
 
 
 def test_ask_open_filename_linux_error_raises(
@@ -999,6 +1051,57 @@ def test_ask_open_filename_linux_error_raises(
     )
     with pytest.raises(RuntimeError, match="exit 5"):
         native_window_module._ask_open_filename_linux(initial_dir="/tmp")
+
+
+def test_ask_open_filename_linux_multiple_uses_newline_separator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        native_window_module.shutil,
+        "which",
+        lambda name: "/usr/bin/zenity" if name == "zenity" else None,
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(argv: list[str], **kwargs: object) -> object:
+        calls.append(argv)
+        return SimpleNamespace(returncode=0, stdout="/tmp/a.bin\n/tmp/b.bin\n")
+
+    monkeypatch.setattr(native_window_module.subprocess, "run", fake_run)
+    assert native_window_module._ask_open_filename_linux(
+        initial_dir="/tmp", multiple=True
+    ) == ("/tmp/a.bin", "/tmp/b.bin")
+    assert "--multiple" in calls[0]
+    assert "--separator=\n" in calls[0]
+
+
+def test_native_window_reports_multiple_selected_files(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    first = tmp_path / "a.bin"
+    second = tmp_path / "b.bin"
+    first.write_bytes(b"one")
+    second.write_bytes(b"two")
+    monkeypatch.setattr(
+        native_window_module,
+        "_ask_open_filename",
+        lambda *, initial_dir, accept=(), multiple=False: (str(first), str(second)),
+    )
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_selected_files(_file_request("open-1", str(tmp_path), multiple=True))
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.status is SelectedFilesStatus.OK
+    assert [chosen.name for chosen in event.files] == ["a.bin", "b.bin"]
+    assert [chosen.data for chosen in event.files] == [b"one", b"two"]
 
 
 def test_native_window_reports_standard_gamepad_events() -> None:

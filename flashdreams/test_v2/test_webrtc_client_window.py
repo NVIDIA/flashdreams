@@ -33,10 +33,14 @@ from yarl import URL
 
 from flashdreams.runtime_v2.serving import webrtc_server
 from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
+from flashdreams.runtime_v2.selected_file import (
+    MAX_SELECTED_FILE_BYTES,
+    FileSelectionRequest,
+    SelectedFilesStatus,
+)
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    MAX_SELECTED_FILE_BYTES,
     FocusUserInputEvent,
     GamepadUserInputEvent,
     GameWheelUserInputEvent,
@@ -44,13 +48,29 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEvent,
     MouseUserInputEvent,
     QueryStringUserInputEvent,
-    SelectedFilesStatus,
     SelectedFilesUserInputEvent,
     TouchUserInputEvent,
     XRControllerUserInputEvent,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
+
+
+def _file_request(
+    request_id: str,
+    initial_path: str = "/tmp",
+    *,
+    accept: tuple[str, ...] = (),
+    max_bytes: int | None = None,
+    multiple: bool = False,
+) -> FileSelectionRequest:
+    return FileSelectionRequest(
+        request_id=request_id,
+        initial_path=initial_path,
+        accept=accept,
+        max_bytes=max_bytes,
+        multiple=multiple,
+    )
 
 
 def _files_url(window: WebRTCClientWindow, request_id: str) -> str:
@@ -81,6 +101,37 @@ async def _post_selected_file(
     async with ClientSession() as client:
         async with client.post(_files_url(window, request_id), data=form) as response:
             return response.status
+
+
+@pytest.mark.asyncio
+async def test_file_upload_accepts_multiple_files() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        window.request_selected_files(_file_request("open-1", multiple=True))
+        await _wait_file_armed(window, "open-1")
+        form = FormData()
+        form.add_field(
+            "file",
+            b"one",
+            filename="a.bin",
+            content_type="application/octet-stream",
+        )
+        form.add_field(
+            "file",
+            b"two",
+            filename="b.bin",
+            content_type="application/octet-stream",
+        )
+        async with ClientSession() as client:
+            async with client.post(_files_url(window, "open-1"), data=form) as response:
+                assert response.status == 204
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.OK
+        assert [chosen.name for chosen in event.files] == ["a.bin", "b.bin"]
+        assert [chosen.data for chosen in event.files] == [b"one", b"two"]
+    finally:
+        window.close()
 
 
 def _session_desc(
@@ -179,9 +230,9 @@ async def test_browser_file_selections_are_served_one_at_a_time() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
-        window.request_selected_files("open-1", "/tmp")
-        window.request_selected_files("open-1", "/tmp")
-        window.request_selected_files("open-2", "/tmp")
+        window.request_selected_files(_file_request("open-1"))
+        window.request_selected_files(_file_request("open-1"))
+        window.request_selected_files(_file_request("open-2"))
         await _wait_file_armed(window, "open-1")
         assert "open-2" not in window.server._pending_file_requests
         assert await _post_selected_file(window, "open-2", b"early", "early.txt") == 409
@@ -217,8 +268,8 @@ async def test_peer_loss_completes_queued_file_selections_as_unavailable() -> No
     replacement: RTCPeerConnection | None = None
     try:
         peer, _, _ = await _connect_browser(window)
-        window.request_selected_files("open-1", "/tmp")
-        window.request_selected_files("open-2", "/tmp")
+        window.request_selected_files(_file_request("open-1"))
+        window.request_selected_files(_file_request("open-2"))
         await _wait_file_armed(window, "open-1")
         assert "open-2" not in window.server._pending_file_requests
         await peer.close()
@@ -261,7 +312,7 @@ async def test_in_flight_upload_is_dropped_after_peer_loss(
     peer: RTCPeerConnection | None = None
     try:
         peer, _, _ = await _connect_browser(window)
-        window.request_selected_files("open-1", "/tmp")
+        window.request_selected_files(_file_request("open-1"))
         await _wait_file_armed(window, "open-1")
         original_post = web.Request.post
         disconnected = False
@@ -312,7 +363,7 @@ async def test_stale_file_selector_arm_is_ignored_after_peer_loss(
             delayed.append((payload, generation))
 
         monkeypatch.setattr(window.server, "_arm_file_selector", capture_arm)
-        window.request_selected_files("open-1", "/tmp")
+        window.request_selected_files(_file_request("open-1"))
         for _ in range(100):
             if delayed:
                 break
@@ -388,10 +439,12 @@ async def test_browser_file_selector_sends_clamped_policy_without_host_path() ->
                 messages.append(json.loads(message))
 
         window.request_selected_files(
-            "open-1",
-            "/home/secret",
-            accept=(".png", ".jpg"),
-            max_bytes=MAX_SELECTED_FILE_BYTES * 2,
+            _file_request(
+                "open-1",
+                "/home/secret",
+                accept=(".png", ".jpg"),
+                max_bytes=MAX_SELECTED_FILE_BYTES * 2,
+            )
         )
         for _ in range(100):
             if any(item.get("type") == "file_selector" for item in messages):
@@ -403,6 +456,7 @@ async def test_browser_file_selector_sends_clamped_policy_without_host_path() ->
             "id": "open-1",
             "accept": [".png", ".jpg"],
             "max_bytes": MAX_SELECTED_FILE_BYTES,
+            "multiple": False,
         }
     finally:
         if peer is not None:
@@ -430,7 +484,7 @@ async def test_file_upload_without_file_is_unavailable() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
-        window.request_selected_files("open-1")
+        window.request_selected_files(_file_request("open-1"))
         await _wait_file_armed(window, "open-1")
         form = FormData()
         form.add_field("not_file", "hello")
@@ -450,7 +504,7 @@ async def test_file_upload_rejects_oversize() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
-        window.request_selected_files("open-1", max_bytes=1)
+        window.request_selected_files(_file_request("open-1", max_bytes=1))
         await _wait_file_armed(window, "open-1")
         status = await _post_selected_file(window, "open-1", b"x" * 8192, "big.bin")
         assert status == 413
@@ -467,7 +521,9 @@ async def test_file_upload_prefers_disallowed_suffix_over_oversize() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
-        window.request_selected_files("open-1", accept=(".png",), max_bytes=1)
+        window.request_selected_files(
+            _file_request("open-1", accept=(".png",), max_bytes=1)
+        )
         await _wait_file_armed(window, "open-1")
         assert (
             await _post_selected_file(window, "open-1", b"x" * 8192, "hello.txt") == 204
@@ -487,7 +543,7 @@ async def test_browser_file_selector_result_reports_status() -> None:
     peer: RTCPeerConnection | None = None
     try:
         peer, channel, _ = await _connect_browser(window)
-        window.request_selected_files("open-1")
+        window.request_selected_files(_file_request("open-1"))
         await _wait_file_armed(window, "open-1")
         channel.send(
             json.dumps(
@@ -513,11 +569,11 @@ async def test_session_handoff_clears_pending_file_selection() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
-        window.request_selected_files("open-1", "/tmp")
+        window.request_selected_files(_file_request("open-1"))
         await _wait_file_armed(window, "open-1")
         window.open(_session_desc())
         assert "open-1" not in window.server._pending_file_requests
-        window.request_selected_files("open-1", "/tmp")
+        window.request_selected_files(_file_request("open-1"))
         await _wait_file_armed(window, "open-1")
         assert await _post_selected_file(window, "open-1", b"hello", "hello.txt") == 204
     finally:
@@ -531,7 +587,7 @@ async def test_in_flight_upload_is_dropped_after_session_handoff(
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
-        window.request_selected_files("open-1", "/tmp")
+        window.request_selected_files(_file_request("open-1"))
         await _wait_file_armed(window, "open-1")
         original_post = web.Request.post
         handed_off = False
@@ -547,7 +603,7 @@ async def test_in_flight_upload_is_dropped_after_session_handoff(
         assert await _post_selected_file(window, "open-1", b"hello", "hello.txt") == 409
         assert window.get_user_input_events().get_events() == []
 
-        window.request_selected_files("open-1", "/tmp")
+        window.request_selected_files(_file_request("open-1"))
         await _wait_file_armed(window, "open-1")
         assert await _post_selected_file(window, "open-1", b"next", "next.txt") == 204
         events = []
@@ -659,14 +715,16 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                     in browser_script
                 )
                 assert "input.accept" in browser_script
+                assert "input.multiple" in browser_script
                 assert "file.size" in browser_script
                 assert 'addEventListener("cancel"' in browser_script
-                assert "selectedFilePolicyStatus" in browser_script
+                assert "fileNameMatchesAccept" in browser_script
                 assert "showPromptDialog" in browser_script
                 assert "showModal" not in browser_script
                 assert "The app requested a file" in browser_script
+                assert "The app requested files" in browser_script
                 assert 'label: "Accepted types"' in browser_script
-                assert 'label: "Max size allowed"' in browser_script
+                assert 'label: "Max size per file"' in browser_script
                 assert "Choose file" not in browser_page
                 assert "response.ok" in browser_script
 

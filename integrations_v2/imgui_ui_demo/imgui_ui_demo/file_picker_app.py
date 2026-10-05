@@ -17,11 +17,11 @@ from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import (
+from flashdreams.runtime_v2.selected_file import (
     MAX_SELECTED_FILE_BYTES,
     SelectedFilesStatus,
-    SelectedFilesUserInputEvent,
 )
+from flashdreams.runtime_v2.user_input_event import SelectedFilesUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -67,6 +67,12 @@ _OPEN_FILE_B_LABEL = "Open file (B)"
 
 _OPEN_A_THEN_B_LABEL = "Open A then B"
 """ImGui label that requests A then B in the same UI tick."""
+
+_OPEN_FILES_REQUEST_ID = "open-files"
+"""Selector slot for Open files. Asks for more than one file."""
+
+_OPEN_FILES_LABEL = "Open files"
+"""ImGui label for a multi-file selector slot."""
 
 
 class BreathingBackgroundModelLoop(IModelLoop[tuple[SessionDesc, torch.device | str]]):
@@ -124,11 +130,12 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
             if event.status is not SelectedFilesStatus.OK:
                 self.state.status = _FILE_SELECTION_STATUS_TEXT[event.status]
                 continue
-            chosen = event.files[0]
-            self.state.status = f"{chosen.name} ({len(chosen.data)} bytes)"
+            self.state.status = ", ".join(
+                f"{chosen.name} ({len(chosen.data)} bytes)" for chosen in event.files
+            )
 
         imgui.set_next_window_pos(imgui.ImVec2(16.0, 16.0), imgui.Cond_.once)
-        imgui.set_next_window_size(imgui.ImVec2(520.0, 260.0), imgui.Cond_.once)
+        imgui.set_next_window_size(imgui.ImVec2(520.0, 300.0), imgui.Cond_.once)
         imgui.begin("File picker")
         try:
             if imgui.button(_OPEN_FILE_A_LABEL):
@@ -138,6 +145,8 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
             if imgui.button(_OPEN_A_THEN_B_LABEL):
                 self._request_demo_file(_OPEN_FILE_A_REQUEST_ID)
                 self._request_demo_file(_OPEN_FILE_B_REQUEST_ID)
+            if imgui.button(_OPEN_FILES_LABEL):
+                self._request_demo_file(_OPEN_FILES_REQUEST_ID, multiple=True)
             if self.state.status in _FILE_SELECTION_STATUS_TEXT.values():
                 imgui.push_style_color(
                     imgui.Col_.text,
@@ -153,12 +162,13 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
             imgui.end()
         return self.presented_model_frame()
 
-    def _request_demo_file(self, request_id: str) -> None:
+    def _request_demo_file(self, request_id: str, *, multiple: bool = False) -> None:
         """Ask for a ``.bin`` / ``.raw`` pick on one selector slot."""
         self.request_selected_files(
             request_id,
             accept=(".bin", ".raw"),
             max_bytes=MAX_SELECTED_FILE_BYTES,
+            multiple=multiple,
         )
 
     def reset(self) -> None:

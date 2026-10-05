@@ -18,18 +18,21 @@ from flashdreams.runtime_v2.file_selection_gate import (
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
-from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import (
+from flashdreams.runtime_v2.selected_file import (
+    MAX_SELECTED_FILE_BATCH_BYTES,
     MAX_SELECTED_FILE_BYTES,
+    FileSelectionRequest,
     SelectedFile,
     SelectedFilesStatus,
-    SelectedFilesUserInputEvent,
     clamp_selected_file_max_bytes,
     normalize_selected_file_accept,
     selected_file_policy_status,
     selected_file_suffix_allowed,
+    selected_files_policy_status,
 )
+from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import SelectedFilesUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 pytestmark = pytest.mark.ci_cpu
@@ -91,6 +94,16 @@ def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
     assert selection.initial_path == "/tmp"
     assert selection.accept == (".png", ".JPG")
     assert selection.max_bytes == MAX_SELECTED_FILE_BYTES * 2
+    assert selection.multiple is False
+
+
+def test_ui_loop_queues_multiple_file_selection() -> None:
+    loop = _ui_loop()
+    loop.request_selected_files("open-1", "/tmp", multiple=True)
+
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None
+    assert requests.file_selections[0].multiple is True
 
 
 def test_ui_loop_forwards_distinct_file_selection_ids() -> None:
@@ -185,12 +198,50 @@ def test_selected_file_policy_helpers() -> None:
         selected_file_policy_status("seed.png", 2, accept=(".png",), max_bytes=3)
         is None
     )
+    assert (
+        selected_files_policy_status(
+            [("a.bin", 2), ("b.txt", 2)],
+            accept=(".bin",),
+            max_bytes=3,
+        )
+        is SelectedFilesStatus.DISALLOWED_TYPE
+    )
+    assert (
+        selected_files_policy_status(
+            [("a.bin", 2), ("b.bin", 99)],
+            accept=(".bin",),
+            max_bytes=3,
+        )
+        is SelectedFilesStatus.TOO_LARGE
+    )
+    assert (
+        selected_files_policy_status(
+            [("a.bin", MAX_SELECTED_FILE_BATCH_BYTES), ("b.bin", 1)],
+            accept=(".bin",),
+            max_bytes=MAX_SELECTED_FILE_BYTES,
+        )
+        is SelectedFilesStatus.TOO_LARGE
+    )
+    assert (
+        selected_files_policy_status(
+            [("a.bin", 2), ("b.bin", 2)],
+            accept=(".bin",),
+            max_bytes=3,
+        )
+        is None
+    )
 
 
 def test_ui_loop_rejects_invalid_accept() -> None:
     loop = _ui_loop()
     with pytest.raises(ValueError, match="accept suffixes"):
         loop.request_selected_files("open-1", accept=("png",))
+
+
+def test_ui_loop_rejects_invalid_multiple() -> None:
+    loop = _ui_loop()
+    with pytest.raises(TypeError, match="multiple must be a bool"):
+        loop.request_selected_files("open-1", multiple=1)  # type: ignore[arg-type]
 
 
 def test_selected_files_event_rejects_inconsistent_status() -> None:
@@ -216,8 +267,12 @@ def test_headless_window_completes_queued_file_selections_as_unavailable(
     window = (
         Mp4ClientWindow(tmp_path / "clip.mp4") if kind == "mp4" else NullClientWindow()
     )
-    window.request_selected_files("open-1", "/tmp")
-    window.request_selected_files("open-2", "/var")
+    window.request_selected_files(
+        FileSelectionRequest(request_id="open-1", initial_path="/tmp")
+    )
+    window.request_selected_files(
+        FileSelectionRequest(request_id="open-2", initial_path="/var")
+    )
 
     events = window.get_user_input_events().get_events()
 
