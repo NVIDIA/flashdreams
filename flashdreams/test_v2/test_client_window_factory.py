@@ -22,14 +22,12 @@ from flashdreams.runtime_v2.client_window_factory import (
     client_window_mode,
     create_client_window,
 )
+from flashdreams.runtime_v2.composite_client_window import CompositeClientWindow
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
 )
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
-from flashdreams.runtime_v2.synthetic_input_mp4_client_window import (
-    SyntheticInputMp4ClientWindow,
-)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -39,6 +37,12 @@ def _parsed(arguments: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     add_client_window_arguments(parser)
     return parser.parse_args(arguments)
+
+
+def _write_descriptor(tmp_path: Path, contents: object) -> Path:
+    path = tmp_path / "input.json"
+    path.write_text(json.dumps(contents), encoding="utf-8")
+    return path
 
 
 class _EntryPoint:
@@ -117,8 +121,32 @@ def test_an_mp4_run_can_replay_a_synthetic_input_file(tmp_path: Path) -> None:
         )
     )
 
-    assert isinstance(window, SyntheticInputMp4ClientWindow)
-    assert window.path == tmp_path / "clip.mp4"
+    assert isinstance(window, CompositeClientWindow)
+    assert isinstance(window.client_window, Mp4ClientWindow)
+    assert window.client_window.path == tmp_path / "clip.mp4"
+
+
+def test_the_file_is_named_after_synthetic_input_is_composed(tmp_path: Path) -> None:
+    mode = client_window_mode("mp4")
+    window = mode.create(
+        _parsed(
+            [
+                "--mode",
+                "mp4",
+                "--output-path",
+                str(tmp_path / "clip.mp4"),
+                "--synthetic-input-file",
+                str(
+                    _write_descriptor(
+                        tmp_path,
+                        {"version": 1, "events": []},
+                    )
+                ),
+            ]
+        )
+    )
+
+    assert mode.finished(window) == str(tmp_path / "clip.mp4")
 
 
 def test_a_file_run_with_nowhere_to_write_says_so() -> None:
