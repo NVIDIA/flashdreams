@@ -104,7 +104,11 @@ def _call_fp8_attention(
 
 @torch.library.custom_op("lingbot::sage_attention", mutates_args=())
 def _call_sage_attention(
-    query: Tensor, key: Tensor, value: Tensor, use_tma: bool = True
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    use_tma: bool = True,
+    key_mean: Tensor | None = None,
 ) -> Tensor:
     """Run in-tree scale-aware attention within the compiled transformer."""
     return scaled_fp8_attention(
@@ -114,12 +118,17 @@ def _call_sage_attention(
         use_tma=use_tma,
         qk_quantization_blocks=(128, 64),
         use_fp16_pv=True,
+        key_mean=key_mean,
     )
 
 
 @_call_sage_attention.register_fake
 def _sage_attention_fake(
-    query: Tensor, key: Tensor, value: Tensor, use_tma: bool = True
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    use_tma: bool = True,
+    key_mean: Tensor | None = None,
 ) -> Tensor:
     """Describe the output layout to the compiler."""
     return torch.empty_like(query)
@@ -202,6 +211,7 @@ class OptimizedSelfAttention(SelfAttention):
         x: Tensor,
         kv_cache: BlockKVCache,
         rope_freqs: Tensor,
+        key_history_sum: Tensor | None = None,
     ) -> Tensor:
         """Project Q/K/V together, update the cache, and apply attention."""
         batch_shape = x.shape[:-2]
@@ -216,8 +226,15 @@ class OptimizedSelfAttention(SelfAttention):
         k = apply_rope_freqs(k, rope_freqs, interleaved=True)
         kv_cache.update(k, v)
         if self.attention_backend == "sage":
+            key = kv_cache.cached_k()
+            key_mean = None
+            if key_history_sum is not None:
+                key_mean = (
+                    (key_history_sum + k.sum(dim=1, keepdim=True, dtype=torch.float32))
+                    / key.shape[1]
+                ).to(key.dtype)
             output = _call_sage_attention(
-                q, kv_cache.cached_k(), kv_cache.cached_v(), self.use_tma
+                q, key, kv_cache.cached_v(), self.use_tma, key_mean
             )
         elif self.attention_backend == "fp8_tma":
             output = _call_fp8_attention(
@@ -247,6 +264,38 @@ class CamCtrlBlockCache(BlockCache):
 
     camera_shift: Tensor | None = None
     """Cached camera shift for the current autoregressive chunk."""
+
+    reuse_key_history: bool = False
+    """Reuse finalized K sums for Sage centering within a chunk."""
+
+    key_history_sum: Tensor | None = None
+    """FP32 sum of keys before the current write range."""
+
+    key_history_length: int = 0
+    """Number of finalized keys represented by the sum."""
+
+    key_history_chunk: int = -1
+    """Chunk whose unchanged history is represented by the sum."""
+
+    def before_update(self, chunk_idx: int) -> None:
+        """Refresh history sums after rolling, before overwriting the live tail."""
+        reset = self.self_attn._prev_chunk_idx < 0
+        super().before_update(chunk_idx)
+        if self.reuse_key_history and (reset or chunk_idx != self.key_history_chunk):
+            start, _ = self.self_attn._current_write_bounds()
+            if not self.self_attn._current_chunk_overlaps_sink():
+                start = max(start, self.self_attn.sink_size)
+            self.key_history_length = start
+            if self.key_history_sum is None:
+                self.key_history_sum = torch.empty_like(
+                    self.self_attn._k[:, :1], dtype=torch.float32
+                )
+            self.key_history_sum.copy_(
+                self.self_attn._k[:, :start].sum(
+                    dim=1, keepdim=True, dtype=torch.float32
+                )
+            )
+            self.key_history_chunk = chunk_idx
 
 
 class CamCtrlBlock(Block):
@@ -309,9 +358,27 @@ class CamCtrlBlock(Block):
             context_text,
             context_img,
         )
+        if (
+            isinstance(self.self_attn, OptimizedSelfAttention)
+            and self.self_attn.attention_backend == "sage"
+            and self.self_attn.use_tma
+            and cache.self_attn.v_shape[1] <= 32768
+        ):
+            batch, tokens, heads, dim = cache.self_attn.v_shape
+            values = cache.self_attn._v
+            cache.self_attn._v = torch.empty(
+                (batch, heads, dim, ((tokens + 7) // 8) * 8),
+                device=values.device,
+                dtype=values.dtype,
+            )[..., :tokens].permute(0, 3, 1, 2)
         return CamCtrlBlockCache(
             self_attn=cache.self_attn,
             cross_attn=cache.cross_attn,
+            reuse_key_history=(
+                isinstance(self.self_attn, OptimizedSelfAttention)
+                and self.self_attn.attention_backend == "sage"
+                and window_size >= chunk_size
+            ),
         )
 
     def prepare_camera_cache(
@@ -364,6 +431,11 @@ class CamCtrlBlock(Block):
             y,
             rope_freqs=rope_freqs,
             kv_cache=cache.self_attn,
+            **(
+                dict(key_history_sum=cache.key_history_sum)
+                if cache.reuse_key_history
+                else {}
+            ),
         )
         x = x + (y * e_chunks[2])
 

@@ -446,10 +446,12 @@ def _flash_attention_2_tma_kernel(
         correction = tl.exp2(row_max - next_row_max)
         if FP16_PV and QUERY_SCALE_BLOCK >= BLOCK_M and KEY_SCALE_BLOCK >= BLOCK_N:
             probabilities = tl.exp2(
-                tl.fma(scores.to(tl.float32), score_scale, -next_row_max[:, None])
+                tl.fma(scores.to(tl.float32), score_scale, 7.0 - next_row_max[:, None])
             )
         else:
-            probabilities = tl.exp2(scores - next_row_max[:, None])
+            probabilities = tl.exp2(
+                scores - next_row_max[:, None] + (7.0 if FP16_PV else 0.0)
+            )
         denominator = denominator * correction + tl.sum(probabilities, axis=1)
 
         # Accumulate ``P @ V`` into ``[BLOCK_M, D]`` after rebasing the prior
@@ -459,7 +461,10 @@ def _flash_attention_2_tma_kernel(
         else:
             value = value_desc.load([key_start, 0])
         accumulator *= correction[:, None]
-        if QUANTIZED_SDPA:
+        if FP16_PV:
+            # P and its running denominator already carry the same 2**7 scale.
+            probabilities = probabilities.to(tl.float8e4nv)
+        elif QUANTIZED_SDPA:
             probabilities = (probabilities * probability_scale).to(tl.float8e4nv)
         else:
             probabilities = probabilities.to(value.dtype)
@@ -478,7 +483,7 @@ def _flash_attention_2_tma_kernel(
     # storage dtype and clips a final partial query tile while writing logical
     # output ``[B, L, H, D]``.
     output = accumulator / denominator[:, None]
-    if QUANTIZED_SDPA:
+    if QUANTIZED_SDPA and not FP16_PV:
         output /= probability_scale
     if SCALED_FP8:
         feature_offsets = tl.arange(0, HEAD_DIM)

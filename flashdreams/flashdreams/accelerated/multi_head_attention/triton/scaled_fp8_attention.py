@@ -257,11 +257,83 @@ def _quantize_value_channels_kernel(
         tl.store(output_ptr + output_offsets, quantized, mask=mask)
 
 
+@triton.jit
+def _quantize_value_sequence_kernel(
+    value_ptr,
+    output_ptr,
+    scale_ptr,
+    value_stride_b: tl.constexpr,
+    value_stride_h: tl.constexpr,
+    value_stride_d: tl.constexpr,
+    sequence_length: tl.constexpr,
+    padded_length: tl.constexpr,
+    num_heads: tl.constexpr,
+    HEAD_DIM: tl.constexpr,
+    BLOCK_S: tl.constexpr,
+    SCALE_MAX: tl.constexpr,
+):
+    """Reduce and quantize one contiguous value channel in a single read."""
+    channel = tl.program_id(0)
+    batch = channel // (num_heads * HEAD_DIM)
+    head = (channel // HEAD_DIM) % num_heads
+    feature = channel % HEAD_DIM
+    sequence = tl.arange(0, BLOCK_S)
+    values = tl.load(
+        value_ptr
+        + batch * value_stride_b
+        + head * value_stride_h
+        + feature * value_stride_d
+        + sequence,
+        mask=sequence < sequence_length,
+        other=0.0,
+    ).to(tl.float32)
+    scale = tl.maximum(
+        tl.max(tl.abs(values), axis=0) / SCALE_MAX,
+        torch.finfo(torch.float32).tiny,
+    )
+    quantized = tl.maximum(tl.minimum(libdevice.div_rn(values, scale), 448.0), -448.0)
+    tl.store(
+        output_ptr + channel * padded_length + sequence,
+        quantized,
+        mask=sequence < sequence_length,
+    )
+    tl.store(scale_ptr + channel, scale)
+
+
 def _quantize_value_channels(
     value: Tensor, scale_max: float = 448.0, transpose_output: bool = False
 ) -> tuple[Tensor, Tensor]:
-    """Quantize token-major V coalescently with one scale per channel."""
+    """Quantize V with one scale per channel, using its contiguous dimension."""
     batch_size, sequence_length, num_heads, head_dim = value.shape
+    # ponytail: whole-channel reduction is bounded to 32K tokens; use tiles beyond it.
+    if transpose_output and value.stride(1) == 1 and sequence_length <= 32768:
+        padded_length = triton.cdiv(sequence_length, 64) * 64
+        output = torch.empty(
+            (batch_size, num_heads, head_dim, padded_length),
+            device=value.device,
+            dtype=torch.float8_e4m3fn,
+        )[..., :sequence_length].permute(0, 3, 1, 2)
+        scale = torch.empty(
+            (batch_size, 1, num_heads, head_dim),
+            device=value.device,
+            dtype=torch.float32,
+        )
+        _quantize_value_sequence_kernel[(batch_size * num_heads * head_dim,)](
+            value,
+            output,
+            scale,
+            value.stride(0),
+            value.stride(2),
+            value.stride(3),
+            sequence_length,
+            padded_length,
+            num_heads,
+            HEAD_DIM=head_dim,
+            BLOCK_S=triton.next_power_of_2(sequence_length),
+            SCALE_MAX=scale_max,
+            num_warps=16,
+        )
+        return output, scale
     block_s = 64
     partial_count = triton.cdiv(sequence_length, block_s)
     partial = torch.empty(
@@ -342,6 +414,7 @@ def scaled_fp8_attention(
     scale: float | None = None,
     output_dtype: torch.dtype | None = None,
     smooth_key: bool = True,
+    key_mean: Tensor | None = None,
     use_tma: bool = True,
     qk_quantization_blocks: tuple[int, int] = (1, 1),
     use_fp16_pv: bool = False,
@@ -367,6 +440,8 @@ def scaled_fp8_attention(
         scale: QK softmax scale; ``None`` uses ``1 / sqrt(D)``.
         output_dtype: FP16/BF16 output dtype; ``None`` uses ``query.dtype``.
         smooth_key: Subtract the sequence mean from K before quantization.
+        key_mean: Optional precomputed mean shaped ``[B, 1, H, D]``, matching
+            the key dtype/device. Used when ``smooth_key`` is enabled.
         use_tma: Prefer the TMA kernel when tensor layouts support it.
         qk_quantization_blocks: Tokens sharing each Q and K quantization scale.
         use_fp16_pv: Use FP16 tile buffers with an FP32 running total on TMA.
@@ -375,7 +450,7 @@ def scaled_fp8_attention(
         Attention output shaped ``[B, L, H, D]``.
 
     Raises:
-        ValueError: Q/K/V shapes are incompatible.
+        ValueError: Q/K/V or precomputed key-mean metadata is incompatible.
         RuntimeError: Placement or dtype is unsupported.
     """
     if query.ndim != 4 or key.ndim != 4 or value.ndim != 4:
@@ -413,13 +488,33 @@ def scaled_fp8_attention(
 
     query = query.contiguous()
     key = key.contiguous()
-    value = value.contiguous()
+    if not (
+        use_fp16_pv
+        and use_tma
+        and value.stride(1) == 1
+        and value.shape[1] <= 32768
+        and (scale is None or scale > 0)
+    ):
+        value = value.contiguous()
 
     tma_supported = use_tma and is_tma_flash_attention_supported(query, key, value)
+    if not tma_supported and value.stride(3) != 1:
+        value = value.contiguous()
+        tma_supported = use_tma and is_tma_flash_attention_supported(query, key, value)
     fp16_pv = use_fp16_pv and tma_supported and (scale is None or scale > 0)
 
+    if key_mean is not None and (
+        key_mean.shape != (key.shape[0], 1, *key.shape[2:])
+        or key_mean.device != key.device
+        or key_mean.dtype != key.dtype
+    ):
+        raise ValueError("key_mean must match the key's batch, heads, dtype and device")
     quantized_query, query_scale = _quantize_qk_rows(query, block_size=query_block)
-    key_mean = key.mean(dim=1, keepdim=True) if smooth_key else None
+    key_mean = (
+        (key.mean(dim=1, keepdim=True) if key_mean is None else key_mean)
+        if smooth_key
+        else None
+    )
     quantized_key, key_scale = _quantize_qk_rows(key, key_mean, block_size=key_block)
     quantized_value, value_scale = _quantize_value_channels(
         value, scale_max=2.0 if fp16_pv else 448.0, transpose_output=fp16_pv
