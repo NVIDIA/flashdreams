@@ -1383,15 +1383,17 @@ def test_run_session_forwards_file_selection_requests_to_the_window() -> None:
     class RequestingSession(FakeSession):
         def init(self) -> None:
             super().init()
-            invoke_async(
-                self.ui_loop,
-                lambda _: self.ui_loop.request_selected_files(
+
+            def open_selector(_: object) -> None:
+                self.ui_loop.file_selector(
                     "open-1",
                     "/tmp",
+                    open=True,
                     accept=(".png",),
-                    max_bytes=1024,
-                ),
-            )
+                    max_file_bytes=1024,
+                )
+
+            invoke_async(self.ui_loop, open_selector)
 
     window = RecordingClientWindow(log)
     run_session(RequestingSession(_session_desc(), log), window, steps=1)

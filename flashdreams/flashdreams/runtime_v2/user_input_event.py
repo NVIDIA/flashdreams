@@ -233,10 +233,10 @@ class XRControllerUserInputEvent(UserInputEvent):
 
 @dataclass(frozen=True, slots=True, eq=False)
 class SelectedFilesUserInputEvent(UserInputEvent):
-    """Files chosen for one :meth:`IClientWindow.request_selected_files` call.
+    """Result of one file-selector request.
 
-    ``status`` is why the request completed. ``OK`` is the only value with
-    files; every other value uses an empty ``files`` tuple.
+    Applications receive it from :meth:`IUILoop.file_selector`.
+    ``OK`` is the only status with files; every other status has empty ``files``.
     """
 
     @classmethod
@@ -245,7 +245,7 @@ class SelectedFilesUserInputEvent(UserInputEvent):
         return "selected_files"
 
     request_id: str
-    """Stable id for which button this result is for. Same string the UI passed when it asked."""
+    """``request_id`` of the control that asked for this result."""
 
     status: SelectedFilesStatus
     """Why this request completed. ``OK`` is the only value with files."""

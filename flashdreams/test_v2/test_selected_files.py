@@ -78,14 +78,15 @@ def test_selected_files_event_carries_bytes_and_request_id() -> None:
 
 def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
     loop = _ui_loop()
-    loop.request_selected_files(
+    loop.file_selector(
         "open-1",
         "/tmp",
+        open=True,
         accept=(".png", ".JPG"),
-        max_bytes=MAX_SELECTED_FILE_BYTES * 2,
+        max_file_bytes=MAX_SELECTED_FILE_BYTES * 2,
         multiple=True,
     )
-    loop.request_selected_files("open-1", "/var")
+    loop.file_selector("open-1", "/var", open=True)
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
@@ -100,7 +101,7 @@ def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
 
 def test_ui_loop_uses_home_when_initial_path_is_omitted() -> None:
     loop = _ui_loop()
-    loop.request_selected_files("open-1")
+    loop.file_selector("open-1", open=True)
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
@@ -109,8 +110,8 @@ def test_ui_loop_uses_home_when_initial_path_is_omitted() -> None:
 
 def test_ui_loop_forwards_distinct_file_selection_ids() -> None:
     loop = _ui_loop()
-    loop.request_selected_files("open-1", "/tmp")
-    loop.request_selected_files("open-2", "/var")
+    loop.file_selector("open-1", "/tmp", open=True)
+    loop.file_selector("open-2", "/var", open=True)
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
@@ -241,22 +242,55 @@ def test_selected_file_policy_helpers() -> None:
     )
 
 
+def test_ui_loop_does_not_queue_when_open_is_false() -> None:
+    loop = _ui_loop()
+    assert loop.file_selector("open-1") is None
+    assert loop.flush_ui_loop_requests() is None
+
+
+def test_ui_loop_returns_this_tick_selected_files_event() -> None:
+    loop = _ui_loop()
+    event = SelectedFilesUserInputEvent(
+        timestamp=uint64(1),
+        request_id="open-1",
+        status=SelectedFilesStatus.OK,
+        files=(SelectedFile(name="seed.png", data=b"png"),),
+    )
+    other = SelectedFilesUserInputEvent(
+        timestamp=uint64(2),
+        request_id="open-2",
+        status=SelectedFilesStatus.CANCELLED,
+    )
+    loop.user_events = UserInputEvents([event, other])
+
+    assert loop.file_selector("open-1") is event
+    assert loop.file_selector("open-2") is other
+    assert loop.file_selector("open-3") is None
+    assert loop.flush_ui_loop_requests() is None
+
+
 def test_ui_loop_rejects_empty_request_id() -> None:
     loop = _ui_loop()
     with pytest.raises(ValueError, match="non-empty string"):
-        loop.request_selected_files("")
+        loop.file_selector("")
 
 
 def test_ui_loop_rejects_invalid_accept() -> None:
     loop = _ui_loop()
     with pytest.raises(ValueError, match="accept suffixes"):
-        loop.request_selected_files("open-1", accept=("png",))
+        loop.file_selector("open-1", open=True, accept=("png",))
 
 
 def test_ui_loop_rejects_invalid_multiple() -> None:
     loop = _ui_loop()
     with pytest.raises(TypeError, match="multiple must be a bool"):
-        loop.request_selected_files("open-1", multiple=1)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        loop.file_selector("open-1", open=True, multiple=1)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+def test_ui_loop_rejects_invalid_open() -> None:
+    loop = _ui_loop()
+    with pytest.raises(TypeError, match="open must be a bool"):
+        loop.file_selector("open-1", open=1)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 def test_selected_files_event_rejects_inconsistent_status() -> None:

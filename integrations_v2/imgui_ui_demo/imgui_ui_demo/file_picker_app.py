@@ -40,7 +40,7 @@ _FILE_SELECTION_STATUS_TEXT = {
     ),
     SelectedFilesStatus.TOO_LARGE: (
         "SelectedFilesStatus.TOO_LARGE: file exceeded this request's "
-        f"max_bytes={MAX_SELECTED_FILE_BYTES} (32 MiB)."
+        f"max_file_bytes={MAX_SELECTED_FILE_BYTES}."
     ),
     SelectedFilesStatus.DISALLOWED_TYPE: (
         "SelectedFilesStatus.DISALLOWED_TYPE: suffix not in accept=('.bin', '.raw')."
@@ -122,31 +122,35 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
         step_index: int,
         events: UserInputEvents,
     ) -> Tensor | None:
-        """Draw the Open-file control and apply any selected-files events."""
-        del step_index
-        for event in events.get_events():
-            if not isinstance(event, SelectedFilesUserInputEvent):
-                continue
-            if event.status is not SelectedFilesStatus.OK:
-                self.state.status = _FILE_SELECTION_STATUS_TEXT[event.status]
-                continue
-            self.state.status = ", ".join(
-                f"{chosen.name} ({len(chosen.data)} bytes)" for chosen in event.files
-            )
-
+        """Draw the Open-file controls and apply this tick's selector results."""
+        del step_index, events
         imgui.set_next_window_pos(imgui.ImVec2(16.0, 16.0), imgui.Cond_.once)
         imgui.set_next_window_size(imgui.ImVec2(520.0, 300.0), imgui.Cond_.once)
         imgui.begin("File picker")
         try:
-            if imgui.button(_OPEN_FILE_A_LABEL):
-                self._request_demo_file(_OPEN_FILE_A_REQUEST_ID)
-            if imgui.button(_OPEN_FILE_B_LABEL):
-                self._request_demo_file(_OPEN_FILE_B_REQUEST_ID)
-            if imgui.button(_OPEN_A_THEN_B_LABEL):
-                self._request_demo_file(_OPEN_FILE_A_REQUEST_ID)
-                self._request_demo_file(_OPEN_FILE_B_REQUEST_ID)
-            if imgui.button(_OPEN_FILES_LABEL):
-                self._request_demo_file(_OPEN_FILES_REQUEST_ID, multiple=True)
+            clicked_a = imgui.button(_OPEN_FILE_A_LABEL)
+            clicked_b = imgui.button(_OPEN_FILE_B_LABEL)
+            clicked_a_then_b = imgui.button(_OPEN_A_THEN_B_LABEL)
+            clicked_files = imgui.button(_OPEN_FILES_LABEL)
+            self._apply_demo_pick(
+                self._request_demo_file(
+                    _OPEN_FILE_A_REQUEST_ID,
+                    open=clicked_a or clicked_a_then_b,
+                )
+            )
+            self._apply_demo_pick(
+                self._request_demo_file(
+                    _OPEN_FILE_B_REQUEST_ID,
+                    open=clicked_b or clicked_a_then_b,
+                )
+            )
+            self._apply_demo_pick(
+                self._request_demo_file(
+                    _OPEN_FILES_REQUEST_ID,
+                    open=clicked_files,
+                    multiple=True,
+                )
+            )
             if self.state.status in _FILE_SELECTION_STATUS_TEXT.values():
                 imgui.push_style_color(
                     imgui.Col_.text,
@@ -162,13 +166,31 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
             imgui.end()
         return self.presented_model_frame()
 
-    def _request_demo_file(self, request_id: str, *, multiple: bool = False) -> None:
-        """Ask for a ``.bin`` / ``.raw`` pick on one selector slot."""
-        self.request_selected_files(
+    def _request_demo_file(
+        self,
+        request_id: str,
+        *,
+        open: bool,
+        multiple: bool = False,
+    ) -> SelectedFilesUserInputEvent | None:
+        """Poll one ``.bin`` / ``.raw`` selector slot and optionally start it."""
+        return self.file_selector(
             request_id,
+            open=open,
             accept=(".bin", ".raw"),
-            max_bytes=MAX_SELECTED_FILE_BYTES,
+            max_file_bytes=MAX_SELECTED_FILE_BYTES,
             multiple=multiple,
+        )
+
+    def _apply_demo_pick(self, event: SelectedFilesUserInputEvent | None) -> None:
+        """Show this tick's selector result on the overlay."""
+        if event is None:
+            return
+        if event.status is not SelectedFilesStatus.OK:
+            self.state.status = _FILE_SELECTION_STATUS_TEXT[event.status]
+            return
+        self.state.status = ", ".join(
+            f"{chosen.name} ({len(chosen.data)} bytes)" for chosen in event.files
         )
 
     def reset(self) -> None:

@@ -160,20 +160,17 @@ def test_selected_files_event_updates_file_picker_status() -> None:
     state, loop = _file_picker_loop()
     imgui = _file_picker_imgui()
 
-    loop.step_ui(
-        imgui,
-        0,
-        UserInputEvents(
-            [
-                SelectedFilesUserInputEvent(
-                    timestamp=uint64(0),
-                    request_id="open-1",
-                    status=SelectedFilesStatus.OK,
-                    files=(SelectedFile(name="seed.png", data=b"xx"),),
-                )
-            ]
-        ),
+    loop.user_events = UserInputEvents(
+        [
+            SelectedFilesUserInputEvent(
+                timestamp=uint64(0),
+                request_id=_OPEN_FILE_A_REQUEST_ID,
+                status=SelectedFilesStatus.OK,
+                files=(SelectedFile(name="seed.png", data=b"xx"),),
+            )
+        ]
     )
+    loop.step_ui(imgui, 0, loop.user_events)
 
     assert state.status == "seed.png (2 bytes)"
     imgui.text.assert_called_with("seed.png (2 bytes)")
@@ -185,23 +182,20 @@ def test_selected_files_event_lists_every_chosen_file() -> None:
     state, loop = _file_picker_loop()
     imgui = _file_picker_imgui()
 
-    loop.step_ui(
-        imgui,
-        0,
-        UserInputEvents(
-            [
-                SelectedFilesUserInputEvent(
-                    timestamp=uint64(0),
-                    request_id=_OPEN_FILES_REQUEST_ID,
-                    status=SelectedFilesStatus.OK,
-                    files=(
-                        SelectedFile(name="a.bin", data=b"aa"),
-                        SelectedFile(name="b.raw", data=b"bbb"),
-                    ),
-                )
-            ]
-        ),
+    loop.user_events = UserInputEvents(
+        [
+            SelectedFilesUserInputEvent(
+                timestamp=uint64(0),
+                request_id=_OPEN_FILES_REQUEST_ID,
+                status=SelectedFilesStatus.OK,
+                files=(
+                    SelectedFile(name="a.bin", data=b"aa"),
+                    SelectedFile(name="b.raw", data=b"bbb"),
+                ),
+            )
+        ]
     )
+    loop.step_ui(imgui, 0, loop.user_events)
 
     assert state.status == "a.bin (2 bytes), b.raw (3 bytes)"
     imgui.text.assert_called_with("a.bin (2 bytes), b.raw (3 bytes)")
@@ -217,19 +211,16 @@ def test_file_picker_shows_error_status_in_red() -> None:
     imgui = _file_picker_imgui()
     cancelled = SelectedFilesStatus.CANCELLED
 
-    loop.step_ui(
-        imgui,
-        0,
-        UserInputEvents(
-            [
-                SelectedFilesUserInputEvent(
-                    timestamp=uint64(0),
-                    request_id="open-1",
-                    status=cancelled,
-                )
-            ]
-        ),
+    loop.user_events = UserInputEvents(
+        [
+            SelectedFilesUserInputEvent(
+                timestamp=uint64(0),
+                request_id=_OPEN_FILE_A_REQUEST_ID,
+                status=cancelled,
+            )
+        ]
     )
+    loop.step_ui(imgui, 0, loop.user_events)
 
     message = _FILE_SELECTION_STATUS_TEXT[cancelled]
     assert state.status == message
