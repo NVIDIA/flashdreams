@@ -65,6 +65,7 @@ Reference pages for the FlashDreams command-line interface and Python APIs.
    :maxdepth: 1
 
    cli
+   synthetic_input
    launch_manifests
    core
    infra

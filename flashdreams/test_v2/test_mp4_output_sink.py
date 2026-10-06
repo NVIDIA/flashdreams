@@ -210,19 +210,16 @@ def test_close_tolerates_a_sink_that_was_never_opened(tmp_path: Path) -> None:
     Mp4OutputSink(tmp_path / "out.mp4").close()
 
 
-def test_open_closes_an_encoder_left_by_the_previous_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_open_rejects_an_already_open_sink(tmp_path: Path) -> None:
     sink = Mp4OutputSink(tmp_path / "out.mp4")
     previous_encoder = Mock()
-    next_encoder = Mock()
     sink._encoder = previous_encoder
-    monkeypatch.setattr(mp4_output_sink, "Mp4Encoder", Mock(return_value=next_encoder))
 
-    sink.open(_session_desc())
+    with pytest.raises(RuntimeError, match="already open"):
+        sink.open(_session_desc())
 
-    previous_encoder.close.assert_called_once_with()
-    assert sink._encoder is next_encoder
+    previous_encoder.close.assert_not_called()
+    assert sink._encoder is previous_encoder
 
 
 ## Tests that encode

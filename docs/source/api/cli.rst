@@ -63,7 +63,8 @@ Add ``--skip-preload-validation`` to skip validation (running first-block of `IS
 Synthetic MP4 input
 -------------------
 
-An MP4 run can replay deterministic input from a version 1 JSON descriptor:
+An MP4 run can replay deterministic input with
+``--synthetic-input-file PATH``:
 
 .. code-block:: bash
 
@@ -71,23 +72,7 @@ An MP4 run can replay deterministic input from a version 1 JSON descriptor:
           --mode mp4 --output-path outputs/replay.mp4 \
           --synthetic-input-file inputs.json -- --example-data
 
-Each descriptor has ``version: 1`` and an ``events`` array. V1 supports only
-the zero-based ``ui_loop`` cadence; ``at: 0`` releases an event on the first
-input poll. Event payloads use the corresponding ``UserInputEvent`` fields and
-omit ``timestamp``, which the runtime assigns when it releases the event:
-
-.. code-block:: json
-
-    {
-       "version": 1,
-       "events": [
-          {
-             "on": "ui_loop",
-             "at": 0,
-             "event": {"type": "keyboard", "key": "w", "state": "Pressed"}
-          }
-       ]
-    }
+See :doc:`synthetic_input` for the descriptor format and supported events.
 
 The common command shape is ``flashdreams-run <runner> [mode]``. A runner only
 advertises modes it implements; unsupported pairs fail before CUDA
