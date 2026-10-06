@@ -470,6 +470,13 @@ SPDX-License-Identifier: Apache-2.0
 <span class="sd">    ``scheduler.timesteps`` as ``int64`` and lets the embedding upcast to</span>
 <span class="sd">    ``float64`` internally.&quot;&quot;&quot;</span>
 
+    <span class="n">reference_sampling</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Keep timesteps exact and recurrent samples in the network flow dtype.</span>
+
+<span class="sd">    LingBot&#39;s reference noise bank is FP32 while its network is BF16. This mode</span>
+<span class="sd">    preserves integer timestep values and rounds each ``x0`` before re-noising.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
     <span class="n">enable_tqdm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether to enable tqdm progress bar.&quot;&quot;&quot;</span></div>
 
@@ -611,10 +618,12 @@ SPDX-License-Identifier: Apache-2.0
 
 <span class="sd">        Iteration 0 trusts ``initial_noise`` as the ``sigma=1`` sample;</span>
 <span class="sd">        later iterations re-noise the previous ``x0`` estimate to the new</span>
-<span class="sd">        sigma before the network forward. Schedule arithmetic auto-promotes</span>
-<span class="sd">        to fp32; the result is cast back to ``initial_noise.dtype``.</span>
+<span class="sd">        sigma before the network forward. By default the result is cast back</span>
+<span class="sd">        to ``initial_noise.dtype`` after every step; reference sampling casts</span>
+<span class="sd">        each ``x0`` to the network flow dtype.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">input_dtype</span> <span class="o">=</span> <span class="n">initial_noise</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="n">reference_sampling</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">reference_sampling</span>
         <span class="n">sigmas</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">denoising_sigmas</span>
         <span class="n">timesteps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">denoising_step_list</span>
 
@@ -628,17 +637,30 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">sigma</span> <span class="o">=</span> <span class="n">sigmas</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
             <span class="c1"># Schedule buffers are pinned to fp32 (to preserve integer</span>
             <span class="c1"># timestep values under a stray `module.to(bf16)`), but the</span>
-            <span class="c1"># network expects timesteps in the input dtype so that</span>
-            <span class="c1"># downstream modulation / Linear layers stay consistent.</span>
-            <span class="n">timestep</span> <span class="o">=</span> <span class="n">timesteps</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">input_dtype</span><span class="p">)</span>
+            <span class="c1"># By default the network expects timesteps in the input dtype.</span>
+            <span class="c1"># Reference sampling preserves configured integer values rather</span>
+            <span class="c1"># than rounding them through bf16.</span>
+            <span class="n">timestep</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">timesteps</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">reference_sampling</span>
+                <span class="k">else</span> <span class="n">timesteps</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">input_dtype</span><span class="p">)</span>
+            <span class="p">)</span>
             <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
                 <span class="k">assert</span> <span class="n">clean</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-                <span class="n">noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">noisy</span><span class="p">)</span><span class="o">.</span><span class="n">normal_</span><span class="p">(</span><span class="n">generator</span><span class="o">=</span><span class="n">rng</span><span class="p">)</span>
-                <span class="n">noisy</span> <span class="o">=</span> <span class="p">((</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">sigma</span><span class="p">)</span> <span class="o">*</span> <span class="n">clean</span> <span class="o">+</span> <span class="n">sigma</span> <span class="o">*</span> <span class="n">noise</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">input_dtype</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">reference_sampling</span><span class="p">:</span>
+                    <span class="n">noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">clean</span><span class="p">)</span><span class="o">.</span><span class="n">normal_</span><span class="p">(</span><span class="n">generator</span><span class="o">=</span><span class="n">rng</span><span class="p">)</span>
+                    <span class="n">state_dtype</span> <span class="o">=</span> <span class="n">clean</span><span class="o">.</span><span class="n">dtype</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">noise</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">noisy</span><span class="p">)</span><span class="o">.</span><span class="n">normal_</span><span class="p">(</span><span class="n">generator</span><span class="o">=</span><span class="n">rng</span><span class="p">)</span>
+                    <span class="n">state_dtype</span> <span class="o">=</span> <span class="n">input_dtype</span>
+                <span class="n">noisy</span> <span class="o">=</span> <span class="p">((</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">sigma</span><span class="p">)</span> <span class="o">*</span> <span class="n">clean</span> <span class="o">+</span> <span class="n">sigma</span> <span class="o">*</span> <span class="n">noise</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">state_dtype</span><span class="p">)</span>
             <span class="n">flow</span> <span class="o">=</span> <span class="n">predict_flow</span><span class="p">(</span><span class="n">noisy</span><span class="p">,</span> <span class="n">timestep</span><span class="p">)</span>
-            <span class="n">clean</span> <span class="o">=</span> <span class="n">noisy</span> <span class="o">-</span> <span class="n">sigma</span> <span class="o">*</span> <span class="n">flow</span>
+            <span class="k">if</span> <span class="n">reference_sampling</span><span class="p">:</span>
+                <span class="n">clean</span> <span class="o">=</span> <span class="p">(</span><span class="n">noisy</span> <span class="o">-</span> <span class="n">sigma</span> <span class="o">*</span> <span class="n">flow</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">flow</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">clean</span> <span class="o">=</span> <span class="n">noisy</span> <span class="o">-</span> <span class="n">sigma</span> <span class="o">*</span> <span class="n">flow</span>
         <span class="k">assert</span> <span class="n">clean</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;denoising_step_list is empty&quot;</span>
-        <span class="k">return</span> <span class="n">clean</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">input_dtype</span><span class="p">)</span></div>
+        <span class="k">return</span> <span class="n">clean</span> <span class="k">if</span> <span class="n">reference_sampling</span> <span class="k">else</span> <span class="n">clean</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">input_dtype</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="FlowMatchScheduler.add_noise">

@@ -579,6 +579,9 @@ SPDX-License-Identifier: Apache-2.0
     <span class="n">compile_network</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;``torch.compile`` the network on init.&quot;&quot;&quot;</span>
 
+    <span class="n">compile_dynamic</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Dynamic-shape policy forwarded to ``torch.compile``.&quot;&quot;&quot;</span>
+
     <span class="n">use_cuda_graph</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Wrap the network in ``CUDAGraphWrapper`` for steady-state replay.</span>
 <span class="sd">    Caller must keep non-staged inputs at stable storage addresses across</span>
@@ -666,11 +669,15 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">len_t</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">len_t</span> <span class="o">//</span> <span class="n">kt</span>
         <span class="n">window_size_t</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">window_size_t</span> <span class="o">//</span> <span class="n">kt</span>
         <span class="n">sink_size_t</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">sink_size_t</span> <span class="o">//</span> <span class="n">kt</span>
-        <span class="n">cuda_graph_capture_ar_idx</span> <span class="o">=</span> <span class="n">cuda_graph_capture_ar_index</span><span class="p">(</span>
-            <span class="n">sink_size_t</span><span class="o">=</span><span class="n">sink_size_t</span><span class="p">,</span>
-            <span class="n">window_size_t</span><span class="o">=</span><span class="n">window_size_t</span><span class="p">,</span>
-            <span class="n">len_t</span><span class="o">=</span><span class="n">len_t</span><span class="p">,</span>
-            <span class="n">len_name</span><span class="o">=</span><span class="s2">&quot;post-patch len_t&quot;</span><span class="p">,</span>
+        <span class="n">cuda_graph_capture_ar_idx</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">cuda_graph_capture_ar_index</span><span class="p">(</span>
+                <span class="n">sink_size_t</span><span class="o">=</span><span class="n">sink_size_t</span><span class="p">,</span>
+                <span class="n">window_size_t</span><span class="o">=</span><span class="n">window_size_t</span><span class="p">,</span>
+                <span class="n">len_t</span><span class="o">=</span><span class="n">len_t</span><span class="p">,</span>
+                <span class="n">len_name</span><span class="o">=</span><span class="s2">&quot;post-patch len_t&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">use_cuda_graph</span>
+            <span class="k">else</span> <span class="mi">0</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_output_height</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_output_width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
@@ -701,7 +708,10 @@ SPDX-License-Identifier: Apache-2.0
         <span class="bp">self</span><span class="o">.</span><span class="n">network</span><span class="o">.</span><span class="n">update_parameters_after_loading_checkpoint</span><span class="p">()</span>
 
         <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">compile_network</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">network</span> <span class="o">=</span> <span class="n">compile_module</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">network</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">network</span> <span class="o">=</span> <span class="n">compile_module</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">network</span><span class="p">,</span>
+                <span class="n">dynamic</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">compile_dynamic</span><span class="p">,</span>
+            <span class="p">)</span>
 
         <span class="c1"># Cond and CFG-uncond branches each get their own CUDA-graph wrapper</span>
         <span class="c1"># since each mutates an independent rolling KV cache.</span>
