@@ -88,6 +88,8 @@ separated segment of the scenario id.
          "command": [
            "flashdreams-run-v2",
            "t2v-self-forcing-wan2.1-t2v-1.3b",
+           "--timeout",
+           "unbound",
            "--output-path",
            "{output_dir}/clip.mp4",
            "--",

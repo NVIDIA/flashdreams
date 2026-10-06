@@ -83,7 +83,7 @@ To run Cosmos-Predict2.5, launch its v2 T2V application:
    uv run --project integrations_v2/cosmos_predict2 \
        flashdreams-run-v2 \
        t2v-cosmos2-t2v-2b-720p \
-       --output-path artifacts/t2v-cosmos2-t2v-2b-720p.mp4 -- \
+       --output-path artifacts/t2v-cosmos2-t2v-2b-720p.mp4 --timeout unbound -- \
        --prompt "A high-definition video captures the precision of robotic welding in an industrial setting. The first frame showcases a robotic arm, equipped with a welding torch, positioned over a large metal structure. The welding process is in full swing, with bright sparks and intense light illuminating the scene, creating a vivid display of blue and white hues. A significant amount of smoke billows around the welding area, partially obscuring the view but emphasizing the heat and activity. The background reveals parts of the workshop environment, including a ventilation system and various pieces of machinery, indicating a busy and functional industrial workspace. As the video progresses, the robotic arm maintains its steady position, continuing the welding process and moving to its left. The welding torch consistently emits sparks and light, and the smoke continues to rise, diffusing slightly as it moves upward. The metal surface beneath the torch shows ongoing signs of heating and melting. The scene retains its industrial ambiance, with the welding sparks and smoke dominating the visual field, underscoring the ongoing nature of the welding operation."
 
 For multi-GPU inference, run the same command under ``torchrun`` (taking
@@ -94,7 +94,7 @@ For multi-GPU inference, run the same command under ``torchrun`` (taking
    uv run --project integrations_v2/cosmos_predict2 \
        torchrun --nproc_per_node=4 --no-python flashdreams-run-v2 \
        t2v-cosmos2-t2v-2b-720p \
-       --output-path artifacts/t2v-cosmos2-t2v-2b-720p.mp4 -- \
+       --output-path artifacts/t2v-cosmos2-t2v-2b-720p.mp4 --timeout unbound -- \
        --prompt "A high-definition video captures the precision of robotic welding in an industrial setting. The first frame showcases a robotic arm, equipped with a welding torch, positioned over a large metal structure. The welding process is in full swing, with bright sparks and intense light illuminating the scene, creating a vivid display of blue and white hues. A significant amount of smoke billows around the welding area, partially obscuring the view but emphasizing the heat and activity. The background reveals parts of the workshop environment, including a ventilation system and various pieces of machinery, indicating a busy and functional industrial workspace. As the video progresses, the robotic arm maintains its steady position, continuing the welding process and moving to its left. The welding torch consistently emits sparks and light, and the smoke continues to rise, diffusing slightly as it moves upward. The metal surface beneath the torch shows ongoing signs of heating and melting. The scene retains its industrial ambiance, with the welding sparks and smoke dominating the visual field, underscoring the ongoing nature of the welding operation."
 
 The package also exposes the following pipeline configs for direct use:

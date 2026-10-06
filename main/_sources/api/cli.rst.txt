@@ -94,8 +94,13 @@ Video Super Resolution. Install the optional dependency with
 ``uv pip install 'flashdreams[rtx-postprocess]'`` and run on a supported RTX GPU
 before selecting this preset.
 
-Native v2 applications receive their own arguments after ``--``. Interactive
-Drive exposes the equivalent setting with the hyphenated
+Native v2 applications receive their own arguments after ``--``.
+``flashdreams-run-v2 --mode mp4`` requires ``--timeout`` and/or
+``--total-model-steps`` (a number or ``unbound``). Native-window and WebRTC may
+omit both. A named ``--total-model-steps N`` is remaining for the whole
+application run; a replacement session receives what is left.
+
+Interactive Drive exposes the equivalent setting with the hyphenated
 ``--postprocess-preset`` option:
 
 .. code-block:: bash

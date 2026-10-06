@@ -60,7 +60,7 @@ To run Wan2.1, launch its v2 T2V application:
    uv run --project integrations_v2/wan21 \
        flashdreams-run-v2 \
        t2v-wan21-t2v-1.3b-480p \
-       --output-path artifacts/t2v-wan21-t2v-1.3b-480p.mp4 -- \
+       --output-path artifacts/t2v-wan21-t2v-1.3b-480p.mp4 --timeout unbound -- \
        --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
 
 For multi-GPU inference, run the same command under ``torchrun`` (taking
@@ -71,7 +71,7 @@ For multi-GPU inference, run the same command under ``torchrun`` (taking
    uv run --project integrations_v2/wan21 \
        torchrun --nproc_per_node=4 --no-python flashdreams-run-v2 \
        t2v-wan21-t2v-1.3b-480p \
-       --output-path artifacts/t2v-wan21-t2v-1.3b-480p.mp4 -- \
+       --output-path artifacts/t2v-wan21-t2v-1.3b-480p.mp4 --timeout unbound -- \
        --prompt "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside."
 
 The package also exposes the following pipeline configs for direct use:
