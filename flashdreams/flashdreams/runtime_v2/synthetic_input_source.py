@@ -1,12 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Descriptor-backed synthetic user input for deterministic MP4 runs."""
+"""Synthetic user input via descriptor file."""
 
 from __future__ import annotations
 
 import json
 import math
+import pydoc
 import time
 import types
 from collections.abc import Callable
@@ -18,20 +19,7 @@ from numpy import uint64
 
 from flashdreams.api_v2.input_source import SessionInputSource
 from flashdreams.api_v2.user_input_event import UserInputEvent
-from flashdreams.runtime_v2.user_input_event import (
-    CloseUserInputEvent,
-    FocusUserInputEvent,
-    GamepadUserInputEvent,
-    GameWheelUserInputEvent,
-    KeyboardInputState,
-    KeyboardUserInputEvent,
-    MouseUserInputEvent,
-    NumeralKeypadUserInputEvent,
-    QueryStringUserInputEvent,
-    ResetUserInputEvent,
-    TouchUserInputEvent,
-    XRControllerUserInputEvent,
-)
+from flashdreams.runtime_v2.user_input_event import KeyboardInputState
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
@@ -41,24 +29,6 @@ class _ScheduledEvent:
 
     poll: int
     event: UserInputEvent
-
-
-_EVENT_TYPES: dict[str, type[UserInputEvent]] = {
-    event_type.get_type_name(): event_type
-    for event_type in (
-        NumeralKeypadUserInputEvent,
-        KeyboardUserInputEvent,
-        CloseUserInputEvent,
-        ResetUserInputEvent,
-        MouseUserInputEvent,
-        FocusUserInputEvent,
-        QueryStringUserInputEvent,
-        TouchUserInputEvent,
-        GamepadUserInputEvent,
-        GameWheelUserInputEvent,
-        XRControllerUserInputEvent,
-    )
-}
 
 
 class SyntheticInputSource(SessionInputSource):
@@ -154,8 +124,12 @@ def _decode_event(raw_event: object) -> UserInputEvent:
     event_type_name = raw_event.get("type")
     if not isinstance(event_type_name, str):
         raise TypeError("Descriptor event type must be a string.")
-    event_type = _EVENT_TYPES.get(event_type_name)
-    if event_type is None:
+    owner = UserInputEvent._type_name_owners.get(event_type_name)
+    event_type = None if owner is None else pydoc.locate(owner)
+    if (
+        not isinstance(event_type, type)
+        or not issubclass(event_type, UserInputEvent)
+    ):
         raise ValueError(f"Unsupported synthetic input event type: {event_type_name!r}.")
     event_fields = {field.name: field for field in fields(event_type)}
     allowed_fields = set(event_fields) - {"timestamp"}

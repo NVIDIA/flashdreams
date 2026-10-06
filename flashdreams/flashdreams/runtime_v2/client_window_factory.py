@@ -16,11 +16,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.runtime_v2.composite_client_window import CompositeClientWindow
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
-from flashdreams.runtime_v2.synthetic_input_mp4_client_window import (
-    SyntheticInputMp4ClientWindow,
-)
 from flashdreams.runtime_v2.synthetic_input_source import SyntheticInputSource
 
 if TYPE_CHECKING:
@@ -106,7 +104,7 @@ class _Mp4Mode(ClientWindowMode):
         output = Mp4ClientWindow(parsed_args.output_path)
         if parsed_args.synthetic_input_file is None:
             return output
-        return SyntheticInputMp4ClientWindow(
+        return CompositeClientWindow(
             output,
             SyntheticInputSource(parsed_args.synthetic_input_file),
         )
@@ -114,7 +112,14 @@ class _Mp4Mode(ClientWindowMode):
     def finished(self, client_window: IClientWindow) -> str | None:
         """Return the file, now that there is something in it to watch."""
         return str(
-            cast(Mp4ClientWindow | SyntheticInputMp4ClientWindow, client_window).path
+            cast(
+                Mp4ClientWindow,
+                (
+                    client_window.client_window
+                    if isinstance(client_window, CompositeClientWindow)
+                    else client_window
+                ),
+            ).path
         )
 
 
