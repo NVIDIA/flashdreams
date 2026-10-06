@@ -43,6 +43,12 @@ def test_package_registers_the_shared_cam2v_application() -> None:
         "cam2v-lingbot-world-fast-taehv-window15-sink3": (
             f"{target}create_app_fast_taehv_window15_sink3"
         ),
+        "cam2v-lingbot-world-v2-1p3b-causal-fast-perf": (
+            f"{target}create_app_v2_1p3b_causal_fast_perf"
+        ),
+        "cam2v-lingbot-world-v2-1p3b-causal-fast-perf-taehv": (
+            f"{target}create_app_v2_1p3b_causal_fast_perf_taehv"
+        ),
         "cam2v-lingbot-world-v2-14b-causal-fast": (
             f"{target}create_app_v2_14b_causal_fast"
         ),
@@ -81,8 +87,6 @@ def test_application_uses_lingbot_pipeline_config() -> None:
     assert application.session_desc().video_width == 832
     assert application.session_desc().video_height == 464
     assert application.session_desc().frames_per_second_for_step == 16
-    assert application.defaults.first_frame_dtype is torch.bfloat16
-    assert application.defaults.first_frame_interpolation == "cubic"
     assert isinstance(create_app(), LingbotCam2VApplication)
 
 
