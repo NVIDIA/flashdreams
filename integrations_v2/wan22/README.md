@@ -61,7 +61,7 @@ Generate the single-block MP4 with the v2 application. Because this is TI2V,
 
 ```bash
 uv run --package flashdreams-wan22 flashdreams-run-v2 \
-  t2v-wan22-ti2v-5b --output-path artifacts/t2v-wan22-ti2v-5b.mp4 -- \
+  t2v-wan22-ti2v-5b --output-path artifacts/t2v-wan22-ti2v-5b.mp4 --timeout unbound -- \
   --prompt "A cinematic ocean wave at sunset." \
   --image-path /absolute/path/to/first-frame.png \
   --no-compile

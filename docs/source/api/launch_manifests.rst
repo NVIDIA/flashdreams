@@ -92,7 +92,7 @@ instead. For LingBot:
 
    # MP4 replay
    uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
-       --mode mp4 --output-path outputs/lingbot-replay.mp4 -- --example-data
+       --mode mp4 --output-path outputs/lingbot-replay.mp4 --timeout unbound -- --example-data
 
    # WebRTC
    uv run --no-sync flashdreams-run-v2 cam2v-lingbot \

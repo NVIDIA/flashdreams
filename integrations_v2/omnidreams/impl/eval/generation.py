@@ -78,6 +78,8 @@ def generation_result_for_case(
         recipe,
         "--mode",
         "mp4",
+        "--timeout",
+        "unbound",
         "--output-path",
         str(generated_video_path),
         "--stats-path",

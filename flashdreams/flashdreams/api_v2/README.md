@@ -223,7 +223,8 @@ exposes `imgui_bundle.imgui` and an image-like pixel upload convenience form. A
 UI control that needs a fresh application session calls
 `request_new_session(session_desc)` with a fully resolved replacement
 description; the runtime cleans the current session and passes that description
-to `ApplicationRunner` unchanged. A control that needs a file from the client calls
+to `ApplicationRunner` unchanged. Remaining timeout and remaining model steps
+still apply to the replacement. A control that needs a file from the client calls
 `request_selected_files(request_id, accept=..., max_bytes=..., multiple=...)`.
 The window later reports `SelectedFilesUserInputEvent` on the same input stream
 as keyboard and mouse. Read `status`; use `files` only when the pick succeeded.
