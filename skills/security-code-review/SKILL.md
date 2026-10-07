@@ -145,22 +145,23 @@ review. The reviewer must use this checklist and understand the changed area
 and its security boundaries. The change author or submitter is not the final
 reviewer.
 
-Members of `@NVIDIA/worldsim-team-maintainers` and
-`@NVIDIA/worldsim-team-admins` are FlashDreams' final security-review
-delegates. Keep enough active maintainers so review coverage does not depend on
-one person, and route security-sensitive changes to an owner with relevant
-context.
+The GitHub users or teams on the catch-all line in `.github/CODEOWNERS` are
+FlashDreams' final security-review delegates. Treat that file as the sole
+reviewer roster; do not duplicate names in this skill. Keep enough active
+owners so review coverage does not depend on one person, and route
+security-sensitive changes to an owner with relevant context.
 
 ## Merge enforcement
 
-- Keep both team handles on the same catch-all line in `.github/CODEOWNERS`.
-  GitHub treats an approval from either team as sufficient. Do not split them
-  across duplicate `*` rules because only the last matching rule applies.
+- Put each final reviewer's `@github-username` or valid team handle on one
+  catch-all line in `.github/CODEOWNERS`. GitHub treats an approval from any
+  listed owner as sufficient. Do not split owners across duplicate `*` rules
+  because only the last matching rule applies.
 - In the `main` branch rule or ruleset, require a pull request, one approval,
   and a Code Owner review. A Code Owner's approval can satisfy the one-approval
   count and ownership gate together.
 - Leave required-pull-request bypass disabled and ensure the protection applies
-  to admins. Each owner team must be visible and have explicit Write or higher
-  access to the repository.
+  to admins. Each listed owner must have Write or higher access to the
+  repository; a team must also be visible.
 - A Developer/Write review is useful but satisfies the final gate only when the
-  reviewer is also a member of one of the two Code Owner teams.
+  reviewer is listed by the matching CODEOWNERS rule.
