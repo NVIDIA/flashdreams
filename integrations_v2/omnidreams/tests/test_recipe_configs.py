@@ -159,13 +159,23 @@ def test_preset_owned_model_fields_are_not_user_overrides(
         for depth, name in enumerate(names)
     )
     path.write_text(yaml + "\n", encoding="utf-8")
-    with pytest.raises(
-        SettingsError,
-        match=re.escape(f"{'.'.join(names[:-1])} has unknown keys: {names[-1]}"),
-    ):
-        SettingsDocument.load(
+    if names[-1] == "state_dict_transform":
+        with pytest.raises(
+            SettingsError,
+            match=re.escape(f"{'.'.join(names[:-1])} has unknown keys: {names[-1]}"),
+        ):
+            SettingsDocument.load(
+                path, pipeline_config=OMNIDREAMS_PIPELINE_CONFIG, width=1280, height=704
+            )
+    else:
+        loaded = SettingsDocument.load(
             path, pipeline_config=OMNIDREAMS_PIPELINE_CONFIG, width=1280, height=704
         )
+        assert setting_value(loaded.settings, names) == setting_value(
+            document.defaults, names
+        )
+        loaded.save(loaded.settings)
+        assert "model:" not in path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(

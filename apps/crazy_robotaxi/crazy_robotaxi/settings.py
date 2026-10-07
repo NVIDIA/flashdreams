@@ -634,6 +634,12 @@ def _overlay_dataclass(
         item.metadata.get("yaml_key", item.name): item
         for item, _annotation in iter_setting_fields(base, path)
     }
+    deprecated = {
+        item.metadata.get("yaml_key", item.name)
+        for item in fields(base)
+        if not item.metadata.get("user_setting", True)
+    }
+    values = {name: value for name, value in values.items() if name not in deprecated}
     unknown = sorted(set(values) - set(known))
     if unknown:
         context = ".".join(path) or "settings"

@@ -4,7 +4,7 @@ Open **OPTIONS** from **SELECT GAME MODE**. Use the guide for the page you are v
 
 Hover an option's label or editor to see its description and full YAML path.
 
-The guides list the supported overrides for both Options and `config.yaml`. Model architecture and embedding formats come from the selected runner preset. Internal checkpoint hooks, benchmark-only fields, and raster fields unused by the game are excluded. YAML keys outside the supported overrides produce an error identifying the keys to remove.
+The guides list the supported overrides for both Options and `config.yaml`. Model architecture and embedding formats come from the selected runner preset. Internal checkpoint hooks, benchmark-only fields, and raster fields unused by the game are excluded. Deprecated overrides in existing YAML files are ignored and removed on the next save. Unknown keys produce an error.
 
 | Options page | Guide |
 | --- | --- |
