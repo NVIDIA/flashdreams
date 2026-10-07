@@ -126,9 +126,10 @@ Rules:
   NVIDIA line — keep both. See `CONTRIBUTING.md:200-235`.
 - The Cosmos-Drive-Dreams files
   (`integrations_v2/omnidreams/impl/conditioning/world_scenario/{camera_base,ftheta,pinhole}.py`)
-  carry two `SPDX-FileCopyrightText` lines (NVIDIA + Cosmos-Drive-Dreams
-  contributors). Mirror that pattern when redistributing other modified
-  upstream Apache-2.0 source.
+  preserve the original 2025 NVIDIA copyright alongside the 2026 NVIDIA
+  modification copyright and a prominent per-file modification notice.
+  Preserve authentic upstream attribution when adapting Apache-2.0 source;
+  do not substitute an inferred contributor name.
 
 ### What's exempt (handled by `REUSE.toml`)
 
@@ -195,22 +196,27 @@ Shape:
 NVIDIA FlashDreams
 Copyright (c) <YEAR> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-This product is licensed under the Apache License, Version 2.0; the
-full license text is reproduced in LICENSE at the repository root and
-in LICENSES/Apache-2.0.txt.
+This product is licensed under the Apache License, Version 2.0;
+the full license text is reproduced in LICENSE at the repository root
+and in LICENSES/Apache-2.0.txt.
 
-Two subtrees physically vendored into this repository carry
-different OSI-approved licenses; full texts are reproduced under
-LICENSES/:
+Source-level license exceptions are summarized below; full texts are
+reproduced under LICENSES/. Per-file grants and attributions are detailed
+in THIRD-PARTY-NOTICES:
 
   - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/
-        BSD-3-Clause  (see LICENSES/BSD-3-Clause.txt)
+        BSD-3-Clause  (see LICENSES/BSD-3-Clause.txt), except
+        CudaRasterKernels.cu (Apache-2.0) and cudaraster_fw_stub.cpp
+        (Apache-2.0 AND BSD-3-Clause; both portions retain their terms).
   - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/
     cudaraster/framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp}
         Zlib          (see LICENSES/Zlib.txt)
 
+Modified Cosmos-Drive-Dreams camera helpers and SwiftVR adaptations retain
+their Apache-2.0 terms and upstream copyrights.
+
 Third-party software attributions, source-level redistribution
-disclosures, and the full per-dependency license inventory are
+disclosures, and dependency project licenses are
 documented in THIRD-PARTY-NOTICES at the repository root.
 ```
 
@@ -629,7 +635,7 @@ weak-copyleft):**
 
 | Question | File / pointer |
 |---|---|
-| What's the canonical Apache-2.0 text? | `LICENSE` (= `LICENSES/Apache-2.0.txt`) |
+| What's the canonical Apache-2.0 text? | `LICENSES/Apache-2.0.txt`; also reproduced after the project disclosures in `LICENSE`. |
 | What deps does FlashDreams ship? | `THIRD-PARTY-NOTICES` "Direct runtime dependencies" + `flashdreams/pyproject.toml` |
 | What does a SPDX header look like? | `CONTRIBUTING.md:215-232` |
 | Where do I declare a config / asset file's license? | `REUSE.toml` |
