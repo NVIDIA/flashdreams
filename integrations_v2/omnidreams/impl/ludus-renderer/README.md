@@ -180,6 +180,14 @@ uv run python examples/benchmark_renderer.py --scene example_data/test_hdmap --i
 uv run python examples/benchmark_renderer.py --scene example_data/test_hdmap --multicam
 ```
 
+## License
+
+The renderer is packaged independently, so [LICENSE](LICENSE) is retained
+alongside its package metadata. The cudaraster port and embedded LodePNG
+have separate terms described in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)
+and the [upstream cudaraster license](ludus_renderer/_cpp/cudaraster/LICENSE).
+Per-file notices preserve the Apache port additions and BSD/Zlib portions.
+
 # Contributing
 
 Contributions are welcome, thank you. This project only accepts contributions under the

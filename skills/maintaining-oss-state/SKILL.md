@@ -29,7 +29,9 @@ gates catch what.
 - **`LICENSE` has a multi-license preamble** explaining that the bulk
   of the repo is Apache-2.0 and that two subtrees
   (cudaraster → BSD-3-Clause, LodePNG → Zlib) carry different OSI
-  licenses, then reproduces the full Apache-2.0 text. CI verifies the
+  licenses, with file-specific port exceptions recorded in THIRD-PARTY-NOTICES.
+  The project copyright immediately precedes the full Apache-2.0 text;
+  descriptive text stays before that copyright. CI verifies the
   canonical Apache-2.0 sentinel strings are present; the structural
   cross-references in the preamble are not lint-checked (these files
   change rarely — see the change-log review path instead).
@@ -173,6 +175,11 @@ under that subtree, then the lodepng `override` overrides the cudaraster
 block for the lodepng leaf. Order the annotations so specific paths come
 *after* general ones.
 
+Cudaraster has two local exceptions: `CudaRasterKernels.cu` is Apache-2.0;
+`cudaraster_fw_stub.cpp` retains BSD framework portions and Apache port
+additions (`Apache-2.0 AND BSD-3-Clause`). Keep their exact-path overrides
+and inline terms aligned; do not replace the historical BSD banner.
+
 ## 4. `NOTICE` vs `THIRD-PARTY-NOTICES` — what goes where
 
 Two distinct files. Mixing them up is the most common OSS-state mistake.
@@ -261,9 +268,10 @@ Rules:
 - **Column 1 = exact PyPI / upstream name.** Match
   `flashdreams/pyproject.toml`'s `dependencies =` spelling
   (e.g., `opencv-python-headless`, not `opencv`).
-- **Column 2 = SPDX identifier** (from <https://spdx.org/licenses/>). For
-  dual-licensed packages use comma-separated SPDX IDs in alphabetical
-  order, e.g., `MIT, MPL-2.0` for tqdm.
+- **Column 2 = SPDX identifier** (from <https://spdx.org/licenses/>). Preserve
+  the upstream license expression: use `AND` for cumulative terms (for
+  example `MIT AND MPL-2.0` for tqdm), and `OR` only for a documented
+  choice of licenses. Package labels do not enumerate bundled native terms.
 - **Column 3 = upstream source URL**, not the PyPI page.
 - **Only direct deps go in the top table.** Transitives stay out unless
   they're material enough to flag separately under "Optional
@@ -495,9 +503,10 @@ Triggers: every PR, every push to `main`, and every merge-queue group
 
 ## 11. Common pitfalls
 
-- **Editing `LICENSE` without mirroring into `LICENSES/Apache-2.0.txt`**
-  — the collateral step compares them byte-for-byte. If you fix a typo
-  in one, fix it in both.
+- **Copying the `LICENSE` preamble into `LICENSES/Apache-2.0.txt`.**
+  Keep the canonical Apache body unchanged in both files. `LICENSE` also
+  has project disclosures and a copyright line; the REUSE license text
+  must remain reusable without that preamble.
 - **Adding a new direct dep and forgetting `THIRD-PARTY-NOTICES`**.
   The lint won't catch this (the file is free-form prose). Add the
   attribution row in the same commit that touches `pyproject.toml` /
@@ -603,8 +612,9 @@ weak-copyleft):**
 1. Read the failed step name.
 2. `REUSE 3.3 compliance` → run `pipx run reuse lint` locally; add
    inline SPDX or extend `REUSE.toml`.
-3. `LICENSE / LICENSES/Apache-2.0.txt are byte-identical` →
-   `diff LICENSE LICENSES/Apache-2.0.txt`, restore parity.
+3. `LICENSE carries canonical Apache-2.0 text` → compare the license
+   body with `LICENSES/Apache-2.0.txt`; preserve the project preamble and
+   copyright placement in `LICENSE`.
 4. `Required OSRB collateral present` → recreate the missing file
    from history (`git log -- <file>` to find the original commit).
 5. `CONTRIBUTING.md references the DCO` → restore the DCO section

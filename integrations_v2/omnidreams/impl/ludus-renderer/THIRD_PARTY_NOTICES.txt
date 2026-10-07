@@ -10,7 +10,13 @@ are not redistributed in this package.
 
 Name: cudaraster
 Source path: ludus_renderer/_cpp/cudaraster
-License: BSD-3-Clause-style
+License: BSD-3-Clause, with these file-specific exceptions:
+    CudaRasterKernels.cu: Apache-2.0 (local integration code).
+    cudaraster_fw_stub.cpp: Apache-2.0 AND BSD-3-Clause (Apache port
+    additions and retained BSD framework portions).
+
+The original BSD notice below remains applicable to the upstream-derived
+portions. The independently packaged renderer retains its Apache LICENSE.
 
 Copyright (c) 2009-2026, NVIDIA Corporation
 All rights reserved.
@@ -36,3 +42,10 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
 ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Name: LodePNG
+Source path: ludus_renderer/_cpp/cudaraster/framework/3rdparty/lodepng
+Upstream: https://lodev.org/lodepng/
+License: Zlib
+Copyright (c) 2005-2011 Lode Vandevenne
+The full license is retained in lodepng.h and lodepng.cpp.

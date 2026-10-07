@@ -10,8 +10,10 @@ The primary FlashDreams source is licensed under the Apache License,
 Version 2.0 — see LICENSE at the repository root. Per-file SPDX
 identifiers and the REUSE 3.3 manifest at REUSE.toml are the
 machine-readable counterparts of the information below. Full license
-texts for every SPDX identifier referenced in this file are reproduced
-verbatim under LICENSES/.
+texts for the OSS source redistributions listed below are reproduced
+under LICENSES/; runtime dependency license texts remain available
+from the upstream URLs listed below. A package/project license does not
+by itself enumerate the terms of its bundled native libraries or tools.
 
 Most dependencies are consumed unmodified at runtime through Python's
 import system (i.e. dynamic linking via the interpreter); their source
@@ -28,6 +30,7 @@ Direct runtime dependencies
 boto3                  Apache-2.0   https://github.com/boto/boto3
 botocore               Apache-2.0   https://github.com/boto/botocore
 einops                 MIT          https://github.com/arogozhnikov/einops
+filelock               MIT          https://github.com/tox-dev/filelock
 ftfy                   Apache-2.0   https://github.com/rspeer/python-ftfy
 huggingface-hub        Apache-2.0   https://github.com/huggingface/huggingface_hub
 imgui-bundle           MIT          https://github.com/pthom/imgui_bundle
@@ -35,14 +38,16 @@ loguru                 MIT          https://github.com/Delgan/loguru
 numpy                  BSD-3-Clause https://github.com/numpy/numpy
 nvidia-ml-py           BSD-3-Clause https://pypi.org/project/nvidia-ml-py/
 psutil                 BSD-3-Clause https://github.com/giampaolo/psutil
+pyyaml                 MIT          https://github.com/yaml/pyyaml
 safetensors            Apache-2.0   https://github.com/huggingface/safetensors
 slangpy                Apache-2.0   https://github.com/shader-slang/slangpy
 torch                  BSD-3-Clause https://pytorch.org
 torchvision            BSD-3-Clause https://github.com/pytorch/vision
-tqdm                   MIT, MPL-2.0 https://github.com/tqdm/tqdm
+tqdm                   MIT AND MPL-2.0  https://github.com/tqdm/tqdm
 transformers           Apache-2.0   https://github.com/huggingface/transformers
 transformer-engine     Apache-2.0   https://github.com/NVIDIA/TransformerEngine
 triton-windows         MIT          https://github.com/woct0rdho/triton-windows
+tyro                   MIT          https://github.com/brentyi/tyro
 urllib3                MIT          https://github.com/urllib3/urllib3
 
 ================================================================================
@@ -55,9 +60,26 @@ Wan 2.1 / Wan 2.2      Apache-2.0   https://github.com/Wan-Video/Wan2.1
     and are not redistributed in this repository.
 
 ================================================================================
+Optional application: apps/crazy_robotaxi
+================================================================================
+
+ruamel-yaml            MIT          https://sourceforge.net/projects/ruamel-yaml
+
+================================================================================
+Optional applications: apps/interactive_drive and apps/omnidreams_game_engine
+================================================================================
+
+Pillow                 MIT-CMU      https://github.com/python-pillow/Pillow
+pyarrow                Apache-2.0   https://github.com/apache/arrow
+
+================================================================================
 Optional application: apps/v2v
 ================================================================================
 
+imageio-ffmpeg         BSD-2-Clause https://github.com/imageio/imageio-ffmpeg
+    BSD-2-Clause covers the Python wrapper. Bundled FFmpeg executables
+    carry additional FFmpeg and codec terms, including GPL-enabled builds;
+    preserve the licenses of the actual installed or redistributed artifact.
 Big Buck Bunny         CC-BY-3.0    https://peach.blender.org/about/
     (c) copyright 2008, Blender Foundation / www.bigbuckbunny.org
 
@@ -72,6 +94,15 @@ Optional integration: integrations_v2/flashvsr
 ================================================================================
 
 ninja                  Apache-2.0   https://github.com/ninja-build/ninja
+    The Python distribution wrapper and bundled Ninja executable can carry
+    separate Apache/BSD terms; retain the selected artifact's licenses.
+
+================================================================================
+Optional integration: integrations_v2/hy_worldplay
+================================================================================
+
+diffusers              Apache-2.0   https://github.com/huggingface/diffusers
+scipy                  BSD-3-Clause https://github.com/scipy/scipy
 
 ================================================================================
 Optional integration: integrations_v2/omnidreams
@@ -83,18 +114,21 @@ opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 grpcio, grpcio-tools   Apache-2.0   https://github.com/grpc/grpc
 shapely                BSD-3-Clause https://github.com/shapely/shapely
 ludus-renderer         Apache-2.0   (NVIDIA, internal distribution)
-cmake                  BSD-3-Clause https://github.com/Kitware/CMake
+cmake                  Apache-2.0   https://github.com/scikit-build/cmake-python-distributions
+    Python distribution wrapper; bundled CMake uses BSD-3-Clause:
+    https://github.com/Kitware/CMake
+imageio                BSD-2-Clause https://github.com/imageio/imageio
+nvidia-cudnn-cu13      LicenseRef-NvidiaProprietary
+                                    https://developer.nvidia.com/cudnn
+nvidia-nvcomp-cu12     LicenseRef-NvidiaProprietary
+                                    https://github.com/NVIDIA/nvcomp
+pandas                 BSD-3-Clause https://github.com/pandas-dev/pandas
+PyNvVideoCodec         MIT          https://developer.nvidia.com/pynvvideocodec
+setuptools             MIT          https://github.com/pypa/setuptools
 NVIDIA PhysX 5.9.0     BSD-3-Clause https://github.com/NVIDIA-Omniverse/PhysX
     ``ludus-renderer`` downloads the pinned PhysX source archive at first use,
     verifies its SHA-256, and builds it into a platform-local cache. The source
     and resulting native module are not redistributed in this repository.
-
-Files in
-    integrations_v2/omnidreams/impl/conditioning/world_scenario/
-    (camera_base.py, ftheta.py, pinhole.py)
-were originally authored as part of the NVIDIA Cosmos-Drive-Dreams project
-(https://github.com/nv-tlabs/Cosmos-Drive-Dreams) and are redistributed and
-modified under the same Apache-2.0 license.
 
 NVIDIA OmniDreams single-view native builds use script-managed, pinned source
 downloads under integrations_v2/omnidreams/impl/omnidreams_singleview/3rdparty/.
@@ -136,10 +170,16 @@ this repository.
 Optional integration: integrations_v2/lingbot
 ================================================================================
 
-aiohttp                Apache-2.0   https://github.com/aio-libs/aiohttp
+aiohttp                Apache-2.0 AND MIT  https://github.com/aio-libs/aiohttp
 aiortc                 BSD-3-Clause https://github.com/aiortc/aiortc
 multidict              Apache-2.0   https://github.com/aio-libs/multidict
 opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
+
+================================================================================
+Optional integration: integrations_v2/sana_wm
+================================================================================
+
+sentencepiece          Apache-2.0   https://github.com/google/sentencepiece
 
 ================================================================================
 Source-level redistributions
@@ -154,18 +194,25 @@ HPG-2011 NVIDIA CUDA Rasterizer port
 --------------------------------------------------------------------------------
 
 Path:    integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/
-License: BSD-3-Clause (see LICENSES/BSD-3-Clause.txt)
+License: BSD-3-Clause (see LICENSES/BSD-3-Clause.txt), with the
+         file-specific exceptions listed below.
          Copyright (c) 2009-2026, NVIDIA Corporation. All rights reserved.
 
 The cudaraster subtree is a port of NVIDIA Research's HPG-2011 CUDA
 Rasterizer (Laine & Karras). It is NVIDIA-authored and is redistributed
 under the 3-clause BSD license carried in
-ludus_renderer/_cpp/cudaraster/LICENSE. The tile-level rasterization
+integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/LICENSE,
+with the following file-specific terms:
+  CudaRasterKernels.cu: Apache-2.0 (local integration code).
+  cudaraster_fw_stub.cpp: Apache-2.0 AND BSD-3-Clause (Apache port additions
+  and retained BSD framework portions). Original BSD notices are preserved.
+
+The tile-level rasterization
 pipeline (triangle setup, bin / coarse / fine raster) is upstream code;
 the host wrapper, viewport / multi-image plumbing, and deterministic
 tiebreaker are local modifications. See
-ludus_renderer/_cpp/cudaraster/PORT_NOTES.md for the full list of
-deviations.
+integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/PORT_NOTES.md
+for the full list of deviations.
 
 --------------------------------------------------------------------------------
 LodePNG
@@ -178,9 +225,43 @@ License:  Zlib (see LICENSES/Zlib.txt)
 Upstream: https://lodev.org/lodepng/
 
 LodePNG is a PNG codec implementation embedded by the upstream
-cudaraster framework. It is the only non-NVIDIA source physically
-redistributed in this repository. The inline notice in lodepng.h
+cudaraster framework. The inline notice in lodepng.h
 preserves the upstream copyright notice as required by the Zlib
 license; LICENSES/Zlib.txt reproduces the license text in full.
+
+--------------------------------------------------------------------------------
+Cosmos-Drive-Dreams camera helpers
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/omnidreams/impl/conditioning/world_scenario/
+          camera_base.py, ftheta.py, pinhole.py
+License:  Apache-2.0 (see LICENSES/Apache-2.0.txt)
+          Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+          Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Upstream: https://github.com/nv-tlabs/Cosmos-Drive-Dreams
+
+Modified for FlashDreams; the per-file modification and copyright notices
+are retained. The reviewed upstream comparison is revision
+915f79f2e34b5420c654ca9851e466c823409459, under
+cosmos-drive-dreams-toolkits/utils/camera/ (base.py, ftheta.py, pinhole.py).
+This comparison pin is not asserted to be the original-copy revision.
+
+--------------------------------------------------------------------------------
+SwiftVR adapted source
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/swiftvr/impl/
+          attention.py, pipeline.py, encoder/__init__.py,
+          decoder/__init__.py, decoder/network.py,
+          transformer/__init__.py, transformer/network.py
+License:  Apache-2.0 (see LICENSES/Apache-2.0.txt)
+          Copyright (c) 2026 SwiftVR Authors.
+          Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Upstream: https://github.com/H-oliday/SwiftVR/tree/5ca168cef6ca7200f135fdfea85e5e13d12c5b53
+
+These seven files adapt SwiftVR's encoder, transformer, decoder and streaming
+pipeline to FlashDreams. Their upstream copyrights, Apache license identifiers
+and NVIDIA modification notices remain in the files. Model weights are
+obtained separately and are not included by this source attribution.
 
 ================================================================================

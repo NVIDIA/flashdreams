@@ -168,7 +168,10 @@ FlashDreams is released under the [Apache License 2.0](LICENSE). Third-party
 components and their licenses are listed in
 [`THIRD-PARTY-NOTICES`](THIRD-PARTY-NOTICES) and [`NOTICE`](NOTICE). The
 repository is REUSE-compliant; see [`REUSE.toml`](REUSE.toml) and
-[`LICENSES/`](LICENSES/).
+[`LICENSES/`](LICENSES/). The independently packaged
+[Ludus renderer](integrations_v2/omnidreams/impl/ludus-renderer/LICENSE) retains its own Apache license file;
+[upstream cudaraster terms](integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/LICENSE)
+and per-file exceptions are described in the third-party notices.
 
 ## Citation
 

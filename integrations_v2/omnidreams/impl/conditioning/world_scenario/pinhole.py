@@ -1,5 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+# This file has been modified by NVIDIA CORPORATION & AFFILIATES for FlashDreams.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,8 +15,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-File originally from https://github.com/nv-tlabs/Cosmos-Drive-Dreams/tree/main/cosmos-drive-dreams-toolkits
+"""Camera utilities adapted from NVIDIA Cosmos-Drive-Dreams.
+
+Reviewed upstream comparison: revision 915f79f2e34b5420c654ca9851e466c823409459,
+cosmos-drive-dreams-toolkits/utils/camera/pinhole.py.
+See the source attribution in THIRD-PARTY-NOTICES.
 """
 
 from typing import Optional

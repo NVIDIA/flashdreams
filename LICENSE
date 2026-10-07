@@ -1,35 +1,34 @@
+FlashDreams is open-source software. Most source uses Apache-2.0; the full
+text follows below and is also available at LICENSES/Apache-2.0.txt.
+
+Source-level exceptions and attributions are detailed in THIRD-PARTY-NOTICES
+and each file's license notice:
+
+  * integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/
+    LICENSE contains the upstream BSD-3-Clause terms. CudaRasterKernels.cu
+    is Apache-2.0. cudaraster_fw_stub.cpp contains BSD-3-Clause framework
+    portions and Apache-2.0 port additions; both sets of terms apply.
+
+  * integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/
+    framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp} retain the Zlib
+    license. Full text: LICENSES/Zlib.txt.
+
+  * Modified Cosmos-Drive-Dreams camera helpers and SwiftVR adaptations
+    retain their Apache-2.0 terms and upstream attributions, as listed
+    in THIRD-PARTY-NOTICES.
+
+Nested license files, relative to this repository root:
+  integrations_v2/omnidreams/impl/ludus-renderer/LICENSE
+  integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/LICENSE
+The renderer retains its own Apache license file because it is packaged
+independently. Its bundled-source exceptions remain separately licensed.
+
+Per-file SPDX identifiers and REUSE.toml describe source licensing.
+LICENSES/ contains Apache-2.0, BSD-3-Clause and Zlib texts. Dependency
+project licenses and upstream links are listed in THIRD-PARTY-NOTICES;
+package and native-artifact contents can carry additional terms.
+
 Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-
-FlashDreams is open-source software. Its licensing posture is:
-
-  * The bulk of FlashDreams source code is licensed under the
-    Apache License, Version 2.0 ("Apache-2.0"). The full text of
-    the Apache-2.0 license is reproduced below and is also
-    available verbatim at LICENSES/Apache-2.0.txt.
-
-  * Two subtrees physically present in this repository carry
-    different OSI-approved licenses:
-
-      - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/
-        is licensed under the 3-clause BSD license. Full text:
-        LICENSES/BSD-3-Clause.txt.
-
-      - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/
-        cudaraster/framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp}
-        is licensed under the Zlib license. Full text:
-        LICENSES/Zlib.txt.
-
-Each first-party source file carries an inline SPDX license
-identifier; the REUSE 3.3 manifest at REUSE.toml fills the gaps for
-files (configuration, assets, generated outputs) that cannot
-reasonably carry an inline header. The REUSE specification is
-documented at https://reuse.software/.
-
-Third-party dependencies — consumed at install time from upstream
-package indexes and not redistributed in source form — together
-with the source-level redistributions enumerated above are
-documented with full attributions in THIRD-PARTY-NOTICES at the
-repository root.
 
 
                                  Apache License

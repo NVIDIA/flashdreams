@@ -13,7 +13,7 @@ SPDX-PackageDownloadLocation = "https://github.com/NVIDIA/flashdreams"
 #
 # Third-party dependencies are NOT declared here: they are consumed at
 # runtime through Python's import system (no source redistribution). Their
-# attributions live in NOTICE.
+# attributions live in THIRD-PARTY-NOTICES.
 
 # --- Default: every other file in the repo is NVIDIA-authored Apache-2.0 ---
 [[annotations]]
@@ -62,7 +62,7 @@ path = [
 precedence = "aggregate"
 SPDX-FileCopyrightText = [
     "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
-    "Copyright (c) NVIDIA Cosmos-Drive-Dreams contributors",
+    "Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
 ]
 SPDX-License-Identifier = "Apache-2.0"
 
@@ -104,6 +104,23 @@ path = "integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudar
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright (c) 2009-2026, NVIDIA Corporation. All rights reserved."
 SPDX-License-Identifier = "BSD-3-Clause"
+
+# --- Local port files have grants distinct from the upstream BSD default.
+#     Keep the stub's BSD-derived framework portions and Apache additions. ---
+[[annotations]]
+path = "integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/CudaRasterKernels.cu"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/cudaraster_fw_stub.cpp"
+precedence = "override"
+SPDX-FileCopyrightText = [
+    "Copyright (c) 2009-2011, NVIDIA Corporation. All rights reserved.",
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+]
+SPDX-License-Identifier = "Apache-2.0 AND BSD-3-Clause"
 
 # --- LodePNG, embedded by the upstream cudaraster framework (third-party,
 #     Zlib license). The inline header in lodepng.h preserves the upstream

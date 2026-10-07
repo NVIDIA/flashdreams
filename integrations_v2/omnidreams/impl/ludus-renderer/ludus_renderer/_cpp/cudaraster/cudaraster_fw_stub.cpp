@@ -26,7 +26,8 @@
  */
 
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
+// Historical framework portions retain BSD-3-Clause; port additions use Apache-2.0.
 //
 // Minimal cross-platform replacement for framework/base/Defs.cpp. Provides
 // just the public API surface from framework/base/Defs.hpp that the cudaraster
