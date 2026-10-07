@@ -10,8 +10,8 @@ import io
 import os
 import tempfile
 import types
-from collections.abc import Mapping, Sequence
-from dataclasses import MISSING, Field, dataclass, fields, is_dataclass, replace
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import MISSING, Field, dataclass, field, fields, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal, Union, cast, get_args, get_origin, get_type_hints
@@ -35,34 +35,184 @@ _NON_USER_SETTING_PATHS = frozenset({("model", "pipeline", "name")})
 class TaxiRulesSettings:
     """Taxi rules without session persistence or vehicle dynamics."""
 
-    waypoint_spacing_m: float = 10.0
-    pickup_grid_spacing_m: float = 60.0
-    pickup_min_distance_m: float = 20.0
-    initial_pickup_max_distance_m: float = 200.0
-    pickup_radius_m: float = 5.0
-    dropoff_radius_m: float = 6.0
-    fare_min_route_distance_m: float = 200.0
-    fare_max_route_distance_m: float = 250.0
-    target_speed_mps: float = 10.0
-    grace_s: float = 8.0
-    min_time_s: float = 12.0
-    max_time_s: float = 45.0
-    trip_time_multiplier: float = 2.0
-    base_fare_points: int = 500
-    bonus_points_per_second: int = 100
-    event_banner_s: float = 2.0
-    global_time_s: float = 60.0
-    dropoff_time_bonus_s: float = 30.0
-    ground_snap_max_absolute_rotation_deg: float = 10.0
-    ground_snap_settle_fraction: float = 0.25
+    waypoint_spacing_m: float = field(
+        default=10.0,
+        metadata={
+            "yaml_key": "waypoint_spacing_m",
+            "description": "Distance between candidate points sampled along navigation routes.",
+        },
+    )
+    pickup_grid_spacing_m: float = field(
+        default=60.0,
+        metadata={
+            "yaml_key": "pickup_grid_spacing_m",
+            "description": "Spacing used to spread pickup locations across the map.",
+        },
+    )
+    pickup_min_distance_m: float = field(
+        default=20.0,
+        metadata={
+            "yaml_key": "pickup_min_distance_m",
+            "description": "Minimum straight-line distance from the taxi to a new pickup.",
+        },
+    )
+    initial_pickup_max_distance_m: float = field(
+        default=200.0,
+        metadata={
+            "yaml_key": "initial_pickup_max_distance_m",
+            "description": "Preferred maximum distance to the first, camera-visible pickup.",
+        },
+    )
+    pickup_radius_m: float = field(
+        default=5.0,
+        metadata={
+            "yaml_key": "pickup_radius_m",
+            "description": "Distance at which a passenger is collected.",
+        },
+    )
+    dropoff_radius_m: float = field(
+        default=6.0,
+        metadata={
+            "yaml_key": "dropoff_radius_m",
+            "description": "Distance at which a fare is completed.",
+        },
+    )
+    fare_min_route_distance_m: float = field(
+        default=200.0,
+        metadata={
+            "yaml_key": "fare_min_route_distance_m",
+            "description": "Preferred minimum route length from pickup to dropoff.",
+        },
+    )
+    fare_max_route_distance_m: float = field(
+        default=250.0,
+        metadata={
+            "yaml_key": "fare_max_route_distance_m",
+            "description": (
+                "Preferred maximum straight-line distance between fare endpoints. The "
+                "minimum may not exceed this maximum."
+            ),
+        },
+    )
+    target_speed_mps: float = field(
+        default=10.0,
+        metadata={
+            "yaml_key": "target_speed_mps",
+            "description": "Nominal speed used to calculate a fare's time limit.",
+        },
+    )
+    grace_s: float = field(
+        default=8.0,
+        metadata={
+            "yaml_key": "grace_s",
+            "description": "Extra time added to the distance-based fare limit.",
+        },
+    )
+    min_time_s: float = field(
+        default=12.0,
+        metadata={
+            "yaml_key": "min_time_s",
+            "description": "Lower bound for a fare's calculated time limit.",
+        },
+    )
+    max_time_s: float = field(
+        default=45.0,
+        metadata={
+            "yaml_key": "max_time_s",
+            "description": (
+                "Upper bound for a fare's calculated time limit; must be at least Min "
+                "Time S."
+            ),
+        },
+    )
+    trip_time_multiplier: float = field(
+        default=2.0,
+        metadata={
+            "yaml_key": "trip_time_multiplier",
+            "description": "Multiplies the fare limit after it is calculated and clamped.",
+        },
+    )
+    base_fare_points: int = field(
+        default=500,
+        metadata={
+            "yaml_key": "base_fare_points",
+            "description": "Points awarded for a completed fare.",
+        },
+    )
+    bonus_points_per_second: int = field(
+        default=100,
+        metadata={
+            "yaml_key": "bonus_points_per_second",
+            "description": "Additional points per whole second remaining on a completed fare.",
+        },
+    )
+    event_banner_s: float = field(
+        default=2.0,
+        metadata={
+            "yaml_key": "event_banner_s",
+            "description": "Duration of pickup, completion, and failure banners in simulation time.",
+        },
+    )
+    global_time_s: float = field(
+        default=60.0,
+        metadata={
+            "yaml_key": "global_time_s",
+            "description": "Starting game clock; must be positive.",
+        },
+    )
+    dropoff_time_bonus_s: float = field(
+        default=30.0,
+        metadata={
+            "yaml_key": "dropoff_time_bonus_s",
+            "description": "Time added to the game clock after a successful dropoff.",
+        },
+    )
+    ground_snap_max_absolute_rotation_deg: float = field(
+        default=10.0,
+        metadata={
+            "yaml_key": "ground_snap_max_absolute_rotation_deg",
+            "description": (
+                "Largest ground rotation accepted when aligning the taxi to the road "
+                "surface."
+            ),
+        },
+    )
+    ground_snap_settle_fraction: float = field(
+        default=0.25,
+        metadata={
+            "yaml_key": "ground_snap_settle_fraction",
+            "description": (
+                "Fraction of stale ground attitude removed after an invalid ground "
+                "sample."
+            ),
+        },
+    )
 
 
 @dataclass(frozen=True)
 class TaxiSettings:
     """Taxi rules, vehicle behavior, and persistence."""
 
-    seed: int | None = None
-    high_scores_path: Path | None = None
+    seed: int | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "seed",
+            "description": (
+                "Seed for repeatable taxi gameplay; blank uses fresh randomness. This is "
+                "independent of the model diffusion seed."
+            ),
+        },
+    )
+    high_scores_path: Path | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "high_scores_path",
+            "description": (
+                "CSV file for the taxi leaderboard; blank uses the default high-score "
+                "location."
+            ),
+        },
+    )
     rules: TaxiRulesSettings = TaxiRulesSettings()
     vehicle: TaxiVehicleConfig = TaxiVehicleConfig()
 
@@ -82,21 +232,42 @@ class TaxiSettings:
 class RaceSettings:
     """Race persistence settings; course selection belongs to launch."""
 
-    times_path: Path | None = None
+    times_path: Path | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "times_path",
+            "description": "File for race times; blank uses the default leaderboard location.",
+        },
+    )
 
 
 @dataclass(frozen=True)
 class GameEffectsSettings:
     """Game-directed presentation effects."""
 
-    visual_flare: bool = False
+    visual_flare: bool = field(
+        default=False,
+        metadata={
+            "yaml_key": "visual_flare",
+            "description": "Enables the game-directed visual flare effect.",
+        },
+    )
 
 
 @dataclass(frozen=True)
 class GameSettings:
     """Complete gameplay configuration."""
 
-    gamepad_button_style: GamepadButtonStyle = "Xbox"
+    gamepad_button_style: GamepadButtonStyle = field(
+        default="Xbox",
+        metadata={
+            "yaml_key": "gamepad_button_style",
+            "description": (
+                "Labels shown for gamepad buttons: Xbox, PlayStation, or Nintendo Switch. "
+                "It does not remap controls."
+            ),
+        },
+    )
     taxi: TaxiSettings = TaxiSettings()
     race: RaceSettings = RaceSettings()
     effects: GameEffectsSettings = GameEffectsSettings()
@@ -106,7 +277,13 @@ class GameSettings:
 class ModelSettings:
     """Runner-owned pipeline configuration and device placement."""
 
-    device: str = "cuda"
+    device: str = field(
+        default="cuda",
+        metadata={
+            "yaml_key": "device",
+            "description": "Device used for the world model, normally cuda.",
+        },
+    )
     pipeline: Any = None
 
 
@@ -122,35 +299,113 @@ class RendererSettings:
 class PresentationSettings:
     """Player-facing HUD settings."""
 
-    width: int | None = None
+    width: int | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "width",
+            "description": "Display width in pixels; blank uses the model width. Set with Height.",
+        },
+    )
     """Presentation width; ``None`` uses the model output width."""
 
-    height: int | None = None
+    height: int | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "height",
+            "description": "Display height in pixels; blank uses the model height. Set with Width.",
+        },
+    )
     """Presentation height; ``None`` uses the model output height."""
 
-    hud_enabled: bool = True
-    show_fps: bool = False
-    show_current_prompt: bool = False
-    show_control_hints: bool = True
-    show_live_edit_buttons: bool = True
-    live_edit_mapping_location: LiveEditMappingLocation = "buttons"
+    hud_enabled: bool = field(
+        default=True,
+        metadata={"yaml_key": "hud_enabled", "description": "Shows the gameplay HUD."},
+    )
+    show_fps: bool = field(
+        default=False,
+        metadata={
+            "yaml_key": "show_fps",
+            "description": "Shows the frame-rate counter.",
+        },
+    )
+    show_current_prompt: bool = field(
+        default=False,
+        metadata={
+            "yaml_key": "show_current_prompt",
+            "description": "Shows the world-model prompt.",
+        },
+    )
+    show_control_hints: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "show_control_hints",
+            "description": "Shows the control help on the HUD.",
+        },
+    )
+    show_live_edit_buttons: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "show_live_edit_buttons",
+            "description": "Shows live-edit ability buttons.",
+        },
+    )
+    live_edit_mapping_location: LiveEditMappingLocation = field(
+        default="buttons",
+        metadata={
+            "yaml_key": "live_edit_mapping_location",
+            "description": "Places live-edit mappings in buttons or control hints.",
+        },
+    )
 
 
 @dataclass(frozen=True)
 class RuntimeSettings:
     """Operational controls for one application session."""
 
-    total_blocks: int | None = None
-    prewarm_blocks: int = 8
+    total_blocks: int | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "total_blocks",
+            "description": (
+                "Optional limit on generated model blocks; blank leaves the run "
+                "unbounded."
+            ),
+        },
+    )
+    prewarm_blocks: int = field(
+        default=8,
+        metadata={
+            "yaml_key": "prewarm_blocks",
+            "description": "Blocks generated before play to warm the pipeline; must be nonnegative.",
+        },
+    )
 
 
 @dataclass(frozen=True)
 class DiagnosticsSettings:
     """Opt-in profiling and diagnostic output."""
 
-    profile_pipeline: bool = False
-    profile_input_latency: bool = False
-    input_trace_path: Path | None = None
+    profile_pipeline: bool = field(
+        default=False,
+        metadata={
+            "yaml_key": "profile_pipeline",
+            "description": "Enables pipeline profiling output.",
+        },
+    )
+    profile_input_latency: bool = field(
+        default=False,
+        metadata={
+            "yaml_key": "profile_input_latency",
+            "description": "Measures input-to-output latency.",
+        },
+    )
+    input_trace_path: Path | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "input_trace_path",
+            "description": "Optional file for input trace output.",
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -280,6 +535,14 @@ class SettingsDocument:
         value: object,
     ) -> CrazyRobotaxiUserSettings:
         """Replace one draft value in the typed settings tree."""
+        current: object = settings
+        for depth, name in enumerate(path):
+            known = {
+                item.name for item, _ in iter_setting_fields(current, path[:depth])
+            }
+            if name not in known:
+                raise SettingsError(f"{'.'.join(path)} is not configurable")
+            current = getattr(current, name)
         return replace_setting(settings, path, value)
 
     def save(self, settings: CrazyRobotaxiUserSettings) -> None:
@@ -336,12 +599,6 @@ def _validate_settings(settings: CrazyRobotaxiUserSettings) -> None:
     bev = settings.renderer.bev
     if raster.width <= 0 or raster.height <= 0:
         raise SettingsError("renderer.raster width and height must be positive")
-    if raster.near_plane_m >= raster.far_plane_m:
-        raise SettingsError(
-            "renderer.raster.near_plane_m must be less than far_plane_m"
-        )
-    if raster.fog_start_m >= raster.fog_end_m:
-        raise SettingsError("renderer.raster.fog_start_m must be less than fog_end_m")
     if bev.width <= 0 or bev.height <= 0 or bev.height_m <= 0:
         raise SettingsError("renderer.bev dimensions must be positive")
     presentation_resolution_wh(settings.presentation)
@@ -373,7 +630,10 @@ def _overlay_dataclass(
 ) -> Any:
     if not is_dataclass(base) or isinstance(base, type):
         raise SettingsError(f"{'.'.join(path) or 'settings'} is not configurable")
-    known = {item.name: item for item, _annotation in iter_setting_fields(base, path)}
+    known = {
+        item.metadata.get("yaml_key", item.name): item
+        for item, _annotation in iter_setting_fields(base, path)
+    }
     unknown = sorted(set(values) - set(known))
     if unknown:
         context = ".".join(path) or "settings"
@@ -381,10 +641,11 @@ def _overlay_dataclass(
     hints = get_type_hints(type(base))
     updates = {}
     for name, raw in values.items():
-        current = getattr(base, name)
-        updates[name] = _convert_value(
+        item = known[name]
+        current = getattr(base, item.name)
+        updates[item.name] = _convert_value(
             raw,
-            hints.get(name, type(current)),
+            hints.get(item.name, type(current)),
             current,
             (*path, name),
             base_dir=base_dir,
@@ -436,7 +697,7 @@ def _convert_value(
             raise SettingsError(f"{context} must be a mapping with string keys")
         raw_values = cast(Mapping[str, object], raw)
         configurable = {
-            item.name: item
+            item.metadata.get("yaml_key", item.name): item
             for item in fields(expected)
             if item.init
             and item.name != "_target"
@@ -464,9 +725,9 @@ def _convert_value(
                 default = item.default_factory()
             else:
                 default = None
-            updates[name] = _convert_value(
+            updates[item.name] = _convert_value(
                 value,
-                hints.get(name, type(default)),
+                hints.get(item.name, type(default)),
                 default,
                 (*path, name),
                 base_dir=base_dir,
@@ -661,11 +922,11 @@ def _settings_diff(
         if is_dataclass(after) and not isinstance(after, type):
             nested = _settings_diff(before, after, item_path)
             if nested:
-                result[item.name] = nested
+                result[item.metadata.get("yaml_key", item.name)] = nested
         elif after != before:
             serialized = _serialize_value(after)
             if serialized is not _READ_ONLY:
-                result[item.name] = serialized
+                result[item.metadata.get("yaml_key", item.name)] = serialized
     return result
 
 
@@ -687,7 +948,7 @@ def _serialize_value(value: object) -> object:
             serialized = _serialize_value(getattr(value, item.name))
             if serialized is _READ_ONLY:
                 return _READ_ONLY
-            result[item.name] = serialized
+            result[item.metadata.get("yaml_key", item.name)] = serialized
         return result
     if isinstance(value, Mapping):
         result = {}
@@ -782,7 +1043,7 @@ def iter_setting_fields(
     return tuple(
         (item, hints.get(item.name, type(getattr(value, item.name))))
         for item in fields(value)
-        if _is_user_setting_field(value, item, (*path, item.name))
+        if _is_user_setting_field(value, item, (*path, item.name), hints.get(item.name))
     )
 
 
@@ -790,8 +1051,23 @@ def _is_user_setting_field(
     value: object,
     item: Field[Any],
     path: SettingPath,
+    annotation: Any,
 ) -> bool:
-    if item.name == "_target" or path in _NON_USER_SETTING_PATHS:
+    if (
+        item.name == "_target"
+        or path in _NON_USER_SETTING_PATHS
+        or not item.metadata.get("user_setting", True)
+    ):
+        return False
+    alternatives = (
+        get_args(annotation)
+        if get_origin(annotation) in (Union, types.UnionType)
+        else (annotation,)
+    )
+    if any(
+        candidate is Callable or get_origin(candidate) is Callable
+        for candidate in alternatives
+    ):
         return False
     current = getattr(value, item.name)
     if isinstance(current, type) or callable(current):

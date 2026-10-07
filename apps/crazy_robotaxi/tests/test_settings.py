@@ -5,12 +5,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 import torch
-from crazy_robotaxi.settings import SettingsDocument, SettingsError
+from crazy_robotaxi.settings import SettingsDocument, SettingsError, iter_setting_fields
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -30,6 +31,17 @@ class _Pipeline:
     name: str
     diffusion_model: _Diffusion = _Diffusion()
     quantization: _Quantization = _Quantization()
+    internal_value: int = field(default=7, metadata={"user_setting": False})
+    """Preset-owned value excluded from user overrides."""
+
+    state_dict_transform: Callable[[object], object] | None = None
+    """Internal checkpoint hook, including its unset state."""
+
+    optional_boolean: bool | None = None
+    """Nullable user preference retained beside the internal hook."""
+
+    python_name: str = field(default="default", metadata={"yaml_key": "yaml_name"})
+    """Setting with an explicit YAML key independent of its Python attribute."""
 
 
 def _load(path: Path) -> SettingsDocument:
@@ -76,6 +88,23 @@ presentation:
     assert not document.settings.presentation.show_live_edit_buttons
     assert document.settings.presentation.live_edit_mapping_location == "control hints"
     assert document.settings.presentation.show_current_prompt
+
+
+def test_yaml_keys_come_from_field_metadata(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("model:\n  pipeline:\n    yaml_name: custom\n", encoding="utf-8")
+    document = _load(path)
+    assert document.settings.model.pipeline.python_name == "custom"
+
+    draft = document.update(
+        document.settings, ("model", "pipeline", "python_name"), "updated"
+    )
+    document.save(draft)
+
+    saved = path.read_text(encoding="utf-8")
+    assert "yaml_name: updated" in saved
+    assert "python_name:" not in saved
+    assert _load(path).settings.model.pipeline.python_name == "updated"
 
 
 @pytest.mark.parametrize(
@@ -135,6 +164,60 @@ def test_pipeline_name_is_not_a_user_setting(tmp_path: Path) -> None:
     path.write_text("model:\n  pipeline:\n    name: other\n", encoding="utf-8")
 
     with pytest.raises(SettingsError, match="model.pipeline has unknown keys: name"):
+        _load(path)
+
+
+@pytest.mark.parametrize("name", ("internal_value", "state_dict_transform"))
+def test_internal_fields_are_excluded_from_yaml_and_drafts(
+    tmp_path: Path, name: str
+) -> None:
+    path = tmp_path / "config.yaml"
+    document = _load(path)
+    names = {
+        item.name for item, _ in iter_setting_fields(document.settings.model.pipeline)
+    }
+    assert name not in names
+    assert "optional_boolean" in names
+
+    with pytest.raises(SettingsError, match="is not configurable"):
+        document.update(document.settings, ("model", "pipeline", name), None)
+    assert not path.exists()
+
+    path.write_text(f"model:\n  pipeline:\n    {name}: null\n", encoding="utf-8")
+    with pytest.raises(SettingsError, match=f"model.pipeline has unknown keys: {name}"):
+        _load(path)
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        "compute_device",
+        "sync_gpu_timing",
+        "perf_log_interval_frames",
+        "near_plane_m",
+        "far_plane_m",
+        "fog_start_m",
+        "fog_end_m",
+        "fog_power",
+        "triangle_raytrace_distance_m",
+        "triangle_raytrace_edge_samples",
+        "depth_clear_m",
+    ),
+)
+def test_unused_raster_fields_are_not_user_settings(tmp_path: Path, name: str) -> None:
+    path = tmp_path / "config.yaml"
+    document = _load(path)
+    names = {
+        item.name for item, _ in iter_setting_fields(document.settings.renderer.raster)
+    }
+    assert name not in names
+
+    with pytest.raises(SettingsError, match="is not configurable"):
+        document.update(document.settings, ("renderer", "raster", name), None)
+    path.write_text(f"renderer:\n  raster:\n    {name}: null\n", encoding="utf-8")
+    with pytest.raises(
+        SettingsError, match=f"renderer.raster has unknown keys: {name}"
+    ):
         _load(path)
 
 

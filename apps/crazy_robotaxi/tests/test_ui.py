@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import logging
 import queue
-import re
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -38,7 +38,6 @@ from crazy_robotaxi.live_edit.config import (
     LiveEditWeatherConfig,
 )
 from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
-from crazy_robotaxi.option_descriptions import OPTION_DESCRIPTIONS
 from crazy_robotaxi.race import RaceGameSnapshot, RaceSessionState
 from crazy_robotaxi.rules import (
     TaxiGameSnapshot,
@@ -75,8 +74,16 @@ pytestmark = pytest.mark.ci_cpu
 
 @dataclass(frozen=True)
 class _SettingsTransformer:
-    dtype: str = "bfloat16"
+    dtype: str = field(
+        default="bfloat16",
+        metadata={
+            "yaml_key": "dtype",
+            "description": "Test model parameter precision.",
+        },
+    )
     native_dit_acceleration: str = "required"
+    state_dict_transform: Callable[[object], object] | None = None
+    """Internal checkpoint hook that must stay off the Options screen."""
 
 
 @dataclass(frozen=True)
@@ -91,6 +98,30 @@ class _SettingsPipeline:
     diffusion_model: _SettingsDiffusionModel = field(
         default_factory=_SettingsDiffusionModel
     )
+
+
+@dataclass(frozen=True)
+class _SettingsEncoderWithYamlKeys:
+    precision: str = field(
+        default="bfloat16",
+        metadata={"yaml_key": "dtype", "description": "Encoder precision."},
+    )
+    """Test setting with a YAML key distinct from its Python name."""
+
+
+@dataclass(frozen=True)
+class _SettingsPipelineWithYamlKeys:
+    image_encoder: _SettingsEncoderWithYamlKeys = field(
+        default_factory=_SettingsEncoderWithYamlKeys,
+        metadata={"yaml_key": "first_frame"},
+    )
+    """First instance of the reusable encoder config."""
+
+    encoder: _SettingsEncoderWithYamlKeys = field(
+        default_factory=_SettingsEncoderWithYamlKeys,
+        metadata={"yaml_key": "conditioning"},
+    )
+    """Second instance with its own YAML parent key."""
 
 
 def _calibration() -> CameraCalibration:
@@ -2705,42 +2736,123 @@ def test_options_excludes_cli_only_launch_selections(tmp_path: Path) -> None:
     assert "RESET TO DEFAULTS" in labels
 
 
-def test_option_descriptions_match_the_guides() -> None:
-    documented: dict[str, str] = {}
-    for guide in (Path(__file__).parents[1] / "options").glob("*.md"):
-        for line in guide.read_text(encoding="utf-8").splitlines():
-            if not line.startswith("| **"):
-                continue
-            columns = re.split(r"(?<!\\)\|", line)[1:-1]
-            key = columns[1].strip().strip("`")
-            assert key not in documented
-            documented[key] = (
-                columns[-1]
-                .strip()
-                .replace("\\|", "|")
-                .replace("**", "")
-                .replace("`", "")
-            )
-    assert documented == OPTION_DESCRIPTIONS
+@pytest.mark.parametrize(
+    ("category", "kept", "culled"),
+    (
+        (
+            "renderer",
+            {"Width:", "Line Width Px:", "Lane Segment Interval M:"},
+            {
+                "Compute Device:",
+                "Sync Gpu Timing:",
+                "Perf Log Interval Frames:",
+                "Near Plane M:",
+                "Far Plane M:",
+                "Fog Start M:",
+                "Fog End M:",
+                "Fog Power:",
+                "Triangle Raytrace Distance M:",
+                "Triangle Raytrace Edge Samples:",
+                "Depth Clear M:",
+            },
+        ),
+        ("model", {"Device:", "Dtype:"}, {"State Dict Transform:"}),
+    ),
+)
+def test_options_excludes_backend_fields(
+    tmp_path: Path, category: str, kept: set[str], culled: set[str]
+) -> None:
+    state = TaxiHudState(
+        1280,
+        720,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    state._options_category = category
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    labels = set(imgui.windows["Crazy Robotaxi - Options"])
+    assert kept <= labels
+    assert not culled & labels
 
 
 @pytest.mark.parametrize(
-    ("category", "hovered_item", "key"),
+    ("category", "hovered_item", "description", "yaml_key"),
     [
-        ("game", "Gamepad Button Style:", "game.gamepad_button_style"),
-        ("game", "##game.gamepad_button_style", "game.gamepad_button_style"),
-        ("game", "##game.taxi.seed", "game.taxi.seed"),
-        ("renderer", "##renderer.raster.width", "renderer.raster.width"),
-        ("presentation", "##presentation.show_fps", "presentation.show_fps"),
-        ("model", "##model.device", "model.device"),
-        ("runtime", "Total Blocks:", "runtime.total_blocks"),
+        (
+            "game",
+            "Gamepad Button Style:",
+            "Labels shown for gamepad buttons: Xbox, PlayStation, or Nintendo "
+            "Switch. It does not remap controls.",
+            "game.gamepad_button_style",
+        ),
+        (
+            "game",
+            "##game.gamepad_button_style",
+            "Labels shown for gamepad buttons: Xbox, PlayStation, or Nintendo "
+            "Switch. It does not remap controls.",
+            "game.gamepad_button_style",
+        ),
+        (
+            "game",
+            "##game.taxi.seed",
+            "Seed for repeatable taxi gameplay; blank uses fresh randomness. "
+            "This is independent of the model diffusion seed.",
+            "game.taxi.seed",
+        ),
+        (
+            "game",
+            "##game.taxi.vehicle.max_steer_rad",
+            "Maximum steering angle.",
+            "game.taxi.vehicle.max_steer_rad",
+        ),
+        (
+            "game",
+            "##game.taxi.vehicle.max_speed_mps",
+            "Normal forward speed cap.",
+            "game.taxi.vehicle.max_speed_mps",
+        ),
+        (
+            "renderer",
+            "##renderer.raster.width",
+            "Main raster width in pixels; must be positive.",
+            "renderer.raster.width",
+        ),
+        (
+            "presentation",
+            "##presentation.show_fps",
+            "Shows the frame-rate counter.",
+            "presentation.show_fps",
+        ),
+        (
+            "model",
+            "##model.device",
+            "Device used for the world model, normally cuda.",
+            "model.device",
+        ),
+        (
+            "model",
+            "##model.pipeline.diffusion_model.transformer.dtype",
+            "Test model parameter precision.",
+            "model.pipeline.diffusion_model.transformer.dtype",
+        ),
+        (
+            "runtime",
+            "Total Blocks:",
+            "Optional limit on generated model blocks; blank leaves the run unbounded.",
+            "runtime.total_blocks",
+        ),
     ],
 )
 def test_options_show_help_only_for_the_hovered_setting(
     tmp_path: Path,
     category: str,
     hovered_item: str,
-    key: str,
+    description: str,
+    yaml_key: str,
 ) -> None:
     document = _settings_document(tmp_path / "config.yaml")
     state = TaxiHudState(1280, 720, _calibration(), settings_document=document)
@@ -2754,7 +2866,7 @@ def test_options_show_help_only_for_the_hovered_setting(
     imgui.hovered_items.add(hovered_item)
     state.draw(imgui)
 
-    assert imgui.tooltips == [OPTION_DESCRIPTIONS[key]]
+    assert imgui.tooltips == [f"{description}\n\nYAML: {yaml_key}"]
     assert not imgui.wrap_positions
     assert not imgui._tooltip_open
     assert state._options_draft == document.settings
@@ -2776,7 +2888,35 @@ def test_options_tooltip_covers_a_scrolling_text_editor(tmp_path: Path) -> None:
     state.draw(imgui)
 
     assert "##model.device-horizontal-scroll" in imgui.child_sizes
-    assert imgui.tooltips == [OPTION_DESCRIPTIONS["model.device"]]
+    assert imgui.tooltips == [
+        "Device used for the world model, normally cuda.\n\nYAML: model.device"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("component", "yaml_component"),
+    (("image_encoder", "first_frame"), ("encoder", "conditioning")),
+)
+def test_options_tooltips_use_metadata_for_reused_configs(
+    tmp_path: Path, component: str, yaml_component: str
+) -> None:
+    document = SettingsDocument.load(
+        tmp_path / "config.yaml",
+        pipeline_config=_SettingsPipelineWithYamlKeys(),
+        width=1280,
+        height=704,
+    )
+    state = TaxiHudState(1280, 720, _calibration(), settings_document=document)
+    state._open_options()
+    state._options_category = "model"
+    imgui = _FakeImGui()
+    imgui.hovered_items.add(f"##model.pipeline.{component}.precision")
+
+    state.draw(imgui)
+
+    assert imgui.tooltips == [
+        f"Encoder precision.\n\nYAML: model.pipeline.{yaml_component}.dtype"
+    ]
 
 
 def test_options_category_click_opens_model_settings(tmp_path: Path) -> None:

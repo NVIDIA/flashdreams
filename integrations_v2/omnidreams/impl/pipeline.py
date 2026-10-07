@@ -105,7 +105,14 @@ class OmnidreamsPipelineConfig(StreamInferencePipelineConfig):
     """One-shot Wan VAE first-frame encoder. Pin its checkpoint to the
     VAE the network was trained against. ``None`` skips loading."""
 
-    synthetic_text_max_length: int | None = None
+    synthetic_text_max_length: int | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "synthetic_text_max_length",
+            "description": "Token count for synthetic latency measurements; blank for real runs.",
+            "user_setting": False,
+        },
+    )
     """Text token count for the interactive-drive synthetic latency path.
 
     ``None`` on every real run, where the text encoder produces the

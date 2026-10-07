@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 import torch
@@ -31,40 +31,112 @@ from torch.nn.attention.flex_attention import flex_attention
 class FlexAttentionOptions:
     """Compilation, mask-block, and kernel policy for FlexAttention."""
 
-    block_size: int = 128
+    block_size: int = field(
+        default=128,
+        metadata={
+            "yaml_key": "block_size",
+            "description": "Default square mask-block size.",
+        },
+    )
     """Square fallback used when building a block mask."""
 
-    mask_block_m: int | None = None
+    mask_block_m: int | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "mask_block_m",
+            "description": "Optional query-side mask-block size.",
+        },
+    )
     """Optional query block size; ``None`` uses ``block_size``."""
 
-    mask_block_n: int | None = None
+    mask_block_n: int | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "mask_block_n",
+            "description": "Optional key/value-side mask-block size.",
+        },
+    )
     """Optional key/value block size; ``None`` uses ``block_size``."""
 
-    compile_dynamic: bool | None = None
+    compile_dynamic: bool | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "compile_dynamic",
+            "description": "Dynamic-shape compile policy.",
+        },
+    )
     """Dynamic-shape policy forwarded to :func:`torch.compile`."""
 
-    block_m: int | None = None
+    block_m: int | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "block_m",
+            "description": "Optional query-side kernel tile size.",
+        },
+    )
     """Optional forward query tile size; ``None`` lets PyTorch choose."""
 
-    block_n: int | None = None
+    block_n: int | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "block_n",
+            "description": "Optional key/value-side kernel tile size.",
+        },
+    )
     """Optional forward key/value tile size; ``None`` lets PyTorch choose."""
 
-    num_warps: int | None = None
+    num_warps: int | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "num_warps",
+            "description": "Optional Triton warp count.",
+        },
+    )
     """Optional Triton warp count; ``None`` lets PyTorch choose."""
 
-    num_stages: int | None = None
+    num_stages: int | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "num_stages",
+            "description": "Optional Triton pipeline-stage count.",
+        },
+    )
     """Optional Triton pipeline-stage count; ``None`` lets PyTorch choose."""
 
-    prescale_qk: bool | None = None
+    prescale_qk: bool | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "prescale_qk",
+            "description": "Applies attention scale before the QK reduction.",
+        },
+    )
     """Whether to apply the attention scale before the QK reduction."""
 
-    use_tma: bool | None = None
+    use_tma: bool | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "use_tma",
+            "description": "Requests TMA for FlexAttention; blank uses its default.",
+        },
+    )
     """Whether to request TMA from FlexAttention; ``None`` uses its default."""
 
-    backend: str | None = None
+    backend: str | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "backend",
+            "description": "Optional TRITON or FLASH FlexAttention kernel.",
+        },
+    )
     """Optional FlexAttention kernel backend: ``TRITON`` or ``FLASH``."""
 
-    rows_guaranteed_safe: bool = False
+    rows_guaranteed_safe: bool = field(
+        default=False,
+        metadata={
+            "yaml_key": "rows_guaranteed_safe",
+            "description": "Skips empty-row guards when every query has a valid key.",
+        },
+    )
     """Skip empty-row guards when every query sees at least one key."""
 
     @property

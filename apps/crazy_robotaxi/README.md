@@ -77,8 +77,9 @@ model.
 ## Options and user configuration
 
 See the [Options menu index](OPTIONS.md) for field-by-field guides to each page.
-The guides map menu labels to YAML keys, identify which project defines each
-setting, and list available application arguments.
+The guides explain menu options, identify which project defines each setting,
+and list available application arguments. Hover an option's label or editor
+to see its description and full YAML path.
 
 The mode menu has **CONTROLS** and **OPTIONS** buttons. The Options screen is
 generated from the same typed settings tree used at startup, with pages for
@@ -98,29 +99,6 @@ user-authored file. YAML values are sparse overrides on the selected runner's
 defaults, and retained comments survive Options saves. Explicit application CLI
 arguments override YAML for the current run without rewriting the saved value;
 the Options screen labels affected fields.
-
-For example:
-
-```yaml
-schema_version: 1
-game:
-  gamepad_button_style: PlayStation
-  taxi:
-    seed: 1234
-    rules:
-      global_time_s: 90.0
-model:
-  pipeline:
-    diffusion_model:
-      seed: 5678
-presentation:
-  width: 1920
-  height: 1080
-  show_fps: true
-live_edit:
-  weather:
-    enabled: true
-```
 
 Mode, map, and race-course selections are intentionally CLI-only and do not
 appear in the YAML or Options screen. Passing `--game-mode`, `--map`, and
@@ -165,8 +143,8 @@ Menu choices and leaderboard buttons can also be clicked with the mouse.
 ### Controller
 
 The Gamepad Controls screen uses one button-label convention at a time. Set
-`game.gamepad_button_style` to `Xbox`, `PlayStation`, or `Nintendo Switch` in
-the Options screen or user-authored settings YAML. Xbox labels are the default.
+**Gamepad Button Style** to `Xbox`, `PlayStation`, or `Nintendo Switch` in
+the Options screen. Xbox labels are the default.
 
 | Control | Action |
 | --- | --- |

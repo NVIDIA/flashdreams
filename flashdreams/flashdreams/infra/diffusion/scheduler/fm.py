@@ -43,45 +43,103 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
         default_factory=lambda: FlowMatchScheduler
     )
 
-    num_inference_steps: int = 4
+    num_inference_steps: int = field(
+        default=4,
+        metadata={
+            "yaml_key": "num_inference_steps",
+            "description": "Number of denoising steps; must match the number of Denoising Timesteps.",
+        },
+    )
     """Must equal ``len(denoising_timesteps)``."""
 
-    shift: float = 8.0
+    shift: float = field(
+        default=8.0,
+        metadata={
+            "yaml_key": "shift",
+            "description": "Warping factor for the noise schedule.",
+        },
+    )
     """Schedule warp factor."""
 
     denoising_timesteps: list[int] = field(
-        default_factory=lambda: [1000, 750, 500, 250]
+        default_factory=lambda: [1000, 750, 500, 250],
+        metadata={
+            "yaml_key": "denoising_timesteps",
+            "description": "Ordered model timesteps used for those steps.",
+        },
     )
     """Per-step diffusion timesteps in ``[0, num_train_timesteps]``."""
 
-    warp_denoising_step: bool = True
+    warp_denoising_step: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "warp_denoising_step",
+            "description": "Applies that warped schedule to the listed timesteps.",
+        },
+    )
     """Map ``denoising_timesteps`` through the warped sigma schedule."""
 
-    num_train_timesteps: int = 1000
+    num_train_timesteps: int = field(
+        default=1000,
+        metadata={
+            "yaml_key": "num_train_timesteps",
+            "description": "Length of the training timestep scale.",
+        },
+    )
     """Length of the training sigma table."""
 
-    sigma_max: float = 1.0
+    sigma_max: float = field(
+        default=1.0,
+        metadata={
+            "yaml_key": "sigma_max",
+            "description": "Upper end of the noise schedule before warping.",
+        },
+    )
     """Top of the linspace before warping; ``1.0`` matches DiffSynth, upstream
     Wan / Lingbot ships ``0.999``."""
 
-    sigma_min: float = 0.0
+    sigma_min: float = field(
+        default=0.0,
+        metadata={
+            "yaml_key": "sigma_min",
+            "description": "Lower end of the noise schedule before warping.",
+        },
+    )
     """Bottom of the linspace before warping. Reserved for upstream parity;
     only ``0.0`` is exercised."""
 
-    extra_one_step: bool = True
+    extra_one_step: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "extra_one_step",
+            "description": "Builds the schedule using one extra sample, then drops the last.",
+        },
+    )
     """If ``True``, build the schedule from
     ``linspace(sigma_max, sigma_min, N+1)[:-1]`` (matches DiffSynth /
     upstream Wan); ``False`` uses ``N`` points and is kept for non-Wan
     recipes."""
 
-    timestep_dtype: torch.dtype = torch.float32
+    timestep_dtype: torch.dtype = field(
+        default=torch.float32,
+        metadata={
+            "yaml_key": "timestep_dtype",
+            "description": "Numeric type passed to the model time embedding.",
+        },
+    )
     """Dtype of ``denoising_step_list``. Set to an integer dtype (e.g.
     ``torch.int64``) when the network's time embedding is sensitive to the
     fractional part of the warped timestep — upstream Wan stores
     ``scheduler.timesteps`` as ``int64`` and lets the embedding upcast to
     ``float64`` internally."""
 
-    enable_tqdm: bool = False
+    enable_tqdm: bool = field(
+        default=False,
+        metadata={
+            "yaml_key": "enable_tqdm",
+            "description": "Shows scheduler progress output.",
+        },
+    )
     """Whether to enable tqdm progress bar."""
 
 

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from omnidreams_game_engine.config import VehicleConfig
@@ -20,70 +20,238 @@ from omnidreams_game_engine.types import DriverCommand, VehicleState
 class TaxiVehicleConfig(VehicleConfig):
     """Arcade vehicle values used only when the Taxi game is active."""
 
-    max_steer_rad: float = 0.69
+    max_steer_rad: float = field(
+        default=0.69,
+        metadata={
+            "yaml_key": "max_steer_rad",
+            "description": "Maximum steering angle.",
+        },
+    )
     """Full-lock steering angle for tight arcade turns."""
 
-    steer_rate_rad_per_s: float = 2.415
+    steer_rate_rad_per_s: float = field(
+        default=2.415,
+        metadata={
+            "yaml_key": "steer_rate_rad_per_s",
+            "description": "Rate at which steering moves toward full lock.",
+        },
+    )
     """Reach full lock in the original keyboard control's 1 / 3.5 seconds."""
 
-    steer_return_rate_rad_per_s: float = 3.45
+    steer_return_rate_rad_per_s: float = field(
+        default=3.45,
+        metadata={
+            "yaml_key": "steer_return_rate_rad_per_s",
+            "description": "Rate at which steering recenters.",
+        },
+    )
     """Return from full lock in the original keyboard control's 1 / 5 seconds."""
 
-    max_accel_mps2: float = 10.0
-    reverse_accel_mps2: float = 10.0
-    max_brake_mps2: float = 14.0
-    handbrake_decel_mps2: float = 18.0
-    handbrake_yaw_gain: float = 3.25
-    max_handbrake_yaw_rate_radps: float = 1.5
-    max_lateral_accel_mps2: float = 17.0
+    max_accel_mps2: float = field(
+        default=10.0,
+        metadata={
+            "yaml_key": "max_accel_mps2",
+            "description": "Forward acceleration cap.",
+        },
+    )
+    reverse_accel_mps2: float = field(
+        default=10.0,
+        metadata={
+            "yaml_key": "reverse_accel_mps2",
+            "description": "Reverse acceleration cap.",
+        },
+    )
+    max_brake_mps2: float = field(
+        default=14.0,
+        metadata={
+            "yaml_key": "max_brake_mps2",
+            "description": "Normal braking strength.",
+        },
+    )
+    handbrake_decel_mps2: float = field(
+        default=18.0,
+        metadata={
+            "yaml_key": "handbrake_decel_mps2",
+            "description": "Deceleration while using the handbrake.",
+        },
+    )
+    handbrake_yaw_gain: float = field(
+        default=3.25,
+        metadata={
+            "yaml_key": "handbrake_yaw_gain",
+            "description": "Additional rotation induced by the handbrake.",
+        },
+    )
+    max_handbrake_yaw_rate_radps: float = field(
+        default=1.5,
+        metadata={
+            "yaml_key": "max_handbrake_yaw_rate_radps",
+            "description": "Cap on handbrake rotation speed.",
+        },
+    )
+    max_lateral_accel_mps2: float = field(
+        default=17.0,
+        metadata={
+            "yaml_key": "max_lateral_accel_mps2",
+            "description": "Lateral acceleration ceiling for steering and body response.",
+        },
+    )
     """Lateral-acceleration ceiling for responsive high-speed steering."""
 
-    max_body_roll_rad: float = 0.16
-    curb_collision_restitution: float = 0.45
+    max_body_roll_rad: float = field(
+        default=0.16,
+        metadata={
+            "yaml_key": "max_body_roll_rad",
+            "description": "Limit on sideways body tilt.",
+        },
+    )
+    curb_collision_restitution: float = field(
+        default=0.45,
+        metadata={
+            "yaml_key": "curb_collision_restitution",
+            "description": "Bounce from curbs and other static barriers.",
+        },
+    )
     """Rebound coefficient for map curbs and other static barriers."""
 
-    curb_forward_momentum_retention: float = 0.85
+    curb_forward_momentum_retention: float = field(
+        default=0.85,
+        metadata={
+            "yaml_key": "curb_forward_momentum_retention",
+            "description": "Minimum forward speed fraction retained after a glancing curb hit.",
+        },
+    )
     """Minimum forward-speed fraction retained through a glancing curb impact."""
 
-    input_activation_threshold: float = 0.01
+    input_activation_threshold: float = field(
+        default=0.01,
+        metadata={
+            "yaml_key": "input_activation_threshold",
+            "description": "Smallest steering or pedal magnitude counted as active input.",
+        },
+    )
     """Minimum pedal or steering magnitude treated as active input."""
 
-    direction_change_accel_multiplier: float = 1.5
+    direction_change_accel_multiplier: float = field(
+        default=1.5,
+        metadata={
+            "yaml_key": "direction_change_accel_multiplier",
+            "description": "Braking multiplier when switching travel direction.",
+        },
+    )
     """Braking multiplier while changing travel direction."""
 
-    speed_taper_knee_fraction: float = 0.62
+    speed_taper_knee_fraction: float = field(
+        default=0.62,
+        metadata={
+            "yaml_key": "speed_taper_knee_fraction",
+            "description": "Speed fraction where acceleration taper changes regime.",
+        },
+    )
     """Fraction of maximum speed where acceleration tapering changes regime."""
 
-    speed_taper_low_floor: float = 0.2
+    speed_taper_low_floor: float = field(
+        default=0.2,
+        metadata={
+            "yaml_key": "speed_taper_low_floor",
+            "description": "Minimum acceleration fraction below the speed-taper knee.",
+        },
+    )
     """Minimum acceleration fraction below the speed-taper knee."""
 
-    speed_taper_high_floor: float = 0.05
+    speed_taper_high_floor: float = field(
+        default=0.05,
+        metadata={
+            "yaml_key": "speed_taper_high_floor",
+            "description": "Minimum acceleration fraction above the speed-taper knee.",
+        },
+    )
     """Minimum acceleration fraction above the speed-taper knee."""
 
-    speed_taper_exponent: float = 3.0
+    speed_taper_exponent: float = field(
+        default=3.0,
+        metadata={
+            "yaml_key": "speed_taper_exponent",
+            "description": "How sharply acceleration falls above the knee.",
+        },
+    )
     """Acceleration falloff exponent above the speed-taper knee."""
 
-    manual_coast_decel_mps2: float = 0.5
+    manual_coast_decel_mps2: float = field(
+        default=0.5,
+        metadata={
+            "yaml_key": "manual_coast_decel_mps2",
+            "description": "Deceleration when neither pedal is pressed.",
+        },
+    )
     """Manual-control deceleration while neither pedal is active."""
 
-    ragdoll_grip_rate: float = 4.0
+    ragdoll_grip_rate: float = field(
+        default=4.0,
+        metadata={
+            "yaml_key": "ragdoll_grip_rate",
+            "description": "Lateral velocity damping during collision recovery.",
+        },
+    )
     """Lateral-velocity damping rate during collision recovery."""
 
-    ragdoll_yaw_response_rate: float = 8.0
+    ragdoll_yaw_response_rate: float = field(
+        default=8.0,
+        metadata={
+            "yaml_key": "ragdoll_yaw_response_rate",
+            "description": "Rotation response during collision recovery.",
+        },
+    )
     """Yaw response rate during collision recovery."""
 
-    handbrake_yaw_response_rate: float = 4.0
+    handbrake_yaw_response_rate: float = field(
+        default=4.0,
+        metadata={
+            "yaml_key": "handbrake_yaw_response_rate",
+            "description": "Rotation response while the handbrake is active.",
+        },
+    )
     """Yaw response rate while the handbrake is active."""
 
-    handbrake_lateral_damping_rate: float = 2.0
+    handbrake_lateral_damping_rate: float = field(
+        default=2.0,
+        metadata={
+            "yaml_key": "handbrake_lateral_damping_rate",
+            "description": "Sideways velocity damping while the handbrake is active.",
+        },
+    )
     """Lateral-velocity damping rate while the handbrake is active."""
 
-    handbrake_lateral_accel_scale: float = 0.35
+    handbrake_lateral_accel_scale: float = field(
+        default=0.35,
+        metadata={
+            "yaml_key": "handbrake_lateral_accel_scale",
+            "description": "Body-roll acceleration scale with the handbrake.",
+        },
+    )
     """Body-roll acceleration scale while the handbrake is active."""
 
-    speed_limit_enabled: bool = True
-    actor_collision_enabled: bool = True
-    static_collision_enabled: bool = True
+    speed_limit_enabled: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "speed_limit_enabled",
+            "description": "Applies map speed limits to the taxi.",
+        },
+    )
+    actor_collision_enabled: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "actor_collision_enabled",
+            "description": "Enables collisions with dynamic actors.",
+        },
+    )
+    static_collision_enabled: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "static_collision_enabled",
+            "description": "Enables collisions with static map barriers.",
+        },
+    )
 
 
 def _move_towards(current: float, target: float, max_delta: float) -> float:

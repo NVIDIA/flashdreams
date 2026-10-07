@@ -64,7 +64,6 @@ from crazy_robotaxi.high_scores import (
 )
 from crazy_robotaxi.live_edit.config import LiveEditConfig
 from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
-from crazy_robotaxi.option_descriptions import OPTION_DESCRIPTIONS
 from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from crazy_robotaxi.rules import (
     TaxiCameraMarkerProjection,
@@ -1945,6 +1944,14 @@ class TaxiHudState:
             return
         categories = tuple(iter_setting_fields(draft))
         category_name = self._options_category
+        yaml_category_name = next(
+            (
+                item.metadata.get("yaml_key", item.name)
+                for item, _ in categories
+                if item.name == category_name
+            ),
+            category_name,
+        )
         list_max_height = self._menu_scroll_max_height("options")
         _draw_arcade_backdrop(imgui, self.width, self.height)
         _prepare_window(
@@ -2047,6 +2054,7 @@ class TaxiHudState:
                         category,
                         (category_name,),
                         fields_width,
+                        (yaml_category_name,),
                     )
                     fields_scroll_max_y = float(imgui.get_scroll_max_y())
                     fields_content_height = _current_window_content_height(imgui)
@@ -2122,6 +2130,7 @@ class TaxiHudState:
         value: object,
         path: tuple[str, ...],
         content_width: float,
+        yaml_path: tuple[str, ...],
     ) -> None:
         document = self.settings_document
         draft = self._options_draft
@@ -2138,11 +2147,14 @@ class TaxiHudState:
                 return
             value = setting_value(draft, path)
             item_path = (*path, item.name)
+            item_yaml_path = (*yaml_path, item.metadata.get("yaml_key", item.name))
             current = getattr(value, item.name)
             if is_dataclass(current) and not isinstance(current, type):
                 imgui.separator()
                 imgui.text(item.name.replace("_", " ").upper())
-                self._draw_settings_tree(imgui, current, item_path, content_width)
+                self._draw_settings_tree(
+                    imgui, current, item_path, content_width, item_yaml_path
+                )
                 continue
             label = item.name.replace("_", " ").title()
             label_text = f"{label}:"
@@ -2230,7 +2242,9 @@ class TaxiHudState:
                         self._options_error = str(exc)
                         changed = False
             imgui.end_group()
-            _draw_option_tooltip(imgui, OPTION_DESCRIPTIONS.get(".".join(item_path)))
+            _draw_option_tooltip(
+                imgui, item.metadata.get("description"), ".".join(item_yaml_path)
+            )
             if changed:
                 try:
                     self._options_draft = document.update(draft, item_path, edited)
@@ -4179,12 +4193,13 @@ def _settings_widget_content_width(
     return text_width + 2.0 * frame_padding_x + frame_height
 
 
-def _draw_option_tooltip(imgui: Any, description: str | None) -> None:
-    """Show wrapped help when the preceding setting row is hovered."""
-    if description and imgui.begin_item_tooltip():
+def _draw_option_tooltip(imgui: Any, description: str | None, yaml_key: str) -> None:
+    """Show wrapped help and the YAML path for the hovered setting row."""
+    if imgui.begin_item_tooltip():
         imgui.push_text_wrap_pos(imgui.get_font_size() * 35.0)
         try:
-            imgui.text_unformatted(description)
+            help_text = f"{description}\n\n" if description else ""
+            imgui.text_unformatted(f"{help_text}YAML: {yaml_key}")
         finally:
             imgui.pop_text_wrap_pos()
             imgui.end_tooltip()

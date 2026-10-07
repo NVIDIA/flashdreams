@@ -56,15 +56,42 @@ class DiffusionModelConfig(InstantiateConfig):
     scheduler: SchedulerConfig
     """Denoising-loop config."""
 
-    seed: int | None = None
+    seed: int | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "seed",
+            "description": (
+                "Seed for initial model noise and scheduler sampling; blank uses the "
+                "global RNG."
+            ),
+        },
+    )
     """RNG seed for initial-noise draws and scheduler sampling.
     ``None`` uses the global RNG."""
 
-    context_noise: int = 0
+    context_noise: int = field(
+        default=0,
+        metadata={
+            "yaml_key": "context_noise",
+            "description": (
+                "Timestep used when updating the autoregressive cache; 0 skips added "
+                "noise."
+            ),
+        },
+    )
     """Timestep used by ``finalize`` for the AR cache-update forward.
     ``0`` skips ``add_noise``."""
 
-    noise_in_unpatchified_shape: bool = False
+    noise_in_unpatchified_shape: bool = field(
+        default=False,
+        metadata={
+            "yaml_key": "noise_in_unpatchified_shape",
+            "description": (
+                "Debug option that draws noise before patchifying to match another "
+                "implementation's random sequence."
+            ),
+        },
+    )
     """Debug-only: draw the initial noise in the unpatchified shape, then
     patchify. Slower than the default patchified path; useful when matching
     another implementation's RNG sequence."""

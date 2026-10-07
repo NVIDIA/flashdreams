@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 from abc import abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 import torch
@@ -95,16 +95,43 @@ class QKVFusionOption(str, Enum):
 class QuantizationOption:
     """Attention quantization policy."""
 
-    projection: torch.dtype | None = None
+    projection: torch.dtype | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "projection",
+            "description": "Optional Q/K/V projection precision; blank keeps native precision.",
+        },
+    )
     """Q/K/V projection dtype; ``None`` preserves native precision."""
 
-    output_projection: torch.dtype | None = None
+    output_projection: torch.dtype | None = field(
+        default=None,
+        metadata={
+            "yaml_key": "output_projection",
+            "description": "Optional output projection precision; blank keeps native precision.",
+        },
+    )
     """Output projection dtype; ``None`` preserves native precision."""
 
-    output_granularity: Granularity = Granularity.SLICE
+    output_granularity: Granularity = field(
+        default=Granularity.SLICE,
+        metadata={
+            "yaml_key": "output_granularity",
+            "description": "Granularity of output activation quantization.",
+        },
+    )
     """Activation quantization granularity for the output projection."""
 
-    quantized_sdpa: bool = False
+    quantized_sdpa: bool = field(
+        default=False,
+        metadata={
+            "yaml_key": "quantized_sdpa",
+            "description": (
+                "Casts attention Q/K/V to FP8 for the selected backend. This can affect "
+                "accuracy."
+            ),
+        },
+    )
     """Use unscaled FP8 e4m3 Q/K/V in scaled-dot-product attention.
 
     This directly casts Q, K, and V to FP8 e4m3 before calling the configured
@@ -140,13 +167,31 @@ class QuantizationOption:
 class OptimizedImplConfig:
     """Optimized attention implementation policy."""
 
-    qkv_fusion_option: QKVFusionOption = QKVFusionOption.FULL
+    qkv_fusion_option: QKVFusionOption = field(
+        default=QKVFusionOption.FULL,
+        metadata={
+            "yaml_key": "qkv_fusion_option",
+            "description": "How query, key, and value projections are fused.",
+        },
+    )
     """Projection fusion policy."""
 
-    sdpa_backend: SDPABackend = SDPABackend.CUDNN
+    sdpa_backend: SDPABackend = field(
+        default=SDPABackend.CUDNN,
+        metadata={
+            "yaml_key": "sdpa_backend",
+            "description": "Scaled dot-product attention kernel.",
+        },
+    )
     """Scaled-dot-product attention implementation."""
 
-    use_tma: bool = True
+    use_tma: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "use_tma",
+            "description": "Prefer TMA FlashAttention when supported.",
+        },
+    )
     """Prefer TMA FlashAttention2 when the device and tensors support it."""
 
     quantization: QuantizationOption = QuantizationOption()

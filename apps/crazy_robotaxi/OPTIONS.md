@@ -1,8 +1,10 @@
 # Crazy Robotaxi Options menu
 
-Open **OPTIONS** from **SELECT GAME MODE**. Use the guide for the page you are viewing. Each guide lists the exact on-screen labels, YAML keys, setting ownership, and available CLI flags. Repeated labels such as **Seed:** and **Enabled:** are identified by their surrounding menu headings.
+Open **OPTIONS** from **SELECT GAME MODE**. Use the guide for the page you are viewing. Each guide lists the exact on-screen labels, setting ownership, and available CLI flags. Repeated labels such as **Seed:** and **Enabled:** are identified by their surrounding menu headings.
 
-Hover an option's label or editor to see its description.
+Hover an option's label or editor to see its description and full YAML path.
+
+The guides list the supported overrides for both Options and `config.yaml`. Model architecture and embedding formats come from the selected runner preset. Internal checkpoint hooks, benchmark-only fields, and raster fields unused by the game are excluded. YAML keys outside the supported overrides produce an error identifying the keys to remove.
 
 | Options page | Guide |
 | --- | --- |
@@ -22,24 +24,15 @@ The MODEL guide links to separate documents for the transformer, optimized atten
 
 ## Editing and saving
 
-A checkbox changes a Boolean, a drop-down presents a fixed set of choices, and other fields accept text. For lists and structured values, enter YAML flow syntax such as `[1000, 500]` or `{name: Neon, prompt: "..."}`. A blank optional field means `None`.
+A checkbox changes a Boolean, a drop-down presents a fixed set of choices, and other fields accept text. For lists and structured values, enter YAML flow syntax; a list looks like `[1000, 500]`. A blank optional field means `None`.
 
 **SAVE** writes the draft and stays on this screen. **RESET TO DEFAULTS** resets the draft to the selected runner's defaults; press **SAVE** to persist that reset. **EXIT** returns to the mode menu. When edits are pending it says **EXIT WITHOUT SAVING** and discards them. Presentation changes take effect on save; other changes need a process restart, as the screen warns. A **COMMAND-LINE OVERRIDE ACTIVE** note means a launch argument controls the current run even if you save a different value.
 
-## YAML and CLI mappings
+## Configuration file and CLI overrides
 
-The screen displays the settings file path. By default it is `$XDG_CONFIG_HOME/crazy-robotaxi/config.yaml`, or `~/.config/crazy-robotaxi/config.yaml` if `XDG_CONFIG_HOME` is unset. `--config PATH` selects another file. Each `config.yaml` key in the tables is the sequence of nested YAML keys: `game.taxi.seed`, for example, means `game:`, then `taxi:`, then `seed:`. Only values different from the runner preset are saved, so the values visible on **MODEL** can vary by runner. Paths entered relative to the settings file resolve relative to its directory. Units are in field names: `_m` means meters, `_s` seconds, `_mps` meters per second, `_rad` radians, and `_deg` degrees.
+The screen displays the settings file path. By default it is `$XDG_CONFIG_HOME/crazy-robotaxi/config.yaml`, or `~/.config/crazy-robotaxi/config.yaml` if `XDG_CONFIG_HOME` is unset. `--config PATH` selects another file. The YAML path in each tooltip gives the sequence of nested keys in the settings file. Only values different from the runner preset are saved, so the values visible on **MODEL** can vary by runner. Paths entered relative to the settings file resolve relative to its directory. Units are in field names: `_m` means meters, `_s` seconds, `_mps` meters per second, `_rad` radians, and `_deg` degrees.
 
 CLI flags are application arguments after the runner's `--`. An em dash means there is no direct CLI flag for that setting; use Options or `config.yaml`. Where both `--flag` and `--no-flag` are listed, the latter explicitly turns the setting off. An explicit CLI value takes precedence over the saved YAML for the current run. `--seed` sets both taxi and model seeds; `--game-seed` and `--model-seed` select them independently, with `--model-seed` taking precedence over `--seed` for the model and `--seed` taking precedence over `--game-seed` for the taxi if both are passed. `--profile-input-latency [TRACE_PATH]` enables profiling and sets the trace path together; without a path it uses the default trace file.
-
-For example, `--game-time-s 90` sets the same value as this saved YAML:
-
-```yaml
-game:
-  taxi:
-    rules:
-      global_time_s: 90
-```
 
 ## Launch and controls
 

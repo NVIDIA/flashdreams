@@ -3,13 +3,23 @@
 
 """CPU-safe configuration and application binding checks for OmniDreams."""
 
+import re
+from collections import Counter
 from collections.abc import Callable
+from dataclasses import is_dataclass
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 import tomli as tomllib
 from crazy_robotaxi.application import CrazyRobotaxiApplication
+from crazy_robotaxi.settings import (
+    SettingsDocument,
+    SettingsError,
+    default_settings,
+    iter_setting_fields,
+    setting_value,
+)
 from interactive_drive import InteractiveDriveApplication, InteractiveDriveConfig
 from omnidreams.apps.crazy_robotaxi.adapter import (
     OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS,
@@ -69,6 +79,139 @@ from omnidreams.impl.vae_native import OmnidreamsWanVAEEncoderConfig
 from flashdreams.api_v2.application import IApplication
 
 pytestmark = pytest.mark.ci_cpu
+
+
+@pytest.mark.parametrize(
+    "config", OMNIDREAMS_CONFIGS.values(), ids=OMNIDREAMS_CONFIGS.keys()
+)
+def test_options_descriptions_match_the_guides(
+    config: OmnidreamsPipelineConfig,
+) -> None:
+    documented: Counter[tuple[str, str]] = Counter()
+    guides = Path(__file__).parents[3] / "apps" / "crazy_robotaxi" / "options"
+    for guide in guides.glob("*.md"):
+        for line in guide.read_text(encoding="utf-8").splitlines():
+            if not line.startswith("| **"):
+                continue
+            columns = re.split(r"(?<!\\)\|", line)[1:-1]
+            assert len(columns) == 4
+            label = columns[0].strip().replace("**", "")
+            description = (
+                columns[-1]
+                .strip()
+                .replace("\\|", "|")
+                .replace("**", "")
+                .replace("`", "")
+            )
+            documented[label, description] += 1
+    assert documented
+
+    descriptions: Counter[tuple[str, str]] = Counter()
+
+    def collect(value: object, path: tuple[str, ...] = ()) -> None:
+        for item, _annotation in iter_setting_fields(value, path):
+            current = getattr(value, item.name)
+            item_path = (*path, item.name)
+            if is_dataclass(current) and not isinstance(current, type):
+                collect(current, item_path)
+            elif description := item.metadata.get("description"):
+                assert isinstance(item.metadata["yaml_key"], str)
+                assert item.metadata["yaml_key"]
+                label = f"{item.name.replace('_', ' ').title()}:"
+                descriptions[label, description] += 1
+
+    collect(default_settings(config, width=1280, height=704))
+    assert descriptions == documented
+
+
+@pytest.mark.parametrize(
+    "key",
+    (
+        "synthetic_text_max_length",
+        "diffusion_model.transformer.batch_shape",
+        "diffusion_model.transformer.num_views",
+        "diffusion_model.transformer.network.model_channels",
+        "diffusion_model.transformer.network.enable_cross_view_attn",
+        "diffusion_model.transformer.state_dict_transform",
+        "text_encoder.embedding_concat_strategy",
+        "text_encoder.n_layers_per_group",
+        "image_encoder.z_dim",
+        "image_encoder.native_vae_backend",
+        "image_encoder.state_dict_transform",
+        "encoder.latent_std",
+        "encoder.native_vae_backend",
+        "encoder.state_dict_transform",
+    ),
+)
+def test_preset_owned_model_fields_are_not_user_overrides(
+    tmp_path: Path, key: str
+) -> None:
+    path = tmp_path / "config.yaml"
+    document = SettingsDocument.load(
+        path, pipeline_config=OMNIDREAMS_PIPELINE_CONFIG, width=1280, height=704
+    )
+    names = ("model", "pipeline", *key.split("."))
+    with pytest.raises(SettingsError, match="is not configurable"):
+        document.update(document.settings, names, None)
+
+    yaml = "\n".join(
+        f"{'  ' * depth}{name}:" + (" null" if depth == len(names) - 1 else "")
+        for depth, name in enumerate(names)
+    )
+    path.write_text(yaml + "\n", encoding="utf-8")
+    with pytest.raises(
+        SettingsError,
+        match=re.escape(f"{'.'.join(names[:-1])} has unknown keys: {names[-1]}"),
+    ):
+        SettingsDocument.load(
+            path, pipeline_config=OMNIDREAMS_PIPELINE_CONFIG, width=1280, height=704
+        )
+
+
+@pytest.mark.parametrize(
+    "config", OMNIDREAMS_CONFIGS.values(), ids=OMNIDREAMS_CONFIGS.keys()
+)
+def test_build_and_tuning_controls_round_trip(
+    tmp_path: Path, config: OmnidreamsPipelineConfig
+) -> None:
+    path = tmp_path / "config.yaml"
+    document = SettingsDocument.load(
+        path, pipeline_config=config, width=1280, height=704
+    )
+    overrides = {
+        "model.pipeline.diffusion_model.transformer.window_size_t": 8,
+        "model.pipeline.diffusion_model.scheduler.shift": 3.5,
+        "game.taxi.vehicle.max_speed_mps": 25.0,
+        "game.taxi.rules.global_time_s": 90.0,
+    }
+    for component, prefix in (
+        ("diffusion_model.transformer", "native_dit"),
+        ("image_encoder", "native_vae"),
+        ("encoder", "native_vae"),
+    ):
+        overrides.update(
+            {
+                f"model.pipeline.{component}.{prefix}_build_root": str(
+                    tmp_path / component
+                ),
+                f"model.pipeline.{component}.{prefix}_max_jobs": 2,
+                f"model.pipeline.{component}.{prefix}_verbose_build": True,
+            }
+        )
+    draft = document.settings
+    for key, value in overrides.items():
+        draft = document.update(draft, tuple(key.split(".")), value)
+    document.save(draft)
+
+    reloaded = SettingsDocument.load(
+        path, pipeline_config=config, width=1280, height=704
+    )
+    for key, value in overrides.items():
+        assert setting_value(reloaded.settings, tuple(key.split("."))) == value
+    transformer = reloaded.settings.model.pipeline.diffusion_model.transformer
+    assert transformer.network == config.diffusion_model.transformer.network
+    assert transformer.batch_shape == config.diffusion_model.transformer.batch_shape
+    assert transformer.num_views == config.diffusion_model.transformer.num_views
 
 
 def test_pipeline_configs_are_keyed_by_name() -> None:

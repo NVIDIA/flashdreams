@@ -71,67 +71,209 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
 
     _target: type["CosmosDiTNetwork"] = field(default_factory=lambda: CosmosDiTNetwork)
 
-    in_channels: int = 16
+    in_channels: int = field(
+        default=16,
+        metadata={
+            "yaml_key": "in_channels",
+            "description": "Number of input latent channels.",
+            "user_setting": False,
+        },
+    )
     """Number of input latent channels before patch embedding."""
 
-    out_channels: int = 16
+    out_channels: int = field(
+        default=16,
+        metadata={
+            "yaml_key": "out_channels",
+            "description": "Number of output latent channels.",
+            "user_setting": False,
+        },
+    )
     """Output latent channels after the final layer."""
 
-    patch_spatial: int = 2
+    patch_spatial: int = field(
+        default=2,
+        metadata={
+            "yaml_key": "patch_spatial",
+            "description": "Spatial patch size for height and width.",
+            "user_setting": False,
+        },
+    )
     """Spatial patch size (applied to both H and W)."""
 
-    patch_temporal: int = 1
+    patch_temporal: int = field(
+        default=1,
+        metadata={
+            "yaml_key": "patch_temporal",
+            "description": "Temporal patch size.",
+            "user_setting": False,
+        },
+    )
     """Temporal patch size."""
 
-    model_channels: int = 2048
+    model_channels: int = field(
+        default=2048,
+        metadata={
+            "yaml_key": "model_channels",
+            "description": "Transformer hidden width.",
+            "user_setting": False,
+        },
+    )
     """Transformer hidden size (width)."""
 
-    num_blocks: int = 28
+    num_blocks: int = field(
+        default=28,
+        metadata={
+            "yaml_key": "num_blocks",
+            "description": "Number of transformer blocks.",
+            "user_setting": False,
+        },
+    )
     """Number of transformer blocks."""
 
-    num_heads: int = 16
+    num_heads: int = field(
+        default=16,
+        metadata={
+            "yaml_key": "num_heads",
+            "description": "Number of attention heads.",
+            "user_setting": False,
+        },
+    )
     """Number of attention heads."""
 
-    mlp_ratio: float = 4.0
+    mlp_ratio: float = field(
+        default=4.0,
+        metadata={
+            "yaml_key": "mlp_ratio",
+            "description": "Feed-forward width relative to hidden width.",
+            "user_setting": False,
+        },
+    )
     """FFN inner-dim multiplier relative to ``model_channels``."""
 
-    concat_padding_mask: bool = True
+    concat_padding_mask: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "concat_padding_mask",
+            "description": "Adds a padding-mask input channel.",
+            "user_setting": False,
+        },
+    )
     """If ``True``, expect a padding mask channel concatenated to the input at training."""
 
-    use_adaln_lora: bool = True
+    use_adaln_lora: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "use_adaln_lora",
+            "description": "Enables low-rank adaptive layer normalization.",
+            "user_setting": False,
+        },
+    )
     """If ``True``, factorize AdaLN modulation through a low-rank LoRA path."""
 
-    adaln_lora_dim: int = 256
+    adaln_lora_dim: int = field(
+        default=256,
+        metadata={
+            "yaml_key": "adaln_lora_dim",
+            "description": "Rank of the adaptive layer normalization LoRA.",
+            "user_setting": False,
+        },
+    )
     """Rank of the AdaLN LoRA factorization when ``use_adaln_lora`` is ``True``."""
 
-    use_crossattn_projection: bool = True
+    use_crossattn_projection: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "use_crossattn_projection",
+            "description": "Projects text embeddings before cross-attention.",
+            "user_setting": False,
+        },
+    )
     """If ``True``, project text embeddings through a linear before cross-attention."""
 
-    crossattn_proj_in_channels: int = 100352
+    crossattn_proj_in_channels: int = field(
+        default=100352,
+        metadata={
+            "yaml_key": "crossattn_proj_in_channels",
+            "description": "Input width of the text embedding projection.",
+            "user_setting": False,
+        },
+    )
     """Input dimension of the optional cross-attention projection."""
 
-    crossattn_emb_channels: int = 1024
+    crossattn_emb_channels: int = field(
+        default=1024,
+        metadata={
+            "yaml_key": "crossattn_emb_channels",
+            "description": "Key and value width for cross-attention.",
+            "user_setting": False,
+        },
+    )
     """Cross-attention key/value dimension."""
 
-    timestep_scale: float = 0.001
+    timestep_scale: float = field(
+        default=0.001,
+        metadata={
+            "yaml_key": "timestep_scale",
+            "description": "Multiplier applied before timestep embedding.",
+        },
+    )
     """Multiplier applied to raw timestep values before sinusoidal embedding."""
 
-    apply_rope_before_kvcache: bool = True
+    apply_rope_before_kvcache: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "apply_rope_before_kvcache",
+            "description": "Rotates keys before caching; off uses cache-relative RoPE.",
+        },
+    )
     """Rotate keys before caching. ``False`` enables cache-relative RoPE."""
 
-    additional_concat_ch: int = 0
+    additional_concat_ch: int = field(
+        default=0,
+        metadata={
+            "yaml_key": "additional_concat_ch",
+            "description": "Extra channels for HD-map conditioning; zero disables that input.",
+            "user_setting": False,
+        },
+    )
     """Extra channels concatenated for HDMap conditioning; ``0`` disables HDMap input."""
 
-    enable_cross_view_attn: bool = False
+    enable_cross_view_attn: bool = field(
+        default=False,
+        metadata={
+            "yaml_key": "enable_cross_view_attn",
+            "description": "Enables multi-view attention and view modulation.",
+            "user_setting": False,
+        },
+    )
     """If ``True``, enable multi-view cross-view attention and AdaLN view modulation."""
 
-    cp_method: Literal["ring", "ulysses"] = "ring"
+    cp_method: Literal["ring", "ulysses"] = field(
+        default="ring",
+        metadata={
+            "yaml_key": "cp_method",
+            "description": "Context-parallel attention method: ring or ulysses.",
+        },
+    )
     """Context-parallel attention method for transformer attention ops."""
 
-    self_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS
+    self_attention_backend: AttentionBackend = field(
+        default=AttentionBackend.OMNIDREAMS,
+        metadata={
+            "yaml_key": "self_attention_backend",
+            "description": "Implementation used by transformer self-attention.",
+        },
+    )
     """Self-attention implementation used by every DiT block."""
 
-    cross_attention_backend: AttentionBackend = AttentionBackend.OMNIDREAMS
+    cross_attention_backend: AttentionBackend = field(
+        default=AttentionBackend.OMNIDREAMS,
+        metadata={
+            "yaml_key": "cross_attention_backend",
+            "description": "Implementation used by text and cross-view attention.",
+        },
+    )
     """Text and cross-view attention implementation used by every DiT block."""
 
     self_attn_optimized_impl_config: OptimizedImplConfig = field(
@@ -150,10 +292,24 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
     )
     """Optimized implementation policy used by accelerated cross-attention."""
 
-    view_condition_dim: int = 16
+    view_condition_dim: int = field(
+        default=16,
+        metadata={
+            "yaml_key": "view_condition_dim",
+            "description": "Width of the view-conditioning vector.",
+            "user_setting": False,
+        },
+    )
     """Embedding dim for the per-view conditioning vector."""
 
-    n_cameras_emb: int = 7
+    n_cameras_emb: int = field(
+        default=7,
+        metadata={
+            "yaml_key": "n_cameras_emb",
+            "description": "Number of camera-view embeddings.",
+            "user_setting": False,
+        },
+    )
     """Number of distinct camera-view embeddings (size of the lookup table)."""
 
 

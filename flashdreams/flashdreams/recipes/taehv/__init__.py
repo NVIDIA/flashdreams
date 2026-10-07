@@ -66,7 +66,13 @@ class TaehvVAEDecoderConfig(DecoderConfig):
         default_factory=lambda: TaehvVAEDecoder
     )
 
-    checkpoint_path: str = AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"]
+    checkpoint_path: str = field(
+        default=AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"],
+        metadata={
+            "yaml_key": "checkpoint_path",
+            "description": "Checkpoint for the video decoder.",
+        },
+    )
     """Path to a pretrained TAEHV checkpoint. Defaults to the ``lighttae`` weights."""
 
     state_dict_transform: StateDictTransform | None = lighttae_state_dict_transform
@@ -75,13 +81,31 @@ class TaehvVAEDecoderConfig(DecoderConfig):
     bare :class:`TAEHV` default (see
     :meth:`~flashdreams.recipes.taehv.impl.TAEHV.load_from_checkpoint`)."""
 
-    dtype: torch.dtype = torch.bfloat16
+    dtype: torch.dtype = field(
+        default=torch.bfloat16,
+        metadata={
+            "yaml_key": "dtype",
+            "description": "Parameter and activation precision of the video decoder.",
+        },
+    )
     """Network parameter / activation dtype."""
 
-    use_cuda_graph: bool = True
+    use_cuda_graph: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "use_cuda_graph",
+            "description": "Enables CUDA graph replay for the video decoder.",
+        },
+    )
     """Wrap the decoder forward in a CUDA graph for replay."""
 
-    use_compile: bool = True
+    use_compile: bool = field(
+        default=True,
+        metadata={
+            "yaml_key": "use_compile",
+            "description": "Enables torch.compile for the video decoder.",
+        },
+    )
     """``torch.compile(mode="max-autotune-no-cudagraphs")``."""
 
 
