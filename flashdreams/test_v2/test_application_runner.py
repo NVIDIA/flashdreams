@@ -307,6 +307,140 @@ def test_application_timeout_must_be_positive_and_finite(timeout: float) -> None
     assert calls == []
 
 
+def test_application_timeout_none_is_not_unbound() -> None:
+    """``None`` is not a time-limit. Omit the argument or pass ``Unbound``."""
+    calls: list[str] = []
+
+    with pytest.raises(ValueError, match="finite and greater than zero"):
+        ApplicationRunner(_Application(calls), _SilentWindow(calls)).run(
+            _session_desc(),
+            timeout_seconds=None,  # ty: ignore[invalid-argument-type]
+        )
+
+    assert calls == []
+
+
+def test_application_runner_stops_a_session_after_the_step_limit() -> None:
+    """A window that never closes still ends once ``steps`` have been generated."""
+    calls: list[str] = []
+    window = _SilentWindow(calls)
+
+    ApplicationRunner(_Application(calls), window).run(_session_desc(), steps=2)
+
+    assert [
+        result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
+    ] == [0, 1]
+    assert calls[-3:] == ["window.close", "session.close", "application.close"]
+
+
+def test_application_runner_stops_a_session_that_was_given_no_steps() -> None:
+    """``steps=0`` is a count: open and close, generate nothing."""
+    calls: list[str] = []
+    window = _SilentWindow(calls)
+
+    ApplicationRunner(_Application(calls), window).run(_session_desc(), steps=0)
+
+    assert window.results == []
+    assert calls[-3:] == ["window.close", "session.close", "application.close"]
+
+
+def test_application_steps_none_is_not_unbound() -> None:
+    """``None`` is not a steps limit. Omit the argument or pass ``Unbound``."""
+    calls: list[str] = []
+
+    with pytest.raises(ValueError, match="steps must be"):
+        ApplicationRunner(_Application(calls), _SilentWindow(calls)).run(
+            _session_desc(),
+            steps=None,  # ty: ignore[invalid-argument-type]
+        )
+
+    assert calls == []
+
+
+def test_application_step_limit_must_not_be_negative() -> None:
+    calls: list[str] = []
+
+    with pytest.raises(ValueError, match="steps must be"):
+        ApplicationRunner(_Application(calls), _SilentWindow(calls)).run(
+            _session_desc(),
+            steps=-1,
+        )
+
+    assert calls == []
+
+
+def test_application_runner_passes_remaining_steps_into_the_next_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A replacement session receives what the previous session did not use."""
+    seen: list[int | None] = []
+
+    def record_run_session(
+        session: ISession,
+        window: IClientWindow | None,
+        *,
+        metrics_output_sink: MetricsOutputSink | None = None,
+        steps: int | None = None,
+        timeout_seconds: float | None = None,
+        completed_steps: list[int] | None = None,
+    ) -> SessionDesc | None:
+        del session, window, metrics_output_sink, timeout_seconds
+        seen.append(steps)
+        if completed_steps is not None:
+            completed_steps.append(3 if steps == 7 else 0)
+        if len(seen) == 1:
+            return _session_desc()
+        return None
+
+    monkeypatch.setattr(
+        "flashdreams.runtime_v2.application_runner.run_session",
+        record_run_session,
+    )
+    calls: list[str] = []
+    ApplicationRunner(_Application(calls), _SilentWindow(calls)).run(
+        _session_desc(),
+        steps=7,
+    )
+
+    assert seen == [7, 4]
+
+
+def test_application_runner_skips_replacement_when_no_steps_remain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A replacement request is dropped once the run has used its step budget."""
+    seen: list[int | None] = []
+
+    def record_run_session(
+        session: ISession,
+        window: IClientWindow | None,
+        *,
+        metrics_output_sink: MetricsOutputSink | None = None,
+        steps: int | None = None,
+        timeout_seconds: float | None = None,
+        completed_steps: list[int] | None = None,
+    ) -> SessionDesc | None:
+        del session, window, metrics_output_sink, timeout_seconds
+        seen.append(steps)
+        if completed_steps is not None:
+            completed_steps.append(0 if steps is None else steps)
+        return _session_desc()
+
+    monkeypatch.setattr(
+        "flashdreams.runtime_v2.application_runner.run_session",
+        record_run_session,
+    )
+    calls: list[str] = []
+    ApplicationRunner(_Application(calls), _SilentWindow(calls)).run(
+        _session_desc(),
+        steps=7,
+    )
+
+    assert seen == [7]
+    assert calls.count("application.create_session") == 1
+    assert calls[-2:] == ["window.close", "application.close"]
+
+
 @pytest.mark.parametrize("rank", [0, 1])
 def test_replacement_result_remains_authoritative_after_deadline(
     monkeypatch: pytest.MonkeyPatch,
@@ -328,8 +462,9 @@ def test_replacement_result_remains_authoritative_after_deadline(
         metrics_output_sink: MetricsOutputSink | None = None,
         steps: int | None = None,
         timeout_seconds: float | None = None,
+        completed_steps: list[int] | None = None,
     ) -> SessionDesc | None:
-        del session, window, metrics_output_sink, steps
+        del session, window, metrics_output_sink, steps, completed_steps
         remaining_seconds.append(timeout_seconds)
         return next(results)
 

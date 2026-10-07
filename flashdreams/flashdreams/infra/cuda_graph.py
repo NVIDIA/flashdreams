@@ -31,7 +31,7 @@ def set_or_copy(
 ) -> None:
     """Write ``new_value`` into ``state[key]``, preserving the storage pointer.
 
-    First write clones into a fresh buffer; subsequent same-shape writes
+    First write clones into a compact buffer; subsequent same-shape writes
     ``copy_`` in place. Pointer stability is required for CUDA-graph
     capture, since captured kernels reference the slot's storage address.
 
@@ -45,7 +45,8 @@ def set_or_copy(
     if cur is not None and cur.shape == new_value.shape:
         cur.copy_(new_value)
     else:
-        state[key] = new_value.clone()
+        # Preserve-format clones can retain full-chunk strides under Inductor.
+        state[key] = new_value.clone(memory_format=torch.contiguous_format)
 
 
 class CUDAGraphWrapper:

@@ -57,6 +57,7 @@ def run_session(
     metrics_output_sink: MetricsOutputSink | None = None,
     steps: int | None = None,
     timeout_seconds: float | None = None,
+    completed_steps: list[int] | None = None,
 ) -> SessionDesc | None:
     """Run a session's UI and model loops.
 
@@ -77,7 +78,12 @@ def run_session(
             the model loop's results rather than the UI loop's.
         steps: Maximum model steps before ending the session; ``None`` leaves
             session completion to the UI or client window.
+            ``ApplicationRunner`` passes the remaining run budget here, not
+            the original ``N`` on every replacement.
         timeout_seconds: Maximum session runtime; ``None`` means session does not have a time-limit. Timeout expiry signals both registered loops to stop.
+        completed_steps: When provided, receives how many model-loop iterations
+            this session ran. A session that never starts the model thread
+            reports ``0``.
 
     Returns:
         The resolved description for a requested replacement session, or
@@ -113,6 +119,7 @@ def run_session(
     high_level_failures: BaseException | None = None
     cleanup_failures: list[BaseException] = []
     next_session_desc: SessionDesc | None = None
+    steps_run_out: list[int] = []
     stop: threading.Event | None = None
     presentation_manager = None
     trace_log: _ChunkTraceLog | None = None
@@ -271,6 +278,7 @@ def run_session(
                     "reader_id": _MODEL_READER_ID,
                     "publish": publish_model_results,
                     "max_steps": steps,
+                    "steps_run_out": steps_run_out,
                     "step_control": agreement,
                     "device": None if parallel is None else parallel.device,
                 },
@@ -378,6 +386,9 @@ def run_session(
         _log_secondary_failure(
             "Cleanup failed after the session had already failed.", error
         )
+
+    if completed_steps is not None:
+        completed_steps.append(steps_run_out[0] if steps_run_out else 0)
 
     if presentation_manager is not None and presentation_manager.dropped_for_space:
         _LOGGER.warning(

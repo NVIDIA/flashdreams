@@ -336,6 +336,7 @@ class IModelLoop(ILoop[StateT], ABC):
         reader_id: int,
         publish: Callable[[int, list[StepResult], float], None],
         max_steps: int | None = None,
+        steps_run_out: list[int] | None = None,
         step_control: _ModelStepControl | None = None,
         device: torch.device | None = None,
     ) -> None:
@@ -346,7 +347,10 @@ class IModelLoop(ILoop[StateT], ABC):
             reader_id: This loop's event reader ID.
             publish: Function called with each model result and the cumulative
                 seconds spent in :meth:`step` since the previous result.
-            max_steps: Maximum steps; ``None`` runs until stopped.
+            max_steps: Maximum steps; ``None`` runs until stopped. Callers
+                pass the remaining session cap here.
+            steps_run_out: When provided, receives how many model-loop
+                iterations this call ran.
             step_control: Admission and input synchronization; ``None`` runs locally.
             device: Mesh device to bind on this model thread before running hooks.
         """
@@ -414,6 +418,8 @@ class IModelLoop(ILoop[StateT], ABC):
         except BaseException as error:
             self._failure_queue.put(error)
         finally:
+            if steps_run_out is not None:
+                steps_run_out.append(steps_run)
             self._set_inference_state(ModelInferenceState.FINISHED)
             try:
                 self._shutdown()

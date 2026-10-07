@@ -30,7 +30,8 @@ Finding and starting an application:
 - `cli.py` is `flashdreams-run-v2`: it splits its own arguments from the
   application's at `--`, decides which session to ask for, and builds the window.
 - `application_runner.py` owns the application lifecycle around one run —
-  `init`, `create_session`, `run_session`, `close`.
+  `init`, `create_session`, `run_session`, `close`. Remaining timeout and
+  remaining `--total-model-steps` are what each replacement receives.
 - `client_window_factory.py` turns `--mode` into a window, and owns the
   arguments each mode takes.
 
@@ -165,7 +166,7 @@ declare arguments this command also has.
 
 | Mode | Takes | Input | Ends when |
 | --- | --- | --- | --- |
-| `mp4` (default) | `--output-path` | none | the application UI finishes |
+| `mp4` (default) | `--output-path`; `--timeout` and/or `--total-model-steps` | none | `--timeout`, `--total-model-steps`, or the application UI finishes |
 | `webrtc` | `--host`, `--port` | keyboard, mouse, focus, query string, reset, close | the application UI finishes or the client closes it |
 
 `--host` and `--port` choose the listener. When a browser connects with a
@@ -183,15 +184,30 @@ These override whatever session the application asked for:
 | `--presentation-mode` | Whether the UI runs continuously or only for newly selected model frames. |
 
 Each defaults to asking for nothing, so a run that names none of them gets what
-the application generates. There is no argument for the UI tick rate, and none
-for `run_session`'s `steps` limit — a caller that needs to bound a run by steps
-drives the runtime from Python.
+the application generates. There is no argument for the UI tick rate.
 
 `--timeout SECONDS` bounds the whole application run, including initialization
-and replacement sessions. At the deadline the UI thread signals the session's
-loops to stop and performs their normal cleanup. An in-flight model step must
-return before the process can finish cleaning up. Synchronous application or
-session initialization likewise cannot be interrupted mid-call.
+and replacement sessions. `unbound` (or omitting the flag) means no time-limit.
+Remaining time is what a replacement session receives. At the deadline the UI
+thread signals the session's loops to stop and performs their normal cleanup.
+An in-flight model step must return before the process can finish cleaning up.
+Synchronous application or session initialization likewise cannot be interrupted
+mid-call.
+
+`--total-model-steps N` is the remaining model-step budget for the whole
+application run. Each session receives what is left. A replacement is not
+started when none remain. `unbound` (or omitting the flag) means no steps
+limit.
+
+`--total-blocks` is still an application flag after `--` on Cam2V, T2V,
+Action2V, Interactive Drive, and Crazy Robotaxi. It ends that session through
+`is_finished()`. Both can be set; the first to fire wins. Making the runner
+count the only user-facing length is a later change.
+
+`--mode mp4` requires `--timeout` and/or `--total-model-steps` (a number or
+`unbound` on each). Native-window and WebRTC may omit both and end when the
+client closes. An application's own `is_finished()` can still end a session
+first.
 
 Local and single-rank replacements are skipped if cleanup reaches the deadline.
 A multi-rank replacement result already synchronized by the old session is authoritative:
@@ -218,6 +234,11 @@ order, and closes the application on the way out whether or not the run
 succeeded. It also closes the window itself when the run never started, because
 `run_session` is what otherwise owns the window, and a WebRTC window may already
 be serving a browser before the application has finished loading.
+
+`timeout_seconds` and `steps` are a number or `Unbound`. `Unbound` (the
+default) is no limit. `None` is not a limit. The command-line token `unbound`
+and an omitted flag both become `Unbound` here. A named `steps` count is
+remaining across replacement sessions, the same way remaining seconds are.
 
 `run_session` then opens the window and any metrics sink, collects one batch of
 input, presents one tick, and only then starts the model thread — so a client that

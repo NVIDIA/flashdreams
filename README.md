@@ -91,7 +91,7 @@ For example, the Self-Forcing T2V v2 application is:
 ```bash
 uv run --project integrations_v2/self_forcing \
     flashdreams-run-v2 t2v-self-forcing-wan2.1-t2v-1.3b \
-    --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 -- \
+    --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 --timeout unbound -- \
     --prompt "A cat surfing." --total-blocks 7
 ```
 
