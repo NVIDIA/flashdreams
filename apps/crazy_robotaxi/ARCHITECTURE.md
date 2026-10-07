@@ -419,10 +419,12 @@ that distilled stronger prompt guidance into a LoRA. [Style training](https://gi
 Holding a style can amplify errors in self-generated history over successive chunks.
 A separate LoRA drift corrector learns to reduce that accumulated drift, helping retain
 road structure and scene detail during continued styled generation. The game applies
-correction during skin states, where comparisons showed a clear benefit. Base-state
-correction showed little benefit in game driving and defaults off; weather correction
-also defaults off to avoid its ongoing performance cost. [Drift-correction research](https://github.com/NVIDIA/flashdreams/pull/398),
-[in-game correction policy](https://github.com/NVIDIA/flashdreams/pull/494).
+correction during skin states, where comparisons showed a clear benefit. Enabling style
+editing with the default `corrector_mode="fused"` also downloads and enables a base-state
+corrector with gain `0.25`. Weather correction defaults off to avoid its ongoing
+performance cost. [Drift-correction research](https://github.com/NVIDIA/flashdreams/pull/398),
+[earlier in-game experiments](https://github.com/NVIDIA/flashdreams/pull/494), [current
+correction defaults](crazy_robotaxi/live_edit/config.py).
 
 Deployment matters for performance. The early corrector path forced compilation and
 CUDA graphs off, severely reducing frame rate. The later fused path pre-merges weight
