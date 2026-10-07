@@ -68,10 +68,7 @@ class TaehvVAEDecoderConfig(DecoderConfig):
 
     checkpoint_path: str = field(
         default=AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"],
-        metadata={
-            "yaml_key": "checkpoint_path",
-            "description": "Checkpoint for the video decoder.",
-        },
+        metadata={"yaml_key": "checkpoint_path"},
     )
     """Path to a pretrained TAEHV checkpoint. Defaults to the ``lighttae`` weights."""
 
@@ -83,28 +80,19 @@ class TaehvVAEDecoderConfig(DecoderConfig):
 
     dtype: torch.dtype = field(
         default=torch.bfloat16,
-        metadata={
-            "yaml_key": "dtype",
-            "description": "Parameter and activation precision of the video decoder.",
-        },
+        metadata={"yaml_key": "dtype"},
     )
     """Network parameter / activation dtype."""
 
     use_cuda_graph: bool = field(
         default=True,
-        metadata={
-            "yaml_key": "use_cuda_graph",
-            "description": "Enables CUDA graph replay for the video decoder.",
-        },
+        metadata={"yaml_key": "use_cuda_graph"},
     )
     """Wrap the decoder forward in a CUDA graph for replay."""
 
     use_compile: bool = field(
         default=True,
-        metadata={
-            "yaml_key": "use_compile",
-            "description": "Enables torch.compile for the video decoder.",
-        },
+        metadata={"yaml_key": "use_compile"},
     )
     """``torch.compile(mode="max-autotune-no-cudagraphs")``."""
 

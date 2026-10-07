@@ -6,7 +6,7 @@
 import re
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import is_dataclass
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -18,6 +18,7 @@ from crazy_robotaxi.settings import (
     SettingsError,
     default_settings,
     iter_setting_fields,
+    setting_description,
     setting_value,
 )
 from interactive_drive import InteractiveDriveApplication, InteractiveDriveConfig
@@ -114,7 +115,9 @@ def test_options_descriptions_match_the_guides(
             item_path = (*path, item.name)
             if is_dataclass(current) and not isinstance(current, type):
                 collect(current, item_path)
-            elif description := item.metadata.get("description"):
+            else:
+                description = setting_description(value, item)
+                assert description, item_path
                 assert isinstance(item.metadata["yaml_key"], str)
                 assert item.metadata["yaml_key"]
                 label = f"{item.name.replace('_', ' ').title()}:"
@@ -122,6 +125,19 @@ def test_options_descriptions_match_the_guides(
 
     collect(default_settings(config, width=1280, height=704))
     assert descriptions == documented
+
+
+def test_noise_option_reuses_its_existing_field_docstring() -> None:
+    config = OMNIDREAMS_PIPELINE_CONFIG.diffusion_model
+    item = next(
+        item for item in fields(config) if item.name == "noise_in_unpatchified_shape"
+    )
+    assert "description" not in item.metadata
+    assert setting_description(config, item) == (
+        "Debug-only: draw the initial noise in the unpatchified shape, then patchify. "
+        "Slower than the default patchified path; useful when matching another "
+        "implementation's RNG sequence."
+    )
 
 
 @pytest.mark.parametrize(

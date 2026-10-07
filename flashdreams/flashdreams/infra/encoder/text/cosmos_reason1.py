@@ -43,19 +43,13 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
 
     model_name: str = field(
         default="nvidia/Cosmos-Reason1-7B",
-        metadata={
-            "yaml_key": "model_name",
-            "description": "Hugging Face model ID for Cosmos-Reason1.",
-        },
+        metadata={"yaml_key": "model_name"},
     )
     """HF repo id of the underlying Qwen2.5-VL model."""
 
     revision: str = field(
         default="3210bec0495fdc7a8d3dbb8d58da5711eab4b423",
-        metadata={
-            "yaml_key": "revision",
-            "description": "Pinned model revision for Cosmos-Reason1.",
-        },
+        metadata={"yaml_key": "revision"},
     )
     """HF commit hash to pin.
 
@@ -66,10 +60,7 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
 
     max_length: int = field(
         default=512,
-        metadata={
-            "yaml_key": "max_length",
-            "description": "Text token limit, including padding and truncation.",
-        },
+        metadata={"yaml_key": "max_length"},
     )
     """Token length to pad/truncate to."""
 
@@ -83,31 +74,20 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
 
     embedding_concat_strategy: str = field(
         default="full_concat",
-        metadata={
-            "yaml_key": "embedding_concat_strategy",
-            "description": "How text layers are combined into embeddings.",
-            "user_setting": False,
-        },
+        metadata={"yaml_key": "embedding_concat_strategy", "user_setting": False},
     )
     """``"full_concat"`` (default, 100352 dims, matches upstream),
     ``"mean_pooling"``, or ``"pool_every_n_layers_and_concat"``."""
 
     n_layers_per_group: int = field(
         default=5,
-        metadata={
-            "yaml_key": "n_layers_per_group",
-            "description": "Group size for grouped text-layer pooling.",
-            "user_setting": False,
-        },
+        metadata={"yaml_key": "n_layers_per_group", "user_setting": False},
     )
     """Group size for the pool-every-N strategy."""
 
     run_on_cpu: bool = field(
         default=False,
-        metadata={
-            "yaml_key": "run_on_cpu",
-            "description": "Keeps the text encoder on the host CPU to save GPU memory.",
-        },
+        metadata={"yaml_key": "run_on_cpu"},
     )
     """Keep the bf16 model on the host and run it there.
 
@@ -120,15 +100,10 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
 
     embedding_cache_size: int = field(
         default=0,
-        metadata={
-            "yaml_key": "embedding_cache_size",
-            "description": (
-                "Number of previously encoded prompt batches retained; 0 disables "
-                "caching."
-            ),
-        },
+        metadata={"yaml_key": "embedding_cache_size"},
     )
     """Number of most recently encoded prompt batches whose embeddings are kept.
+    ``0`` disables caching.
 
     Game hosts re-encode the same scene prompt on every restart. With
     ``run_on_cpu`` the cache lives in host memory and hits are copied to the

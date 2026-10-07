@@ -6,12 +6,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import pytest
 import torch
-from crazy_robotaxi.settings import SettingsDocument, SettingsError, iter_setting_fields
+from crazy_robotaxi.settings import (
+    SettingsDocument,
+    SettingsError,
+    iter_setting_fields,
+    setting_description,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -42,6 +47,43 @@ class _Pipeline:
 
     python_name: str = field(default="default", metadata={"yaml_key": "yaml_name"})
     """Setting with an explicit YAML key independent of its Python attribute."""
+
+
+@dataclass
+class _DocumentedOptions:
+    """Options with source documentation and an explicit help override."""
+
+    documented: int = 0
+    """Existing help with ``None`` and :attr:`other_value`.
+
+    Additional implementation notes stay out of the tooltip.
+    """
+
+    overridden: int = field(default=0, metadata={"description": "Explicit help."})
+    """Source documentation overridden by the menu help."""
+
+    undocumented: int = 0
+
+
+@dataclass
+class _InheritedDocumentedOptions(_DocumentedOptions):
+    """Options that inherit their field documentation."""
+
+
+@pytest.mark.parametrize(
+    "config_type", (_DocumentedOptions, _InheritedDocumentedOptions)
+)
+def test_setting_description_reads_source_docs_and_explicit_overrides(
+    config_type: type[_DocumentedOptions],
+) -> None:
+    config = config_type()
+    assert {
+        item.name: setting_description(config, item) for item in fields(config)
+    } == {
+        "documented": "Existing help with None and other_value.",
+        "overridden": "Explicit help.",
+        "undocumented": None,
+    }
 
 
 def _load(path: Path) -> SettingsDocument:

@@ -97,42 +97,27 @@ class QuantizationOption:
 
     projection: torch.dtype | None = field(
         default=None,
-        metadata={
-            "yaml_key": "projection",
-            "description": "Optional Q/K/V projection precision; blank keeps native precision.",
-        },
+        metadata={"yaml_key": "projection"},
     )
     """Q/K/V projection dtype; ``None`` preserves native precision."""
 
     output_projection: torch.dtype | None = field(
         default=None,
-        metadata={
-            "yaml_key": "output_projection",
-            "description": "Optional output projection precision; blank keeps native precision.",
-        },
+        metadata={"yaml_key": "output_projection"},
     )
     """Output projection dtype; ``None`` preserves native precision."""
 
     output_granularity: Granularity = field(
         default=Granularity.SLICE,
-        metadata={
-            "yaml_key": "output_granularity",
-            "description": "Granularity of output activation quantization.",
-        },
+        metadata={"yaml_key": "output_granularity"},
     )
     """Activation quantization granularity for the output projection."""
 
     quantized_sdpa: bool = field(
         default=False,
-        metadata={
-            "yaml_key": "quantized_sdpa",
-            "description": (
-                "Casts attention Q/K/V to FP8 for the selected backend. This can affect "
-                "accuracy."
-            ),
-        },
+        metadata={"yaml_key": "quantized_sdpa"},
     )
-    """Use unscaled FP8 e4m3 Q/K/V in scaled-dot-product attention.
+    """Use unscaled FP8 e4m3 Q/K/V in scaled-dot-product attention; can reduce accuracy.
 
     This directly casts Q, K, and V to FP8 e4m3 before calling the configured
     SDPA backend and stores the K/V cache in that dtype. The cuDNN path requires
@@ -169,28 +154,19 @@ class OptimizedImplConfig:
 
     qkv_fusion_option: QKVFusionOption = field(
         default=QKVFusionOption.FULL,
-        metadata={
-            "yaml_key": "qkv_fusion_option",
-            "description": "How query, key, and value projections are fused.",
-        },
+        metadata={"yaml_key": "qkv_fusion_option"},
     )
     """Projection fusion policy."""
 
     sdpa_backend: SDPABackend = field(
         default=SDPABackend.CUDNN,
-        metadata={
-            "yaml_key": "sdpa_backend",
-            "description": "Scaled dot-product attention kernel.",
-        },
+        metadata={"yaml_key": "sdpa_backend"},
     )
     """Scaled-dot-product attention implementation."""
 
     use_tma: bool = field(
         default=True,
-        metadata={
-            "yaml_key": "use_tma",
-            "description": "Prefer TMA FlashAttention when supported.",
-        },
+        metadata={"yaml_key": "use_tma"},
     )
     """Prefer TMA FlashAttention2 when the device and tensors support it."""
 

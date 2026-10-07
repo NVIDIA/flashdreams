@@ -45,9 +45,9 @@ These fields tune driving physics. Changing them can alter handling substantiall
 | On-screen label | Defined by | CLI flag | What it changes |
 | --- | --- | --- | --- |
 | **Wheel Base M:** | Game engine | — | Distance between front and rear axles in the vehicle model. |
-| **Max Steer Rad:** | Game engine | — | Maximum steering angle. |
-| **Steer Rate Rad Per S:** | Game engine | — | Rate at which steering moves toward full lock. |
-| **Steer Return Rate Rad Per S:** | Game engine | — | Rate at which steering recenters. |
+| **Max Steer Rad:** | Game engine | — | Full-lock steering angle for tight arcade turns. |
+| **Steer Rate Rad Per S:** | Game engine | — | Steering rate toward full lock in radians per second. |
+| **Steer Return Rate Rad Per S:** | Game engine | — | Steering return rate toward center in radians per second. |
 | **Speed Limit Enabled:** | Game engine | — | Applies map speed limits to the taxi. |
 | **Max Speed Mps:** | Game engine | — | Normal forward speed cap. |
 | **Max Reverse Speed Mps:** | Game engine | — | Reverse speed cap. |
@@ -57,7 +57,7 @@ These fields tune driving physics. Changing them can alter handling substantiall
 | **Handbrake Decel Mps2:** | Crazy Robotaxi | — | Deceleration while using the handbrake. |
 | **Handbrake Yaw Gain:** | Crazy Robotaxi | — | Additional rotation induced by the handbrake. |
 | **Max Handbrake Yaw Rate Radps:** | Crazy Robotaxi | — | Cap on handbrake rotation speed. |
-| **Max Lateral Accel Mps2:** | Game engine | — | Lateral acceleration ceiling for steering and body response. |
+| **Max Lateral Accel Mps2:** | Game engine | — | Lateral-acceleration ceiling for responsive high-speed steering. |
 | **Drag Mps2:** | Game engine | — | Base speed loss from drag. |
 | **Mass Kg:** | Game engine | — | Vehicle mass used by the physical simulation. |
 | **Tire Grip:** | Game engine | — | Tire traction factor. |
@@ -77,20 +77,20 @@ These fields tune driving physics. Changing them can alter handling substantiall
 | **Aabb Length M:** | Game engine | — | Length of the taxi's axis-aligned collision box. |
 | **Aabb Width M:** | Game engine | — | Width of the taxi's axis-aligned collision box. |
 | **Aabb Height M:** | Game engine | — | Height of the taxi's axis-aligned collision box. |
-| **Curb Collision Restitution:** | Crazy Robotaxi | — | Bounce from curbs and other static barriers. |
-| **Curb Forward Momentum Retention:** | Crazy Robotaxi | — | Minimum forward speed fraction retained after a glancing curb hit. |
-| **Input Activation Threshold:** | Crazy Robotaxi | — | Smallest steering or pedal magnitude counted as active input. |
-| **Direction Change Accel Multiplier:** | Crazy Robotaxi | — | Braking multiplier when switching travel direction. |
-| **Speed Taper Knee Fraction:** | Crazy Robotaxi | — | Speed fraction where acceleration taper changes regime. |
+| **Curb Collision Restitution:** | Crazy Robotaxi | — | Rebound coefficient for map curbs and other static barriers. |
+| **Curb Forward Momentum Retention:** | Crazy Robotaxi | — | Minimum forward-speed fraction retained through a glancing curb impact. |
+| **Input Activation Threshold:** | Crazy Robotaxi | — | Minimum pedal or steering magnitude treated as active input. |
+| **Direction Change Accel Multiplier:** | Crazy Robotaxi | — | Braking multiplier while changing travel direction. |
+| **Speed Taper Knee Fraction:** | Crazy Robotaxi | — | Fraction of maximum speed where acceleration tapering changes regime. |
 | **Speed Taper Low Floor:** | Crazy Robotaxi | — | Minimum acceleration fraction below the speed-taper knee. |
 | **Speed Taper High Floor:** | Crazy Robotaxi | — | Minimum acceleration fraction above the speed-taper knee. |
-| **Speed Taper Exponent:** | Crazy Robotaxi | — | How sharply acceleration falls above the knee. |
-| **Manual Coast Decel Mps2:** | Crazy Robotaxi | — | Deceleration when neither pedal is pressed. |
-| **Ragdoll Grip Rate:** | Crazy Robotaxi | — | Lateral velocity damping during collision recovery. |
-| **Ragdoll Yaw Response Rate:** | Crazy Robotaxi | — | Rotation response during collision recovery. |
-| **Handbrake Yaw Response Rate:** | Crazy Robotaxi | — | Rotation response while the handbrake is active. |
-| **Handbrake Lateral Damping Rate:** | Crazy Robotaxi | — | Sideways velocity damping while the handbrake is active. |
-| **Handbrake Lateral Accel Scale:** | Crazy Robotaxi | — | Body-roll acceleration scale with the handbrake. |
+| **Speed Taper Exponent:** | Crazy Robotaxi | — | Acceleration falloff exponent above the speed-taper knee. |
+| **Manual Coast Decel Mps2:** | Crazy Robotaxi | — | Manual-control deceleration while neither pedal is active. |
+| **Ragdoll Grip Rate:** | Crazy Robotaxi | — | Lateral-velocity damping rate during collision recovery. |
+| **Ragdoll Yaw Response Rate:** | Crazy Robotaxi | — | Yaw response rate during collision recovery. |
+| **Handbrake Yaw Response Rate:** | Crazy Robotaxi | — | Yaw response rate while the handbrake is active. |
+| **Handbrake Lateral Damping Rate:** | Crazy Robotaxi | — | Lateral-velocity damping rate while the handbrake is active. |
+| **Handbrake Lateral Accel Scale:** | Crazy Robotaxi | — | Body-roll acceleration scale while the handbrake is active. |
 
 ## RACE
 

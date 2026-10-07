@@ -45,75 +45,51 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
 
     num_inference_steps: int = field(
         default=4,
-        metadata={
-            "yaml_key": "num_inference_steps",
-            "description": "Number of denoising steps; must match the number of Denoising Timesteps.",
-        },
+        metadata={"yaml_key": "num_inference_steps"},
     )
-    """Must equal ``len(denoising_timesteps)``."""
+    """Number of denoising steps; must equal ``len(denoising_timesteps)``."""
 
     shift: float = field(
         default=8.0,
-        metadata={
-            "yaml_key": "shift",
-            "description": "Warping factor for the noise schedule.",
-        },
+        metadata={"yaml_key": "shift"},
     )
     """Schedule warp factor."""
 
     denoising_timesteps: list[int] = field(
         default_factory=lambda: [1000, 750, 500, 250],
-        metadata={
-            "yaml_key": "denoising_timesteps",
-            "description": "Ordered model timesteps used for those steps.",
-        },
+        metadata={"yaml_key": "denoising_timesteps"},
     )
     """Per-step diffusion timesteps in ``[0, num_train_timesteps]``."""
 
     warp_denoising_step: bool = field(
         default=True,
-        metadata={
-            "yaml_key": "warp_denoising_step",
-            "description": "Applies that warped schedule to the listed timesteps.",
-        },
+        metadata={"yaml_key": "warp_denoising_step"},
     )
     """Map ``denoising_timesteps`` through the warped sigma schedule."""
 
     num_train_timesteps: int = field(
         default=1000,
-        metadata={
-            "yaml_key": "num_train_timesteps",
-            "description": "Length of the training timestep scale.",
-        },
+        metadata={"yaml_key": "num_train_timesteps"},
     )
     """Length of the training sigma table."""
 
     sigma_max: float = field(
         default=1.0,
-        metadata={
-            "yaml_key": "sigma_max",
-            "description": "Upper end of the noise schedule before warping.",
-        },
+        metadata={"yaml_key": "sigma_max"},
     )
     """Top of the linspace before warping; ``1.0`` matches DiffSynth, upstream
     Wan / Lingbot ships ``0.999``."""
 
     sigma_min: float = field(
         default=0.0,
-        metadata={
-            "yaml_key": "sigma_min",
-            "description": "Lower end of the noise schedule before warping.",
-        },
+        metadata={"yaml_key": "sigma_min"},
     )
     """Bottom of the linspace before warping. Reserved for upstream parity;
     only ``0.0`` is exercised."""
 
     extra_one_step: bool = field(
         default=True,
-        metadata={
-            "yaml_key": "extra_one_step",
-            "description": "Builds the schedule using one extra sample, then drops the last.",
-        },
+        metadata={"yaml_key": "extra_one_step"},
     )
     """If ``True``, build the schedule from
     ``linspace(sigma_max, sigma_min, N+1)[:-1]`` (matches DiffSynth /
@@ -122,12 +98,11 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
 
     timestep_dtype: torch.dtype = field(
         default=torch.float32,
-        metadata={
-            "yaml_key": "timestep_dtype",
-            "description": "Numeric type passed to the model time embedding.",
-        },
+        metadata={"yaml_key": "timestep_dtype"},
     )
-    """Dtype of ``denoising_step_list``. Set to an integer dtype (e.g.
+    """Dtype of ``denoising_step_list``.
+
+    Set to an integer dtype (e.g.
     ``torch.int64``) when the network's time embedding is sensitive to the
     fractional part of the warped timestep — upstream Wan stores
     ``scheduler.timesteps`` as ``int64`` and lets the embedding upcast to
@@ -135,10 +110,7 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
 
     enable_tqdm: bool = field(
         default=False,
-        metadata={
-            "yaml_key": "enable_tqdm",
-            "description": "Shows scheduler progress output.",
-        },
+        metadata={"yaml_key": "enable_tqdm"},
     )
     """Whether to enable tqdm progress bar."""
 

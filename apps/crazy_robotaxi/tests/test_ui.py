@@ -2806,7 +2806,7 @@ def test_options_excludes_backend_fields(
         (
             "game",
             "##game.taxi.vehicle.max_steer_rad",
-            "Maximum steering angle.",
+            "Full-lock steering angle for tight arcade turns.",
             "game.taxi.vehicle.max_steer_rad",
         ),
         (

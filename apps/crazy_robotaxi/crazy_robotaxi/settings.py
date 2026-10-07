@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import io
 import os
+import re
 import tempfile
 import types
 from collections.abc import Callable, Mapping, Sequence
@@ -20,6 +21,7 @@ import torch
 from omnidreams_game_engine.config import BevConfig, RasterConfig
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
+from tyro._docstrings import get_field_docstring
 
 from crazy_robotaxi.controls import GamepadButtonStyle
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
@@ -301,21 +303,19 @@ class PresentationSettings:
 
     width: int | None = field(
         default=None,
-        metadata={
-            "yaml_key": "width",
-            "description": "Display width in pixels; blank uses the model width. Set with Height.",
-        },
+        metadata={"yaml_key": "width"},
     )
-    """Presentation width; ``None`` uses the model output width."""
+    """Presentation width in pixels; ``None`` uses the model output width.
+    Set together with the height.
+    """
 
     height: int | None = field(
         default=None,
-        metadata={
-            "yaml_key": "height",
-            "description": "Display height in pixels; blank uses the model height. Set with Width.",
-        },
+        metadata={"yaml_key": "height"},
     )
-    """Presentation height; ``None`` uses the model output height."""
+    """Presentation height in pixels; ``None`` uses the model output height.
+    Set together with the width.
+    """
 
     hud_enabled: bool = field(
         default=True,
@@ -1053,6 +1053,17 @@ def iter_setting_fields(
     )
 
 
+def setting_description(value: object, item: Field[Any]) -> str | None:
+    """Return the first help paragraph from metadata or a field docstring as plain text."""
+    description = item.metadata.get("description")
+    if description is None:
+        description = get_field_docstring(type(value), item.name, ())
+    if not description:
+        return None
+    summary = " ".join(description.split("\n\n", 1)[0].split())
+    return re.sub(r":[a-z]+:`([^`]+)`", r"\1", summary).replace("`", "")
+
+
 def _is_user_setting_field(
     value: object,
     item: Field[Any],
@@ -1097,5 +1108,6 @@ __all__ = [
     "presentation_resolution_wh",
     "restart_required_settings",
     "setting_choices",
+    "setting_description",
     "setting_value",
 ]

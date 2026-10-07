@@ -12,12 +12,12 @@ Encodes prompts for the world model.
 
 | On-screen label | Defined by | CLI flag | What it changes |
 | --- | --- | --- | --- |
-| **Model Name:** | FlashDreams | — | Hugging Face model ID for Cosmos-Reason1. |
-| **Revision:** | FlashDreams | — | Pinned model revision for Cosmos-Reason1. |
-| **Max Length:** | FlashDreams | — | Text token limit, including padding and truncation. |
+| **Model Name:** | FlashDreams | — | HF repo id of the underlying Qwen2.5-VL model. |
+| **Revision:** | FlashDreams | — | HF commit hash to pin. |
+| **Max Length:** | FlashDreams | — | Token length to pad/truncate to. |
 | **Dtype:** | FlashDreams | — | Parameter and activation precision of the text encoder. |
-| **Run On Cpu:** | FlashDreams | — | Keeps the text encoder on the host CPU to save GPU memory. |
-| **Embedding Cache Size:** | FlashDreams | — | Number of previously encoded prompt batches retained; `0` disables caching. |
+| **Run On Cpu:** | FlashDreams | — | Keep the bf16 model on the host and run it there. |
+| **Embedding Cache Size:** | FlashDreams | — | Number of most recently encoded prompt batches whose embeddings are kept. 0 disables caching. |
 
 ## IMAGE ENCODER
 
@@ -27,8 +27,8 @@ The image encoder handles the first frame; the encoder handles per-chunk HD-map 
 | --- | --- | --- | --- |
 | **Checkpoint Path:** | FlashDreams | — | Checkpoint for the Wan VAE encoder. |
 | **Dtype:** | FlashDreams | — | Parameter and activation precision of the Wan VAE encoder. |
-| **Use Cuda Graph:** | FlashDreams | — | Enables CUDA graph replay for the VAE encoder. |
-| **Use Compile:** | FlashDreams | — | Enables `torch.compile` for the VAE encoder. |
+| **Use Cuda Graph:** | FlashDreams | — | Wrap the encoder forward in a CUDA graph for replay. |
+| **Use Compile:** | FlashDreams | — | Compile the encoder with torch.compile; can increase peak VRAM usage. |
 
 The OmniDreams image encoder also exposes native VAE controls. The selected preset determines whether acceleration is enabled:
 
@@ -49,8 +49,8 @@ The image encoder handles the first frame; the encoder handles per-chunk HD-map 
 | --- | --- | --- | --- |
 | **Checkpoint Path:** | FlashDreams | — | Checkpoint for the Wan VAE encoder. |
 | **Dtype:** | FlashDreams | — | Parameter and activation precision of the Wan VAE encoder. |
-| **Use Cuda Graph:** | FlashDreams | — | Enables CUDA graph replay for the VAE encoder. |
-| **Use Compile:** | FlashDreams | — | Enables `torch.compile` for the VAE encoder. |
+| **Use Cuda Graph:** | FlashDreams | — | Wrap the encoder forward in a CUDA graph for replay. |
+| **Use Compile:** | FlashDreams | — | Compile the encoder with torch.compile; can increase peak VRAM usage. |
 
 The OmniDreams encoder also exposes native VAE controls. The selected preset determines whether acceleration is enabled:
 
@@ -69,7 +69,7 @@ Turns generated latents into video. The Crazy Robotaxi OmniDreams runners use a 
 
 | On-screen label | Defined by | CLI flag | What it changes |
 | --- | --- | --- | --- |
-| **Checkpoint Path:** | FlashDreams | — | Checkpoint for the video decoder. |
-| **Dtype:** | FlashDreams | — | Parameter and activation precision of the video decoder. |
-| **Use Cuda Graph:** | FlashDreams | — | Enables CUDA graph replay for the video decoder. |
-| **Use Compile:** | FlashDreams | — | Enables `torch.compile` for the video decoder. |
+| **Checkpoint Path:** | FlashDreams | — | Path to a pretrained TAEHV checkpoint. Defaults to the lighttae weights. |
+| **Dtype:** | FlashDreams | — | Network parameter / activation dtype. |
+| **Use Cuda Graph:** | FlashDreams | — | Wrap the decoder forward in a CUDA graph for replay. |
+| **Use Compile:** | FlashDreams | — | torch.compile(mode="max-autotune-no-cudagraphs"). |

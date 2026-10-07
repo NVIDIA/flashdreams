@@ -84,6 +84,7 @@ from crazy_robotaxi.settings import (
     presentation_resolution_wh,
     restart_required_settings,
     setting_choices,
+    setting_description,
     setting_value,
 )
 from crazy_robotaxi.world_overlay import (
@@ -2243,7 +2244,7 @@ class TaxiHudState:
                         changed = False
             imgui.end_group()
             _draw_option_tooltip(
-                imgui, item.metadata.get("description"), ".".join(item_yaml_path)
+                imgui, setting_description(value, item), ".".join(item_yaml_path)
             )
             if changed:
                 try:

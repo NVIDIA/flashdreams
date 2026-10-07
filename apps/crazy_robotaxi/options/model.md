@@ -14,9 +14,9 @@ The selected runner chooses a model preset, including its architecture and embed
 
 | On-screen label | Defined by | CLI flag | What it changes |
 | --- | --- | --- | --- |
-| **Seed:** | FlashDreams | `--model-seed`, `--seed` | Seed for initial model noise and scheduler sampling; blank uses the global RNG. |
-| **Context Noise:** | FlashDreams | — | Timestep used when updating the autoregressive cache; `0` skips added noise. |
-| **Noise In Unpatchified Shape:** | FlashDreams | — | Debug option that draws noise before patchifying to match another implementation's random sequence. |
+| **Seed:** | FlashDreams | `--model-seed`, `--seed` | RNG seed for initial-noise draws and scheduler sampling. None uses the global RNG. |
+| **Context Noise:** | FlashDreams | — | Timestep used by finalize for the AR cache-update forward. 0 skips add_noise. |
+| **Noise In Unpatchified Shape:** | FlashDreams | — | Debug-only: draw the initial noise in the unpatchified shape, then patchify. Slower than the default patchified path; useful when matching another implementation's RNG sequence. |
 
 ## Component guides
 

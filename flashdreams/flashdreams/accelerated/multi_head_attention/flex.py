@@ -33,109 +33,73 @@ class FlexAttentionOptions:
 
     block_size: int = field(
         default=128,
-        metadata={
-            "yaml_key": "block_size",
-            "description": "Default square mask-block size.",
-        },
+        metadata={"yaml_key": "block_size"},
     )
     """Square fallback used when building a block mask."""
 
     mask_block_m: int | None = field(
         default=None,
-        metadata={
-            "yaml_key": "mask_block_m",
-            "description": "Optional query-side mask-block size.",
-        },
+        metadata={"yaml_key": "mask_block_m"},
     )
     """Optional query block size; ``None`` uses ``block_size``."""
 
     mask_block_n: int | None = field(
         default=None,
-        metadata={
-            "yaml_key": "mask_block_n",
-            "description": "Optional key/value-side mask-block size.",
-        },
+        metadata={"yaml_key": "mask_block_n"},
     )
     """Optional key/value block size; ``None`` uses ``block_size``."""
 
     compile_dynamic: bool | None = field(
         default=None,
-        metadata={
-            "yaml_key": "compile_dynamic",
-            "description": "Dynamic-shape compile policy.",
-        },
+        metadata={"yaml_key": "compile_dynamic"},
     )
     """Dynamic-shape policy forwarded to :func:`torch.compile`."""
 
     block_m: int | None = field(
         default=None,
-        metadata={
-            "yaml_key": "block_m",
-            "description": "Optional query-side kernel tile size.",
-        },
+        metadata={"yaml_key": "block_m"},
     )
     """Optional forward query tile size; ``None`` lets PyTorch choose."""
 
     block_n: int | None = field(
         default=None,
-        metadata={
-            "yaml_key": "block_n",
-            "description": "Optional key/value-side kernel tile size.",
-        },
+        metadata={"yaml_key": "block_n"},
     )
     """Optional forward key/value tile size; ``None`` lets PyTorch choose."""
 
     num_warps: int | None = field(
         default=None,
-        metadata={
-            "yaml_key": "num_warps",
-            "description": "Optional Triton warp count.",
-        },
+        metadata={"yaml_key": "num_warps"},
     )
     """Optional Triton warp count; ``None`` lets PyTorch choose."""
 
     num_stages: int | None = field(
         default=None,
-        metadata={
-            "yaml_key": "num_stages",
-            "description": "Optional Triton pipeline-stage count.",
-        },
+        metadata={"yaml_key": "num_stages"},
     )
     """Optional Triton pipeline-stage count; ``None`` lets PyTorch choose."""
 
     prescale_qk: bool | None = field(
         default=None,
-        metadata={
-            "yaml_key": "prescale_qk",
-            "description": "Applies attention scale before the QK reduction.",
-        },
+        metadata={"yaml_key": "prescale_qk"},
     )
     """Whether to apply the attention scale before the QK reduction."""
 
     use_tma: bool | None = field(
         default=None,
-        metadata={
-            "yaml_key": "use_tma",
-            "description": "Requests TMA for FlexAttention; blank uses its default.",
-        },
+        metadata={"yaml_key": "use_tma"},
     )
     """Whether to request TMA from FlexAttention; ``None`` uses its default."""
 
     backend: str | None = field(
         default=None,
-        metadata={
-            "yaml_key": "backend",
-            "description": "Optional TRITON or FLASH FlexAttention kernel.",
-        },
+        metadata={"yaml_key": "backend"},
     )
     """Optional FlexAttention kernel backend: ``TRITON`` or ``FLASH``."""
 
     rows_guaranteed_safe: bool = field(
         default=False,
-        metadata={
-            "yaml_key": "rows_guaranteed_safe",
-            "description": "Skips empty-row guards when every query has a valid key.",
-        },
+        metadata={"yaml_key": "rows_guaranteed_safe"},
     )
     """Skip empty-row guards when every query sees at least one key."""
 

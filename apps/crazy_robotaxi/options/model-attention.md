@@ -8,66 +8,66 @@ On **MODEL**, find **NETWORK** within the **TRANSFORMER** section. The two optim
 
 | On-screen label | Defined by | CLI flag | What it changes |
 | --- | --- | --- | --- |
-| **Qkv Fusion Option:** | FlashDreams | — | How query, key, and value projections are fused. |
-| **Sdpa Backend:** | FlashDreams | — | Scaled dot-product attention kernel. |
-| **Use Tma:** | FlashDreams | — | Prefer TMA FlashAttention when supported. |
+| **Qkv Fusion Option:** | FlashDreams | — | Projection fusion policy. |
+| **Sdpa Backend:** | FlashDreams | — | Scaled-dot-product attention implementation. |
+| **Use Tma:** | FlashDreams | — | Prefer TMA FlashAttention2 when the device and tensors support it. |
 
 **QUANTIZATION**
 
 | On-screen label | Defined by | CLI flag | What it changes |
 | --- | --- | --- | --- |
-| **Projection:** | FlashDreams | — | Optional Q/K/V projection precision; blank keeps native precision. |
-| **Output Projection:** | FlashDreams | — | Optional output projection precision; blank keeps native precision. |
-| **Output Granularity:** | FlashDreams | — | Granularity of output activation quantization. |
-| **Quantized Sdpa:** | FlashDreams | — | Casts attention Q/K/V to FP8 for the selected backend. This can affect accuracy. |
+| **Projection:** | FlashDreams | — | Q/K/V projection dtype; None preserves native precision. |
+| **Output Projection:** | FlashDreams | — | Output projection dtype; None preserves native precision. |
+| **Output Granularity:** | FlashDreams | — | Activation quantization granularity for the output projection. |
+| **Quantized Sdpa:** | FlashDreams | — | Use unscaled FP8 e4m3 Q/K/V in scaled-dot-product attention; can reduce accuracy. |
 
 **FLEX ATTENTION**
 
 | On-screen label | Defined by | CLI flag | What it changes |
 | --- | --- | --- | --- |
-| **Block Size:** | FlashDreams | — | Default square mask-block size. |
-| **Mask Block M:** | FlashDreams | — | Optional query-side mask-block size. |
-| **Mask Block N:** | FlashDreams | — | Optional key/value-side mask-block size. |
-| **Compile Dynamic:** | FlashDreams | — | Dynamic-shape compile policy. |
-| **Block M:** | FlashDreams | — | Optional query-side kernel tile size. |
-| **Block N:** | FlashDreams | — | Optional key/value-side kernel tile size. |
-| **Num Warps:** | FlashDreams | — | Optional Triton warp count. |
-| **Num Stages:** | FlashDreams | — | Optional Triton pipeline-stage count. |
-| **Prescale Qk:** | FlashDreams | — | Applies attention scale before the QK reduction. |
-| **Use Tma:** | FlashDreams | — | Requests TMA for FlexAttention; blank uses its default. |
-| **Backend:** | FlashDreams | — | Optional `TRITON` or `FLASH` FlexAttention kernel. |
-| **Rows Guaranteed Safe:** | FlashDreams | — | Skips empty-row guards when every query has a valid key. |
+| **Block Size:** | FlashDreams | — | Square fallback used when building a block mask. |
+| **Mask Block M:** | FlashDreams | — | Optional query block size; None uses block_size. |
+| **Mask Block N:** | FlashDreams | — | Optional key/value block size; None uses block_size. |
+| **Compile Dynamic:** | FlashDreams | — | Dynamic-shape policy forwarded to torch.compile. |
+| **Block M:** | FlashDreams | — | Optional forward query tile size; None lets PyTorch choose. |
+| **Block N:** | FlashDreams | — | Optional forward key/value tile size; None lets PyTorch choose. |
+| **Num Warps:** | FlashDreams | — | Optional Triton warp count; None lets PyTorch choose. |
+| **Num Stages:** | FlashDreams | — | Optional Triton pipeline-stage count; None lets PyTorch choose. |
+| **Prescale Qk:** | FlashDreams | — | Whether to apply the attention scale before the QK reduction. |
+| **Use Tma:** | FlashDreams | — | Whether to request TMA from FlexAttention; None uses its default. |
+| **Backend:** | FlashDreams | — | Optional FlexAttention kernel backend: TRITON or FLASH. |
+| **Rows Guaranteed Safe:** | FlashDreams | — | Skip empty-row guards when every query sees at least one key. |
 
 ## CROSS ATTN OPTIMIZED IMPL CONFIG
 
 | On-screen label | Defined by | CLI flag | What it changes |
 | --- | --- | --- | --- |
-| **Qkv Fusion Option:** | FlashDreams | — | How query, key, and value projections are fused. |
-| **Sdpa Backend:** | FlashDreams | — | Scaled dot-product attention kernel. |
-| **Use Tma:** | FlashDreams | — | Prefer TMA FlashAttention when supported. |
+| **Qkv Fusion Option:** | FlashDreams | — | Projection fusion policy. |
+| **Sdpa Backend:** | FlashDreams | — | Scaled-dot-product attention implementation. |
+| **Use Tma:** | FlashDreams | — | Prefer TMA FlashAttention2 when the device and tensors support it. |
 
 **QUANTIZATION**
 
 | On-screen label | Defined by | CLI flag | What it changes |
 | --- | --- | --- | --- |
-| **Projection:** | FlashDreams | — | Optional Q/K/V projection precision; blank keeps native precision. |
-| **Output Projection:** | FlashDreams | — | Optional output projection precision; blank keeps native precision. |
-| **Output Granularity:** | FlashDreams | — | Granularity of output activation quantization. |
-| **Quantized Sdpa:** | FlashDreams | — | Casts attention Q/K/V to FP8 for the selected backend. This can affect accuracy. |
+| **Projection:** | FlashDreams | — | Q/K/V projection dtype; None preserves native precision. |
+| **Output Projection:** | FlashDreams | — | Output projection dtype; None preserves native precision. |
+| **Output Granularity:** | FlashDreams | — | Activation quantization granularity for the output projection. |
+| **Quantized Sdpa:** | FlashDreams | — | Use unscaled FP8 e4m3 Q/K/V in scaled-dot-product attention; can reduce accuracy. |
 
 **FLEX ATTENTION**
 
 | On-screen label | Defined by | CLI flag | What it changes |
 | --- | --- | --- | --- |
-| **Block Size:** | FlashDreams | — | Default square mask-block size. |
-| **Mask Block M:** | FlashDreams | — | Optional query-side mask-block size. |
-| **Mask Block N:** | FlashDreams | — | Optional key/value-side mask-block size. |
-| **Compile Dynamic:** | FlashDreams | — | Dynamic-shape compile policy. |
-| **Block M:** | FlashDreams | — | Optional query-side kernel tile size. |
-| **Block N:** | FlashDreams | — | Optional key/value-side kernel tile size. |
-| **Num Warps:** | FlashDreams | — | Optional Triton warp count. |
-| **Num Stages:** | FlashDreams | — | Optional Triton pipeline-stage count. |
-| **Prescale Qk:** | FlashDreams | — | Applies attention scale before the QK reduction. |
-| **Use Tma:** | FlashDreams | — | Requests TMA for FlexAttention; blank uses its default. |
-| **Backend:** | FlashDreams | — | Optional `TRITON` or `FLASH` FlexAttention kernel. |
-| **Rows Guaranteed Safe:** | FlashDreams | — | Skips empty-row guards when every query has a valid key. |
+| **Block Size:** | FlashDreams | — | Square fallback used when building a block mask. |
+| **Mask Block M:** | FlashDreams | — | Optional query block size; None uses block_size. |
+| **Mask Block N:** | FlashDreams | — | Optional key/value block size; None uses block_size. |
+| **Compile Dynamic:** | FlashDreams | — | Dynamic-shape policy forwarded to torch.compile. |
+| **Block M:** | FlashDreams | — | Optional forward query tile size; None lets PyTorch choose. |
+| **Block N:** | FlashDreams | — | Optional forward key/value tile size; None lets PyTorch choose. |
+| **Num Warps:** | FlashDreams | — | Optional Triton warp count; None lets PyTorch choose. |
+| **Num Stages:** | FlashDreams | — | Optional Triton pipeline-stage count; None lets PyTorch choose. |
+| **Prescale Qk:** | FlashDreams | — | Whether to apply the attention scale before the QK reduction. |
+| **Use Tma:** | FlashDreams | — | Whether to request TMA from FlexAttention; None uses its default. |
+| **Backend:** | FlashDreams | — | Optional FlexAttention kernel backend: TRITON or FLASH. |
+| **Rows Guaranteed Safe:** | FlashDreams | — | Skip empty-row guards when every query sees at least one key. |
