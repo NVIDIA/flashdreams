@@ -19,11 +19,9 @@
 from __future__ import annotations
 
 import dataclasses
-import math
 import queue
 import subprocess
 import threading
-import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -50,6 +48,20 @@ from flashdreams.infra.profiler import (
 from tools.profiling import cli as profiling_cli
 
 pytestmark = pytest.mark.ci_cpu
+
+
+@pytest.fixture(autouse=True)
+def _no_profiling_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Start every test from an unprofiled environment.
+
+    ``flashdreams-run-v2 --stats-path`` sets these in its own process, and a
+    test elsewhere that runs it in-process leaves them set for later tests.
+    """
+    for name in ("FLASHDREAMS_NVTX", "FLASHDREAMS_SYNC_AND_PROFILE", "FLASHDREAMS_FPS"):
+        monkeypatch.delenv(name, raising=False)
+    _reset_default_profiler()
+    yield
+    _reset_default_profiler()
 
 
 class _RecordingProfiler(IProfiler):
@@ -330,121 +342,128 @@ def test_pipeline_reports_timings_a_caller_recorded_on_the_cache(
     assert "denoise_ms" in stats and "finalize_ms" in stats
 
 
-def test_frame_rate_profiler_reports_a_wall_clock_rate() -> None:
-    """The rate is frames over elapsed wall time, not over summed work time."""
-    profiler = FrameRateProfiler(window_seconds=5.0)
-    profiler.event("model.frame", count=8)
-    time.sleep(0.05)
-    profiler.event("model.frame", count=8)
+class _Clock:
+    """Stands in for ``time`` inside the profiler module, so rates are exact."""
+
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
+    fake = _Clock()
+    monkeypatch.setattr(profiler_module, "time", fake)
+    return fake
+
+
+def test_a_rate_counts_events_over_the_time_since_the_last_read(clock: _Clock) -> None:
+    profiler = FrameRateProfiler()
+    clock.now += 1.8
+    profiler.event("model.frame", count=12)
+
+    assert profiler.collect_fps()["model.frame_fps"] == pytest.approx(12 / 1.8)
+
+
+def test_a_burst_then_a_wait_reports_the_sustained_rate(clock: _Clock) -> None:
+    """Twelve events at 7.33 Hz then a wait take 1.8 s, so the step reads 12/1.8.
+
+    Measured over the burst alone they would read 7.33 per second.
+    """
+    profiler = FrameRateProfiler()
+    for _ in range(12):
+        clock.now += 1 / 7.33
+        profiler.event("present.frame")
+    clock.now += 1.8 - 12 / 7.33  # waiting for the next chunk
+
+    assert profiler.collect_fps()["present.frame_fps"] == pytest.approx(12 / 1.8)
+
+
+def test_an_event_read_mid_interval_is_not_understated(clock: _Clock) -> None:
+    """``pipeline.generate`` fires when a step starts and is read when it ends."""
+    profiler = FrameRateProfiler()
+    rates = []
+    for _ in range(4):
+        profiler.event("pipeline.generate")
+        clock.now += 1.8
+        rates.append(profiler.collect_fps()["pipeline.generate_fps"])
+
+    assert rates == pytest.approx([1 / 1.8] * 4)
+
+
+def test_a_step_with_no_events_reads_zero(clock: _Clock) -> None:
+    """A stalled presenter must read 0, not drop out of the stats."""
+    profiler = FrameRateProfiler()
+    clock.now += 1.0
+    profiler.event("present.frame")
+    profiler.collect_fps()
+    clock.now += 1.0
+
+    assert profiler.collect_fps()["present.frame_fps"] == 0.0
+
+
+def test_the_average_covers_the_session(clock: _Clock) -> None:
+    profiler = FrameRateProfiler()
+    clock.now += 56.0  # a step that compiled
+    profiler.event("model.frame", count=12)
+    profiler.collect_fps()
+    clock.now += 2.0
+    profiler.event("model.frame", count=12)
 
     rates = profiler.collect_fps()
-    assert set(rates) == {"model.frame_fps"}
-    # 16 frames over ~0.05 s is a large but finite rate; the bug this guards
-    # against returned math.inf by dividing by summed operation time.
-    assert math.isfinite(rates["model.frame_fps"])
-    assert rates["model.frame_fps"] > 0.0
+    assert rates["model.frame_fps"] == pytest.approx(12 / 2.0)
+    assert rates["model.frame_avg_fps"] == pytest.approx(24 / 58.0)
 
 
-def test_frame_rate_is_not_overstated_on_the_second_sample() -> None:
-    """Counting the oldest event's frames over a span that starts at it
-    reported len/(len-1) too high -- 2x on the second chunk."""
-    profiler = FrameRateProfiler(window_seconds=30.0)
-    profiler.event("model.frame", count=16)
-    time.sleep(0.05)
-    profiler.event("model.frame", count=16)
-
-    rate = profiler.collect_fps()["model.frame_fps"]
-    # 16 frames arrived across ~0.05 s, so ~320/s. The bug reported ~640/s.
-    assert 200.0 < rate < 500.0, rate
-
-
-def test_frame_rate_stays_steady_as_the_window_fills() -> None:
-    """The reported rate must not drift as sample count grows."""
-    profiler = FrameRateProfiler(window_seconds=30.0)
-    profiler.event("model.frame", count=8)
-    seen = []
-    for _ in range(5):
-        time.sleep(0.02)
-        profiler.event("model.frame", count=8)
-        seen.append(profiler.collect_fps()["model.frame_fps"])
-
-    spread = max(seen) / min(seen)
-    assert spread < 1.35, f"rate drifted as the window filled: {seen}"
-
-
-def test_reset_counts_drops_a_previous_session() -> None:
-    profiler = FrameRateProfiler(window_seconds=30.0)
-    profiler.event("ui.frame")
-    time.sleep(0.02)
-    profiler.event("ui.frame")
-    assert profiler.collect_fps() != {}
-
+def test_reset_counts_starts_a_new_session(clock: _Clock) -> None:
+    profiler = FrameRateProfiler()
+    clock.now += 5.0
+    profiler.event("ui.step", count=100)
     profiler.reset_counts()
-    assert profiler.collect_fps() == {}, "a new session inherited the last one's events"
+    clock.now += 1.0
+    profiler.event("ui.step", count=3)
+
+    rates = profiler.collect_fps()
+    assert rates["ui.step_fps"] == pytest.approx(3.0)
+    assert rates["ui.step_avg_fps"] == pytest.approx(3.0)
 
 
-def test_reset_counts_is_a_no_op_on_backends_that_do_not_count() -> None:
-    NullProfiler().reset_counts()
-    CudaEventProfiler().reset_counts()
-
-
-def test_frame_rate_profiler_needs_two_samples_to_name_a_rate() -> None:
-    profiler = FrameRateProfiler(window_seconds=5.0)
-    assert profiler.collect_fps() == {}
-    profiler.event("ui.frame")
-    assert profiler.collect_fps() == {}, "one sample spans no time"
-
-
-def test_frame_rate_profiler_forgets_events_outside_the_window() -> None:
-    profiler = FrameRateProfiler(window_seconds=0.02)
-    profiler.event("ui.frame")
-    profiler.event("ui.frame")
-    time.sleep(0.05)
-    assert profiler.collect_fps() == {}
-
-
-def test_frame_rate_profiler_ignores_non_positive_counts() -> None:
-    profiler = FrameRateProfiler(window_seconds=5.0)
+def test_frame_rate_profiler_ignores_non_positive_counts(clock: _Clock) -> None:
+    profiler = FrameRateProfiler()
+    clock.now += 1.0
     profiler.event("model.frame", count=0)
     profiler.event("model.frame", count=-3)
+
     assert profiler.collect_fps() == {}
 
 
-def test_frame_rate_profiler_counts_across_threads() -> None:
-    """The model thread and the UI thread record into the same windows."""
-    profiler = FrameRateProfiler(window_seconds=5.0)
+def test_frame_rate_profiler_counts_across_threads(clock: _Clock) -> None:
+    profiler = FrameRateProfiler()
 
     def worker() -> None:
-        for _ in range(3):
-            profiler.event("ui.frame")
+        for _ in range(1000):
+            profiler.event("ui.step")
 
-    profiler.event("ui.frame")
-    thread = threading.Thread(target=worker)
-    thread.start()
-    thread.join()
-    time.sleep(0.01)
-    profiler.event("ui.frame")
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    clock.now += 1.0
 
-    assert set(profiler.collect_fps()) == {"ui.frame_fps"}
-
-
-@pytest.mark.parametrize("window", [0.0, -1.0, float("inf"), float("nan")])
-def test_frame_rate_profiler_rejects_an_unusable_window(window: float) -> None:
-    with pytest.raises(ValueError):
-        FrameRateProfiler(window_seconds=window)
+    assert profiler.collect_fps()["ui.step_fps"] == pytest.approx(4000.0)
 
 
-def test_composite_fans_events_out_and_merges_rates() -> None:
-    rates, nvtx = FrameRateProfiler(window_seconds=5.0), _RecordingNvtx()
-    profiler = CompositeProfiler((NVTXProfiler(), rates))
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(torch.cuda, "nvtx", nvtx)
-        profiler.event("ui.frame")
-        time.sleep(0.01)
-        profiler.event("ui.frame")
+def test_composite_fans_events_out_and_merges_rates(clock: _Clock) -> None:
+    recording = _RecordingProfiler()
+    rates = FrameRateProfiler()
+    profiler = CompositeProfiler((recording, rates))
+    clock.now += 1.0
+    profiler.event("ui.step", count=2)
 
-    assert nvtx.marks == ["ui.frame", "ui.frame"]
-    assert set(profiler.collect_fps()) == {"ui.frame_fps"}
+    assert profiler.collect_fps()["ui.step_fps"] == pytest.approx(2.0)
 
 
 def test_a_profiler_that_counts_nothing_reports_no_rates() -> None:
@@ -480,6 +499,21 @@ def test_pipeline_times_the_decode_stage_without_a_decoder() -> None:
         "pipeline.decode",
         "pipeline.finalize",
     ]
+
+
+def test_pipeline_reports_its_generate_rate() -> None:
+    """#603 asks how many generate() calls fit in a second."""
+    null_model = pytest.importorskip("null_model")
+    pipeline = null_model.NULL_MODEL_CONFIG.setup().to("cpu")
+    rates = FrameRateProfiler()
+    cache = pipeline.initialize_cache()
+
+    with set_flashdreams_inference_profiler(rates):
+        pipeline.generate(0, cache, input=torch.tensor([[1]]))
+        cache.autoregressive_index = None
+        pipeline.generate(0, cache, input=torch.tensor([[1]]))
+
+    assert rates.collect_fps()["pipeline.generate_avg_fps"] > 0.0
 
 
 def test_loops_run_with_the_profiler_the_session_injects() -> None:

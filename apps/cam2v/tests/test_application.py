@@ -231,7 +231,9 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_updates_status() -> Non
 
 
 def _input_test_model_loop(
-    *, log_model_timing: bool = False
+    *,
+    conditioning: Cam2VConditioning | None = None,
+    log_model_timing: bool = False,
 ) -> tuple[Cam2VModelLoop, Cam2VModelState, _Pipeline]:
     """Return a registered CPU model loop for camera-input tests."""
     pipeline = _Pipeline()
@@ -244,7 +246,7 @@ def _input_test_model_loop(
             video_height=1,
         ),
         config=Cam2VSessionConfig(
-            conditioning=_conditioning(),
+            conditioning=conditioning or _conditioning(),
             total_blocks=4,
             device=torch.device("cpu"),
             first_frame_dtype=torch.float32,
@@ -263,6 +265,67 @@ def _input_test_model_loop(
         failure_queue=queue.Queue(),
     )
     return model_loop, state, pipeline
+
+
+def _conditioning_with_replay(*translations_z: float) -> Cam2VConditioning:
+    poses = torch.eye(4).repeat(len(translations_z), 1, 1)
+    poses[:, 2, 3] = torch.tensor(translations_z)
+    return replace(_conditioning(), camera_poses=poses)
+
+
+def test_keyboard_input_permanently_takes_over_camera_replay() -> None:
+    """Seed live control from replay and never resume the fixed trajectory."""
+    conditioning = _conditioning_with_replay(0.0, 1.0, 2.0, 3.0, 4.0, 5.0)
+    model_loop, state, pipeline = _input_test_model_loop(conditioning=conditioning)
+
+    model_loop.step(0, UserInputEvents([]))
+    assert pipeline.camera_input is not None
+    assert pipeline.camera_input.poses[:, 2, 3].tolist() == [0.0, 1.0]
+
+    model_loop.step(
+        1,
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=uint64(125_000),
+                    key="w",
+                    state=KeyboardInputState.PRESSED,
+                )
+            ]
+        ),
+    )
+
+    assert pipeline.camera_input is not None
+    assert pipeline.camera_input.poses[:, 2, 3].tolist() == pytest.approx([1.05, 1.1])
+    assert state.replay_poses is None
+
+    model_loop.step(2, UserInputEvents([]))
+
+    assert pipeline.camera_input is not None
+    assert pipeline.camera_input.poses[:, 2, 3].tolist() == pytest.approx([1.15, 1.2])
+
+    model_loop.reset()
+
+    assert state.replay_poses is conditioning.camera_poses
+
+
+def test_camera_replay_exhaustion_continues_from_its_final_pose() -> None:
+    """Use every replay pose, then fall back without rejecting a short trace."""
+    model_loop, state, pipeline = _input_test_model_loop(
+        conditioning=_conditioning_with_replay(0.0, 1.0, 2.0)
+    )
+
+    model_loop.step(0, UserInputEvents([]))
+    model_loop.step(1, UserInputEvents([]))
+
+    assert pipeline.camera_input is not None
+    assert pipeline.camera_input.poses[:, 2, 3].tolist() == [2.0, 2.0]
+    assert state.replay_poses is None
+
+    model_loop.step(2, UserInputEvents([]))
+
+    assert pipeline.camera_input is not None
+    assert pipeline.camera_input.poses[:, 2, 3].tolist() == [2.0, 2.0]
 
 
 def test_model_loop_reset_restores_existing_generation_state() -> None:

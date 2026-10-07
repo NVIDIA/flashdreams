@@ -249,6 +249,8 @@ class StreamInferencePipeline(
         )
         cache.autoregressive_index = autoregressive_index
         profiler = get_inference_profiler()
+        # Counted like a frame, so the stats report generate() calls per second.
+        profiler.event("pipeline.generate")
 
         # Opened even with no encoder, so the stage is timed either way.
         with profiler.range("pipeline.encode"):

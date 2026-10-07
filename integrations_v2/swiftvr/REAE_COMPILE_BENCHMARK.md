@@ -202,6 +202,7 @@ Finally, exercise the production integration with a fixed world-model seed:
 uv run --no-sync flashdreams-run-v2 \
   interactive-drive-omnidreams \
   --mode mp4 \
+  --timeout unbound \
   --output-path /tmp/interactive-drive-swiftvr-compiled.mp4 \
   --stats-path /tmp/interactive-drive-swiftvr-compiled.json -- \
   --total-blocks 100 --no-ui --world-model-seed 42 \

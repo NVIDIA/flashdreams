@@ -27,6 +27,7 @@ from typing import Any, Literal, TypeAlias
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 IMAGE_SUFFIXES = frozenset({".bmp", ".jpeg", ".jpg", ".png", ".webp"})
 """Image filename suffixes treated as still images by runner helpers."""
@@ -37,9 +38,16 @@ DEFAULT_RUNNER_INSTALL_HINT = (
 """Default install hint for optional runner I/O dependencies."""
 
 ResizeInterpolation: TypeAlias = Literal[
-    "default", "nearest", "linear", "area", "cubic", "lanczos4"
+    "default",
+    "nearest",
+    "linear",
+    "area",
+    "cubic",
+    "lanczos4",
 ]
-"""OpenCV resize interpolation names accepted by runner image/video helpers."""
+"""Resize interpolation names accepted by runner image/video helpers.
+
+"""
 
 VideoTensorLayout: TypeAlias = Literal["thwc", "tchw", "btchw", "bcthw"]
 """Tensor layouts accepted by ``write_video_tensor``."""

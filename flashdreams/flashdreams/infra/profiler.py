@@ -17,12 +17,10 @@
 
 from __future__ import annotations
 
-import math
 import os
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections import deque
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager, nullcontext
 from contextvars import ContextVar, Token
@@ -31,9 +29,6 @@ from typing import ContextManager
 import torch
 
 _STAGE_PREFIX = "pipeline."
-_FPS_WINDOW_SECONDS = 2.0
-"""Trailing window for reported rates. Long enough to be steady, short
-enough to follow a change."""
 
 
 class IProfiler(ABC):
@@ -63,7 +58,7 @@ class IProfiler(ABC):
         return {}
 
     def collect_fps(self) -> dict[str, float]:
-        """Return trailing-window rates for the events seen so far.
+        """Return event rates since the previous call and since the session began.
 
         Empty when the backend does not count events.
         """
@@ -143,22 +138,22 @@ class CudaEventProfiler(IProfiler):
 
 
 class FrameRateProfiler(IProfiler):
-    """Counts events into a trailing wall-clock rate, one window per name.
+    """Counts events and reports how many arrived per wall-clock second.
 
-    ``RecentFrameRateTracker`` divides frames by summed operation time, which is
-    throughput and is what presentation pacing wants. A displayed frame rate is
-    per wall-clock second, so the window here is kept over completion times.
+    The model loop reads the rates once per step, so ``<name>_fps`` covers one
+    step, waits included, and ``<name>_avg_fps`` the session so far. This is
+    not ``RecentFrameRateTracker``, which divides by time spent working and so
+    leaves the waits out.
 
-    The model thread and the UI thread both record, so the windows are guarded.
-    Ranges are ignored: a rate comes from completions, not widths.
+    The model thread and the UI thread both record, so the counts are guarded.
     """
 
-    def __init__(self, *, window_seconds: float = _FPS_WINDOW_SECONDS) -> None:
-        if not math.isfinite(window_seconds) or window_seconds <= 0.0:
-            raise ValueError("window_seconds must be finite and > 0.")
-        self._window_seconds = window_seconds
-        self._windows: dict[str, deque[tuple[float, int]]] = {}
+    def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._since_read: dict[str, int] = {}
+        self._since_start: dict[str, int] = {}
+        self._started_at = time.monotonic()
+        self._last_read_at = self._started_at
 
     def range(self, name: str) -> ContextManager[None]:
         del name
@@ -167,40 +162,34 @@ class FrameRateProfiler(IProfiler):
     def event(self, name: str, *, count: int = 1) -> None:
         if count <= 0:
             return
-        now = time.monotonic()
         with self._lock:
-            window = self._windows.setdefault(name, deque())
-            window.append((now, count))
-            self._evict(window, now)
+            self._since_read[name] = self._since_read.get(name, 0) + count
+            self._since_start[name] = self._since_start.get(name, 0) + count
 
     def collect_fps(self) -> dict[str, float]:
         now = time.monotonic()
         with self._lock:
+            since_read_s = now - self._last_read_at
+            since_start_s = now - self._started_at
+            self._last_read_at = now
             rates: dict[str, float] = {}
-            for name, window in self._windows.items():
-                self._evict(window, now)
-                if len(window) < 2:
-                    # One sample spans no time, so it names no rate.
-                    continue
-                # The oldest event's items were produced before the window
-                # opened, so counting them over a span that starts at that
-                # event overstates the rate by len/(len-1) -- 2x on the second
-                # sample. Measure the items that arrived during the span.
-                span_s = now - window[0][0]
-                if span_s <= 0.0:
-                    continue
-                arrived = sum(count for _, count in list(window)[1:])
-                rates[f"{name}_fps"] = arrived / span_s
+            # Every name seen this session is reported, so a step in which
+            # nothing was presented reads 0 rather than going missing.
+            for name, total in self._since_start.items():
+                if since_read_s > 0.0:
+                    count = self._since_read.get(name, 0)
+                    rates[f"{name}_fps"] = count / since_read_s
+                if since_start_s > 0.0:
+                    rates[f"{name}_avg_fps"] = total / since_start_s
+            self._since_read.clear()
             return rates
 
     def reset_counts(self) -> None:
         with self._lock:
-            self._windows.clear()
-
-    def _evict(self, window: deque[tuple[float, int]], now: float) -> None:
-        cutoff = now - self._window_seconds
-        while window and window[0][0] <= cutoff:
-            window.popleft()
+            self._since_read.clear()
+            self._since_start.clear()
+            self._started_at = time.monotonic()
+            self._last_read_at = self._started_at
 
 
 class CompositeProfiler(IProfiler):
@@ -300,8 +289,8 @@ def create_profiler() -> IProfiler:
 
     ``FLASHDREAMS_NVTX`` adds Nsight Systems ranges,
     ``FLASHDREAMS_SYNC_AND_PROFILE`` adds the CUDA-event stage timings that
-    ``finalize`` returns, ``FLASHDREAMS_FPS`` adds the frame rates the model loop
-    reports. None set means nothing is recorded.
+    ``finalize`` returns, and ``FLASHDREAMS_FPS`` adds the frame rates the model
+    loop reports. None set means nothing is recorded.
     """
     profilers: list[IProfiler] = []
     if os.environ.get("FLASHDREAMS_NVTX") == "1" and torch.cuda.is_available():

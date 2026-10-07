@@ -30,7 +30,8 @@ Finding and starting an application:
 - `cli.py` is `flashdreams-run-v2`: it splits its own arguments from the
   application's at `--`, decides which session to ask for, and builds the window.
 - `application_runner.py` owns the application lifecycle around one run —
-  `init`, `create_session`, `run_session`, `close`.
+  `init`, `create_session`, `run_session`, `close`. Remaining timeout and
+  remaining `--total-model-steps` are what each replacement receives.
 - `client_window_factory.py` turns `--mode` into a window, and owns the
   arguments each mode takes.
 
@@ -45,6 +46,8 @@ Running a session:
 - `session_desc.py` describes the session being run: frame size, rates, layout,
   and the two policy knobs below.
 - `step_result.py` is what one generation step produces.
+- `coordination.py` broadcasts rank zero's continue/reset/stop decisions over a
+  separate CPU process group for distributed model loops.
 
 Presenting it:
 
@@ -53,7 +56,6 @@ Presenting it:
 - `slangpy_ui_loop.py` and `slangpy_ui_renderer.py` provide retained SlangPy
   widgets over the model output. `imgui_ui_loop.py` and `imgui_ui_renderer.py`
   provide immediate Dear ImGui controls rendered through SlangPy.
-- `mp4_client_window.py` and `webrtc_client_window.py` are the two windows.
 - `mp4_output_sink.py`, `metrics_output_sink.py`, `video_encoder.py` and
   `video_tensor.py` are what output is written through.
 - `serving/` is the HTTP and WebRTC server behind the browser window.
@@ -69,6 +71,87 @@ Input:
   the window clock with their own semantics: held state for mouse buttons,
   coalesced position for pointer motion, and accumulated impulses for wheels.
 
+## Tensor × context inference
+
+`flashdreams.core.distributed.parallel.init_parallel(head_groups=...)` creates
+a tensor × context mesh from the launcher world, or reuses an initialized
+process group. An integration can select TP through its own configuration:
+
+```python
+init_parallel(
+    tensor_parallel=config.parallel.tensor_parallel,
+    head_groups=model_head_groups,
+)
+```
+
+Core validates the TP degree and derives `cp_size = world_size // tp_size`;
+there is no separate CP setting. Missing or `None` TP uses `plan_mesh()`'s
+TP-first fallback: `gcd(world_size, head_groups)`, which may leave `cp_size=1`.
+Choose TP explicitly when the integration requires CP. `tensor_parallel=1`
+maximizes CP; `tensor_parallel=world_size` gives pure TP when model-compatible.
+The integration validates projection/checkpoint shapes, at least `cp_size`
+partitionable views/tokens per CP pass, and output order. Prefer the smallest TP
+that meets model memory/performance needs, keeping TP within a node when possible.
+Tensor groups contain consecutive ranks; context groups stride by tensor size.
+TP shards weights; CP shards views/tokens and replicates each TP weight shard
+across its CP group. With `tp_size=1`, every CP rank holds the full model weights.
+
+Both axes use NCCL for CUDA or Gloo for CPU, regardless of the reused world's
+backend; all ranks must agree on the device type. The caller still owns the
+world's lifecycle. The shared shutdown helper's immediate-exit path for
+compiled CUDA-graph workloads requires an NCCL **world**, not only NCCL axes;
+a mixed Gloo-world/NCCL-axis launch still needs launcher/job timeouts around
+ordinary process-group teardown.
+
+`core.distributed.tensor_parallel` provides `ColumnParallelLinear` and
+`RowParallelLinear`. The integration selects the projections and head ranges;
+the core layers slice weights and sum row-sharded outputs. Keep a row bias on
+exactly one tensor rank. Shard after loading and before moving weights to CUDA.
+
+`core.distributed.context_parallel` provides `build_shard`, `gather_tokens`,
+and `local_query_range` for uneven token counts. Existing equal-sized
+`split_inputs_cp` and `cat_outputs_cp` callers retain their contracts.
+
+Expose the mesh through `ISession.parallel_context`; it must be available
+before `session.init`. `run_session` owns the application control plane through
+`StepAgreement`: admission, input, session results, and shutdown over a separate
+Gloo control group. The model loop consumes only a private structural hook for
+admission and input. `ParallelContext` and integration-owned TP/CP collectives
+and output gathering form the inference data plane, normally over NCCL.
+Model hooks stay local: `is_finished` reports completion,
+`reset` discards model state, and `close` releases resources. They do not
+broadcast lifecycle decisions or perform cleanup barriers.
+
+Only rank zero creates a window or metrics sink. Programmatic worker calls
+pass `None` as the window; the CLI selects this from the launcher rank.
+Every admitted rank executes the same step and ordered model collectives.
+Before rank zero returns non-empty results, the integration must gather all CP
+shards needed for publication in their original order. Workers return `[]` only
+after every required collective, including gathers. Gather before decoding when
+it needs the complete latent/view sequence; decoding may run only on rank zero
+when the model permits it. Already-replicated TP results need no extra gather.
+The runtime does not gather `StepResult` objects; it cannot infer their sharded
+axis, ordering, padding, or replication.
+
+Before each step the runtime checks cancellation, broadcasts rank zero's
+input batch and reset generation, then checks preparation and cancellation
+again. Admission commits every rank to the step; a later UI stop is handled
+at the following boundary. Input events must be pickleable and come from
+trusted ranks in the same job. After model threads stop, calling threads poll
+rank zero's continue, terminal, or replacement result once per UI tick. Workers
+therefore remain coordinated while an unfinished UI stays open, without treating
+idle user time as a missing rank. Failed ranks bypass result polling; cleanup
+performs no collective that could hide the original failure.
+
+Control waits have a five-minute timeout. A process supervisor such as
+`torchrun` must terminate peers after a rank exits with an error; a Slurm
+time limit bounds kernel or process failures that cannot unwind. See
+[ARCHITECTURE.md](../../../ARCHITECTURE.md#many-gpu-sessions) for the process
+and thread model, and `tests/test_step_agreement.py` for fault-injection checks.
+
+The v2 CLI synchronizes and releases the default process group after a clean
+run; on failure it lets the process supervisor terminate blocked peers.
+
 ## The command line
 
 `flashdreams-run-v2 SLUG` finds an application through the
@@ -83,7 +166,7 @@ declare arguments this command also has.
 
 | Mode | Takes | Input | Ends when |
 | --- | --- | --- | --- |
-| `mp4` (default) | `--output-path` | none | the application UI finishes |
+| `mp4` (default) | `--output-path`; `--timeout` and/or `--total-model-steps` | none | `--timeout`, `--total-model-steps`, or the application UI finishes |
 | `webrtc` | `--host`, `--port` | keyboard, mouse, focus, query string, reset, close | the application UI finishes or the client closes it |
 
 `--host` and `--port` choose the listener. When a browser connects with a
@@ -101,15 +184,35 @@ These override whatever session the application asked for:
 | `--presentation-mode` | Whether the UI runs continuously or only for newly selected model frames. |
 
 Each defaults to asking for nothing, so a run that names none of them gets what
-the application generates. There is no argument for the UI tick rate, and none
-for `run_session`'s `steps` limit — a caller that needs to bound a run by steps
-drives the runtime from Python.
+the application generates. There is no argument for the UI tick rate.
 
 `--timeout SECONDS` bounds the whole application run, including initialization
-and replacement sessions. At the deadline the UI thread signals the session's
-loops to stop and performs their normal cleanup. An in-flight model step must
-return before the process can finish cleaning up. Synchronous application or
-session initialization likewise cannot be interrupted mid-call.
+and replacement sessions. `unbound` (or omitting the flag) means no time-limit.
+Remaining time is what a replacement session receives. At the deadline the UI
+thread signals the session's loops to stop and performs their normal cleanup.
+An in-flight model step must return before the process can finish cleaning up.
+Synchronous application or session initialization likewise cannot be interrupted
+mid-call.
+
+`--total-model-steps N` is the remaining model-step budget for the whole
+application run. Each session receives what is left. A replacement is not
+started when none remain. `unbound` (or omitting the flag) means no steps
+limit.
+
+`--total-blocks` is still an application flag after `--` on Cam2V, T2V,
+Action2V, Interactive Drive, and Crazy Robotaxi. It ends that session through
+`is_finished()`. Both can be set; the first to fire wins. Making the runner
+count the only user-facing length is a later change.
+
+`--mode mp4` requires `--timeout` and/or `--total-model-steps` (a number or
+`unbound` on each). Native-window and WebRTC may omit both and end when the
+client closes. An application's own `is_finished()` can still end a session
+first.
+
+Local and single-rank replacements are skipped if cleanup reaches the deadline.
+A multi-rank replacement result already synchronized by the old session is authoritative:
+every rank creates that replacement even if the deadline crosses during cleanup,
+then the new session receives zero remaining time and stops at its first boundary.
 
 `--stats-path` adds a `MetricsOutputSink`. It receives the **model** loop's
 results as they are published, not the UI loop's output, so a benchmark measures
@@ -122,14 +225,25 @@ presentation-queue depth/publish-wait measurements under the reserved
 model record because they describe a different frame.
 
 `--stats-path` also sets `FLASHDREAMS_SYNC_AND_PROFILE=1` before constructing the
-application, enabling synchronized per-stage pipeline profiling for the run.
+application, enabling synchronized per-stage pipeline profiling for the run, and
+`FLASHDREAMS_FPS=1`, which adds these rates to every model record:
 
-`FLASHDREAMS_FPS=1` adds `model.frame_fps`, `present.frame_fps` and
-`ui.frame_fps` to those model records: frames generated, frames presented, and
-UI iterations, each over a trailing wall-clock window. They measure different
-frames, so `present.frame_fps` below `model.frame_fps` means the window is not
-consuming everything generated. Counting costs no synchronization, so it is safe
-to leave on while tracing.
+| Key | Counts |
+|---|---|
+| `present.frame_fps` | new frames shown in the window (end to end) |
+| `model.frame_fps` | frames the model generated |
+| `ui.step_fps` | UI loop iterations |
+| `pipeline.generate_fps` | `generate()` calls |
+
+Each is a count per wall-clock second over the model step just ended, waits
+included. Each key also has an `_avg_fps` form covering the session so far,
+compilation included.
+`present.frame_fps` below `model.frame_fps` means the window is not consuming
+everything generated. Counting costs no synchronization, so `FLASHDREAMS_FPS=1`
+is safe to set on its own while tracing.
+
+An application records its own measurements by returning them in
+`StepResult.metrics`; they reach the stats file beside the runtime's.
 
 ## Starting and stopping a run
 
@@ -138,6 +252,11 @@ order, and closes the application on the way out whether or not the run
 succeeded. It also closes the window itself when the run never started, because
 `run_session` is what otherwise owns the window, and a WebRTC window may already
 be serving a browser before the application has finished loading.
+
+`timeout_seconds` and `steps` are a number or `Unbound`. `Unbound` (the
+default) is no limit. `None` is not a limit. The command-line token `unbound`
+and an omitted flag both become `Unbound` here. A named `steps` count is
+remaining across replacement sessions, the same way remaining seconds are.
 
 `run_session` then opens the window and any metrics sink, collects one batch of
 input, presents one tick, and only then starts the model thread — so a client that
@@ -188,6 +307,10 @@ initialization, input collection, UI rendering, window writes, and cleanup.
 Constructing the manager with an explicit CPU device disables the CUDA stream.
 Stream priority lets short UI work overtake queued lower-priority kernels, but
 does not preempt a kernel that is already executing.
+
+Publishing an empty list queues nothing and waits for nothing — a step that
+presented nothing, which is what a worker process of a sharded multi-process run
+returns. See `api_v2/README.md` for the model loop's side of that.
 
 Frame cadence initially uses `frames_per_second_for_step`, then follows the
 throughput of complete model steps over the trailing two seconds. The estimate
