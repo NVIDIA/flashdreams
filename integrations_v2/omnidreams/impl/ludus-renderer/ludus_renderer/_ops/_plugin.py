@@ -156,8 +156,10 @@ def _get_plugin():
         "../_cpp/bindings/torch_rasterize_cuda.cpp",
     ]
 
-    # Reset CUDA arch list to let PyTorch detect the installed GPU
-    os.environ["TORCH_CUDA_ARCH_LIST"] = ""
+    # Let PyTorch detect the installed GPU unless the caller already chose an arch list:
+    # on GPUs newer than this torch knows (e.g. compute capability 10.7) detection raises
+    # "Unknown CUDA arch", and an explicit "<newest known>+PTX" is the only way to build.
+    os.environ.setdefault("TORCH_CUDA_ARCH_LIST", "")
 
     # Check for stale lock files
     plugin_name = "ludus_renderer_plugin"
