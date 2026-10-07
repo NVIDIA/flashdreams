@@ -108,11 +108,16 @@ def test_workspace_uses_only_headless_opencv() -> None:
     )
 
 
-def test_http_lockfiles_meet_security_floors() -> None:
-    minimums = {"urllib3": Version("2.8.0"), "multidict": Version("6.9.1")}
+def test_lockfiles_meet_security_floors() -> None:
+    minimums = {
+        "urllib3": Version("2.8.0"),
+        "multidict": Version("6.9.1"),
+        "setuptools": Version("83.0.0"),
+    }
     for lockfile in [
         _ROOT / "uv.lock",
         *_ROOT.glob("integrations_v2/*/tests/*/uv.lock"),
+        _ROOT / "integrations_v2/omnidreams/impl/ludus-renderer/uv.lock",
     ]:
         for package in tomllib.loads(lockfile.read_text(encoding="utf-8"))["package"]:
             if package["name"] in minimums:

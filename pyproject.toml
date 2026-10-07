@@ -37,7 +37,13 @@ override-dependencies = [
     # recursion-depth follow-up. 7.x is outside the published affected range;
     # use the latest compatible patch to avoid scanner version-map ambiguity.
     "protobuf>=7.36.2,<8",
+    # CVE-2026-59890; PyTorch's <82 cap was unnecessary.
+    # ponytail: override legacy metadata until all profiles use torch>=2.13.
+    # https://github.com/pytorch/pytorch/pull/188190
+    "setuptools>=83.0.0,<84",
 ]
+# Keep isolated builds on the same patched, validated setuptools line.
+build-constraint-dependencies = ["setuptools>=83.0.0,<84"]
 
 # `transformer-engine-torch` has no prebuilt wheel and must be built against
 # the project's PyTorch + system CUDA. uv's default per-package build isolation
