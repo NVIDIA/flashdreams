@@ -145,12 +145,22 @@ review. The reviewer must use this checklist and understand the changed area
 and its security boundaries. The change author or submitter is not the final
 reviewer.
 
-FlashDreams Maintainers and Admins are the designated final security-review
-delegates. Keep enough active Maintainers so review coverage does not depend on
-one person, and route each security-sensitive change to a Maintainer or Admin
-with relevant context.
+Members of `@NVIDIA/worldsim-team-maintainers` and
+`@NVIDIA/worldsim-team-admins` are FlashDreams' final security-review
+delegates. Keep enough active maintainers so review coverage does not depend on
+one person, and route security-sensitive changes to an owner with relevant
+context.
 
-Protected target branches must require an `APPROVED` pull-request review from
-an authenticated Maintainer/Maintain or Admin. Developer/Write reviews are
-useful but do not satisfy the final gate. A required CODEOWNER review is
-optional; absence of a CODEOWNERS file is acceptable.
+## Merge enforcement
+
+- Keep both team handles on the same catch-all line in `.github/CODEOWNERS`.
+  GitHub treats an approval from either team as sufficient. Do not split them
+  across duplicate `*` rules because only the last matching rule applies.
+- In the `main` branch rule or ruleset, require a pull request, one approval,
+  and a Code Owner review. A Code Owner's approval can satisfy the one-approval
+  count and ownership gate together.
+- Leave required-pull-request bypass disabled and ensure the protection applies
+  to admins. Each owner team must be visible and have explicit Write or higher
+  access to the repository.
+- A Developer/Write review is useful but satisfies the final gate only when the
+  reviewer is also a member of one of the two Code Owner teams.
