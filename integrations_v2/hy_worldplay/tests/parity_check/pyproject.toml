@@ -69,7 +69,8 @@ dependencies = [
     "numpy>=1.24",
     "omegaconf",
     "opencv-python-headless",
-    "pillow",
+    # Pillow 12.3 fixes image memory corruption and decompression-bomb bypasses.
+    "pillow>=12.3.0",
     "pyyaml",
     "regex",
     "remote-pdb",

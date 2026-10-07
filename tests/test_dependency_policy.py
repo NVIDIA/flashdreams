@@ -113,6 +113,7 @@ def test_lockfiles_meet_security_floors() -> None:
         "urllib3": Version("2.8.0"),
         "multidict": Version("6.9.1"),
         "setuptools": Version("83.0.0"),
+        "pillow": Version("12.3.0"),
     }
     for lockfile in [
         _ROOT / "uv.lock",
@@ -125,3 +126,17 @@ def test_lockfiles_meet_security_floors() -> None:
                     f"{lockfile.relative_to(_ROOT)}: "
                     f"{package['name']}=={package['version']} is below its security floor"
                 )
+
+
+def test_self_forcing_parity_declares_and_locks_torchvision() -> None:
+    project_dir = _ROOT / "integrations_v2/self_forcing/tests/parity_check"
+    project = tomllib.loads((project_dir / "pyproject.toml").read_text())["project"]
+    assert "torchvision" in {
+        _normalized_requirement_name(requirement)
+        for requirement in project["dependencies"]
+    }
+
+    packages = tomllib.loads((project_dir / "uv.lock").read_text())["package"]
+    assert any(package["name"] == "torchvision" for package in packages)
+    parity_project = next(p for p in packages if p["name"] == project["name"])
+    assert any(dep["name"] == "torchvision" for dep in parity_project["dependencies"])
