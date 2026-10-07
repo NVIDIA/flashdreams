@@ -1,6 +1,6 @@
 ---
 name: security-code-review
-description: Review FlashDreams changes for production, policy, and security risk. Use for security-sensitive changes, release-critical paths, final merge approval, or checking whether review controls satisfy the +2 requirement.
+description: Review FlashDreams changes for production, policy, and security risk. Use for security-sensitive changes, release-critical paths, or final merge approval.
 ---
 
 # Security code review
@@ -29,11 +29,11 @@ reviewer would not stand behind the outcome, they must not approve.
   infrastructure and deployment pipelines, and AI/ML model or data handling.
 - Review deletion of controls as carefully as adding sensitive code. Confirm a
   deletion does not remove required validation, access control, logging, or
-  auditing. Validate sensitive changes against applicable threat models,
-  security design patterns, and known abuse cases.
+  auditing. Test affected trust boundaries against documented security
+  expectations and known abuse cases.
 - Do not rubber-stamp to unblock a pipeline, ignore scan results, or trade the
-  release gate for schedule pressure. Known or incomplete risk needs the formal,
-  traceable acceptance required by policy, including its approver, rationale,
+  release gate for schedule pressure. Known or incomplete risk needs traceable
+  owner acceptance that records its approver, rationale,
   and time-bound remediation; it is not an ordinary approval.
 
 ## General MUST checks
@@ -54,7 +54,7 @@ Verify each applicable item before final approval:
 Verify each applicable item before final approval:
 
 - **Secrets and credentials:** no hardcoded tokens, keys, passwords, or other
-  secrets; the change uses the approved secret-management mechanism.
+  secrets; the change uses a protected secret manager or runtime injection.
 - **Input handling:** untrusted input is validated and sanitized, with no SQL,
   command, deserialization, or other injection path.
 - **Dependencies:** no known-vulnerable package is introduced and the SBOM
@@ -64,7 +64,7 @@ Verify each applicable item before final approval:
 - **Sensitive data:** PII and regulated data are handled correctly and are not
   logged unintentionally.
 
-## +2 security review checklist
+## Security review checklist
 
 Use this checklist actively; record evidence or a finding rather than silently
 assuming an item passed. Mark an item not applicable only with a short reason.
@@ -73,8 +73,6 @@ assuming an item passed. Mark an item not applicable only with a short reason.
 
 - [ ] **SCA clean:** all critical and high-severity findings identified by
   static code analysis have been resolved.
-- [ ] **Risk assessed:** the change has been evaluated against the applicable
-  Threat and Vulnerability Analysis (TAVA).
 
 ### Input validation
 
@@ -117,9 +115,9 @@ assuming an item passed. Mark an item not applicable only with a short reason.
 ### Cryptography and secrets
 
 - [ ] **No hardcoded secrets:** code contains no plaintext API keys, passwords,
-  tokens, internal IP addresses, or similar secrets.
-- [ ] **Strong cryptography:** only modern, vetted algorithms are used, such as
-  those in CNSA Suite 2.0.
+  tokens, or similar credentials.
+- [ ] **Strong cryptography:** only modern, publicly vetted algorithms suitable
+  for the application are used.
 - [ ] **Authentication first:** data is authenticated before decryption.
 - [ ] **Safe randomness:** security decisions use a cryptographically secure
   random-number generator, such as /dev/urandom rather than rand().
@@ -142,15 +140,17 @@ repair. Separate blocking security or policy findings from optional hardening
 and ordinary maintainability comments. Record which checks were exercised and
 what evidence supports the final judgment.
 
-The +2 Security Reviewer is a qualified approval role, not a number of generic
-reviews. The reviewer must have completed the approved training, use this
-checklist, and be the designated Security PIC or trained delegate when required.
-The change author or submitter is not a reviewer.
+Final approval is an accountable role, not just the presence of a generic
+review. The reviewer must use this checklist and understand the changed area
+and its security boundaries. The change author or submitter is not the final
+reviewer.
 
-Verify enforcement separately from reviewing code. Protected target branches
-must require an `APPROVED` pull-request review from an authenticated human with
-a Developer/Write, Maintainer/Maintain, or Admin role. For FlashDreams, this
-role-based approval is accepted as the +2 SCM enforcement; a separate required
-CODEOWNER or Security PIC rule is not needed. Confirm the rule applies to every
-target branch and leaves no unaudited bypass. Reviewer training, checklist use,
-and any Security PIC sign-off remain procedural evidence for the review.
+FlashDreams Maintainers and Admins are the designated final security-review
+delegates. Keep enough active Maintainers so review coverage does not depend on
+one person, and route each security-sensitive change to a Maintainer or Admin
+with relevant context.
+
+Protected target branches must require an `APPROVED` pull-request review from
+an authenticated Maintainer/Maintain or Admin. Developer/Write reviews are
+useful but do not satisfy the final gate. A required CODEOWNER review is
+optional; absence of a CODEOWNERS file is acceptable.
