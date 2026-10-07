@@ -11,13 +11,13 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 import torch
-from torch import Tensor
-
+from flashdreams.runtime_v2 import mp4_output_sink
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_encoder import Mp4Encoder
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from torch import Tensor
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -208,6 +208,18 @@ def test_a_run_that_generated_nothing_writes_no_file(tmp_path: Path) -> None:
 
 def test_close_tolerates_a_sink_that_was_never_opened(tmp_path: Path) -> None:
     Mp4OutputSink(tmp_path / "out.mp4").close()
+
+
+def test_open_rejects_an_already_open_sink(tmp_path: Path) -> None:
+    sink = Mp4OutputSink(tmp_path / "out.mp4")
+    previous_encoder = Mock()
+    sink._encoder = previous_encoder
+
+    with pytest.raises(RuntimeError, match="already open"):
+        sink.open(_session_desc())
+
+    previous_encoder.close.assert_not_called()
+    assert sink._encoder is previous_encoder
 
 
 ## Tests that encode

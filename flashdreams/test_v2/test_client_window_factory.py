@@ -9,10 +9,10 @@ so what is covered here is each mode answering for itself.
 
 import argparse
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
-
 from flashdreams.runtime_v2 import client_window_factory
 from flashdreams.runtime_v2.cli import _parser
 from flashdreams.runtime_v2.client_window_factory import (
@@ -22,6 +22,7 @@ from flashdreams.runtime_v2.client_window_factory import (
     client_window_mode,
     create_client_window,
 )
+from flashdreams.runtime_v2.composite_client_window import CompositeClientWindow
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
@@ -36,6 +37,12 @@ def _parsed(arguments: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     add_client_window_arguments(parser)
     return parser.parse_args(arguments)
+
+
+def _write_descriptor(tmp_path: Path, contents: object) -> Path:
+    path = tmp_path / "input.json"
+    path.write_text(json.dumps(contents), encoding="utf-8")
+    return path
 
 
 class _EntryPoint:
@@ -85,6 +92,61 @@ def _installed_modes(
 
 def test_an_omitted_mode_is_left_for_the_application() -> None:
     assert _parsed([]).mode is None
+
+
+def test_an_mp4_run_can_replay_a_synthetic_input_file(tmp_path: Path) -> None:
+    descriptor = tmp_path / "input.json"
+    descriptor.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "events": [
+                    {"on": "ui_loop", "at": 0, "event": {"type": "reset"}}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    window = create_client_window(
+        _parsed(
+            [
+                "--mode",
+                "mp4",
+                "--output-path",
+                str(tmp_path / "clip.mp4"),
+                "--synthetic-input-file",
+                str(descriptor),
+            ]
+        )
+    )
+
+    assert isinstance(window, CompositeClientWindow)
+    assert isinstance(window.client_window, Mp4ClientWindow)
+    assert window.client_window.path == tmp_path / "clip.mp4"
+
+
+def test_the_file_is_named_after_synthetic_input_is_composed(tmp_path: Path) -> None:
+    mode = client_window_mode("mp4")
+    window = mode.create(
+        _parsed(
+            [
+                "--mode",
+                "mp4",
+                "--output-path",
+                str(tmp_path / "clip.mp4"),
+                "--synthetic-input-file",
+                str(
+                    _write_descriptor(
+                        tmp_path,
+                        {"version": 1, "events": []},
+                    )
+                ),
+            ]
+        )
+    )
+
+    assert mode.finished(window) == str(tmp_path / "clip.mp4")
 
 
 def test_a_file_run_with_nowhere_to_write_says_so() -> None:

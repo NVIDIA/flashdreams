@@ -60,6 +60,20 @@ It defaults to warning; use ``FLASHDREAMS_PREPARATION_POLICY`` to select
 the FlashDreams cache, or ``FLASHDREAMS_PREPARATION_ISSUES_PATH`` when set.
 Add ``--skip-preload-validation`` to skip validation (running first-block of `ISession`).
 
+Synthetic MP4 input
+-------------------
+
+An MP4 run can replay deterministic input with
+``--synthetic-input-file PATH``:
+
+.. code-block:: bash
+
+    uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+          --mode mp4 --output-path outputs/replay.mp4 \
+          --synthetic-input-file inputs.json -- --example-data
+
+See :doc:`synthetic_input` for the descriptor format and supported events.
+
 The common command shape is ``flashdreams-run <runner> [mode]``. A runner only
 advertises modes it implements; unsupported pairs fail before CUDA
 initialization. Shared modes are ``run``, ``mp4``, ``null``, ``webrtc``, and
