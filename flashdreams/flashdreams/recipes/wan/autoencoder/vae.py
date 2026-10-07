@@ -1420,10 +1420,11 @@ class WanVAEDecoderConfig(DecoderConfig):
     """Wrap the decoder forward in a CUDA graph for replay."""
 
     use_compile: bool = False
-    """``torch.compile(mode="max-autotune-no-cudagraphs")``. On for the
-    streaming 1.3B presets (12-frame blocks); keep it off for whole-clip
-    decodes, where Inductor's intermediates OOM an 81-frame decode on 96 GB.
-    See ``WanVAEEncoderConfig.use_compile`` for the VRAM caveat."""
+    """``torch.compile(mode="max-autotune-no-cudagraphs")``. On for
+    streaming presets with small per-call chunks (e.g. 12-frame blocks);
+    keep it off for whole-clip decodes, where Inductor's intermediates can
+    OOM a large frame count (e.g. 81 frames on 96 GB). See
+    ``WanVAEEncoderConfig.use_compile`` for the VRAM caveat."""
 
     # Wan 2.x VAE architecture knobs (default = Wan 2.1). The decoder
     # needs the encoder's ``base_dim`` too because the checkpoint's
