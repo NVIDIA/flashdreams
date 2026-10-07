@@ -70,6 +70,9 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     parsed = parser.parse_args(own_args)
     if parsed.stats_path is not None:
         os.environ["FLASHDREAMS_SYNC_AND_PROFILE"] = "1"
+        # The stats file is the only reader of the frame rates, so asking for
+        # one asks for the other.
+        os.environ["FLASHDREAMS_FPS"] = "1"
     if parsed.preload_application and any(
         argument == "--mode" or argument.startswith("--mode=") for argument in own_args
     ):

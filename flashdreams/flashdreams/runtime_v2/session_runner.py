@@ -186,7 +186,7 @@ def run_session(
                     raw_result = ui_loop.step(
                         loop_result.step_index, ui_loop.user_events
                     )
-                ui_loop.profiler.event("ui.frame")
+                ui_loop.profiler.event("ui.step")
                 if not isinstance(raw_result, list) or any(
                     not isinstance(item, StepResult) for item in raw_result
                 ):

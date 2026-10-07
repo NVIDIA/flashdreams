@@ -225,14 +225,25 @@ presentation-queue depth/publish-wait measurements under the reserved
 model record because they describe a different frame.
 
 `--stats-path` also sets `FLASHDREAMS_SYNC_AND_PROFILE=1` before constructing the
-application, enabling synchronized per-stage pipeline profiling for the run.
+application, enabling synchronized per-stage pipeline profiling for the run, and
+`FLASHDREAMS_FPS=1`, which adds these rates to every model record:
 
-`FLASHDREAMS_FPS=1` adds `model.frame_fps`, `present.frame_fps` and
-`ui.frame_fps` to those model records: frames generated, frames presented, and
-UI iterations, each over a trailing wall-clock window. They measure different
-frames, so `present.frame_fps` below `model.frame_fps` means the window is not
-consuming everything generated. Counting costs no synchronization, so it is safe
-to leave on while tracing.
+| Key | Counts |
+|---|---|
+| `present.frame_fps` | new frames shown in the window (end to end) |
+| `model.frame_fps` | frames the model generated |
+| `ui.step_fps` | UI loop iterations |
+| `pipeline.generate_fps` | `generate()` calls |
+
+Each is a count per wall-clock second over the model step just ended, waits
+included. Each key also has an `_avg_fps` form covering the session so far,
+compilation included.
+`present.frame_fps` below `model.frame_fps` means the window is not consuming
+everything generated. Counting costs no synchronization, so `FLASHDREAMS_FPS=1`
+is safe to set on its own while tracing.
+
+An application records its own measurements by returning them in
+`StepResult.metrics`; they reach the stats file beside the runtime's.
 
 ## Starting and stopping a run
 

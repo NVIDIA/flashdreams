@@ -98,7 +98,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         report_path=report_path,
         trace=args.trace,
     )
-    # The session reads this when it builds its profiler, so set it in the child.
+    # The runner builds its profiler from this, so set it in the child.
     env = {**os.environ, "FLASHDREAMS_NVTX": "1"}
     completed = subprocess.run(command, env=env, check=False)
     if completed.returncode == 0:

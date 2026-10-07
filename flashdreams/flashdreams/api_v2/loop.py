@@ -285,7 +285,8 @@ class ILoop(ABC, Generic[StateT]):
         if self.frequency == 0 or last_run_started is None:
             return time.monotonic()
         earliest_start = last_run_started + 1.0 / self.frequency
-        self._shutdown_event.wait(max(0.0, earliest_start - time.monotonic()))
+        with self.profiler.range("model.pace"):
+            self._shutdown_event.wait(max(0.0, earliest_start - time.monotonic()))
         return time.monotonic()
 
     def _empty_message_queue(self) -> None:
@@ -394,8 +395,7 @@ class IModelLoop(ILoop[StateT], ABC):
                     try:
                         run = self._begin_run(events, generation)
                         if run.step_index is not None:
-                            with self.profiler.range("model.pace"):
-                                last_run_started = self._pace(last_run_started)
+                            last_run_started = self._pace(last_run_started)
                     except BaseException:
                         if step_control is not None:
                             try:
