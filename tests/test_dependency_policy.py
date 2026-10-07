@@ -24,6 +24,7 @@ from typing import Any
 
 import pytest
 import tomli as tomllib
+from packaging.version import Version
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -105,3 +106,17 @@ def test_workspace_uses_only_headless_opencv() -> None:
         "Workspace packages must use only opencv-python-headless; found:\n"
         + "\n".join(f"  {violation}" for violation in violations)
     )
+
+
+def test_http_lockfiles_meet_security_floors() -> None:
+    minimums = {"urllib3": Version("2.8.0"), "multidict": Version("6.9.1")}
+    for lockfile in [
+        _ROOT / "uv.lock",
+        *_ROOT.glob("integrations_v2/*/tests/*/uv.lock"),
+    ]:
+        for package in tomllib.loads(lockfile.read_text(encoding="utf-8"))["package"]:
+            if package["name"] in minimums:
+                assert Version(package["version"]) >= minimums[package["name"]], (
+                    f"{lockfile.relative_to(_ROOT)}: "
+                    f"{package['name']}=={package['version']} is below its security floor"
+                )

@@ -42,3 +42,5 @@ flashdreams = { path = "../../../../flashdreams", editable = true }
 
 [tool.uv]
 managed = true
+# Security floors for HTTP proxy TLS, chunked decoding, and items-view leaks.
+constraint-dependencies = ["urllib3>=2.8.0,<3", "multidict>=6.9.1,<7"]
