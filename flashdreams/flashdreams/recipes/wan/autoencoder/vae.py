@@ -1282,27 +1282,19 @@ class WanVAEEncoderConfig(EncoderConfig):
     checkpoint_path: str = field(
         default=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
         metadata={
-            "yaml_key": "checkpoint_path",
             "description": "Checkpoint for the Wan VAE encoder.",
         },
     )
     dtype: torch.dtype = field(
         default=torch.bfloat16,
         metadata={
-            "yaml_key": "dtype",
             "description": "Parameter and activation precision of the Wan VAE encoder.",
         },
     )
-    use_cuda_graph: bool = field(
-        default=True,
-        metadata={"yaml_key": "use_cuda_graph"},
-    )
+    use_cuda_graph: bool = True
     """Wrap the encoder forward in a CUDA graph for replay."""
 
-    use_compile: bool = field(
-        default=False,
-        metadata={"yaml_key": "use_compile"},
-    )
+    use_compile: bool = False
     """Compile the encoder with ``torch.compile``; can increase peak VRAM usage.
 
     Uses ``mode="max-autotune-no-cudagraphs"``. Off by default:
@@ -1313,36 +1305,36 @@ class WanVAEEncoderConfig(EncoderConfig):
     # Wan 2.x VAE architecture knobs (default = Wan 2.1).
     base_dim: int = field(
         default=WanVAE.BASE_DIM,
-        metadata={"yaml_key": "base_dim", "user_setting": False},
+        metadata={"user_setting": False},
     )
     """Encoder base channel count (``WanVAE`` ``dim``). 96 for Wan 2.1,
     160 for Wan 2.2 TI2V 5B."""
     z_dim: int = field(
         default=WanVAE.Z_DIM,
-        metadata={"yaml_key": "z_dim", "user_setting": False},
+        metadata={"user_setting": False},
     )
     """Latent channels. 16 for Wan 2.1, 48 for Wan 2.2 TI2V 5B."""
     patch_size: int = field(
         default=WanVAE.PATCH_SIZE,
-        metadata={"yaml_key": "patch_size", "user_setting": False},
+        metadata={"user_setting": False},
     )
     """Outer spatial pixel-shuffle factor (1 = no patchify; 2 for Wan
     2.2 TI2V 5B)."""
     is_residual: bool = field(
         default=WanVAE.IS_RESIDUAL,
-        metadata={"yaml_key": "is_residual", "user_setting": False},
+        metadata={"user_setting": False},
     )
     """Use ``ResidualDownBlock`` (Wan 2.2) instead of the legacy
     ``ResidualBlock + AttentionBlock`` down-stage (Wan 2.1)."""
     latent_mean: tuple[float, ...] = field(
         default=_WAN21_LATENT_MEAN,
-        metadata={"yaml_key": "latent_mean", "user_setting": False},
+        metadata={"user_setting": False},
     )
     """Per-channel latent mean used for normalisation; must match
     ``z_dim`` entries."""
     latent_std: tuple[float, ...] = field(
         default=_WAN21_LATENT_STD,
-        metadata={"yaml_key": "latent_std", "user_setting": False},
+        metadata={"user_setting": False},
     )
     """Per-channel latent std used for normalisation."""
     state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = None

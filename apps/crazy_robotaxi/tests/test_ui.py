@@ -77,7 +77,6 @@ class _SettingsTransformer:
     dtype: str = field(
         default="bfloat16",
         metadata={
-            "yaml_key": "dtype",
             "description": "Test model parameter precision.",
         },
     )
@@ -101,27 +100,25 @@ class _SettingsPipeline:
 
 
 @dataclass(frozen=True)
-class _SettingsEncoderWithYamlKeys:
+class _SettingsEncoder:
     precision: str = field(
         default="bfloat16",
-        metadata={"yaml_key": "dtype", "description": "Encoder precision."},
+        metadata={"description": "Encoder precision."},
     )
-    """Test setting with a YAML key distinct from its Python name."""
+    """Shared setting used by both encoder instances."""
 
 
 @dataclass(frozen=True)
-class _SettingsPipelineWithYamlKeys:
-    image_encoder: _SettingsEncoderWithYamlKeys = field(
-        default_factory=_SettingsEncoderWithYamlKeys,
-        metadata={"yaml_key": "first_frame"},
+class _SettingsPipelineWithEncoders:
+    image_encoder: _SettingsEncoder = field(
+        default_factory=_SettingsEncoder,
     )
     """First instance of the reusable encoder config."""
 
-    encoder: _SettingsEncoderWithYamlKeys = field(
-        default_factory=_SettingsEncoderWithYamlKeys,
-        metadata={"yaml_key": "conditioning"},
+    encoder: _SettingsEncoder = field(
+        default_factory=_SettingsEncoder,
     )
-    """Second instance with its own YAML parent key."""
+    """Second instance with its own parent field name."""
 
 
 def _calibration() -> CameraCalibration:
@@ -2893,16 +2890,13 @@ def test_options_tooltip_covers_a_scrolling_text_editor(tmp_path: Path) -> None:
     ]
 
 
-@pytest.mark.parametrize(
-    ("component", "yaml_component"),
-    (("image_encoder", "first_frame"), ("encoder", "conditioning")),
-)
-def test_options_tooltips_use_metadata_for_reused_configs(
-    tmp_path: Path, component: str, yaml_component: str
+@pytest.mark.parametrize("component", ("image_encoder", "encoder"))
+def test_options_tooltips_derive_paths_for_reused_configs(
+    tmp_path: Path, component: str
 ) -> None:
     document = SettingsDocument.load(
         tmp_path / "config.yaml",
-        pipeline_config=_SettingsPipelineWithYamlKeys(),
+        pipeline_config=_SettingsPipelineWithEncoders(),
         width=1280,
         height=704,
     )
@@ -2915,7 +2909,7 @@ def test_options_tooltips_use_metadata_for_reused_configs(
     state.draw(imgui)
 
     assert imgui.tooltips == [
-        f"Encoder precision.\n\nYAML: model.pipeline.{yaml_component}.dtype"
+        f"Encoder precision.\n\nYAML: model.pipeline.{component}.precision"
     ]
 
 

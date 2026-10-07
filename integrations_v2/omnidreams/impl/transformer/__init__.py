@@ -192,16 +192,10 @@ class CosmosTransformerConfig(TransformerConfig):
     network: CosmosDiTNetworkConfig = field(default_factory=CosmosDiTNetworkConfig)
     """Backbone Cosmos DiT network config."""
 
-    dtype: torch.dtype = field(
-        default=torch.bfloat16,
-        metadata={"yaml_key": "dtype"},
-    )
+    dtype: torch.dtype = torch.bfloat16
     """Network parameter / activation dtype."""
 
-    checkpoint_path: str | None = field(
-        default=None,
-        metadata={"yaml_key": "checkpoint_path"},
-    )
+    checkpoint_path: str | None = None
     """Optional path to a pretrained checkpoint; ``None`` keeps the random init."""
 
     state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = None
@@ -209,113 +203,65 @@ class CosmosTransformerConfig(TransformerConfig):
 
     batch_shape: tuple[int, ...] = field(
         default=(1,),
-        metadata={"yaml_key": "batch_shape", "user_setting": False},
+        metadata={"user_setting": False},
     )
     """Batch dims of the latent (excluding ``V, T, HW, D``)."""
 
     num_views: int = field(
         default=1,
-        metadata={"yaml_key": "num_views", "user_setting": False},
+        metadata={"user_setting": False},
     )
     """Number of camera views; >1 enables cross-view attention."""
 
-    len_t: int = field(
-        default=4,
-        metadata={"yaml_key": "len_t"},
-    )
+    len_t: int = 4
     """Latent frames per AR chunk."""
 
-    h_extrapolation_ratio: float = field(
-        default=3.0,
-        metadata={"yaml_key": "h_extrapolation_ratio"},
-    )
+    h_extrapolation_ratio: float = 3.0
     """RoPE extrapolation along H (3.0 @ 720p)."""
 
-    w_extrapolation_ratio: float = field(
-        default=3.0,
-        metadata={"yaml_key": "w_extrapolation_ratio"},
-    )
+    w_extrapolation_ratio: float = 3.0
     """RoPE extrapolation along W."""
 
-    window_size_t: int = field(
-        default=8,
-        metadata={"yaml_key": "window_size_t"},
-    )
+    window_size_t: int = 8
     """Self-attention sliding window (pre-patchify T)."""
 
-    sink_size_t: int = field(
-        default=0,
-        metadata={"yaml_key": "sink_size_t"},
-    )
+    sink_size_t: int = 0
     """Sink-token count (pre-patchify T)."""
 
-    early_short_history_block_count: int | None = field(
-        default=None,
-        metadata={"yaml_key": "early_short_history_block_count"},
-    )
+    early_short_history_block_count: int | None = None
     """Number of initial blocks limited to one chunk of visual history.
     ``None`` disables this policy.
     """
 
-    compile_network: bool = field(
-        default=True,
-        metadata={"yaml_key": "compile_network"},
-    )
+    compile_network: bool = True
     """``torch.compile`` the network."""
 
-    use_cuda_graph: bool = field(
-        default=True,
-        metadata={"yaml_key": "use_cuda_graph"},
-    )
+    use_cuda_graph: bool = True
     """Wrap in ``CUDAGraphWrapper`` for steady-state replay. Caller must
     keep non-staged inputs at stable storage addresses across calls."""
 
-    cuda_graph_warmup_iters: int = field(
-        default=2,
-        metadata={"yaml_key": "cuda_graph_warmup_iters"},
-    )
+    cuda_graph_warmup_iters: int = 2
     """Eager calls before capture (>= 2 to drain Inductor autotune)."""
 
-    skip_finalize_kv_cache: bool = field(
-        default=False,
-        metadata={"yaml_key": "skip_finalize_kv_cache"},
-    )
+    skip_finalize_kv_cache: bool = False
     """Skip the KV cache finalize step."""
 
-    native_dit_acceleration: NativeAccelerationMode = field(
-        default="disabled",
-        metadata={"yaml_key": "native_dit_acceleration"},
-    )
+    native_dit_acceleration: NativeAccelerationMode = "disabled"
     """Native optimized DiT policy: ``disabled``, ``auto``, or ``required``."""
 
-    native_dit_build_root: str | None = field(
-        default=None,
-        metadata={"yaml_key": "native_dit_build_root"},
-    )
+    native_dit_build_root: str | None = None
     """Optional native extension build/cache root."""
 
-    native_dit_max_jobs: int | str | None = field(
-        default=None,
-        metadata={"yaml_key": "native_dit_max_jobs"},
-    )
+    native_dit_max_jobs: int | str | None = None
     """Optional PyTorch/Ninja job cap for the native DiT build."""
 
-    native_dit_verbose_build: bool = field(
-        default=False,
-        metadata={"yaml_key": "native_dit_verbose_build"},
-    )
+    native_dit_verbose_build: bool = False
     """Forward verbose build output from the native extension loader."""
 
-    native_dit_backend: Literal["fp8_kvcache_cudnn", "bf16"] = field(
-        default="fp8_kvcache_cudnn",
-        metadata={"yaml_key": "native_dit_backend"},
-    )
+    native_dit_backend: Literal["fp8_kvcache_cudnn", "bf16"] = "fp8_kvcache_cudnn"
     """Optimized native DiT compute backend."""
 
-    native_dit_attention_backend: str = field(
-        default="auto",
-        metadata={"yaml_key": "native_dit_attention_backend"},
-    )
+    native_dit_attention_backend: str = "auto"
     """Optimized native attention backend.
 
     ``auto`` selects the current default, which resolves to the portable cuDNN
@@ -325,35 +271,23 @@ class CosmosTransformerConfig(TransformerConfig):
     back to cuDNN otherwise (Windows, stub builds).
     """
 
-    native_dit_sparge_topk: float | None = field(
-        default=None,
-        metadata={"yaml_key": "native_dit_sparge_topk"},
-    )
+    native_dit_sparge_topk: float | None = None
     """Optional Sparge self-attention top-k ratio.
 
     ``None`` uses ``0.25`` for Sparge and Sparge/SageAttention-3 hybrid runs.
     """
 
-    native_dit_sparge_hybrid_period: int | None = field(
-        default=None,
-        metadata={"yaml_key": "native_dit_sparge_hybrid_period"},
-    )
+    native_dit_sparge_hybrid_period: int | None = None
     """Optional Sparge/SageAttention-3 hybrid period.
 
     ``None`` uses ``0``. Set a value greater than ``1`` with
     ``native_dit_attention_backend="sparge"`` to enable the hybrid schedule.
     """
 
-    native_dit_sparge_hybrid_phase: int | None = field(
-        default=None,
-        metadata={"yaml_key": "native_dit_sparge_hybrid_phase"},
-    )
+    native_dit_sparge_hybrid_phase: int | None = None
     """Optional Sparge hybrid phase. ``None`` uses backend defaults."""
 
-    guidance_scale: float = field(
-        default=1.0,
-        metadata={"yaml_key": "guidance_scale"},
-    )
+    guidance_scale: float = 1.0
     """CFG scale. ``1.0`` disables CFG; ``> 1.0`` requires negative text embeddings."""
 
     @property

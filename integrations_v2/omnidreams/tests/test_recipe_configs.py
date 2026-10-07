@@ -118,8 +118,6 @@ def test_options_descriptions_match_the_guides(
             else:
                 description = setting_description(value, item)
                 assert description, item_path
-                assert isinstance(item.metadata["yaml_key"], str)
-                assert item.metadata["yaml_key"]
                 label = f"{item.name.replace('_', ' ').title()}:"
                 descriptions[label, description] += 1
 

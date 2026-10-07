@@ -41,16 +41,10 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
         default_factory=lambda: CosmosReason1TextEncoder
     )
 
-    model_name: str = field(
-        default="nvidia/Cosmos-Reason1-7B",
-        metadata={"yaml_key": "model_name"},
-    )
+    model_name: str = "nvidia/Cosmos-Reason1-7B"
     """HF repo id of the underlying Qwen2.5-VL model."""
 
-    revision: str = field(
-        default="3210bec0495fdc7a8d3dbb8d58da5711eab4b423",
-        metadata={"yaml_key": "revision"},
-    )
+    revision: str = "3210bec0495fdc7a8d3dbb8d58da5711eab4b423"
     """HF commit hash to pin.
 
     Defaults to the Cosmos-Reason1.1 SFT checkpoint
@@ -58,37 +52,30 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
     that the Cosmos-Predict 2.5 2B model was trained on.
     """
 
-    max_length: int = field(
-        default=512,
-        metadata={"yaml_key": "max_length"},
-    )
+    max_length: int = 512
     """Token length to pad/truncate to."""
 
     dtype: torch.dtype = field(
         default=torch.bfloat16,
         metadata={
-            "yaml_key": "dtype",
             "description": "Parameter and activation precision of the text encoder.",
         },
     )
 
     embedding_concat_strategy: str = field(
         default="full_concat",
-        metadata={"yaml_key": "embedding_concat_strategy", "user_setting": False},
+        metadata={"user_setting": False},
     )
     """``"full_concat"`` (default, 100352 dims, matches upstream),
     ``"mean_pooling"``, or ``"pool_every_n_layers_and_concat"``."""
 
     n_layers_per_group: int = field(
         default=5,
-        metadata={"yaml_key": "n_layers_per_group", "user_setting": False},
+        metadata={"user_setting": False},
     )
     """Group size for the pool-every-N strategy."""
 
-    run_on_cpu: bool = field(
-        default=False,
-        metadata={"yaml_key": "run_on_cpu"},
-    )
+    run_on_cpu: bool = False
     """Keep the bf16 model on the host and run it there.
 
     ``.to(device)`` then records the compute device instead of moving the
@@ -98,10 +85,7 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
     rollout on 32 GB GPUs.
     """
 
-    embedding_cache_size: int = field(
-        default=0,
-        metadata={"yaml_key": "embedding_cache_size"},
-    )
+    embedding_cache_size: int = 0
     """Number of most recently encoded prompt batches whose embeddings are kept.
     ``0`` disables caching.
 

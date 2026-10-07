@@ -1945,14 +1945,6 @@ class TaxiHudState:
             return
         categories = tuple(iter_setting_fields(draft))
         category_name = self._options_category
-        yaml_category_name = next(
-            (
-                item.metadata.get("yaml_key", item.name)
-                for item, _ in categories
-                if item.name == category_name
-            ),
-            category_name,
-        )
         list_max_height = self._menu_scroll_max_height("options")
         _draw_arcade_backdrop(imgui, self.width, self.height)
         _prepare_window(
@@ -2055,7 +2047,6 @@ class TaxiHudState:
                         category,
                         (category_name,),
                         fields_width,
-                        (yaml_category_name,),
                     )
                     fields_scroll_max_y = float(imgui.get_scroll_max_y())
                     fields_content_height = _current_window_content_height(imgui)
@@ -2131,7 +2122,6 @@ class TaxiHudState:
         value: object,
         path: tuple[str, ...],
         content_width: float,
-        yaml_path: tuple[str, ...],
     ) -> None:
         document = self.settings_document
         draft = self._options_draft
@@ -2148,14 +2138,11 @@ class TaxiHudState:
                 return
             value = setting_value(draft, path)
             item_path = (*path, item.name)
-            item_yaml_path = (*yaml_path, item.metadata.get("yaml_key", item.name))
             current = getattr(value, item.name)
             if is_dataclass(current) and not isinstance(current, type):
                 imgui.separator()
                 imgui.text(item.name.replace("_", " ").upper())
-                self._draw_settings_tree(
-                    imgui, current, item_path, content_width, item_yaml_path
-                )
+                self._draw_settings_tree(imgui, current, item_path, content_width)
                 continue
             label = item.name.replace("_", " ").title()
             label_text = f"{label}:"
@@ -2244,7 +2231,7 @@ class TaxiHudState:
                         changed = False
             imgui.end_group()
             _draw_option_tooltip(
-                imgui, setting_description(value, item), ".".join(item_yaml_path)
+                imgui, setting_description(value, item), ".".join(item_path)
             )
             if changed:
                 try:

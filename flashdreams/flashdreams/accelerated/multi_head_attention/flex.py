@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import cast
 
 import torch
@@ -31,76 +31,40 @@ from torch.nn.attention.flex_attention import flex_attention
 class FlexAttentionOptions:
     """Compilation, mask-block, and kernel policy for FlexAttention."""
 
-    block_size: int = field(
-        default=128,
-        metadata={"yaml_key": "block_size"},
-    )
+    block_size: int = 128
     """Square fallback used when building a block mask."""
 
-    mask_block_m: int | None = field(
-        default=None,
-        metadata={"yaml_key": "mask_block_m"},
-    )
+    mask_block_m: int | None = None
     """Optional query block size; ``None`` uses ``block_size``."""
 
-    mask_block_n: int | None = field(
-        default=None,
-        metadata={"yaml_key": "mask_block_n"},
-    )
+    mask_block_n: int | None = None
     """Optional key/value block size; ``None`` uses ``block_size``."""
 
-    compile_dynamic: bool | None = field(
-        default=None,
-        metadata={"yaml_key": "compile_dynamic"},
-    )
+    compile_dynamic: bool | None = None
     """Dynamic-shape policy forwarded to :func:`torch.compile`."""
 
-    block_m: int | None = field(
-        default=None,
-        metadata={"yaml_key": "block_m"},
-    )
+    block_m: int | None = None
     """Optional forward query tile size; ``None`` lets PyTorch choose."""
 
-    block_n: int | None = field(
-        default=None,
-        metadata={"yaml_key": "block_n"},
-    )
+    block_n: int | None = None
     """Optional forward key/value tile size; ``None`` lets PyTorch choose."""
 
-    num_warps: int | None = field(
-        default=None,
-        metadata={"yaml_key": "num_warps"},
-    )
+    num_warps: int | None = None
     """Optional Triton warp count; ``None`` lets PyTorch choose."""
 
-    num_stages: int | None = field(
-        default=None,
-        metadata={"yaml_key": "num_stages"},
-    )
+    num_stages: int | None = None
     """Optional Triton pipeline-stage count; ``None`` lets PyTorch choose."""
 
-    prescale_qk: bool | None = field(
-        default=None,
-        metadata={"yaml_key": "prescale_qk"},
-    )
+    prescale_qk: bool | None = None
     """Whether to apply the attention scale before the QK reduction."""
 
-    use_tma: bool | None = field(
-        default=None,
-        metadata={"yaml_key": "use_tma"},
-    )
+    use_tma: bool | None = None
     """Whether to request TMA from FlexAttention; ``None`` uses its default."""
 
-    backend: str | None = field(
-        default=None,
-        metadata={"yaml_key": "backend"},
-    )
+    backend: str | None = None
     """Optional FlexAttention kernel backend: ``TRITON`` or ``FLASH``."""
 
-    rows_guaranteed_safe: bool = field(
-        default=False,
-        metadata={"yaml_key": "rows_guaranteed_safe"},
-    )
+    rows_guaranteed_safe: bool = False
     """Skip empty-row guards when every query sees at least one key."""
 
     @property

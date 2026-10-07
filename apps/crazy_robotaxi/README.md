@@ -100,6 +100,18 @@ defaults, and retained comments survive Options saves. Explicit application CLI
 arguments override YAML for the current run without rewriting the saved value;
 the Options screen labels affected fields.
 
+For offline YAML edits by users or agents, keys are the Python dataclass field
+names, nested along the settings tree. Start at `CrazyRobotaxiUserSettings` in
+[settings.py](crazy_robotaxi/settings.py) and follow nested types and inherited
+fields; `model.pipeline` uses the selected runner's pipeline config. Only fields
+exposed by `iter_setting_fields` are configurable. Structured list entries also
+use their dataclass field names.
+
+To derive a key from a menu label or section heading, remove the trailing colon,
+lowercase it, and replace spaces with underscores. Keep each section as a nested
+mapping: **PRESENTATION → Show Fps** becomes `presentation.show_fps`, a
+`show_fps` key inside the `presentation` mapping.
+
 Mode, map, and race-course selections are intentionally CLI-only and do not
 appear in the YAML or Options screen. Passing `--game-mode`, `--map`, and
 `--race-course` skips their corresponding startup menus; omitted selections

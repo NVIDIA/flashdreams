@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 from abc import abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 import torch
@@ -95,28 +95,16 @@ class QKVFusionOption(str, Enum):
 class QuantizationOption:
     """Attention quantization policy."""
 
-    projection: torch.dtype | None = field(
-        default=None,
-        metadata={"yaml_key": "projection"},
-    )
+    projection: torch.dtype | None = None
     """Q/K/V projection dtype; ``None`` preserves native precision."""
 
-    output_projection: torch.dtype | None = field(
-        default=None,
-        metadata={"yaml_key": "output_projection"},
-    )
+    output_projection: torch.dtype | None = None
     """Output projection dtype; ``None`` preserves native precision."""
 
-    output_granularity: Granularity = field(
-        default=Granularity.SLICE,
-        metadata={"yaml_key": "output_granularity"},
-    )
+    output_granularity: Granularity = Granularity.SLICE
     """Activation quantization granularity for the output projection."""
 
-    quantized_sdpa: bool = field(
-        default=False,
-        metadata={"yaml_key": "quantized_sdpa"},
-    )
+    quantized_sdpa: bool = False
     """Use unscaled FP8 e4m3 Q/K/V in scaled-dot-product attention; can reduce accuracy.
 
     This directly casts Q, K, and V to FP8 e4m3 before calling the configured
@@ -152,22 +140,13 @@ class QuantizationOption:
 class OptimizedImplConfig:
     """Optimized attention implementation policy."""
 
-    qkv_fusion_option: QKVFusionOption = field(
-        default=QKVFusionOption.FULL,
-        metadata={"yaml_key": "qkv_fusion_option"},
-    )
+    qkv_fusion_option: QKVFusionOption = QKVFusionOption.FULL
     """Projection fusion policy."""
 
-    sdpa_backend: SDPABackend = field(
-        default=SDPABackend.CUDNN,
-        metadata={"yaml_key": "sdpa_backend"},
-    )
+    sdpa_backend: SDPABackend = SDPABackend.CUDNN
     """Scaled-dot-product attention implementation."""
 
-    use_tma: bool = field(
-        default=True,
-        metadata={"yaml_key": "use_tma"},
-    )
+    use_tma: bool = True
     """Prefer TMA FlashAttention2 when the device and tensors support it."""
 
     quantization: QuantizationOption = QuantizationOption()

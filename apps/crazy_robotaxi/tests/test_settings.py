@@ -45,8 +45,8 @@ class _Pipeline:
     optional_boolean: bool | None = None
     """Nullable user preference retained beside the internal hook."""
 
-    python_name: str = field(default="default", metadata={"yaml_key": "yaml_name"})
-    """Setting with an explicit YAML key independent of its Python attribute."""
+    python_name: str = "default"
+    """Setting whose YAML key is its Python field name."""
 
 
 @dataclass
@@ -132,9 +132,9 @@ presentation:
     assert document.settings.presentation.show_current_prompt
 
 
-def test_yaml_keys_come_from_field_metadata(tmp_path: Path) -> None:
+def test_yaml_keys_come_from_python_field_names(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
-    path.write_text("model:\n  pipeline:\n    yaml_name: custom\n", encoding="utf-8")
+    path.write_text("model:\n  pipeline:\n    python_name: custom\n", encoding="utf-8")
     document = _load(path)
     assert document.settings.model.pipeline.python_name == "custom"
 
@@ -144,8 +144,7 @@ def test_yaml_keys_come_from_field_metadata(tmp_path: Path) -> None:
     document.save(draft)
 
     saved = path.read_text(encoding="utf-8")
-    assert "yaml_name: updated" in saved
-    assert "python_name:" not in saved
+    assert "python_name: updated" in saved
     assert _load(path).settings.model.pipeline.python_name == "updated"
 
 

@@ -43,63 +43,38 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
         default_factory=lambda: FlowMatchScheduler
     )
 
-    num_inference_steps: int = field(
-        default=4,
-        metadata={"yaml_key": "num_inference_steps"},
-    )
+    num_inference_steps: int = 4
     """Number of denoising steps; must equal ``len(denoising_timesteps)``."""
 
-    shift: float = field(
-        default=8.0,
-        metadata={"yaml_key": "shift"},
-    )
+    shift: float = 8.0
     """Schedule warp factor."""
 
     denoising_timesteps: list[int] = field(
-        default_factory=lambda: [1000, 750, 500, 250],
-        metadata={"yaml_key": "denoising_timesteps"},
+        default_factory=lambda: [1000, 750, 500, 250]
     )
     """Per-step diffusion timesteps in ``[0, num_train_timesteps]``."""
 
-    warp_denoising_step: bool = field(
-        default=True,
-        metadata={"yaml_key": "warp_denoising_step"},
-    )
+    warp_denoising_step: bool = True
     """Map ``denoising_timesteps`` through the warped sigma schedule."""
 
-    num_train_timesteps: int = field(
-        default=1000,
-        metadata={"yaml_key": "num_train_timesteps"},
-    )
+    num_train_timesteps: int = 1000
     """Length of the training sigma table."""
 
-    sigma_max: float = field(
-        default=1.0,
-        metadata={"yaml_key": "sigma_max"},
-    )
+    sigma_max: float = 1.0
     """Top of the linspace before warping; ``1.0`` matches DiffSynth, upstream
     Wan / Lingbot ships ``0.999``."""
 
-    sigma_min: float = field(
-        default=0.0,
-        metadata={"yaml_key": "sigma_min"},
-    )
+    sigma_min: float = 0.0
     """Bottom of the linspace before warping. Reserved for upstream parity;
     only ``0.0`` is exercised."""
 
-    extra_one_step: bool = field(
-        default=True,
-        metadata={"yaml_key": "extra_one_step"},
-    )
+    extra_one_step: bool = True
     """If ``True``, build the schedule from
     ``linspace(sigma_max, sigma_min, N+1)[:-1]`` (matches DiffSynth /
     upstream Wan); ``False`` uses ``N`` points and is kept for non-Wan
     recipes."""
 
-    timestep_dtype: torch.dtype = field(
-        default=torch.float32,
-        metadata={"yaml_key": "timestep_dtype"},
-    )
+    timestep_dtype: torch.dtype = torch.float32
     """Dtype of ``denoising_step_list``.
 
     Set to an integer dtype (e.g.
@@ -108,10 +83,7 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
     ``scheduler.timesteps`` as ``int64`` and lets the embedding upcast to
     ``float64`` internally."""
 
-    enable_tqdm: bool = field(
-        default=False,
-        metadata={"yaml_key": "enable_tqdm"},
-    )
+    enable_tqdm: bool = False
     """Whether to enable tqdm progress bar."""
 
 

@@ -107,7 +107,7 @@ class OmnidreamsPipelineConfig(StreamInferencePipelineConfig):
 
     synthetic_text_max_length: int | None = field(
         default=None,
-        metadata={"yaml_key": "synthetic_text_max_length", "user_setting": False},
+        metadata={"user_setting": False},
     )
     """Text token count for the interactive-drive synthetic latency path.
 

@@ -62,35 +62,30 @@ class OmnidreamsWanVAEEncoderConfig(WanVAEEncoderConfig):
     native_vae_acceleration: NativeAccelerationMode = field(
         default="disabled",
         metadata={
-            "yaml_key": "native_vae_acceleration",
             "description": "Native VAE policy: disabled, auto, or required.",
         },
     )
     native_vae_build_root: str | None = field(
         default=None,
         metadata={
-            "yaml_key": "native_vae_build_root",
             "description": "Native extension build and cache directory.",
         },
     )
     native_vae_max_jobs: int | str | None = field(
         default=None,
         metadata={
-            "yaml_key": "native_vae_max_jobs",
             "description": "Parallel job cap for the native build.",
         },
     )
     native_vae_verbose_build: bool = field(
         default=False,
         metadata={
-            "yaml_key": "native_vae_verbose_build",
             "description": "Enables detailed native build logs.",
         },
     )
     native_vae_backend: NativeVAEBackend = field(
         default="fp8",
         metadata={
-            "yaml_key": "native_vae_backend",
             "description": "Native VAE compute backend, currently fp8.",
             "user_setting": False,
         },
@@ -98,14 +93,12 @@ class OmnidreamsWanVAEEncoderConfig(WanVAEEncoderConfig):
     native_vae_fp8_state_path: str | None = field(
         default=None,
         metadata={
-            "yaml_key": "native_vae_fp8_state_path",
             "description": "File containing the exported FP8 VAE state.",
         },
     )
     native_vae_fp8_auto_export: bool = field(
         default=False,
         metadata={
-            "yaml_key": "native_vae_fp8_auto_export",
             "description": "Automatically exports FP8 state when needed.",
         },
     )

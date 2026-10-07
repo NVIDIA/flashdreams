@@ -35,21 +35,18 @@ class RasterConfig:
     width: int = field(
         default=1280,
         metadata={
-            "yaml_key": "width",
             "description": "Main raster width in pixels; must be positive.",
         },
     )
     height: int = field(
         default=704,
         metadata={
-            "yaml_key": "height",
             "description": "Main raster height in pixels; must be positive.",
         },
     )
     compute_device: ComputeDeviceName = field(
         default="cuda",
         metadata={
-            "yaml_key": "compute_device",
             "description": "Device used for raster computation.",
             "user_setting": False,
         },
@@ -57,7 +54,6 @@ class RasterConfig:
     sync_gpu_timing: bool = field(
         default=False,
         metadata={
-            "yaml_key": "sync_gpu_timing",
             "description": "Synchronizes GPU work for timing measurements.",
             "user_setting": False,
         },
@@ -65,7 +61,6 @@ class RasterConfig:
     perf_log_interval_frames: int = field(
         default=20,
         metadata={
-            "yaml_key": "perf_log_interval_frames",
             "description": "Interval for raster performance logs.",
             "user_setting": False,
         },
@@ -73,7 +68,6 @@ class RasterConfig:
     near_plane_m: float = field(
         default=0.1,
         metadata={
-            "yaml_key": "near_plane_m",
             "description": "Nearest camera clipping distance; must be less than Far Plane M.",
             "user_setting": False,
         },
@@ -81,7 +75,6 @@ class RasterConfig:
     far_plane_m: float = field(
         default=200.0,
         metadata={
-            "yaml_key": "far_plane_m",
             "description": "Farthest camera clipping distance; must exceed Near Plane M.",
             "user_setting": False,
         },
@@ -89,7 +82,6 @@ class RasterConfig:
     fog_start_m: float = field(
         default=40.0,
         metadata={
-            "yaml_key": "fog_start_m",
             "description": "Distance where fog begins; must be less than Fog End M.",
             "user_setting": False,
         },
@@ -97,7 +89,6 @@ class RasterConfig:
     fog_end_m: float = field(
         default=140.0,
         metadata={
-            "yaml_key": "fog_end_m",
             "description": "Distance where fog reaches full strength; must exceed Fog Start M.",
             "user_setting": False,
         },
@@ -105,7 +96,6 @@ class RasterConfig:
     fog_power: float = field(
         default=1.5,
         metadata={
-            "yaml_key": "fog_power",
             "description": "Exponent controlling the fog transition curve.",
             "user_setting": False,
         },
@@ -113,7 +103,6 @@ class RasterConfig:
     triangle_raytrace_distance_m: float = field(
         default=25.0,
         metadata={
-            "yaml_key": "triangle_raytrace_distance_m",
             "description": "Maximum distance for triangle ray tracing.",
             "user_setting": False,
         },
@@ -121,7 +110,6 @@ class RasterConfig:
     triangle_raytrace_edge_samples: int = field(
         default=8,
         metadata={
-            "yaml_key": "triangle_raytrace_edge_samples",
             "description": "Number of edge samples for triangle ray tracing.",
             "user_setting": False,
         },
@@ -129,42 +117,36 @@ class RasterConfig:
     lane_segment_interval_m: float = field(
         default=0.05,
         metadata={
-            "yaml_key": "lane_segment_interval_m",
             "description": "Segment spacing when rasterizing lanes.",
         },
     )
     polyline_segment_interval_m: float = field(
         default=0.8,
         metadata={
-            "yaml_key": "polyline_segment_interval_m",
             "description": "Segment spacing when rasterizing other polylines.",
         },
     )
     line_width_px: float = field(
         default=12.0,
         metadata={
-            "yaml_key": "line_width_px",
             "description": "Rendered road-line width in pixels.",
         },
     )
     pole_width_px: float = field(
         default=5.0,
         metadata={
-            "yaml_key": "pole_width_px",
             "description": "Rendered pole width in pixels.",
         },
     )
     dual_line_offset_m: float = field(
         default=0.10,
         metadata={
-            "yaml_key": "dual_line_offset_m",
             "description": "Separation of paired road lines.",
         },
     )
     depth_clear_m: float = field(
         default=1.0e6,
         metadata={
-            "yaml_key": "depth_clear_m",
             "description": "Initial depth-buffer distance.",
             "user_setting": False,
         },
@@ -182,40 +164,35 @@ class BevConfig:
 
     enabled: bool = field(
         default=True,
-        metadata={"yaml_key": "enabled", "description": "Displays the top-down view."},
+        metadata={"description": "Displays the top-down view."},
     )
     width: int = field(
         default=1024,
         metadata={
-            "yaml_key": "width",
             "description": "Top-down image width in pixels; must be positive.",
         },
     )
     height: int = field(
         default=1024,
         metadata={
-            "yaml_key": "height",
             "description": "Top-down image height in pixels; must be positive.",
         },
     )
     height_m: float = field(
         default=75.0,
         metadata={
-            "yaml_key": "height_m",
             "description": "Camera height above the scene; must be positive.",
         },
     )
     fov_deg: float = field(
         default=60.0,
         metadata={
-            "yaml_key": "fov_deg",
             "description": "Top-down camera field of view in degrees.",
         },
     )
     tilt_deg: float = field(
         default=0.0,
         metadata={
-            "yaml_key": "tilt_deg",
             "description": "Top-down camera tilt in degrees.",
         },
     )
@@ -228,7 +205,6 @@ class VehicleConfig:
     wheel_base_m: float = field(
         default=2.8,
         metadata={
-            "yaml_key": "wheel_base_m",
             "description": "Distance between front and rear axles in the vehicle model.",
         },
     )
@@ -239,14 +215,12 @@ class VehicleConfig:
     max_speed_mps: float = field(
         default=31.2928,
         metadata={
-            "yaml_key": "max_speed_mps",
             "description": "Normal forward speed cap.",
         },
     )
     max_reverse_speed_mps: float = field(
         default=6.0,
         metadata={
-            "yaml_key": "max_reverse_speed_mps",
             "description": "Reverse speed cap.",
         },
     )
@@ -255,79 +229,69 @@ class VehicleConfig:
     max_lateral_accel_mps2: float = 6.2
     drag_mps2: float = field(
         default=0.7,
-        metadata={"yaml_key": "drag_mps2", "description": "Base speed loss from drag."},
+        metadata={"description": "Base speed loss from drag."},
     )
     mass_kg: float = field(
         default=1_550.0,
         metadata={
-            "yaml_key": "mass_kg",
             "description": "Vehicle mass used by the physical simulation.",
         },
     )
     tire_grip: float = field(
         default=1.35,
-        metadata={"yaml_key": "tire_grip", "description": "Tire traction factor."},
+        metadata={"description": "Tire traction factor."},
     )
     rolling_resistance: float = field(
         default=0.015,
         metadata={
-            "yaml_key": "rolling_resistance",
             "description": "Resistance from rolling contact.",
         },
     )
     aero_drag_coefficient: float = field(
         default=0.42,
         metadata={
-            "yaml_key": "aero_drag_coefficient",
             "description": "Aerodynamic drag factor.",
         },
     )
     collision_restitution: float = field(
         default=0.22,
         metadata={
-            "yaml_key": "collision_restitution",
             "description": "General collision bounce.",
         },
     )
     collision_friction: float = field(
         default=0.65,
         metadata={
-            "yaml_key": "collision_friction",
             "description": "Friction during collisions.",
         },
     )
     max_collision_yaw_rate_radps: float = field(
         default=0.35,
         metadata={
-            "yaml_key": "max_collision_yaw_rate_radps",
             "description": "Cap on rotation caused by collisions.",
         },
     )
     suspension_stiffness: float = field(
         default=42.0,
         metadata={
-            "yaml_key": "suspension_stiffness",
             "description": "Suspension spring strength.",
         },
     )
     suspension_damping: float = field(
         default=9.0,
         metadata={
-            "yaml_key": "suspension_damping",
             "description": "How quickly suspension motion settles.",
         },
     )
     suspension_travel_m: float = field(
         default=0.22,
         metadata={
-            "yaml_key": "suspension_travel_m",
             "description": "Maximum suspension movement.",
         },
     )
     suspension_visual_gain: float = field(
         default=0.15,
         metadata={
-            "yaml_key": "suspension_visual_gain",
             "description": "Amount of visible suspension response.",
         },
     )
@@ -335,7 +299,6 @@ class VehicleConfig:
     max_body_pitch_rad: float = field(
         default=0.5,
         metadata={
-            "yaml_key": "max_body_pitch_rad",
             "description": "Limit on forward/back body tilt.",
         },
     )
@@ -344,21 +307,18 @@ class VehicleConfig:
     aabb_length_m: float = field(
         default=4.8,
         metadata={
-            "yaml_key": "aabb_length_m",
             "description": "Length of the taxi's axis-aligned collision box.",
         },
     )
     aabb_width_m: float = field(
         default=2.0,
         metadata={
-            "yaml_key": "aabb_width_m",
             "description": "Width of the taxi's axis-aligned collision box.",
         },
     )
     aabb_height_m: float = field(
         default=1.6,
         metadata={
-            "yaml_key": "aabb_height_m",
             "description": "Height of the taxi's axis-aligned collision box.",
         },
     )

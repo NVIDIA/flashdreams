@@ -89,34 +89,19 @@ _DEFAULT_SKINS: tuple[StyleSkin, ...] = (
 class LiveEditStyleConfig:
     """Live game-skin switching (text-edit LoRA + drift corrector)."""
 
-    enabled: bool = field(
-        default=False,
-        metadata={"yaml_key": "enabled"},
-    )
+    enabled: bool = False
     """Whether the style ability is attached to the world-model session."""
 
-    lora_checkpoint: Path | None = field(
-        default=None,
-        metadata={"yaml_key": "lora_checkpoint"},
-    )
+    lora_checkpoint: Path | None = None
     """Pre-merged text-edit LoRA checkpoint (``guidance_distill`` format)."""
 
-    corrector_checkpoint: Path | None = field(
-        default=None,
-        metadata={"yaml_key": "corrector_checkpoint"},
-    )
+    corrector_checkpoint: Path | None = None
     """Style-drift corrector LoRA checkpoint (``train_v2`` format)."""
 
-    corrector_gain: float = field(
-        default=0.15,
-        metadata={"yaml_key": "corrector_gain"},
-    )
+    corrector_gain: float = 0.15
     """Global corrector gain composed with the alpha*(t) gate profile."""
 
-    corrector_mode: str = field(
-        default="fused",
-        metadata={"yaml_key": "corrector_mode"},
-    )
+    corrector_mode: str = "fused"
     """Drift-corrector deploy mode: ``fused``, ``unfused``, or ``off``.
 
     ``fused`` rides the CUDA-graph-safe
@@ -128,30 +113,18 @@ class LiveEditStyleConfig:
     no transformer weights are snapshotted or copied.
     ``LIVE_EDIT_CORRECTOR_MODE`` sets the CLI default."""
 
-    base_corrector_checkpoint: Path | None = field(
-        default=None,
-        metadata={"yaml_key": "base_corrector_checkpoint"},
-    )
+    base_corrector_checkpoint: Path | None = None
     """Optional photoreal drift corrector for the BASE world state (fused
     mode only; the shipped ``lora_v2_v3_valpeak.pt`` deploy). ``None``
     leaves the base world uncorrected."""
 
-    base_corrector_gain: float = field(
-        default=0.25,
-        metadata={"yaml_key": "base_corrector_gain"},
-    )
+    base_corrector_gain: float = 0.25
     """Gain for the base-state photoreal corrector (``corrgate025``)."""
 
-    gate_alpha_json: Path | None = field(
-        default=None,
-        metadata={"yaml_key": "gate_alpha_json"},
-    )
+    gate_alpha_json: Path | None = None
     """Measured per-timestep gate profile (``edit_sft/gate_style.py`` output)."""
 
-    guidance_scale: float = field(
-        default=2.5,
-        metadata={"yaml_key": "guidance_scale"},
-    )
+    guidance_scale: float = 2.5
     """Edit-window strength marker for skin swaps. With the pre-merged edit
     LoRA deployed, any value > 1.0 (together with ``guidance_chunks`` > 0)
     opens the single-branch LoRA window; exactly 1.0 falls back to a plain
@@ -160,10 +133,7 @@ class LiveEditStyleConfig:
     2.5/20 is the validated skin
     deployment from the smoke harness."""
 
-    guidance_chunks: int = field(
-        default=6,
-        metadata={"yaml_key": "guidance_chunks"},
-    )
+    guidance_chunks: int = 6
     """Number of chunks the LoRA edit window stays open after a swap.
 
     With the pre-merged edit LoRA deployed this window is realized
@@ -176,10 +146,7 @@ class LiveEditStyleConfig:
     the exposure of any stacked no-LoRA deployment to the 2x window.
     Exposed as ``--live-edit-skin-guidance-chunks``."""
 
-    reswap_interval_chunks: int = field(
-        default=8,
-        metadata={"yaml_key": "reswap_interval_chunks"},
-    )
+    reswap_interval_chunks: int = 8
     """Re-issue the active skin's ``replace_text`` every N generated chunks.
     ``0`` disables the refresh.
 
@@ -187,10 +154,7 @@ class LiveEditStyleConfig:
     KV cache; a periodic duty-cycled re-swap keeps the style crisp. ``0``
     disables the refresh."""
 
-    skins: tuple[StyleSkin, ...] = field(
-        default=_DEFAULT_SKINS,
-        metadata={"yaml_key": "skins"},
-    )
+    skins: tuple[StyleSkin, ...] = _DEFAULT_SKINS
     """Selectable skins, cycled by the switch-skin key."""
 
     def __post_init__(self) -> None:
@@ -345,16 +309,10 @@ class LiveEditWeatherConfig:
     produced unattributable rain and were dropped).
     """
 
-    enabled: bool = field(
-        default=False,
-        metadata={"yaml_key": "enabled"},
-    )
+    enabled: bool = False
     """Whether the weather ability responds to the weather-cycle key."""
 
-    guidance_scale: float = field(
-        default=2.5,
-        metadata={"yaml_key": "guidance_scale"},
-    )
+    guidance_scale: float = 2.5
     """Two-prompt edit-guidance strength for weather swaps.
 
     The PR #431
@@ -362,10 +320,7 @@ class LiveEditWeatherConfig:
     is the validated skin deployment; earlier sweeps needed 3.0 for snow,
     so this is exposed as ``--live-edit-weather-guidance``."""
 
-    guidance_chunks: int = field(
-        default=6,
-        metadata={"yaml_key": "guidance_chunks"},
-    )
+    guidance_chunks: int = 6
     """Number of guided chunks after a weather swap; each costs about twice model time.
 
     TRANSIENT COST: weather has no LoRA, so every denoise step inside this
@@ -377,10 +332,7 @@ class LiveEditWeatherConfig:
     active weather is ~1x. Exposed as
     ``--live-edit-weather-guidance-chunks``."""
 
-    maintain_interval_chunks: int = field(
-        default=0,
-        metadata={"yaml_key": "maintain_interval_chunks"},
-    )
+    maintain_interval_chunks: int = 0
     """Re-open a short guidance window every N chunks while weather holds.
     ``0`` disables maintenance pulses.
 
@@ -393,27 +345,18 @@ class LiveEditWeatherConfig:
     pure wasted 2x (this is what the old style re-swap refresh did to
     weather). Exposed as ``--live-edit-weather-maintain-interval``."""
 
-    maintain_chunks: int = field(
-        default=2,
-        metadata={"yaml_key": "maintain_chunks"},
-    )
+    maintain_chunks: int = 2
     """Guided chunks per maintenance pulse (used when
     :attr:`maintain_interval_chunks` > 0). Exposed as
     ``--live-edit-weather-maintain-chunks``."""
 
-    clear_guidance_chunks: int = field(
-        default=8,
-        metadata={"yaml_key": "clear_guidance_chunks"},
-    )
+    clear_guidance_chunks: int = 8
     """Guided chunks for the weather -> clear landing when the cycle wraps.
     Slightly longer than the 6-chunk activation landing because dense states
     (hurricane fog walls) dissipate slower than they land. Exposed as
     ``--live-edit-weather-clear-guidance-chunks``."""
 
-    corrector_gain: float = field(
-        default=0.0,
-        metadata={"yaml_key": "corrector_gain"},
-    )
+    corrector_gain: float = 0.0
     """Absolute style-drift-corrector gain while weather is active. ``0``
     (default) keeps the corrector off during weather.
 
@@ -423,17 +366,11 @@ class LiveEditWeatherConfig:
     measured slightly crisper late-run under long weather holds, so the knob
     stays for A/B while the default is off."""
 
-    corrector_checkpoint: Path | None = field(
-        default=None,
-        metadata={"yaml_key": "corrector_checkpoint"},
-    )
+    corrector_checkpoint: Path | None = None
     """Dedicated corrector checkpoint for the weather state (fused mode).
     ``None`` reuses the style corrector at :attr:`corrector_gain`."""
 
-    weathers: tuple[WeatherPreset, ...] = field(
-        default=_DEFAULT_WEATHERS,
-        metadata={"yaml_key": "weathers"},
-    )
+    weathers: tuple[WeatherPreset, ...] = _DEFAULT_WEATHERS
     """Selectable weathers, cycled clear -> rain -> snow -> storm ->
     hurricane -> clear by default.
 
@@ -462,97 +399,55 @@ class LiveEditWeatherConfig:
 class LiveEditObstacleConfig:
     """Track-backed general-obstacle events, initially shipping vehicles."""
 
-    enabled: bool = field(
-        default=False,
-        metadata={"yaml_key": "enabled"},
-    )
+    enabled: bool = False
     """Whether the obstacle ability responds to the spawn key."""
 
-    count: int = field(
-        default=1,
-        metadata={"yaml_key": "count"},
-    )
+    count: int = 1
     """Cars per spawn request. Additional cars alternate crossing direction
     and are staggered by :attr:`spacing_m` and :attr:`stagger_chunks`."""
 
-    spawn_ahead_m: float = field(
-        default=16.0,
-        metadata={"yaml_key": "spawn_ahead_m"},
-    )
+    spawn_ahead_m: float = 16.0
     """Ahead distance for the first event in the selected placement mode."""
 
-    spacing_m: float = field(
-        default=8.0,
-        metadata={"yaml_key": "spacing_m"},
-    )
+    spacing_m: float = 8.0
     """Extra ahead-distance per additional car (count > 1). The default
     puts a 4-car burst across a 16-40 m band — the model's validated
     materialization range."""
 
-    stagger_chunks: int = field(
-        default=1,
-        metadata={"yaml_key": "stagger_chunks"},
-    )
+    stagger_chunks: int = 1
     """Chunks between consecutive car spawns in one burst. ``0`` spawns
     the whole burst in one chunk; a small stagger both eases the model into
     the event and spreads the passes out on screen."""
 
-    lateral_m: float = field(
-        default=0.0,
-        metadata={"yaml_key": "lateral_m"},
-    )
+    lateral_m: float = 0.0
     """Meters to the left (+) / right (-) of the ego heading at spawn."""
 
-    active_chunks: int = field(
-        default=10,
-        metadata={"yaml_key": "active_chunks"},
-    )
+    active_chunks: int = 10
     """Despawn each non-static event after this many generated chunks.
 
     Source-track exhaustion can end an event sooner."""
 
-    min_drift_m: float = field(
-        default=15.0,
-        metadata={"yaml_key": "min_drift_m"},
-    )
+    min_drift_m: float = 15.0
     """Minimum ground-plane displacement for a moving template."""
 
-    min_coverage_s: float = field(
-        default=4.0,
-        metadata={"yaml_key": "min_coverage_s"},
-    )
+    min_coverage_s: float = 4.0
     """Minimum source-track duration for a moving template."""
 
-    length_range_m: tuple[float, float] = field(
-        default=(3.4, 5.6),
-        metadata={"yaml_key": "length_range_m"},
-    )
+    length_range_m: tuple[float, float] = (3.4, 5.6)
     """Inclusive vehicle-length filter for obstacle templates."""
 
-    collision_radius_m: float = field(
-        default=3.0,
-        metadata={"yaml_key": "collision_radius_m"},
-    )
+    collision_radius_m: float = 3.0
     """Ego XY distance at which a visual-only event logs a hit."""
 
-    physics: bool = field(
-        default=False,
-        metadata={"yaml_key": "physics"},
-    )
+    physics: bool = False
     """Register obstacles with PhysX. False preserves PR494's visual-only
     conditioning behavior; true makes collisions authoritative."""
 
-    placement: Literal["ego-relative", "road-ahead"] = field(
-        default="ego-relative",
-        metadata={"yaml_key": "placement"},
-    )
+    placement: Literal["ego-relative", "road-ahead"] = "ego-relative"
     """Placement resolver: ``ego-relative`` preserves PR494 behavior;
     ``road-ahead`` walks the compiled directed-lane graph."""
 
-    static_count: int = field(
-        default=0,
-        metadata={"yaml_key": "static_count"},
-    )
+    static_count: int = 0
     """Static roadblock cars placed ahead of the spawn pose from the first
     chunk and retained until reset. ``0`` disables.
 
@@ -564,23 +459,14 @@ class LiveEditObstacleConfig:
     the road empty, while s=2.0 materializes solid
     stopped cars in the 5-25 m band."""
 
-    static_ahead_m: float = field(
-        default=28.0,
-        metadata={"yaml_key": "static_ahead_m"},
-    )
+    static_ahead_m: float = 28.0
     """Meters ahead of the spawn pose where the first static car sits
     (nearer slots fight the initial frame hardest and stay ghost)."""
 
-    static_lateral_m: float = field(
-        default=2.8,
-        metadata={"yaml_key": "static_lateral_m"},
-    )
+    static_lateral_m: float = 2.8
     """Lateral offset magnitude of the alternating static-car slots."""
 
-    guide_scale: float = field(
-        default=0.0,
-        metadata={"yaml_key": "guide_scale"},
-    )
+    guide_scale: float = 0.0
     """Box-axis guidance strength (flow extrapolated along the
     with-box/without-box conditioning direction). ``0`` disables the
     guidance hook entirely (the event may render at ghost strength).
@@ -594,10 +480,7 @@ class LiveEditObstacleConfig:
     event chunks cost ~2x model time and non-event chunks are unchanged; no
     graph-free rebuild. Not wired for the native optimized-DiT executor."""
 
-    annotate: bool = field(
-        default=False,
-        metadata={"yaml_key": "annotate"},
-    )
+    annotate: bool = False
     """Draw each event's projected 3D box outline into presented frames
     (evidence/demo aid)."""
 
@@ -635,58 +518,31 @@ class LiveEditObstacleConfig:
 class LiveEditCoinsConfig:
     """Collectible coin course composited into the presented frames."""
 
-    enabled: bool = field(
-        default=False,
-        metadata={"yaml_key": "enabled"},
-    )
+    enabled: bool = False
     """Whether coins are laid out, rendered, and collectible."""
 
-    spacing_m: float = field(
-        default=25.0,
-        metadata={"yaml_key": "spacing_m"},
-    )
+    spacing_m: float = 25.0
     """Arc-length spacing between coin groups along each navigation lane."""
 
-    group_offsets_m: tuple[float, ...] = field(
-        default=(-1.1, 0.0, 1.1),
-        metadata={"yaml_key": "group_offsets_m"},
-    )
+    group_offsets_m: tuple[float, ...] = (-1.1, 0.0, 1.1)
     """Lateral offsets of the coins in one group, metres across the lane."""
 
-    hover_height_m: float = field(
-        default=0.8,
-        metadata={"yaml_key": "hover_height_m"},
-    )
+    hover_height_m: float = 0.8
     """Coin center height above the waypoint ground point."""
 
-    coin_diameter_m: float = field(
-        default=0.62,
-        metadata={"yaml_key": "coin_diameter_m"},
-    )
+    coin_diameter_m: float = 0.62
     """World-space coin diameter used for sprite scaling."""
 
-    pickup_radius_m: float = field(
-        default=2.5,
-        metadata={"yaml_key": "pickup_radius_m"},
-    )
+    pickup_radius_m: float = 2.5
     """XY distance at which the ego collects a coin."""
 
-    max_render_distance_m: float = field(
-        default=120.0,
-        metadata={"yaml_key": "max_render_distance_m"},
-    )
+    max_render_distance_m: float = 120.0
     """Coins farther than this are not composited."""
 
-    fade_start_distance_m: float = field(
-        default=100.0,
-        metadata={"yaml_key": "fade_start_distance_m"},
-    )
+    fade_start_distance_m: float = 100.0
     """Alpha ramps to zero between this distance and the render limit."""
 
-    max_visible_sprites: int = field(
-        default=64,
-        metadata={"yaml_key": "max_visible_sprites"},
-    )
+    max_visible_sprites: int = 64
     """Composite at most this many coins per frame, keeping the nearest.
     ``0`` disables the cap.
 
@@ -696,10 +552,7 @@ class LiveEditCoinsConfig:
     actually blow the frame budget. The dropped coins are the farthest
     (small, distance-faded) ones. ``0`` disables the cap."""
 
-    sprite_path: Path | None = field(
-        default=None,
-        metadata={"yaml_key": "sprite_path"},
-    )
+    sprite_path: Path | None = None
     """RGBA coin sprite; ``None`` renders a procedural coin."""
 
     def __post_init__(self) -> None:
@@ -734,119 +587,68 @@ class LiveEditItemsConfig:
     keys stay fully functional alongside.
     """
 
-    enabled: bool = field(
-        default=False,
-        metadata={"yaml_key": "enabled"},
-    )
+    enabled: bool = False
     """Whether effect items are laid out, rendered, and collectible."""
 
-    spacing_m: float = field(
-        default=200.0,
-        metadata={"yaml_key": "spacing_m"},
-    )
+    spacing_m: float = 200.0
     """Arc-length spacing between items along each navigation lane (items
     are rare by design; 150-300 m is the intended range)."""
 
-    hover_height_m: float = field(
-        default=1.0,
-        metadata={"yaml_key": "hover_height_m"},
-    )
+    hover_height_m: float = 1.0
     """Item center height above the waypoint ground point."""
 
-    item_diameter_m: float = field(
-        default=0.9,
-        metadata={"yaml_key": "item_diameter_m"},
-    )
+    item_diameter_m: float = 0.9
     """World-space item height used for sprite scaling (bigger than a coin
     so the rare pickups read from a distance)."""
 
-    pickup_radius_m: float = field(
-        default=2.5,
-        metadata={"yaml_key": "pickup_radius_m"},
-    )
+    pickup_radius_m: float = 2.5
     """XY distance at which the ego collects an item."""
 
-    max_render_distance_m: float = field(
-        default=120.0,
-        metadata={"yaml_key": "max_render_distance_m"},
-    )
+    max_render_distance_m: float = 120.0
     """Items farther than this are not composited."""
 
-    fade_start_distance_m: float = field(
-        default=100.0,
-        metadata={"yaml_key": "fade_start_distance_m"},
-    )
+    fade_start_distance_m: float = 100.0
     """Alpha ramps to zero between this distance and the render limit."""
 
-    rain_sprite_path: Path | None = field(
-        default=None,
-        metadata={"yaml_key": "rain_sprite_path"},
-    )
+    rain_sprite_path: Path | None = None
     """RGBA rain-item sprite; ``None`` renders a procedural placeholder.
     Sprite files are local-only paths, never bundled (coin-sprite pattern)."""
 
-    snow_sprite_path: Path | None = field(
-        default=None,
-        metadata={"yaml_key": "snow_sprite_path"},
-    )
+    snow_sprite_path: Path | None = None
     """RGBA snow-item sprite; ``None`` renders a procedural placeholder."""
 
-    mystery_sprite_path: Path | None = field(
-        default=None,
-        metadata={"yaml_key": "mystery_sprite_path"},
-    )
+    mystery_sprite_path: Path | None = None
     """RGBA mystery-box sprite; ``None`` renders a procedural '?' box."""
 
-    nitro_sprite_path: Path | None = field(
-        default=None,
-        metadata={"yaml_key": "nitro_sprite_path"},
-    )
+    nitro_sprite_path: Path | None = None
     """RGBA nitro-item sprite; ``None`` renders a procedural placeholder."""
 
-    item_types: tuple[str, ...] = field(
-        default=ITEM_TYPES,
-        metadata={"yaml_key": "item_types"},
-    )
+    item_types: tuple[str, ...] = ITEM_TYPES
     """Item kinds included in the course mix, cycled in this order by the
     layout walk (equal rarity per kind). A subset (e.g. ``("nitro",)``)
     makes a single-effect course for scripted captures; the default mixes
     every kind. Exposed as ``--live-edit-item-types``."""
 
-    nitro_boost: float = field(
-        default=1.6,
-        metadata={"yaml_key": "nitro_boost"},
-    )
+    nitro_boost: float = 1.6
     """Nitro multiplier applied to the vehicle's max speed while a pickup is
     active (>= 1). Acceleration is unchanged so the boost does not exaggerate
     the suspension pitch response."""
 
-    nitro_duration_s: float = field(
-        default=4.0,
-        metadata={"yaml_key": "nitro_duration_s"},
-    )
+    nitro_duration_s: float = 4.0
     """Nitro boost duration in game time (simulated seconds, accumulated
     from the physics-tick dt, which is wall time at the shipped realtime
     recipe). Picking a second nitro while boosted RESETS the timer to this
     value — no multiplicative stacking."""
 
-    nitro_max_speed_mps: float = field(
-        default=50.0,
-        metadata={"yaml_key": "nitro_max_speed_mps"},
-    )
+    nitro_max_speed_mps: float = 50.0
     """Hard ceiling on the boosted max speed. A ceiling below the vehicle's
     normal speed limit never slows the vehicle."""
 
-    mystery_seed: int | None = field(
-        default=None,
-        metadata={"yaml_key": "mystery_seed"},
-    )
+    mystery_seed: int | None = None
     """Seed for the mystery-box skin roll (reproducible captures); ``None``
     draws from the OS entropy pool. Re-seeded per rollout."""
 
-    flash_seconds: float = field(
-        default=2.5,
-        metadata={"yaml_key": "flash_seconds"},
-    )
+    flash_seconds: float = 2.5
     """How long the pickup HUD flash chip stays up."""
 
     def __post_init__(self) -> None:
@@ -894,10 +696,7 @@ class LiveEditItemsConfig:
 class LiveEditMapContextConfig:
     """Map-aware prompt suffixes derived from authoritative vehicle state."""
 
-    enabled: bool = field(
-        default=False,
-        metadata={"yaml_key": "enabled"},
-    )
+    enabled: bool = False
     """Whether road, topology, and motion clauses update the model prompt."""
 
 
@@ -925,22 +724,13 @@ class LiveEditConfig:
     )
     """Map-aware prompt-direction ability."""
 
-    sharpen_amount: float = field(
-        default=0.8,
-        metadata={"yaml_key": "sharpen_amount"},
-    )
+    sharpen_amount: float = 0.8
     """Unsharp-mask strength applied to styled frames (0 disables)."""
 
-    sharpen_sigma: float = field(
-        default=2.0,
-        metadata={"yaml_key": "sharpen_sigma"},
-    )
+    sharpen_sigma: float = 2.0
     """Gaussian sigma of the unsharp mask."""
 
-    perf_log_every_frames: int = field(
-        default=0,
-        metadata={"yaml_key": "perf_log_every_frames"},
-    )
+    perf_log_every_frames: int = 0
     """Log p50/p95 of the live-edit per-frame costs (coin-update CPU ms,
     compositor enqueue CPU ms, compositor GPU ms) every N composited frames
     on the tensor path. ``0`` disables the report. Exposed as

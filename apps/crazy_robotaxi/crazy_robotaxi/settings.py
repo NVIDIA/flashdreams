@@ -40,56 +40,48 @@ class TaxiRulesSettings:
     waypoint_spacing_m: float = field(
         default=10.0,
         metadata={
-            "yaml_key": "waypoint_spacing_m",
             "description": "Distance between candidate points sampled along navigation routes.",
         },
     )
     pickup_grid_spacing_m: float = field(
         default=60.0,
         metadata={
-            "yaml_key": "pickup_grid_spacing_m",
             "description": "Spacing used to spread pickup locations across the map.",
         },
     )
     pickup_min_distance_m: float = field(
         default=20.0,
         metadata={
-            "yaml_key": "pickup_min_distance_m",
             "description": "Minimum straight-line distance from the taxi to a new pickup.",
         },
     )
     initial_pickup_max_distance_m: float = field(
         default=200.0,
         metadata={
-            "yaml_key": "initial_pickup_max_distance_m",
             "description": "Preferred maximum distance to the first, camera-visible pickup.",
         },
     )
     pickup_radius_m: float = field(
         default=5.0,
         metadata={
-            "yaml_key": "pickup_radius_m",
             "description": "Distance at which a passenger is collected.",
         },
     )
     dropoff_radius_m: float = field(
         default=6.0,
         metadata={
-            "yaml_key": "dropoff_radius_m",
             "description": "Distance at which a fare is completed.",
         },
     )
     fare_min_route_distance_m: float = field(
         default=200.0,
         metadata={
-            "yaml_key": "fare_min_route_distance_m",
             "description": "Preferred minimum route length from pickup to dropoff.",
         },
     )
     fare_max_route_distance_m: float = field(
         default=250.0,
         metadata={
-            "yaml_key": "fare_max_route_distance_m",
             "description": (
                 "Preferred maximum straight-line distance between fare endpoints. The "
                 "minimum may not exceed this maximum."
@@ -99,28 +91,24 @@ class TaxiRulesSettings:
     target_speed_mps: float = field(
         default=10.0,
         metadata={
-            "yaml_key": "target_speed_mps",
             "description": "Nominal speed used to calculate a fare's time limit.",
         },
     )
     grace_s: float = field(
         default=8.0,
         metadata={
-            "yaml_key": "grace_s",
             "description": "Extra time added to the distance-based fare limit.",
         },
     )
     min_time_s: float = field(
         default=12.0,
         metadata={
-            "yaml_key": "min_time_s",
             "description": "Lower bound for a fare's calculated time limit.",
         },
     )
     max_time_s: float = field(
         default=45.0,
         metadata={
-            "yaml_key": "max_time_s",
             "description": (
                 "Upper bound for a fare's calculated time limit; must be at least Min "
                 "Time S."
@@ -130,49 +118,42 @@ class TaxiRulesSettings:
     trip_time_multiplier: float = field(
         default=2.0,
         metadata={
-            "yaml_key": "trip_time_multiplier",
             "description": "Multiplies the fare limit after it is calculated and clamped.",
         },
     )
     base_fare_points: int = field(
         default=500,
         metadata={
-            "yaml_key": "base_fare_points",
             "description": "Points awarded for a completed fare.",
         },
     )
     bonus_points_per_second: int = field(
         default=100,
         metadata={
-            "yaml_key": "bonus_points_per_second",
             "description": "Additional points per whole second remaining on a completed fare.",
         },
     )
     event_banner_s: float = field(
         default=2.0,
         metadata={
-            "yaml_key": "event_banner_s",
             "description": "Duration of pickup, completion, and failure banners in simulation time.",
         },
     )
     global_time_s: float = field(
         default=60.0,
         metadata={
-            "yaml_key": "global_time_s",
             "description": "Starting game clock; must be positive.",
         },
     )
     dropoff_time_bonus_s: float = field(
         default=30.0,
         metadata={
-            "yaml_key": "dropoff_time_bonus_s",
             "description": "Time added to the game clock after a successful dropoff.",
         },
     )
     ground_snap_max_absolute_rotation_deg: float = field(
         default=10.0,
         metadata={
-            "yaml_key": "ground_snap_max_absolute_rotation_deg",
             "description": (
                 "Largest ground rotation accepted when aligning the taxi to the road "
                 "surface."
@@ -182,7 +163,6 @@ class TaxiRulesSettings:
     ground_snap_settle_fraction: float = field(
         default=0.25,
         metadata={
-            "yaml_key": "ground_snap_settle_fraction",
             "description": (
                 "Fraction of stale ground attitude removed after an invalid ground "
                 "sample."
@@ -198,7 +178,6 @@ class TaxiSettings:
     seed: int | None = field(
         default=None,
         metadata={
-            "yaml_key": "seed",
             "description": (
                 "Seed for repeatable taxi gameplay; blank uses fresh randomness. This is "
                 "independent of the model diffusion seed."
@@ -208,7 +187,6 @@ class TaxiSettings:
     high_scores_path: Path | None = field(
         default=None,
         metadata={
-            "yaml_key": "high_scores_path",
             "description": (
                 "CSV file for the taxi leaderboard; blank uses the default high-score "
                 "location."
@@ -237,7 +215,6 @@ class RaceSettings:
     times_path: Path | None = field(
         default=None,
         metadata={
-            "yaml_key": "times_path",
             "description": "File for race times; blank uses the default leaderboard location.",
         },
     )
@@ -250,7 +227,6 @@ class GameEffectsSettings:
     visual_flare: bool = field(
         default=False,
         metadata={
-            "yaml_key": "visual_flare",
             "description": "Enables the game-directed visual flare effect.",
         },
     )
@@ -263,7 +239,6 @@ class GameSettings:
     gamepad_button_style: GamepadButtonStyle = field(
         default="Xbox",
         metadata={
-            "yaml_key": "gamepad_button_style",
             "description": (
                 "Labels shown for gamepad buttons: Xbox, PlayStation, or Nintendo Switch. "
                 "It does not remap controls."
@@ -282,7 +257,6 @@ class ModelSettings:
     device: str = field(
         default="cuda",
         metadata={
-            "yaml_key": "device",
             "description": "Device used for the world model, normally cuda.",
         },
     )
@@ -301,58 +275,47 @@ class RendererSettings:
 class PresentationSettings:
     """Player-facing HUD settings."""
 
-    width: int | None = field(
-        default=None,
-        metadata={"yaml_key": "width"},
-    )
+    width: int | None = None
     """Presentation width in pixels; ``None`` uses the model output width.
     Set together with the height.
     """
 
-    height: int | None = field(
-        default=None,
-        metadata={"yaml_key": "height"},
-    )
+    height: int | None = None
     """Presentation height in pixels; ``None`` uses the model output height.
     Set together with the width.
     """
 
     hud_enabled: bool = field(
         default=True,
-        metadata={"yaml_key": "hud_enabled", "description": "Shows the gameplay HUD."},
+        metadata={"description": "Shows the gameplay HUD."},
     )
     show_fps: bool = field(
         default=False,
         metadata={
-            "yaml_key": "show_fps",
             "description": "Shows the frame-rate counter.",
         },
     )
     show_current_prompt: bool = field(
         default=False,
         metadata={
-            "yaml_key": "show_current_prompt",
             "description": "Shows the world-model prompt.",
         },
     )
     show_control_hints: bool = field(
         default=True,
         metadata={
-            "yaml_key": "show_control_hints",
             "description": "Shows the control help on the HUD.",
         },
     )
     show_live_edit_buttons: bool = field(
         default=True,
         metadata={
-            "yaml_key": "show_live_edit_buttons",
             "description": "Shows live-edit ability buttons.",
         },
     )
     live_edit_mapping_location: LiveEditMappingLocation = field(
         default="buttons",
         metadata={
-            "yaml_key": "live_edit_mapping_location",
             "description": "Places live-edit mappings in buttons or control hints.",
         },
     )
@@ -365,7 +328,6 @@ class RuntimeSettings:
     total_blocks: int | None = field(
         default=None,
         metadata={
-            "yaml_key": "total_blocks",
             "description": (
                 "Optional limit on generated model blocks; blank leaves the run "
                 "unbounded."
@@ -375,7 +337,6 @@ class RuntimeSettings:
     prewarm_blocks: int = field(
         default=8,
         metadata={
-            "yaml_key": "prewarm_blocks",
             "description": "Blocks generated before play to warm the pipeline; must be nonnegative.",
         },
     )
@@ -388,21 +349,18 @@ class DiagnosticsSettings:
     profile_pipeline: bool = field(
         default=False,
         metadata={
-            "yaml_key": "profile_pipeline",
             "description": "Enables pipeline profiling output.",
         },
     )
     profile_input_latency: bool = field(
         default=False,
         metadata={
-            "yaml_key": "profile_input_latency",
             "description": "Measures input-to-output latency.",
         },
     )
     input_trace_path: Path | None = field(
         default=None,
         metadata={
-            "yaml_key": "input_trace_path",
             "description": "Optional file for input trace output.",
         },
     )
@@ -630,12 +588,9 @@ def _overlay_dataclass(
 ) -> Any:
     if not is_dataclass(base) or isinstance(base, type):
         raise SettingsError(f"{'.'.join(path) or 'settings'} is not configurable")
-    known = {
-        item.metadata.get("yaml_key", item.name): item
-        for item, _annotation in iter_setting_fields(base, path)
-    }
+    known = {item.name: item for item, _annotation in iter_setting_fields(base, path)}
     deprecated = {
-        item.metadata.get("yaml_key", item.name)
+        item.name
         for item in fields(base)
         if not item.metadata.get("user_setting", True)
     }
@@ -703,7 +658,7 @@ def _convert_value(
             raise SettingsError(f"{context} must be a mapping with string keys")
         raw_values = cast(Mapping[str, object], raw)
         configurable = {
-            item.metadata.get("yaml_key", item.name): item
+            item.name: item
             for item in fields(expected)
             if item.init
             and item.name != "_target"
@@ -928,11 +883,11 @@ def _settings_diff(
         if is_dataclass(after) and not isinstance(after, type):
             nested = _settings_diff(before, after, item_path)
             if nested:
-                result[item.metadata.get("yaml_key", item.name)] = nested
+                result[item.name] = nested
         elif after != before:
             serialized = _serialize_value(after)
             if serialized is not _READ_ONLY:
-                result[item.metadata.get("yaml_key", item.name)] = serialized
+                result[item.name] = serialized
     return result
 
 
@@ -954,7 +909,7 @@ def _serialize_value(value: object) -> object:
             serialized = _serialize_value(getattr(value, item.name))
             if serialized is _READ_ONLY:
                 return _READ_ONLY
-            result[item.metadata.get("yaml_key", item.name)] = serialized
+            result[item.name] = serialized
         return result
     if isinstance(value, Mapping):
         result = {}
