@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import threading
 import time
 from dataclasses import dataclass, field, replace
@@ -37,6 +38,7 @@ from crazy_robotaxi.live_edit.config import (
     LiveEditWeatherConfig,
 )
 from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
+from crazy_robotaxi.option_descriptions import OPTION_DESCRIPTIONS
 from crazy_robotaxi.race import RaceGameSnapshot, RaceSessionState
 from crazy_robotaxi.rules import (
     TaxiGameSnapshot,
@@ -291,6 +293,40 @@ class _FakeImGui:
         self.pushed_style_colors: list[tuple[int, object]] = []
         self.fonts = _FakeFontAtlas()
         self.io = SimpleNamespace(fonts=self.fonts)
+        self.hovered_items: set[str] = set()
+        self.tooltips: list[str] = []
+        self.wrap_positions: list[float] = []
+        self._group_items: list[str] | None = None
+        self._group_hovered = False
+        self._tooltip_open = False
+
+    def begin_group(self) -> None:
+        assert self._group_items is None
+        self._group_items = []
+
+    def end_group(self) -> None:
+        assert self._group_items is not None
+        self._group_hovered = bool(self.hovered_items.intersection(self._group_items))
+        self._group_items = None
+
+    def begin_item_tooltip(self) -> bool:
+        self._tooltip_open = self._group_hovered
+        return self._tooltip_open
+
+    def end_tooltip(self) -> None:
+        assert self._tooltip_open
+        self._tooltip_open = False
+
+    def push_text_wrap_pos(self, position: float) -> None:
+        self.wrap_positions.append(position)
+
+    def pop_text_wrap_pos(self) -> None:
+        self.wrap_positions.pop()
+
+    def text_unformatted(self, value: str) -> None:
+        assert self._tooltip_open
+        assert self.wrap_positions[-1] > 0.0
+        self.tooltips.append(value)
 
     @staticmethod
     def ImVec2(x: float, y: float) -> tuple[float, float]:
@@ -426,6 +462,8 @@ class _FakeImGui:
 
     def text(self, value: str) -> None:
         assert self.current_window is not None
+        if self._group_items is not None:
+            self._group_items.append(value)
         self.windows[self.current_window].append(value)
         self.text_fonts.append((value, self.current_font, self.current_font_size))
         self.text_positions.append((value, self.cursor_y))
@@ -487,6 +525,8 @@ class _FakeImGui:
 
     def input_text(self, label: str, value: str, *, flags: int):
         del flags
+        if self._group_items is not None:
+            self._group_items.append(label)
         if label in self.input_values:
             return True, self.input_values[label]
         del label, value
@@ -501,18 +541,24 @@ class _FakeImGui:
         flags: int,
     ) -> tuple[bool, str]:
         self.multiline_inputs.append((label, value, size, flags))
+        if self._group_items is not None:
+            self._group_items.append(label)
         self.multiline_input_positions[label] = self.cursor_y
         if label in self.input_values:
             return True, self.input_values[label]
         return False, value
 
     def checkbox(self, label: str, value: bool) -> tuple[bool, bool]:
+        if self._group_items is not None:
+            self._group_items.append(label)
         if label in self.checkbox_values:
             return True, self.checkbox_values[label]
         return False, value
 
     def combo(self, label: str, index: int, options: list[str]) -> tuple[bool, int]:
         del options
+        if self._group_items is not None:
+            self._group_items.append(label)
         if label in self.combo_indices:
             return True, self.combo_indices[label]
         return False, index
@@ -2657,6 +2703,80 @@ def test_options_excludes_cli_only_launch_selections(tmp_path: Path) -> None:
     assert "EXIT" in labels
     assert "EXIT WITHOUT SAVING" not in labels
     assert "RESET TO DEFAULTS" in labels
+
+
+def test_option_descriptions_match_the_guides() -> None:
+    documented: dict[str, str] = {}
+    for guide in (Path(__file__).parents[1] / "options").glob("*.md"):
+        for line in guide.read_text(encoding="utf-8").splitlines():
+            if not line.startswith("| **"):
+                continue
+            columns = re.split(r"(?<!\\)\|", line)[1:-1]
+            key = columns[1].strip().strip("`")
+            assert key not in documented
+            documented[key] = (
+                columns[-1]
+                .strip()
+                .replace("\\|", "|")
+                .replace("**", "")
+                .replace("`", "")
+            )
+    assert documented == OPTION_DESCRIPTIONS
+
+
+@pytest.mark.parametrize(
+    ("category", "hovered_item", "key"),
+    [
+        ("game", "Gamepad Button Style:", "game.gamepad_button_style"),
+        ("game", "##game.gamepad_button_style", "game.gamepad_button_style"),
+        ("game", "##game.taxi.seed", "game.taxi.seed"),
+        ("renderer", "##renderer.raster.width", "renderer.raster.width"),
+        ("presentation", "##presentation.show_fps", "presentation.show_fps"),
+        ("model", "##model.device", "model.device"),
+        ("runtime", "Total Blocks:", "runtime.total_blocks"),
+    ],
+)
+def test_options_show_help_only_for_the_hovered_setting(
+    tmp_path: Path,
+    category: str,
+    hovered_item: str,
+    key: str,
+) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(1280, 720, _calibration(), settings_document=document)
+    state._open_options()
+    state._options_category = category
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+    assert imgui.tooltips == []
+
+    imgui.hovered_items.add(hovered_item)
+    state.draw(imgui)
+
+    assert imgui.tooltips == [OPTION_DESCRIPTIONS[key]]
+    assert not imgui.wrap_positions
+    assert not imgui._tooltip_open
+    assert state._options_draft == document.settings
+    assert not document.path.exists()
+
+
+def test_options_tooltip_covers_a_scrolling_text_editor(tmp_path: Path) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(1280, 720, _calibration(), settings_document=document)
+    state._open_options()
+    state._options_category = "model"
+    assert state._options_draft is not None
+    state._options_draft = document.update(
+        state._options_draft, ("model", "device"), "/" + "long-path-segment" * 20
+    )
+    imgui = _FakeImGui()
+    imgui.hovered_items.add("##model.device")
+
+    state.draw(imgui)
+
+    assert "##model.device-horizontal-scroll" in imgui.child_sizes
+    assert imgui.tooltips == [OPTION_DESCRIPTIONS["model.device"]]
 
 
 def test_options_category_click_opens_model_settings(tmp_path: Path) -> None:

@@ -2,6 +2,8 @@
 
 Open **OPTIONS** from **SELECT GAME MODE**. Use the guide for the page you are viewing. Each guide lists the exact on-screen labels, YAML keys, setting ownership, and available CLI flags. Repeated labels such as **Seed:** and **Enabled:** are identified by their surrounding menu headings.
 
+Hover an option's label or editor to see its description.
+
 | Options page | Guide |
 | --- | --- |
 | GAME | [Gameplay, taxi rules, vehicle physics, race, and effects](options/game.md) |

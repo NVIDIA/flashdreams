@@ -64,6 +64,7 @@ from crazy_robotaxi.high_scores import (
 )
 from crazy_robotaxi.live_edit.config import LiveEditConfig
 from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
+from crazy_robotaxi.option_descriptions import OPTION_DESCRIPTIONS
 from crazy_robotaxi.race import RaceGameSnapshot, project_race_gate_to_camera
 from crazy_robotaxi.rules import (
     TaxiCameraMarkerProjection,
@@ -2169,6 +2170,7 @@ class TaxiHudState:
                 )
             )
             row_y = float(imgui.get_cursor_pos_y())
+            imgui.begin_group()
             imgui.set_cursor_pos_y(
                 row_y + max(0.0, (field_height - label_height) / 2.0)
             )
@@ -2227,6 +2229,8 @@ class TaxiHudState:
                     except SettingsError as exc:
                         self._options_error = str(exc)
                         changed = False
+            imgui.end_group()
+            _draw_option_tooltip(imgui, OPTION_DESCRIPTIONS.get(".".join(item_path)))
             if changed:
                 try:
                     self._options_draft = document.update(draft, item_path, edited)
@@ -4173,6 +4177,17 @@ def _settings_widget_content_width(
     text_width = max(_point_xy(imgui.calc_text_size(label))[0] for label in labels)
     frame_padding_x = _point_xy(imgui.get_style().frame_padding)[0]
     return text_width + 2.0 * frame_padding_x + frame_height
+
+
+def _draw_option_tooltip(imgui: Any, description: str | None) -> None:
+    """Show wrapped help when the preceding setting row is hovered."""
+    if description and imgui.begin_item_tooltip():
+        imgui.push_text_wrap_pos(imgui.get_font_size() * 35.0)
+        try:
+            imgui.text_unformatted(description)
+        finally:
+            imgui.pop_text_wrap_pos()
+            imgui.end_tooltip()
 
 
 def _wrapped_input_text(
