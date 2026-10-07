@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import uuid
+import zipfile
 from importlib.metadata import (
     PackageNotFoundError,
     distribution,
@@ -34,14 +35,13 @@ _APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications_v2"
 _COMMAND_SEPARATOR = ":::"
 """Separator between this tool's options and a complete runtime command."""
 
-_FAILURE_GUIDANCE = "Packager failed. This is either a packager bug, missing environment variable, or packaged application crash."
-"""Guidance appended to application-preload failures."""
-
 _SAFE_SLUG = re.compile(r"^[A-Za-z0-9_.-]+$")
 _INSTALLER_OUTPUT = "INSTALLER_OUTPUT.txt"
 _PREPARATION_ISSUES = "PREPARATION_ISSUES.txt"
 _RUNTIME_CACHE_ROOT_ENV = "FLASHDREAMS_RUNTIME_CACHE_DIR"
 _RUNTIME_CACHE_SEED_MARKER = ".flashdreams-cache-seed"
+_CACHE_ARCHIVE = "cache-extras.zip"
+_ONEFILE_MAX_FILES = 1700
 _SUPPORTED_MODES = ("native-window", "webrtc")
 
 _CACHE_PATHS = {
@@ -181,6 +181,13 @@ def _cache_environment(
 ) -> dict[str, str]:
     """Return an environment with every supported cache below ``cache_root``."""
     env = os.environ.copy()
+    env["PATH"] = os.pathsep.join(
+        (
+            str(_ninja_executable().parent),
+            str(Path(sys.executable).parent),
+            env.get("PATH", ""),
+        )
+    )
     env["HF_HUB_DISABLE_SYMLINKS"] = "1"
     for name, relative_path in _CACHE_PATHS.items():
         cache_path = cache_root / relative_path
@@ -189,6 +196,13 @@ def _cache_environment(
     if preparation_issues_path is not None:
         env["FLASHDREAMS_PREPARATION_ISSUES_PATH"] = str(preparation_issues_path)
     return env
+
+
+def _log_tail(path: Path) -> str:
+    """Return the last lines of a failed subprocess log."""
+    return "\n".join(
+        path.read_text(encoding="utf-8", errors="replace").splitlines()[-30:]
+    )
 
 
 def _application_module(slug: str) -> str:
@@ -389,6 +403,7 @@ def _launcher_source(
         import os
         import shutil
         import sys
+        import zipfile
         from pathlib import Path
 
         bundle_root = (
@@ -396,6 +411,8 @@ def _launcher_source(
             if getattr(sys, "frozen", False)
             else Path(__file__).resolve().parent
         )
+        if getattr(sys, "frozen", False):
+            os.chdir(bundle_root)
         seed_cache_root = bundle_root / "cache"
         seed_cache_root.mkdir(parents=True, exist_ok=True)
         cache_root = seed_cache_root
@@ -430,6 +447,12 @@ def _launcher_source(
 
             cache_root = cache_root.resolve()
             seed_cache_root = seed_cache_root.resolve()
+            cache_archive = bundle_root / {_CACHE_ARCHIVE!r}
+            if cache_archive.is_file() and cache_root == seed_cache_root:
+                raise RuntimeError(
+                    f"{_RUNTIME_CACHE_ROOT_ENV} must point outside the bundle "
+                    "when cache-extras.zip is present."
+                )
             if cache_root != seed_cache_root:
                 if cache_root.is_relative_to(
                     seed_cache_root
@@ -444,6 +467,13 @@ def _launcher_source(
                     or marker.read_text(encoding="utf-8") != cache_seed_id
                 ):
                     shutil.copytree(seed_cache_root, cache_root, dirs_exist_ok=True)
+                    if cache_archive.is_file():
+                        with zipfile.ZipFile(cache_archive) as archive:
+                            for member in archive.namelist():
+                                relative = Path(member)
+                                if relative.is_absolute() or ".." in relative.parts:
+                                    raise RuntimeError(f"Unsafe cache archive path: {{member}}")
+                            archive.extractall(cache_root)
                     marker.write_text(cache_seed_id, encoding="utf-8")
 
         cache_paths = {_CACHE_PATHS!r}
@@ -579,24 +609,28 @@ def _bundle_readme_source(slug: str) -> str:
 
         | Process | Expected count | Purpose |
         | --- | ---: | --- |
-        | `{executable}` | 1 | Hosts the model loop and selected client-window UI. |
+        | `{executable}` | 2 | One process extracts and later cleans up the runtime; the other hosts the model loop and client-window UI. |
 
         `python`, `cmake`, and `ninja` processes are not expected during normal runtime;
-        Python and validated native extensions are contained in this bundle.
+        Python and validated native extensions are contained in this bundle. Ninja
+        is included if a native extension needs to rebuild.
 
         ## Bundle root contents
 
         | Path | Description |
         | --- | --- |
         | `{executable}` | Compiled launcher for this operating system. |
-        | `data/` | Python runtime, application code, native libraries, and GPU assets. |
+        | Inside executable | Python runtime, application code, native libraries, and GPU assets. |
         | `cache/` | Model weights, scenes, compiled kernels, and native extensions. |
+        | `{_CACHE_ARCHIVE}` | Optional archived cache files, extracted into the writable cache on first launch. |
+        | `artifacts/` | Optional application assets prepared during preload. |
         | `{_INSTALLER_OUTPUT}` | Application preload/validation and PyInstaller output. |
         | `{_PREPARATION_ISSUES}` | Optional preload warnings with application call stacks. |
         | `README.md` | This launch and bundle-layout guide. |
 
-        Keep the complete directory together. The executable is not standalone from
-        `data/` and `cache/`, and moving only the executable will not work.
+        PyInstaller extracts its embedded runtime files to a temporary directory
+        on each launch. Keep the executable with `cache/`, any
+        `cache-extras.zip`, and any packaged `artifacts/` assets.
         """
     )
 
@@ -635,11 +669,9 @@ def _pyinstaller_command(
         "PyInstaller",
         "--noconfirm",
         "--clean",
-        "--onedir",
+        "--onefile",
         "--name",
         slug,
-        "--contents-directory",
-        "data",
         "--distpath",
         str(build_root / "dist"),
         "--workpath",
@@ -648,6 +680,9 @@ def _pyinstaller_command(
         str(build_root / "spec"),
         "--additional-hooks-dir",
         str(hooks),
+        # IPython treats Jedi as optional; its hook otherwise collects thousands of stubs.
+        "--exclude-module",
+        "jedi",
         "--paths",
         str(_module_search_path("flashdreams.runtime_v2")),
         "--collect-data",
@@ -680,6 +715,7 @@ def _pyinstaller_command(
     for binary, installed_parent in _nvrtc_builtins():
         for destination in sorted({Path("."), installed_parent}):
             command.extend(("--add-binary", f"{binary}{os.pathsep}{destination}"))
+    command.extend(("--add-binary", f"{_ninja_executable()}{os.pathsep}."))
     for executable_name in executables:
         executable = shutil.which(executable_name)
         if executable is None:
@@ -687,6 +723,65 @@ def _pyinstaller_command(
         command.extend(("--add-binary", f"{executable}{os.pathsep}."))
     command.append(str(launcher))
     return command
+
+
+def _ninja_executable() -> Path:
+    """Find Ninja in the active Python environment or on PATH."""
+    try:
+        import ninja
+    except ImportError:
+        executable = shutil.which("ninja")
+    else:
+        executable = shutil.which("ninja", path=ninja.BIN_DIR) or shutil.which("ninja")
+    if executable is None:
+        raise PackageError("Ninja is required to package PyTorch C++ extensions.")
+    return Path(executable).resolve()
+
+
+def _archive_cache_to_file_limit(bundle_root: Path) -> None:
+    """Archive large cache subtrees until a onefile bundle meets its file limit."""
+    file_count = sum(path.is_file() for path in bundle_root.rglob("*"))
+    if file_count <= _ONEFILE_MAX_FILES:
+        return
+    cache_root = bundle_root / "cache"
+    candidates = sorted(
+        (
+            (directory, sum(path.is_file() for path in directory.rglob("*")))
+            for directory in cache_root.iterdir()
+            if directory.is_dir()
+        ),
+        key=lambda entry: entry[1],
+        reverse=True,
+    )
+    selected: list[Path] = []
+    for directory, count in candidates:
+        if file_count + 1 <= _ONEFILE_MAX_FILES:
+            break
+        selected.append(directory)
+        file_count -= count
+    if not selected or file_count + 1 > _ONEFILE_MAX_FILES:
+        raise PackageError(
+            f"Cannot reduce the onefile bundle to {_ONEFILE_MAX_FILES} files "
+            "by archiving cache directories."
+        )
+
+    archive_path = bundle_root / _CACHE_ARCHIVE
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED) as archive:
+        for directory in selected:
+            for path in directory.rglob("*"):
+                archive.write(path, path.relative_to(cache_root))
+    with zipfile.ZipFile(archive_path) as archive:
+        bad_file = archive.testzip()
+    if bad_file is not None:
+        raise PackageError(f"Cache archive verification failed at {bad_file}.")
+    for directory in selected:
+        shutil.rmtree(directory)
+    actual_count = sum(path.is_file() for path in bundle_root.rglob("*"))
+    if actual_count > _ONEFILE_MAX_FILES:
+        raise PackageError(
+            f"Onefile bundle contains {actual_count} files, above "
+            f"the {_ONEFILE_MAX_FILES}-file limit."
+        )
 
 
 def _validate_slug(slug: str) -> None:
@@ -755,6 +850,7 @@ def package(
     installer_output = staging / _INSTALLER_OUTPUT
     preparation_issues = staging / _PREPARATION_ISSUES
     succeeded = False
+    completed_bundle = False
 
     try:
         cache_root.mkdir()
@@ -773,6 +869,7 @@ def package(
                 output_stream.flush()
                 preload_result = subprocess.run(
                     [sys.executable, str(preload)],
+                    cwd=staging,
                     env=_cache_environment(
                         cache_root,
                         preparation_issues_path=preparation_issues,
@@ -789,12 +886,12 @@ def package(
             with installer_output.open("ab") as output_stream:
                 output_stream.write(b"\nTimed out.\n\n")
             raise PackageError(
-                f"Preload timed out for {slug!r}.\n{_FAILURE_GUIDANCE}"
+                f"Preload timed out for {slug!r}.\n{_log_tail(installer_output)}"
             ) from error
         if preload_result.returncode:
             raise PackageError(
                 f"Preload failed for {slug!r} with exit code "
-                f"{preload_result.returncode}.\n{_FAILURE_GUIDANCE}"
+                f"{preload_result.returncode}.\n{_log_tail(installer_output)}"
             )
 
         application_module = _application_module(slug)
@@ -826,18 +923,14 @@ def package(
             )
         if pyinstaller_result.returncode:
             raise PackageError(
-                f"PyInstaller failed with exit code {pyinstaller_result.returncode}."
+                f"PyInstaller failed with exit code {pyinstaller_result.returncode}.\n"
+                f"{_log_tail(installer_output)}"
             )
 
-        built_bundle = build_root / "dist" / slug
-        executable = built_bundle / executable_name
-        if not executable.is_file() or not (built_bundle / "data").is_dir():
-            raise PackageError(
-                "PyInstaller completed without the expected executable/data layout."
-            )
-
-        for item in built_bundle.iterdir():
-            shutil.move(str(item), staging / item.name)
+        executable = build_root / "dist" / executable_name
+        if not executable.is_file():
+            raise PackageError("PyInstaller completed without the expected executable.")
+        shutil.move(str(executable), staging / executable_name)
         (staging / "README.md").write_text(
             _bundle_readme_source(slug), encoding="utf-8"
         )
@@ -845,11 +938,21 @@ def package(
         shutil.rmtree(build_root)
         launcher.unlink()
         preload.unlink()
-        staging.replace(destination)
+        _archive_cache_to_file_limit(staging)
+        completed_bundle = True
+        try:
+            if destination.exists():
+                raise FileExistsError(f"Output appeared during build: {destination}")
+            staging.replace(destination)
+        except OSError as error:
+            raise PackageError(
+                f"Could not publish the completed bundle to {destination}: {error}. "
+                f"The bundle is retained at {staging}."
+            ) from error
         succeeded = True
         return destination
     finally:
-        if not succeeded:
+        if not succeeded and not completed_bundle:
             shutil.rmtree(staging, ignore_errors=True)
 
 

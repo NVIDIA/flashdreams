@@ -1,7 +1,7 @@
 # Package a FlashDreams application for offline use
 
 `package_as_offline_exe.py` prepares an installed FlashDreams v2 application
-and creates an isolated executable with all its dependencies in one folder.
+and creates a single executable with its offline cache in one folder.
 Packaging is supported for applications running in `native-window` or `webrtc`
 mode.
 
@@ -13,8 +13,8 @@ complete `flashdreams-run-v2` command:
 ```bash
 uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
   --output artifacts/interactive-drive-omnidreams-bundle \
-  ::: flashdreams-run-v2 interactive-drive-omnidreams \
-  --mode native-window
+  ::: flashdreams-run-v2 interactive-drive-omnidreams-fast-perf \
+  --mode native-window -- --game-mode
 ```
 
 The command after `:::` must begin with `flashdreams-run-v2`, and its effective
@@ -43,6 +43,32 @@ uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
 If `--output` is omitted, the default is
 `artifacts/<application-slug>-bundle`. The output directory must not already
 exist.
+
+To package the fast-perf Interactive Drive game mode:
+
+```powershell
+uv run python tools/package-as-offline-exe/package_as_offline_exe.py `
+  --output artifacts/interactive-drive-omnidreams-fast-perf-onefile-1700 `
+  ::: flashdreams-run-v2 interactive-drive-omnidreams-fast-perf `
+  --mode native-window -- --game-mode
+```
+
+The output is still a directory. `cache/` holds the downloaded model weights
+and prepared kernels. When a onefile bundle would exceed 1,700 files, the
+packager stores the largest cache directories in `cache-extras.zip`. The
+launcher extracts that archive into the writable runtime cache on first launch;
+subsequent launches reuse it. Preload may also produce sibling `artifacts/`
+assets. Set `FLASHDREAMS_RUNTIME_CACHE_DIR` to a path outside the bundle if
+overriding the default per-user cache.
+PyInstaller extracts the embedded runtime files to a temporary directory on
+each launch, which adds startup time.
+
+On a Windows build of `interactive-drive-omnidreams-fast-perf` on 2026-10-07,
+the completed bundle contained **98 files**: a 2.28 GiB EXE, a 0.47 GiB cache
+archive, and 93 files in the 21.79 GiB `cache/`. A one-step native-window
+game-mode run used the default per-user cache, restored the PhysX tree, rendered
+five frames, and exited successfully in 136.1 seconds. This timing is
+host-specific and includes model startup.
 
 ## Runtime and application arguments
 
@@ -97,17 +123,21 @@ The generated directory has this shape:
 ```text
 <output>/
 |-- <application-slug>[.exe]
-|-- data/
 |-- cache/
+|-- cache-extras.zip        # when needed to meet the file limit
+|-- artifacts/             # when preload produces application assets
 |-- INSTALLER_OUTPUT.txt
 |-- PREPARATION_ISSUES.txt  # only when preload warnings are found
 `-- README.md
 ```
 
+The executable contains the Python runtime, application code, dependencies,
+native libraries, Ninja, and packaged GPU assets. The bundle has at most
+1,700 files; `cache-extras.zip` holds cache files moved out of the directory
+tree to meet that limit.
+
 Notes on generated files:
 
-- `data/` contains the Python runtime, application code, dependencies, native
-  libraries, and packaged GPU assets.
 - `cache/` is the offline seed containing resources and build artifacts
   prepared during initialization.
 - `INSTALLER_OUTPUT.txt` contains the application preload/validation and
@@ -117,6 +147,9 @@ Notes on generated files:
 - The generated `README.md` explains how to launch a generated bundle.
 - `<application-slug>[.exe]` is the executable that can be launched to run the application.
     - Windows builds use the `.exe` suffix; Linux builds do not.
+
+The launcher sets its working directory to the bundle directory when started,
+so relative application paths resolve beside the executable.
 
 ## Runtime cache behavior
 
@@ -129,8 +162,8 @@ the launcher copies it into a writable per-user cache:
 
 Set `FLASHDREAMS_RUNTIME_CACHE_DIR` if a custom cache location is desired.
 
-Do not move or distribute only the executable. It depends on the sibling
-`data/` and `cache/` directories. Set `FLASHDREAMS_RUNTIME_CACHE_DIR` to move
-the writable cache.
+Keep the executable with its sibling `cache/`, any `cache-extras.zip`, and any
+`artifacts/` assets. Set `FLASHDREAMS_RUNTIME_CACHE_DIR` to move the writable
+cache.
 
 Destination machine still needs a compatible NVIDIA driver to run the packaged application.

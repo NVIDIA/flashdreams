@@ -335,7 +335,7 @@ in the live-edit HUD card alongside frame-aligned ability status. Weather cannot
 change while a non-base style is active. Required additional checkpoints are
 downloaded during application startup when the features are enabled, unless
 explicit checkpoint paths are configured. Downloaded assets are cached under
-`artifacts/crazy_robotaxi/live_edit` relative to the working directory.
+`$FLASHDREAMS_CACHE_DIR/crazy-robotaxi/live_edit`.
 
 Dynamic prompts append selected fragments for the current road context, next
 map-node type, next map-node context, upcoming road-curve direction, and taxi
