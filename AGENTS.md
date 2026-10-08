@@ -116,10 +116,10 @@ Because of this direction, tests in `apps/<name>/tests/` must not import from `i
 
 ## Troubleshooting Links
 
-- Setup and requirements: `README.md`, `docs/source/quickstart/installation.rst`
-- CLI details: `docs/source/api/cli.rst`
-- Integration/plugin layout: `docs/source/api/integrations.rst`
-- New integrations: `docs/source/developer_guides/new_integration.rst`
+- Setup and requirements: `README.md`, `docs/src/content/docs/quickstart/index.md`
+- CLI details: `docs/src/content/docs/documentation/cli.md`
+- Integration/plugin layout: `docs/src/content/docs/documentation/demo_api/guides/integrate_model.md`
+- New integrations: `docs/src/content/docs/documentation/inferencing_api/guides/create_model.md`
 - Docs and CPU autodoc: `docs/README.md`
 - Tests and quality regressions: `tests/README.md`
 - Security reports: `SECURITY.md`

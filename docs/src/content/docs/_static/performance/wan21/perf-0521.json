@@ -1,0 +1,5 @@
+[
+  {"device": "H100", "fastvideo": 1290, "official": 1140, "flashdreams": 1040},
+  {"device": "GB200", "fastvideo": 578, "official": 481, "flashdreams": 441},
+  {"device": "GB300", "fastvideo": 534, "official": 429, "flashdreams": 382}
+]

@@ -206,6 +206,7 @@ docs = [
     "sphinx-copybutton>=0.5",
     "sphinx-design>=0.5",
     "myst-parser>=4.0",
+    "zensical==0.0.67",
 ]
 
 # CPU-only runtime deps needed by autodoc to import flashdreams on CI.
