@@ -186,8 +186,12 @@ selected runner:
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  crazy-robotaxi-omnidreams -- --export-options-docs /tmp/crazy-robotaxi-options.md
+  crazy-robotaxi-omnidreams --mode null -- \
+  --export-options-docs /tmp/crazy-robotaxi-options.md
 ```
+
+`--mode null` selects the runtime's existing mode without a presentation window.
+`--export-options-docs` is parsed and handled by Crazy Robotaxi.
 
 The export lists every editable option, grouped by menu heading, with its
 on-screen label, full YAML key, defining project, available CLI flags, and tooltip

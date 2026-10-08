@@ -176,13 +176,14 @@ def test_cli_exports_options_without_starting_the_game(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inline: bool
 ) -> None:
     def unexpected(*args: object, **kwargs: object) -> None:
-        pytest.fail("Documentation export attempted game or window setup")
+        pytest.fail("Documentation export attempted game preparation")
 
-    app = _application(pipeline_factory=unexpected, scene_factory=unexpected)
-    mode = SimpleNamespace(check_arguments=unexpected, create=unexpected)
+    app = _application(
+        pipeline_factory=unexpected,
+        scene_factory=unexpected,
+        native_preparer=unexpected,
+    )
     monkeypatch.setattr(runtime_cli, "create_application", lambda slug: app)
-    monkeypatch.setattr(runtime_cli, "client_window_mode", lambda name: mode)
-    monkeypatch.setattr(runtime_cli, "_session_desc", unexpected)
     monkeypatch.setattr(
         "crazy_robotaxi.application.load_controls_documents", unexpected
     )
@@ -194,7 +195,16 @@ def test_cli_exports_options_without_starting_the_game(
 
     with pytest.raises(SystemExit) as exc:
         runtime_cli.entrypoint(
-            ["test-app", "--", *export_args, "--config", str(config_path), "--no-ui"]
+            [
+                "test-app",
+                "--mode",
+                "null",
+                "--",
+                *export_args,
+                "--config",
+                str(config_path),
+                "--no-ui",
+            ]
         )
 
     assert exc.value.code == 0

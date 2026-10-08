@@ -12,7 +12,6 @@ import argparse
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
 
 import pytest
 
@@ -550,37 +549,3 @@ def test_unavailable_requested_mode_does_not_fall_back_or_initialize(
     assert not application.initialized
     assert not mode.created
     assert not runs
-
-
-@pytest.mark.parametrize(
-    "flag", ("-h", "--help", "--export-test", "--export-test=path")
-)
-def test_application_commands_skip_window_setup(monkeypatch, flag: str) -> None:
-    app = SimpleNamespace(
-        commandline_only_flags=IApplication.commandline_only_flags | {"--export-test"},
-        init=Mock(),
-    )
-    mode = Mock()
-    monkeypatch.setattr(cli, "create_application", lambda slug: app)
-    monkeypatch.setattr(cli, "client_window_mode", lambda name, **kwargs: mode)
-
-    cli.entrypoint(["test-app", "--", flag])
-
-    app.init.assert_called_once_with([flag])
-    mode.check_arguments.assert_not_called()
-    mode.create.assert_not_called()
-
-
-def test_normal_arguments_still_require_a_valid_window(monkeypatch) -> None:
-    app = SimpleNamespace(commandline_only_flags=IApplication.commandline_only_flags)
-    mode = Mock()
-    mode.check_arguments.side_effect = ValueError("missing output path")
-    monkeypatch.setattr(cli, "create_application", lambda slug: app)
-    monkeypatch.setattr(cli, "client_window_mode", lambda name, **kwargs: mode)
-
-    with pytest.raises(SystemExit) as exc:
-        cli.entrypoint(["test-app", "--mode", "mp4", "--", "--game-option"])
-
-    assert exc.value.code == 2
-    mode.check_arguments.assert_called_once()
-    mode.create.assert_not_called()

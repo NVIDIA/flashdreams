@@ -189,10 +189,6 @@ _TRACE_PATH_METADATA_KEY = "trace_chunk_lifecycle_path"
 class CrazyRobotaxiApplication(IApplication):
     """Configure isolated V2 game sessions with model-owned defaults."""
 
-    commandline_only_flags = IApplication.commandline_only_flags | {
-        "--export-options-docs"
-    }
-
     def __init__(
         self,
         *,

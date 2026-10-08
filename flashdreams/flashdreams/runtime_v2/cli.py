@@ -58,6 +58,9 @@ An application declares whatever arguments it likes, including ones this
 command also has, so the split is stated rather than guessed.
 """
 
+_HELP_FLAGS = frozenset({"-h", "--help"})
+"""What an application's own arguments use to ask for its help."""
+
 
 def entrypoint(argv: Sequence[str] | None = None) -> None:
     """Run the command, reporting where to watch what it generates."""
@@ -76,13 +79,14 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     if parsed.preload_application:
         parsed.mode = "null"
 
+    # Asking an application what it takes is answered by the application alone,
+    # so a run that only wants its help neither checks the arguments for a
+    # window nor opens one.
+    wants_application_help = bool(_HELP_FLAGS.intersection(application_args))
     # Before the window, so a slug this cannot run costs nothing to find out.
     application = create_application(parsed.slug)
-    if any(
-        argument.split("=", 1)[0] in application.commandline_only_flags
-        for argument in application_args
-    ):
-        # Application commands such as help need no presentation window.
+    if wants_application_help:
+        # Parsing is init's first job, so this prints the help and exits.
         application.init(application_args)
         return
     if parsed.mode is None:

@@ -22,9 +22,6 @@ class IApplication(ABC):
     creates everything else and passes it in.
     """
 
-    commandline_only_flags: frozenset[str] = frozenset({"-h", "--help"})
-    """Flags handled by ``init`` without creating a window or a session."""
-
     @abstractmethod
     def init(self, commandline_args: Sequence[str]) -> None:
         """Parse application arguments and start preparation."""
