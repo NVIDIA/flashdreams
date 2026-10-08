@@ -38,9 +38,9 @@ The report is saved in ``artifacts/profiles/``. To save it somewhere else, pass
 ``--report-path``. By default the report records CUDA, NVTX, OS runtime and
 Vulkan activity; to record something different, pass ``--trace``.
 
-``--stats-path`` and ``FLASHDREAMS_SYNC_AND_PROFILE=1`` make the CPU wait for the
-GPU on every step, which can shift the timeline, so leave them off when you
-want the closest view of a normal run.
+To time each stage, ``--stats-path`` (or ``FLASHDREAMS_SYNC_AND_PROFILE=1``)
+makes the CPU wait for the GPU twice per step. This adds a slight delay to each
+step, so the timeline differs slightly from a normal run.
 
 Reading the report
 ------------------
