@@ -38,6 +38,7 @@ from crazy_robotaxi.live_edit.config import (
     WeatherPreset,
 )
 from crazy_robotaxi.physics import TaxiPhysicsWorld
+from crazy_robotaxi.race import RaceGameSnapshot
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.session import (
     CrazyRobotaxiModelLoop,
