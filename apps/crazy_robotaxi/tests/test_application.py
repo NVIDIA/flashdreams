@@ -71,6 +71,8 @@ from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import (
     CameraCalibration,
     ConditionBatch,
+    DriverCommand,
+    PhysicsDebugFrame,
     SceneDefinition,
     VehicleState,
 )

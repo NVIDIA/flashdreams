@@ -10,7 +10,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import Future
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any, cast
 
@@ -41,6 +41,7 @@ from crazy_robotaxi.controls import (
     taxi_driver_command,
     wheel_driver_command,
 )
+from crazy_robotaxi.debug import RobotaxiDebugUILoop
 from crazy_robotaxi.factory import build_taxi_engine, build_world_renderer
 from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
@@ -140,6 +141,7 @@ class ModelState:
 
     def ensure_rollout(self) -> WorldModelRollout:
         """Build and prewarm renderer, PhysX, game, and cache on the model thread."""
+        script = getattr(self.config, "driving_script", None)
         if self.rollout is None:
             scene = self.scene
             if scene is None:
@@ -625,7 +627,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             hdmap = hdmap[0, 0]
             game_frames = engine_step.game_frames
             poses = engine_step.trajectory.rig_poses_world
-            if trace_enabled:
+            if trace_enabled or script is not None:
                 simulation_timestamps_us = tuple(
                     int(value) for value in engine_step.trajectory.timestamps_us
                 )
@@ -633,6 +635,68 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 vehicle.speed_mps for vehicle in engine_step.trajectory.vehicle_states
             )
             bev = engine_step.condition.bev_tchw
+            if script is not None:
+                trajectory = engine_step.trajectory
+                if len(trajectory.physics_debug_frames) != frame_count:
+                    raise RuntimeError(
+                        "Scripted game run requires per-frame physics observations"
+                    )
+                records = []
+                for index in range(valid_count):
+                    physics = trajectory.physics_debug_frames[index]
+                    physical = physics.vehicle_state
+                    if physical is None:
+                        raise RuntimeError("Physics observation has no vehicle state")
+                    ground_height = (
+                        None
+                        if state.debug_ground is None
+                        else state.debug_ground.ground_height_at(
+                            physical.x_m, physical.y_m, physical.z_m
+                        )
+                    )
+                    records.append(
+                        {
+                            "frame": state.scripted_frames + index,
+                            "simulation_timestamp_us": int(
+                                trajectory.timestamps_us[index]
+                            ),
+                            "command": asdict(commands[index]),
+                            "vehicle": asdict(trajectory.vehicle_states[index]),
+                            "physics_vehicle": asdict(physical),
+                            "rig_pose_world": poses[index].copy(),
+                            "ground_height_m": ground_height,
+                            "ground_error_m": None
+                            if ground_height is None
+                            else physical.z_m - ground_height,
+                            "actor_collision": physics.actor_collision,
+                            "static_barrier_collision": physics.static_barrier_collision,
+                            "physics_colliders": asdict(physics),
+                            "game": asdict(
+                                cast(
+                                    TaxiGameSnapshot | RaceGameSnapshot,
+                                    game_frames[index],
+                                )
+                            ),
+                            "model_step": step_index,
+                            "autoregressive_index": autoregressive_index,
+                            "chunk_frame": index,
+                        }
+                    )
+                debug_records = tuple(records)
+                state.scripted_frames += valid_count
+                state.finished = state.scripted_frames == script.frame_count
+                # Models generate full chunks. Export only the requested prefix
+                # of the last chunk, including its matching simulation data.
+                video = video[:valid_count]
+                hdmap = hdmap[:valid_count]
+                game_frames = game_frames[:valid_count]
+                poses = poses[:valid_count]
+                speeds_mps = speeds_mps[:valid_count]
+                assert simulation_timestamps_us is not None
+                simulation_timestamps_us = simulation_timestamps_us[:valid_count]
+                bev = None if bev is None else bev[:valid_count]
+                if live_edit_statuses is not None:
+                    live_edit_statuses = live_edit_statuses[:valid_count]
             metrics = dict(generated.metrics)
             metrics["generation_age_ms"] = (
                 (gameplay.timeline.gameplay_tick - gameplay.timeline.generation_tick)
@@ -648,6 +712,11 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             state.last_pose = poses[-1].copy()
             state.last_speed_mps = speeds_mps[-1]
         else:
+            if script is not None:
+                # A terminal game ends the run; the manifest reports the missing
+                # script frames instead of fabricating repeated observations.
+                state.finished = True
+                return []
             if (
                 state.last_video is None
                 or state.last_hdmap is None
@@ -678,6 +747,11 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             live_edit_statuses=live_edit_statuses,
             current_prompt=current_prompt,
         )
+        if debug_records:
+            hud_frames = tuple(
+                replace(frame, debug_record=record)
+                for frame, record in zip(hud_frames, debug_records, strict=True)
+            )
         invoke_async(
             state.ui_loop,
             lambda ui_state, frames=hud_frames: ui_state.publish(frames),
@@ -836,7 +910,9 @@ class CrazyRobotaxiSession(ISession):
             initial_map_path=self._config.initial_map_path,
             initial_race_course_id=self._config.initial_race_course_id,
         )
-        if self._config.no_ui:
+        if self._config.driving_script is not None:
+            ui_loop = self.register_ui_loop(RobotaxiDebugUILoop, state=hud_state)
+        elif self._config.no_ui:
             if (
                 self._config.initial_game_mode is None
                 or self._config.initial_map_path is None
