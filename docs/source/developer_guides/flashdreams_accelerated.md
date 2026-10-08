@@ -923,6 +923,10 @@ PYTHONPATH=flashdreams python \
   --output artifacts/torchao-625/run-001 --repeats 3 --torchao-eager-numerics
 ```
 
+Choose a new or empty output directory; existing artifacts or cache directories
+are rejected. A skipped subprocess or missing/incomplete measurement export
+fails the sweep even if pytest exits successfully.
+
 Run this command on an allocated GPU. It measures BF16, existing FP8, and torchao
 FP8 across eager, compile, graph, and compile+graph paths. Each process preserves
 raw benchmark samples, startup costs, numerical differences, memory accounting,

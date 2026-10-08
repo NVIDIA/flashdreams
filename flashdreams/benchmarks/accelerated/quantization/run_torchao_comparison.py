@@ -21,10 +21,10 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import statistics
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 
@@ -42,12 +42,14 @@ def main() -> None:
     if args.repeats < 1:
         parser.error("--repeats must be positive")
     output = args.output.resolve()
+    if output.exists() and any(output.iterdir()):
+        parser.error(
+            "output must be empty to preserve evidence and cold-cache isolation"
+        )
     output.mkdir(parents=True, exist_ok=True)
     root = Path(__file__).resolve().parents[4]
     target = Path(__file__).with_name("test_quantized_linear_benchmark.py")
     manifest_path = output / "manifest.json"
-    if manifest_path.exists():
-        parser.error("output already contains a manifest; choose a fresh directory")
     # Preserve the working implementation as well as the base commit.
     (output / "source.patch").write_bytes(
         subprocess.check_output(["git", "diff", "HEAD"], cwd=root)
@@ -151,7 +153,12 @@ def main() -> None:
                             )
                         except json.JSONDecodeError:
                             record["artifact_error"] = "incomplete benchmark JSON"
-                    if rows and "backend" in rows[0]["extra_info"]:
+                    if (
+                        len(rows) == 1
+                        and rows[0].get("extra_info", {}).get("backend") == backend
+                        and rows[0].get("extra_info", {}).get("execution") == mode
+                        and len(rows[0].get("stats", {}).get("data", [])) == 50
+                    ):
                         info, stats = rows[0]["extra_info"], rows[0]["stats"]
                         raw_ms = sorted(value * 1000 for value in stats["data"])
                         info.update(
@@ -166,6 +173,11 @@ def main() -> None:
                         summaries.append(info)
                         (output / "measurements.json").write_text(
                             json.dumps(summaries, indent=2)
+                        )
+                    else:
+                        record.setdefault(
+                            "artifact_error",
+                            "missing or incomplete benchmark measurements",
                         )
                     lines = [
                         "# Component measurements",
@@ -200,7 +212,11 @@ def main() -> None:
                         )
                     manifest_path.write_text(json.dumps(manifest, indent=2))
                     (output / "summary.md").write_text("\n".join(lines) + "\n")
-    failures = [run for run in manifest["runs"] if run["returncode"] != 0]
+    failures = [
+        run
+        for run in manifest["runs"]
+        if run["returncode"] != 0 or "artifact_error" in run
+    ]
     print(
         f"Completed {len(manifest['runs'])} processes; {len(failures)} failed. Results: {output}",
         flush=True,
