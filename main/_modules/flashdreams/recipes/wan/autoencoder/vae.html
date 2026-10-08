@@ -1836,7 +1836,10 @@ SPDX-License-Identifier: Apache-2.0
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Wrap the decoder forward in a CUDA graph for replay.&quot;&quot;&quot;</span>
 
     <span class="n">use_compile</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;``torch.compile(mode=&quot;max-autotune-no-cudagraphs&quot;)``. See</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``torch.compile(mode=&quot;max-autotune-no-cudagraphs&quot;)``. On for</span>
+<span class="sd">    streaming presets with small per-call chunks (e.g. 12-frame blocks);</span>
+<span class="sd">    keep it off for whole-clip decodes, where Inductor&#39;s intermediates can</span>
+<span class="sd">    OOM a large frame count (e.g. 81 frames on 96 GB). See</span>
 <span class="sd">    ``WanVAEEncoderConfig.use_compile`` for the VRAM caveat.&quot;&quot;&quot;</span>
 
     <span class="n">channels_last</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
@@ -1901,6 +1904,11 @@ SPDX-License-Identifier: Apache-2.0
             <span class="n">state_dict_transform</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">state_dict_transform</span><span class="p">,</span>
             <span class="n">channels_last</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">channels_last</span><span class="p">,</span>
         <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="c1"># NDHWC is cuDNN&#39;s fast conv3d layout. Only rank-5 (conv3d) tensors</span>
+        <span class="c1"># take it; the conv2d weights (rank 4) and norms stay as they are.</span>
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">vae</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">vae</span><span class="o">.</span><span class="n">buffers</span><span class="p">()):</span>
+            <span class="k">if</span> <span class="n">t</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">5</span><span class="p">:</span>
+                <span class="n">t</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">contiguous</span><span class="p">(</span><span class="n">memory_format</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">channels_last_3d</span><span class="p">)</span>
 
 <div class="viewcode-block" id="WanVAEDecoder.initialize_autoregressive_cache">
 <a class="viewcode-back" href="../../../../../api/integrations.html#flashdreams.recipes.wan.WanVAEDecoder.initialize_autoregressive_cache">[docs]</a>
@@ -1924,7 +1932,8 @@ SPDX-License-Identifier: Apache-2.0
         <span class="n">batch_size</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span><span class="n">batch_shape</span><span class="p">)</span>
         <span class="n">z</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">H</span><span class="p">,</span> <span class="n">W</span><span class="p">)</span>
 
-        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">vae</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">z</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">(</span><span class="n">memory_format</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">channels_last_3d</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">vae</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">x</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="n">batch_shape</span><span class="p">,</span> <span class="o">*</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span>
 
     <span class="nd">@property</span>

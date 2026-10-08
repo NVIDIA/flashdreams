@@ -1509,7 +1509,10 @@ decoder, which has asymmetric <code class="docutils literal notranslate"><span c
 <dl class="py attribute">
 <dt class="sig sig-object py" id="flashdreams.recipes.wan.WanVAEDecoderConfig.use_compile">
 <span class="sig-name descname"><span class="pre">use_compile</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#flashdreams.recipes.wan.WanVAEDecoderConfig.use_compile" title="Link to this definition">#</a></dt>
-<dd><p><code class="docutils literal notranslate"><span class="pre">torch.compile(mode=&quot;max-autotune-no-cudagraphs&quot;)</span></code>. See
+<dd><p><code class="docutils literal notranslate"><span class="pre">torch.compile(mode=&quot;max-autotune-no-cudagraphs&quot;)</span></code>. On for
+streaming presets with small per-call chunks (e.g. 12-frame blocks);
+keep it off for whole-clip decodes, where Inductor’s intermediates can
+OOM a large frame count (e.g. 81 frames on 96 GB). See
 <code class="docutils literal notranslate"><span class="pre">WanVAEEncoderConfig.use_compile</span></code> for the VRAM caveat.</p>
 </dd></dl>
 
