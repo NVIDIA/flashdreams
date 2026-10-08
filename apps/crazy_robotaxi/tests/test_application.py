@@ -172,8 +172,12 @@ def _scene(*, width: int = 1280, height: int = 704) -> SceneDefinition:
 
 
 @pytest.mark.parametrize("inline", (False, True))
+@pytest.mark.parametrize("mode", (None, "null", "mp4", "webrtc", "native-window"))
 def test_cli_exports_options_without_starting_the_game(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inline: bool
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    inline: bool,
+    mode: str | None,
 ) -> None:
     def unexpected(*args: object, **kwargs: object) -> None:
         pytest.fail("Documentation export attempted game preparation")
@@ -183,7 +187,20 @@ def test_cli_exports_options_without_starting_the_game(
         scene_factory=unexpected,
         native_preparer=unexpected,
     )
+    mode_factory = runtime_cli.client_window_mode
+
+    def cpu_mode(name: str, **kwargs: Any) -> Any:
+        mode = mode_factory(name, **kwargs)
+        monkeypatch.setattr(
+            mode,
+            "create",
+            lambda parsed: SimpleNamespace(close=lambda: None),
+        )
+        monkeypatch.setattr(mode, "starting", lambda window: None)
+        return mode
+
     monkeypatch.setattr(runtime_cli, "create_application", lambda slug: app)
+    monkeypatch.setattr(runtime_cli, "client_window_mode", cpu_mode)
     monkeypatch.setattr(
         "crazy_robotaxi.application.load_controls_documents", unexpected
     )
@@ -192,13 +209,17 @@ def test_cli_exports_options_without_starting_the_game(
     output = tmp_path / "options.md"
     flag = "--export-options-docs"
     export_args = [f"{flag}={output}"] if inline else [flag, str(output)]
+    mode_args = [] if mode is None else ["--mode", mode]
 
     with pytest.raises(SystemExit) as exc:
         runtime_cli.entrypoint(
             [
                 "test-app",
-                "--mode",
-                "null",
+                *mode_args,
+                "--output-path",
+                str(tmp_path / "unused.mp4"),
+                "--total-model-steps",
+                "1",
                 "--",
                 *export_args,
                 "--config",

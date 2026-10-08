@@ -181,24 +181,24 @@ style editing, while rain or snow items automatically enable weather editing.
 
 ### Export the options reference
 
-Use `--export-options-docs PATH` to generate a Markdown reference for the
-selected runner:
+Add `--export-options-docs PATH` after `--` in a game launch command to generate
+a Markdown reference for the selected runner. For example, using browser mode:
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  crazy-robotaxi-omnidreams --mode null -- \
+  crazy-robotaxi-omnidreams --mode webrtc -- \
   --export-options-docs /tmp/crazy-robotaxi-options.md
 ```
 
-`--mode null` selects the runtime's existing mode without a presentation window.
-`--export-options-docs` is parsed and handled by Crazy Robotaxi.
+Crazy Robotaxi parses and handles the flag independently of the presentation
+mode. Runtime arguments follow the usual rules for the chosen mode.
 
 The export lists every editable option, grouped by menu heading, with its
 on-screen label, full YAML key, defining project, available CLI flags, and tooltip
 description.
-It also includes the application CLI help. Export uses the runner preset and
-exits after writing the file; it needs no model downloads, GPU session, or
-presentation window. An em dash in the CLI column means to use Options or YAML.
+It also includes the application CLI help. The game uses the runner preset and
+exits after writing the file, before preparing maps or loading the model.
+An em dash in the CLI column means to use Options or YAML.
 
 OmniDreams exports also compare all twelve runner presets with their parents,
 using values from the current configs. Preset-owned fields are marked as
