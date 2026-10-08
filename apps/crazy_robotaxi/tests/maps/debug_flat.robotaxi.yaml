@@ -1,0 +1,47 @@
+schema_version: 1
+id: robotaxi-debug-flat
+name: Debug Flat and Curbs
+
+compiler:
+  sample_spacing_m: 1.5
+  ground_margin_m: 30
+  intersection_connector_samples: 8
+
+profiles:
+  track:
+    lane_width_m: 5.5
+    curb_offset_m: 1.5
+    lanes: [backward, backward, forward, forward]
+    speed_limit_mps: 24
+    lane_marking: {style: DASHED_SINGLE, color: WHITE}
+    divider_markings:
+      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: DASHED_SINGLE, color: WHITE}
+
+nodes:
+  - {id: southwest, type: road_joint, pose: {x_m: 0, y_m: 0}}
+  - {id: southeast, type: road_joint, pose: {x_m: 600, y_m: 0}}
+  - {id: northeast, type: road_joint, pose: {x_m: 600, y_m: 200}}
+  - {id: northwest, type: road_joint, pose: {x_m: 0, y_m: 200}}
+
+roads:
+  - {id: straight, from: southwest, to: southeast, profile: track}
+  - {id: east, from: southeast, to: northeast, profile: track}
+  - {id: return, from: northeast, to: northwest, profile: track}
+  - {id: west, from: northwest, to: southwest, profile: track}
+
+spawns:
+  - id: start
+    road: straight
+    lane: 2
+    distance_m: 50
+    image: package://omnidreams_game_engine/screenshot.jpg
+    prompt: A forward-facing taxi view on a wide level road circuit in daylight.
+
+race_courses:
+  - id: debug-lap
+    spawn: start
+    start: southeast
+    checkpoints: [east, return, west, straight]
+    lap_count: 1
