@@ -370,6 +370,8 @@ class IModelLoop(ILoop[StateT], ABC):
         last_run_started: float | None = None
         unpublished_step_elapsed_s = 0.0
         unpublished_generation: int | None = None
+        # Input read by steps whose output is still buffered: (arrivals, step start).
+        unpublished_inputs: list[tuple[list[int], int]] = []
         self._set_inference_state(ModelInferenceState.RUNNING)
         try:
             if device is not None and device.type == "cuda":
@@ -390,6 +392,16 @@ class IModelLoop(ILoop[StateT], ABC):
                 if generation != unpublished_generation:
                     unpublished_step_elapsed_s = 0.0
                     unpublished_generation = generation
+                    # The reset discarded the buffered output this input went into.
+                    if unpublished_inputs:
+                        self.profiler.input_dropped(
+                            [
+                                ns
+                                for arrivals, _ in unpublished_inputs
+                                for ns in arrivals
+                            ]
+                        )
+                        unpublished_inputs.clear()
                 result: list[StepResult] | None = None
                 step_completed = False
                 try:
@@ -424,6 +436,8 @@ class IModelLoop(ILoop[StateT], ABC):
                 finally:
                     self._finish_run(result, step_completed=step_completed)
                 unpublished_step_elapsed_s += step_elapsed_s
+                if received_ns:
+                    unpublished_inputs.append((received_ns, step_started_ns))
 
                 # Carry timing across steps whose output remains buffered.
                 if result:
@@ -433,7 +447,9 @@ class IModelLoop(ILoop[StateT], ABC):
                     self.profiler.event(
                         "model.frame", count=result[0].frame_count, step=step
                     )
-                    self.profiler.input_consumed(step, received_ns, step_started_ns)
+                    for arrivals, started_ns in unpublished_inputs:
+                        self.profiler.input_consumed(step, arrivals, started_ns)
+                    unpublished_inputs.clear()
                     # Read the rates before publishing: afterwards the result
                     # belongs to the presentation thread and must not be touched.
                     step_metrics = self.profiler.collect_fps()

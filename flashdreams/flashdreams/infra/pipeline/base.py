@@ -241,8 +241,10 @@ class StreamInferencePipeline(
         # Counted like a frame, so the stats report generate() calls per second.
         profiler.event("pipeline.generate")
 
-        # Opened even with no encoder, so the stage is timed either way.
-        with profiler.range("pipeline.encode"):
+        # Stages are timed under this cache, so a pipeline run before this one's
+        # finalize keeps its own. Opened even with no encoder, so the stage is
+        # timed either way.
+        with profiler.stage_scope(cache), profiler.range("pipeline.encode"):
             if input is not None:
                 assert self.encoder is not None, (
                     "input was provided but the pipeline has no encoder. "
@@ -256,7 +258,7 @@ class StreamInferencePipeline(
                     cache=cache.encoder_cache,
                 )
 
-        with profiler.range("pipeline.diffuse"):
+        with profiler.stage_scope(cache), profiler.range("pipeline.diffuse"):
             clean_latent, final_state = self.diffusion_model.generate(
                 autoregressive_index=autoregressive_index,
                 cache=cache.transformer_cache,
@@ -267,16 +269,17 @@ class StreamInferencePipeline(
         if on_diffusion_complete is not None:
             on_diffusion_complete()
 
-        if self.decoder is not None:
-            assert cache.decoder_cache is not None  # invariant: paired with decoder
-            with profiler.range("pipeline.decode"):
+        # Opened even with no decoder, so the stage is timed either way.
+        with profiler.stage_scope(cache), profiler.range("pipeline.decode"):
+            if self.decoder is not None:
+                assert cache.decoder_cache is not None  # invariant: paired with decoder
                 output = self.decoder(
                     input=clean_latent,
                     autoregressive_index=autoregressive_index,
                     cache=cache.decoder_cache,
                 )
-        else:
-            output = clean_latent
+            else:
+                output = clean_latent
 
         return output
 
@@ -314,7 +317,7 @@ class StreamInferencePipeline(
             "finalize() called before generate() — no FinalState on the cache."
         )
         profiler = get_inference_profiler()
-        with profiler.range("pipeline.finalize"):
+        with profiler.stage_scope(cache), profiler.range("pipeline.finalize"):
             self.diffusion_model.finalize(final_state=cache.final_state)
         if cache.event_profiler is not None:
             # A pipeline that overrides generate() times its own stages onto
@@ -322,7 +325,8 @@ class StreamInferencePipeline(
             cache.event_profiler.record("finalize")
             stats_ms = cache.event_profiler.sync_and_summarize()
         else:
-            stats_ms = profiler.collect_stage_ms()
+            with profiler.stage_scope(cache):
+                stats_ms = profiler.collect_stage_ms()
         if not stats_ms:
             return None
 
