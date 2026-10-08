@@ -329,6 +329,7 @@ class InteractiveDriveSession(ISession):
         scene_loader: SceneLoader,
         title: str,
         scene_options: tuple[InteractiveDriveSceneOption, ...],
+        owns_backend: bool = True,
     ) -> None:
         self._backend_factory = backend_factory
         self._config = config
@@ -336,6 +337,7 @@ class InteractiveDriveSession(ISession):
         self._scene_loader = scene_loader
         self._title = title
         self._scene_options = scene_options
+        self._owns_backend = owns_backend
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -347,6 +349,7 @@ class InteractiveDriveSession(ISession):
             config=self._config,
             desc=self._desc,
             scene_loader=self._scene_loader,
+            owns_backend=self._owns_backend,
             view_mode=self._config.view_mode,
             postprocess_enabled=self._config.app.postprocess.is_enabled(),
         )
@@ -465,11 +468,16 @@ class InteractiveDriveApplication(_InteractiveDriveApplicationBase):
                         variant=selected_variant,
                     ),
                 )
+        if self._backend_can_prepare:
+            self._backend = self._backend_factory(self._config.app)
 
     def create_session(self, session_desc: SessionDesc) -> ISession:
         """Create a session that owns the Interactive Drive HUD loop."""
         if self._config is None:
             raise RuntimeError("init() must run before create_session().")
+        backend = self._backend
+        if self._backend_can_prepare and backend is None:
+            raise RuntimeError("init() must start backend preparation.")
         if session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("Interactive Drive requires tchw output.")
         if (
@@ -503,12 +511,15 @@ class InteractiveDriveApplication(_InteractiveDriveApplicationBase):
                 ),
             )
         return InteractiveDriveSession(
-            backend_factory=self._backend_factory,
+            backend_factory=(
+                self._backend_factory if backend is None else lambda _: backend
+            ),
             config=self._config,
             desc=session_desc,
             scene_loader=self._scene_loader,
             title=self._title,
             scene_options=options,
+            owns_backend=backend is None,
         )
 
 

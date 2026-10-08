@@ -187,6 +187,7 @@ roads:
 
 race_courses:
   - id: grand-prix
+    spawn: race_start
     start: start_finish
     checkpoints:
       - turn_one
@@ -209,14 +210,12 @@ spawns:
     road: start_finish_straight
     lane: 2
     distance_m: 220
-    variants:
-      default:
-        image: package://omnidreams_game_engine/screenshot.jpg
-        prompt: >-
-          A forward-facing view from a taxi on a wide closed Formula-style
-          road circuit in daylight, with varied-radius corners, technical
-          esses, hairpins, safety barriers, grandstands, sponsor banners,
-          and a clear start-finish straight.
-        prompt_context: >-
-          A forward-facing view from a taxi on a wide road racing circuit
-          through a city in daylight.
+    image: package://omnidreams_game_engine/screenshot.jpg
+    prompt: >-
+      A forward-facing view from a taxi on a wide closed Formula-style
+      road circuit in daylight, with varied-radius corners, technical
+      esses, hairpins, safety barriers, grandstands, sponsor banners,
+      and a clear start-finish straight.
+    prompt_context: >-
+      A forward-facing view from a taxi on a wide road racing circuit
+      through a city in daylight.

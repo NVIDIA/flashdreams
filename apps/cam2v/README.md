@@ -41,6 +41,8 @@ Runtime arguments, before `--`:
 | `--mode {mp4,webrtc,native-window}` | Select file, browser, or native-window output |
 | `--stats-path PATH` | Write model-step measurements as JSON |
 | `--output-path PATH` | MP4 destination; required in `mp4` mode |
+| `--timeout {SECONDS,unbound}` | Wall-clock since the application run starts, including init and every replacement. Remaining seconds go to the next session |
+| `--total-model-steps {N,unbound}` | Remaining model steps for the whole run |
 | `--host HOST`, `--port PORT` | WebRTC bind address |
 | `--window-title TITLE` | Native-window title |
 | `--pixel-width INT`, `--pixel-height INT` | Override output dimensions |
@@ -62,7 +64,7 @@ Cam2V application arguments, after `--`:
 | `--example-data`, `--no-example-data` | Enable or disable packaged/example inputs |
 | `--example-idx INT` | Select an example input |
 | `--device DEVICE` | Select the model device |
-| `--total-blocks INT` | Set autoregressive chunks per rollout |
+| `--total-blocks INT` | Autoregressive chunks per rollout; reaching this count finishes the UI and ends the run |
 | `--warmup-blocks INT` | Set chunks excluded from steady-state FPS |
 | `--ui`, `--no-ui` | Enable or disable the controls/status overlay |
 | `--compile`, `--no-compile` | Enable or disable model compilation |
@@ -102,6 +104,9 @@ Defaults supplied by each registered Cam2V application:
 | Output layout | `tchw` | `tchw` | `tchw` | `tchw` |
 | Backpressure | `block` | `block` | `block` | `block` |
 | Presentation | `continuous` | `continuous` | `continuous` | `continuous` |
+
+Reaching `--total-blocks` finishes the UI (overlay or blit), so `mp4`,
+`webrtc`, and `native-window` all end at that count.
 
 For all four applications, the controls/status UI is enabled,
 `--example-data` is disabled, and `--example-idx` is 0. Prompt and input paths

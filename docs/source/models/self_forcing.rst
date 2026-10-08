@@ -73,7 +73,7 @@ To run Self-Forcing, launch its v2 T2V application:
    uv run --project integrations_v2/self_forcing \
        flashdreams-run-v2 \
        t2v-self-forcing-wan2.1-t2v-1.3b \
-       --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 -- \
+       --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 --timeout unbound -- \
        --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
        --total-blocks 7
 
@@ -100,7 +100,7 @@ For multi-GPU inference, use:
    uv run --project integrations_v2/self_forcing \
        torchrun --nproc_per_node=4 --no-python flashdreams-run-v2 \
        t2v-self-forcing-wan2.1-t2v-1.3b \
-       --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 -- \
+       --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 --timeout unbound -- \
        --prompt "A stylish woman strolls down a bustling Tokyo street, the warm glow of neon lights and animated city signs casting vibrant reflections. She wears a sleek black leather jacket paired with a flowing red dress and black boots, her black purse slung over her shoulder. Sunglasses perched on her nose and a bold red lipstick add to her confident, casual demeanor. The street is damp and reflective, creating a mirror-like effect that enhances the colorful lights and shadows. Pedestrians move about, adding to the lively atmosphere. The scene is captured in a dynamic medium shot with the woman walking slightly to one side, highlighting her graceful strides." \
        --total-blocks 7
 

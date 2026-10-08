@@ -6,12 +6,17 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 import pytest
 from crazy_robotaxi.dynamics import TaxiVehicleConfig, integrate_taxi_vehicle
-from crazy_robotaxi.high_scores import HighScoreStore, validate_player_name
+from crazy_robotaxi.high_scores import (
+    HighScoreStore,
+    RaceTimeStore,
+    validate_player_name,
+)
 from crazy_robotaxi.navigation import (
     LanePosition,
     NavigationLane,
@@ -46,6 +51,7 @@ def _controller(
     config: TaxiGameConfig | None = None,
     *,
     high_score_store: HighScoreStore | None = None,
+    frame_advance: Callable[[VehicleState, bool], int] | None = None,
 ) -> TaxiGameController:
     return TaxiGameController(
         scene_id="taxi-test",
@@ -55,6 +61,7 @@ def _controller(
         initial_state=_state(),
         config=config or TaxiGameConfig(waypoint_spacing_m=1000.0),
         high_score_store=high_score_store,
+        frame_advance=frame_advance,
     )
 
 
@@ -92,6 +99,74 @@ def test_taxi_brake_from_rest_enters_reverse() -> None:
     )
 
     assert result.speed_mps < 0.0
+
+
+def test_direct_steering_preserves_keyboard_arcade_response() -> None:
+    vehicle = TaxiVehicleConfig()
+    direct = integrate_taxi_vehicle(
+        _state(),
+        DriverCommand(steer=1.0, steer_is_direct=True),
+        dt_s=0.1,
+        vehicle=vehicle,
+    )
+    legacy_keyboard = integrate_taxi_vehicle(
+        _state(),
+        DriverCommand(steer=1.0),
+        dt_s=0.1,
+        vehicle=vehicle,
+    )
+
+    assert direct.steer_rad == pytest.approx(legacy_keyboard.steer_rad)
+
+    half_lock = _state()
+    half_lock.steer_rad = vehicle.max_steer_rad * 0.5
+    released = integrate_taxi_vehicle(
+        half_lock,
+        DriverCommand(steer_is_direct=True),
+        dt_s=0.1,
+        vehicle=vehicle,
+    )
+    assert released.steer_rad == pytest.approx(
+        half_lock.steer_rad - vehicle.steer_return_rate_rad_per_s * 0.1
+    )
+
+
+def test_collected_coins_add_to_overall_taxi_score() -> None:
+    controller = _controller()
+
+    controller.collect_coins(3)
+
+    assert controller.snapshot(_state()).score == 300
+
+
+def test_frame_effects_align_with_taxi_score_and_stop_at_game_over(
+    tmp_path: Path,
+) -> None:
+    active_states: list[bool] = []
+    coin_counts = iter((0, 1, 9))
+
+    def frame_advance(_state: VehicleState, active: bool) -> int:
+        active_states.append(active)
+        return next(coin_counts)
+
+    store = HighScoreStore(tmp_path / "scores.csv")
+    controller = _controller(
+        TaxiGameConfig(
+            waypoint_spacing_m=1000.0,
+            global_time_s=2.0,
+            high_scores_path=store.path,
+        ),
+        high_score_store=store,
+        frame_advance=frame_advance,
+    )
+
+    snapshots = controller.advance_frames(
+        _trajectory((0.0, 100.0), (1.0, 100.0), (2.0, 100.0)),
+        1.0,
+    )
+
+    assert active_states == [True, True, False]
+    assert [snapshot.score for snapshot in snapshots] == [0, 100, 100]
 
 
 def test_fare_and_game_over_flow_reaches_v2_name_entry(tmp_path: Path) -> None:
@@ -134,6 +209,19 @@ def test_high_scores_order_by_score_then_timestamp(tmp_path: Path) -> None:
         ("EARLIER", 900),
         ("LATER", 900),
     ]
+
+
+def test_default_leaderboards_hold_ten_entries(tmp_path: Path) -> None:
+    taxi = HighScoreStore(tmp_path / "scores.csv")
+    race = RaceTimeStore(tmp_path / "times.csv")
+    for index in range(11):
+        taxi.record(f"P{index}", 100 - index)
+        race.record("map", "course", f"P{index}", 100 + index)
+
+    assert len(taxi.read()) == 10
+    assert taxi.qualifying_rank(1) is None
+    assert len(race.read("map", "course")) == 10
+    assert race.qualifying_rank("map", "course", 1_000) is None
 
 
 def test_passenger_tracks_follow_snapshot_visibility() -> None:

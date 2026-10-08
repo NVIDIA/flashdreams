@@ -32,10 +32,6 @@ from typing import Literal, Protocol, get_args
 from loguru import logger
 
 NativeAccelerationMode = Literal["auto", "disabled", "required"]
-NATIVE_EXTENSION_SYNC_COMMAND = (
-    "uv run --package flashdreams-omnidreams python "
-    "integrations_v2/omnidreams/impl/omnidreams_singleview/tools/sync_thirdparty.py sync"
-)
 
 
 class NativeExtensionLoader(Protocol):
@@ -56,7 +52,7 @@ class NativeAccelerationUnavailable(RuntimeError):
 
 
 class NativeSourcesUnavailable(RuntimeError):
-    """Raised when native extension sources must be synchronized."""
+    """Raised when native extension sources cannot be acquired or validated."""
 
 
 @dataclass(kw_only=True)
@@ -123,11 +119,6 @@ def _native_extension_unavailable_reason(
     base = f"native extension unavailable for {component}"
     if error is not None:
         base = f"{base}: {error}"
-    if isinstance(error, NativeSourcesUnavailable):
-        return (
-            f"{base}. To sync third-party native sources, run:\n"
-            f"  {NATIVE_EXTENSION_SYNC_COMMAND}"
-        )
     if isinstance(error, ImportError):
         return (
             f"{base}. Native module import failed; check that the generated "

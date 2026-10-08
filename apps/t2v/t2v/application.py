@@ -32,6 +32,9 @@ class T2VSessionConfig:
     total_blocks: int
     """Blocks generated before a rollout's model loop finishes."""
 
+    use_ui: bool
+    """Whether sessions show interactive prompt controls."""
+
 
 class T2VApplication(IApplication):
     """Streaming text-to-video, configured by one integration's defaults.
@@ -103,6 +106,12 @@ class T2VApplication(IApplication):
             ),
         )
         parser.add_argument(
+            "--ui",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Render interactive prompt controls over the generated video.",
+        )
+        parser.add_argument(
             "--compile",
             action=argparse.BooleanOptionalAction,
             default=None,
@@ -141,6 +150,7 @@ class T2VApplication(IApplication):
             prompt=args.prompt,
             device=args.device,
             total_blocks=args.total_blocks,
+            use_ui=args.ui,
         )
         pipeline = self._pipeline_config.setup().to(config.device).eval()
         self._config = config
@@ -180,7 +190,13 @@ class T2VApplication(IApplication):
         if prompt is not None and (not isinstance(prompt, str) or not prompt.strip()):
             raise ValueError("A session prompt must be non-empty text.")
         self._validate_frame_size(session_desc, pipeline)
-        return self.session_type(pipeline, prompt, session_desc, config.total_blocks)
+        return self.session_type(
+            pipeline,
+            prompt,
+            session_desc,
+            config.total_blocks,
+            use_ui=config.use_ui,
+        )
 
     def close(self) -> None:
         """Release the model, and whatever memory it was holding."""

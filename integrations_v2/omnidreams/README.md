@@ -16,6 +16,8 @@ Its public model variants are `OmnidreamsPipelineConfig` literals in
 - `OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG`
 - `OMNIDREAMS_PERF_PIPELINE_CONFIG`
 - `OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG`
+- `OMNIDREAMS_RTX_5090_PIPELINE_CONFIG`
+- `OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG`
 - `OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG`
 - `OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG`
 - `OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG`
@@ -30,6 +32,12 @@ uv sync --package flashdreams-omnidreams --inexact
 
 Checkpoints and example scenes download from Hugging Face on first use. Export
 `HF_TOKEN` when the selected repository requires authentication.
+
+Native third-party sources download on first use into
+`artifacts/omnidreams/thirdparty`. Set
+`FLASHDREAMS_OMNIDREAMS_TRY_THIRDPARTY_RESYNC=1` to attempt a clean redownload
+on each load. Do not use resync while another OmniDreams process is using the
+sources. The default value is `0` (only downloads missing sources).
 
 ## Applications
 

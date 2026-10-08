@@ -28,12 +28,6 @@ class MapLaunchSettings:
     camera: str = "camera_front_wide_120fov"
     """Camera identifier selected from the map's available views."""
 
-    variant: str = "default"
-    """Visual variant selected from the map."""
-
-    prompt: str | None = None
-    """Base prompt override; ``None`` uses the map variant's prompt."""
-
     force_recompile: bool = False
     """Whether to rebuild the selected map's compiled cache once."""
 

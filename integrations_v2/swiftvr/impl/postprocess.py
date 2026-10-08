@@ -57,16 +57,22 @@ class SwiftVRStream:
             overlap=overlap,
         )
         self.autoregressive_index = 0
+        # ponytail: This deprecated MVP slot retains only the newest finalize
+        # result; replace it with per-output metric plumbing in issue #603.
+        self._finalize_metrics: dict[str, float | int] | None = None
 
     @torch.inference_mode()
     def step(self, frames_uint8: Tensor) -> Tensor | None:
         """Process ``[T,H,W,3]`` uint8 frames."""
+        self._finalize_metrics = None
         output = self.pipeline.generate(
             self.autoregressive_index,
             self.cache,
             frames_uint8,
         )
-        self.pipeline.finalize(self.autoregressive_index, self.cache)
+        self._finalize_metrics = self.pipeline.finalize(
+            self.autoregressive_index, self.cache
+        )
         self.autoregressive_index += 1
         return output
 
@@ -74,6 +80,12 @@ class SwiftVRStream:
     def flush(self) -> Tensor | None:
         """Flush the final encoder temporal group."""
         return self.pipeline.flush(self.cache)
+
+    def pull_finalize_metrics(self) -> dict[str, float | int] | None:
+        """Return and clear the latest pipeline finalize metrics."""
+        metrics = self._finalize_metrics
+        self._finalize_metrics = None
+        return metrics
 
 
 @dataclass(kw_only=True)
@@ -103,6 +115,12 @@ class SwiftVRPostProcessorConfig(VideoPostProcessorConfig):
 
     compile_blocks: bool = False
     """Compile transformer blocks. Disabled by default to avoid long startup."""
+
+    compile_reae_encoder: bool = False
+    """Compile ReAE encoder compute while keeping causal stream state explicit."""
+
+    compile_reae_decoder: bool = False
+    """Compile ReAE decoder compute while keeping causal stream state explicit."""
 
     prewarm: bool = True
     """Warm model kernels before the first measured rollout chunk."""
@@ -156,7 +174,7 @@ class SwiftVRPostProcessor(VideoPostProcessor[SwiftVRPostProcessorConfig]):
     def __init__(self, config: SwiftVRPostProcessorConfig) -> None:
         super().__init__(config)
         self._pipeline: SwiftVRPipeline | None = None
-        self._warmed_specs: set[VideoSpec] = set()
+        self._warmed_shapes: set[tuple[int, int, int]] = set()
 
     def start(self, spec: VideoSpec) -> VideoPostProcessorSession:
         """Start one causal video stream."""
@@ -175,7 +193,8 @@ class SwiftVRPostProcessor(VideoPostProcessor[SwiftVRPostProcessorConfig]):
     def prepare(self, spec: VideoSpec) -> None:
         """Load and optionally warm the model once for this input shape."""
         pipeline = self.pipeline()
-        if not self.config.prewarm or spec in self._warmed_specs:
+        shape = (spec.height, spec.width, spec.channels)
+        if not self.config.prewarm or shape in self._warmed_shapes:
             return
         output = self.config.output_spec(spec)
         stream = SwiftVRStream(
@@ -195,7 +214,7 @@ class SwiftVRPostProcessor(VideoPostProcessor[SwiftVRPostProcessorConfig]):
         stream.flush()
         if pipeline.device.type == "cuda":
             torch.cuda.synchronize(pipeline.device)
-        self._warmed_specs.add(spec)
+        self._warmed_shapes.add(shape)
 
 
 class _SwiftVRPostProcessorSession(VideoPostProcessorSession):
@@ -216,6 +235,16 @@ class _SwiftVRPostProcessorSession(VideoPostProcessorSession):
         """Preload and prewarm the persistent model before timed processing."""
         self._processor.prepare(self._spec)
         self._ensure_stream()
+
+    def reset(self) -> None:
+        """Start a fresh temporal stream while retaining resident model weights."""
+        self._stream = None
+        self._buffer = None
+        self._last_frame = None
+        self._metadata_spans.clear()
+        self._input_frames = 0
+        self._output_frames = 0
+        self._closed = False
 
     @torch.inference_mode()
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:
@@ -273,6 +302,12 @@ class _SwiftVRPostProcessorSession(VideoPostProcessorSession):
                 f"SwiftVR emitted {restored.shape[1]} tail frames; expected {remaining}."
             )
         return [self._output_chunk(restored[:, :remaining], source="swiftvr_tail")]
+
+    def pull_finalize_metrics(self) -> dict[str, float | int] | None:
+        """Return and clear the latest pipeline finalize metrics."""
+        if self._stream is None:
+            return None
+        return self._stream.pull_finalize_metrics()
 
     def _ensure_stream(self) -> SwiftVRStream:
         if self._stream is None:
@@ -347,6 +382,8 @@ def _load_swiftvr_pipeline(config: SwiftVRPostProcessorConfig) -> SwiftVRPipelin
         dtype=_resolve_dtype(config.dtype),
         attention_window=config.attention_window,
         compile_blocks=config.compile_blocks,
+        compile_reae_encoder=config.compile_reae_encoder,
+        compile_reae_decoder=config.compile_reae_decoder,
         chunk_size=config.chunk_size,
     )
 
@@ -365,9 +402,18 @@ POSTPROCESS_PRESET_SWIFTVR_4X = SwiftVRPostProcessorConfig()
 POSTPROCESS_PRESET_SWIFTVR_2X = SwiftVRPostProcessorConfig(scale=2, chunk_size=8)
 """SwiftVR 2x preset with an 8-frame streaming chunk."""
 
+POSTPROCESS_PRESET_SWIFTVR_2X_COMPILED = SwiftVRPostProcessorConfig(
+    scale=2,
+    chunk_size=8,
+    compile_blocks=True,
+    compile_reae_decoder=True,
+)
+"""Opt-in SwiftVR 2x preset with compiled transformer and ReAE decoder."""
+
 
 __all__ = [
     "POSTPROCESS_PRESET_SWIFTVR_2X",
+    "POSTPROCESS_PRESET_SWIFTVR_2X_COMPILED",
     "POSTPROCESS_PRESET_SWIFTVR_4X",
     "SwiftVRPostProcessor",
     "SwiftVRPostProcessorConfig",

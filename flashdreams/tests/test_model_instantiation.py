@@ -21,6 +21,8 @@ Tests marked ``manual`` require large downloads or high VRAM and must
 be invoked explicitly: ``pytest tests/test_model_instantiation.py -v -m manual``
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 import torch
 
@@ -57,6 +59,32 @@ class TestImageEncoder:
 
 class TestTextEncoders:
     """Tests for text encoders."""
+
+    @pytest.mark.ci_cpu
+    def test_wan_text_encoder_uses_eager_attention(self, monkeypatch):
+        from transformers import T5Tokenizer, UMT5EncoderModel
+
+        from flashdreams.infra.encoder.text import umt5
+
+        text_encoder = MagicMock()
+        from_pretrained = MagicMock(return_value=text_encoder)
+        monkeypatch.setattr(umt5, "maybe_download_hf_repo_on_rank0", MagicMock())
+        monkeypatch.setattr(UMT5EncoderModel, "from_pretrained", from_pretrained)
+        monkeypatch.setattr(
+            T5Tokenizer,
+            "from_pretrained",
+            MagicMock(return_value=MagicMock()),
+        )
+
+        config = umt5.UMT5TextEncoderConfig()
+        umt5.UMT5TextEncoder(config)
+
+        from_pretrained.assert_called_once_with(
+            config.model_id_or_local_path,
+            subfolder="text_encoder",
+            local_files_only=True,
+            attn_implementation="eager",
+        )
 
     @pytest.mark.ci_gpu
     def test_wan_text_encoder_instantiation(self, device):
@@ -96,14 +124,14 @@ class TestVideoVAE:
     """Tests for video VAE models."""
 
     @pytest.mark.manual
-    def test_teahv_vae_instantiation(self, device):
-        """Test TeahvInterface can be instantiated.
+    def test_taehv_vae_instantiation(self, device):
+        """Test TaehvInterface can be instantiated.
 
         Kept as manual: large checkpoint download and GPU memory use.
         """
-        from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
+        from flashdreams.recipes.taehv import TaehvVAEDecoderConfig
 
-        model = TeahvVAEDecoderConfig().setup().to(device)
+        model = TaehvVAEDecoderConfig().setup().to(device)
 
         assert model.temporal_compression_ratio == 4
         assert model.spatial_compression_ratio == 8

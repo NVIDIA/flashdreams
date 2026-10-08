@@ -58,6 +58,27 @@ def _run_git(cwd: Path, *args: str) -> str:
     return proc.stdout.strip()
 
 
+def test_default_destination_is_the_omnidreams_artifact_directory() -> None:
+    module = _load_sync_module()
+
+    assert module.DEFAULT_DEST_ROOT == (
+        SCRIPT_PATH.parents[5] / "artifacts" / "omnidreams" / "thirdparty"
+    )
+
+
+def test_remove_tree_handles_readonly_files(tmp_path: Path) -> None:
+    tool = _load_sync_module()
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    readonly = tree / "readonly"
+    readonly.write_text("managed Git metadata", encoding="utf-8")
+    readonly.chmod(0o444)
+
+    tool.remove_tree(tree)
+
+    assert not tree.exists()
+
+
 def _make_repo(tmp_path: Path) -> tuple[Path, str]:
     repo = tmp_path / "source"
     repo.mkdir()
@@ -128,6 +149,11 @@ def test_sync_downloads_pinned_source_and_applies_operations(tmp_path: Path) -> 
     assert (dest_root / "demo" / "hello.txt").read_text(encoding="utf-8") == "new\n"
     assert not (dest_root / "demo" / "remove_me").exists()
     assert (dest_root / "demo" / ".flashdreams_source.json").is_file()
+    assert module.verify_sources(sources, dest_root)[0].commit == commit
+
+    bytecode_cache = dest_root / "demo" / "__pycache__"
+    bytecode_cache.mkdir()
+    (bytecode_cache / "hello.cpython-310.pyc").write_bytes(b"generated")
     assert module.verify_sources(sources, dest_root)[0].commit == commit
 
     (dest_root / "demo" / "hello.txt").write_text("drift\n", encoding="utf-8")

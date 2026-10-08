@@ -16,5 +16,6 @@
 """Shared modules for accelerated inference implementations."""
 
 from flashdreams.accelerated.common.non_persistent_linear import NonPersistentLinear
+from flashdreams.accelerated.common.rms_norm import rms_norm
 
-__all__ = ["NonPersistentLinear"]
+__all__ = ["NonPersistentLinear", "rms_norm"]

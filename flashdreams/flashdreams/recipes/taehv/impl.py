@@ -383,7 +383,7 @@ class TAEHV(nn.Module):
     Per-checkpoint key remaps and shape patches live in
     :mod:`flashdreams.recipes.taehv.checkpoint`; pass them in via the
     ``state_dict_transform`` kwarg (typically declared next to the
-    checkpoint URL in the consuming config -- see ``TeahvVAEDecoderConfig``,
+    checkpoint URL in the consuming config -- see ``TaehvVAEDecoderConfig``,
     ``FlashVSRDecoderConfig``). When left at its default ``None``,
     :meth:`load_from_checkpoint` applies a generic default: a
     ``decoder.<i>.*`` → ``decoder.blocks.<i>.*`` rewrite plus a

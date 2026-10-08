@@ -28,6 +28,7 @@ from flashdreams.core.attention.multiview.packing import (
 from flashdreams.core.attention.multiview.rope import (
     BASE_FPS,
     MODALITY_MARGIN,
+    caption_mrope_ids,
     chunk_mrope_ids,
     clip_mrope_ids,
     temporal_positions,
@@ -66,6 +67,17 @@ def test_views_occupy_consecutive_temporal_bands() -> None:
     assert positions.tolist() == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
 
+def test_views_can_share_temporal_positions() -> None:
+    clip = geometry()
+    positions = temporal_positions(
+        clip,
+        torch.arange(clip.frames_per_view),
+        view_offsets=False,
+    )
+
+    assert positions.tolist() == [0, 1, 2, 3] * clip.num_views
+
+
 def test_chunks_keep_global_positions() -> None:
     """A chunk carries each camera's place in the clip, not a count from zero."""
     clip = geometry()
@@ -94,6 +106,31 @@ def test_chunk_is_the_clip_restricted_to_its_frames() -> None:
     whole = clip_mrope_ids(clip, fps=FPS, temporal_offset=OFFSET)
     chunk = chunk_mrope_ids(
         clip, chunk_start=2, chunk_frames=2, fps=FPS, temporal_offset=OFFSET
+    )
+
+    keep = [
+        view * clip.frames_per_view + frame
+        for view in range(clip.num_views)
+        for frame in range(2, 4)
+    ]
+    assert torch.equal(chunk, whole[:, keep])
+
+
+def test_shared_view_positions_match_between_clip_and_chunk() -> None:
+    clip = geometry()
+    whole = clip_mrope_ids(
+        clip,
+        fps=FPS,
+        temporal_offset=OFFSET,
+        view_offsets=False,
+    )
+    chunk = chunk_mrope_ids(
+        clip,
+        chunk_start=2,
+        chunk_frames=2,
+        fps=FPS,
+        temporal_offset=OFFSET,
+        view_offsets=False,
     )
 
     keep = [
@@ -182,6 +219,21 @@ def test_position_ids_reject_nonpositive_or_nonfinite_fps(fps: float) -> None:
 def test_vision_starts_after_the_text_plus_the_modality_margin() -> None:
     assert vision_temporal_offset(7) == 7 + MODALITY_MARGIN
     assert MODALITY_MARGIN == 15_000.0
+
+
+def test_view_captions_restart_their_text_positions() -> None:
+    ids, position_span = caption_mrope_ids((2, 1, 3))
+
+    assert ids.tolist() == [[0, 1, 0, 0, 1, 2]] * 3
+    assert position_span == 3
+
+
+@pytest.mark.parametrize("lengths", [(), (2, -1)])
+def test_view_caption_positions_reject_invalid_lengths(
+    lengths: tuple[int, ...],
+) -> None:
+    with pytest.raises(ValueError):
+        caption_mrope_ids(lengths)
 
 
 def test_a_reserved_stride_spreads_the_cameras_further_apart() -> None:

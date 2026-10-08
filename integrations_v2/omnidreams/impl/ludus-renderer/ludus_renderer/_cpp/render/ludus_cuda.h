@@ -46,6 +46,11 @@ struct CudaRenderParams
     int   cameraTypeId;             // 0 = regular, 1 = BEV
     int   colorPaletteSize;         // 0 = use hardcoded defaults
     const uint32_t* colorPalette;   // device pointer, packed RGBA8 per prim type
+    int   widthTableSize;           // 0 = use the widths above
+    const float* widthTable;        // device pointer, pixels per prim type, 0 = not set
+    int   widthInNdc;               // 1 = measure line width in NDC, not in pixels
+    int   noDepthFade;              // 1 = leave a colour undimmed however far off
+    int   cullBehindCamera;         // 1 = draw nothing the camera's own plane is behind
 };
 
 struct LudusCudaState
@@ -94,11 +99,35 @@ struct LudusCudaState
     uint32_t*               colorPalette;
     int                     colorPaletteSize;
 
+    // Line width per prim type (GPU buffer), for callers whose layers differ
+    float*                  widthTable;
+    int                     widthTableSize;
+
+    // Whether a line's width is measured in NDC rather than in pixels
+    int                     widthInNdc;
+
+    // Whether a colour keeps its strength however far off it is drawn
+    int                     noDepthFade;
+
+    // Whether geometry the plane through the camera has behind it is dropped
+    // rather than projected. See cull_behind_camera in ludus_cuda.cu: this is
+    // the reference renderer's rule, and a lens seeing past ninety degrees
+    // wants its own field of view tested instead.
+    int                     cullBehindCamera;
+
     // MSAA (implemented as 2x supersampling when msaaSamples >= 4)
     int                     msaaSamples;        // 0 = disabled, 4 = 4x SSAA
     uint8_t*                msaaBuffer;         // hi-res RGBA8 intermediate buffer
     int                     msaaBufferSize;
 };
+
+// The wireframe width a state asks for, or the 2.0 it means by leaving it unset.
+inline float wireframe_width_of(const LudusCudaState& s)
+{
+    float base = (s.widthWireframe > 0.0f) ? s.widthWireframe : 2.0f;
+    float scale = (s.resolutionScale > 0.0f) ? s.resolutionScale : 1.0f;
+    return base * scale;
+}
 
 //------------------------------------------------------------------------
 // Timestamped cube pool parameters (passed to render for on-GPU interpolation).
@@ -219,5 +248,6 @@ void ludusCudaRenderTimestamped(
     uint8_t* outputPtr);
 
 void ludusCudaUploadColorPalette(LudusCudaState& s, const uint32_t* hostPalette, int count);
+void ludusCudaUploadWidthTable(LudusCudaState& s, const float* hostWidths, int count);
 
 //------------------------------------------------------------------------

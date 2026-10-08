@@ -68,6 +68,15 @@ def _download_source(cache_root: Path) -> Path:
     if source_root.is_dir():
         return source_root
     cache_root.mkdir(parents=True, exist_ok=True)
+    archive = _download_archive(cache_root)
+    return _extract_source(
+        cache_root,
+        archive,
+        source_root,
+    )
+
+
+def _download_archive(cache_root: Path) -> Path:
     archive = cache_root / f"PhysX-{_PHYSX_VERSION}.zip"
     if not archive.is_file() or _sha256(archive) != _PHYSX_ARCHIVE_SHA256:
         partial = archive.with_suffix(".zip.partial")
@@ -81,6 +90,10 @@ def _download_source(cache_root: Path) -> Path:
                 f"expected {_PHYSX_ARCHIVE_SHA256}, received {digest}"
             )
         partial.replace(archive)
+    return archive
+
+
+def _extract_source(cache_root: Path, archive: Path, source_root: Path) -> Path:
     extraction = cache_root / "source.partial"
     if extraction.exists():
         shutil.rmtree(extraction)
@@ -208,6 +221,13 @@ def _discard_relocated_cmake_build(build_dir: Path, source_dir: Path) -> None:
 
 def _configure_and_build(cache_root: Path, physx_root: Path) -> Path:
     """Configure once for this process and let CMake decide what to rebuild."""
+    return _configure_and_build_impl(
+        cache_root,
+        physx_root,
+    )
+
+
+def _configure_and_build_impl(cache_root: Path, physx_root: Path) -> Path:
     cmake = shutil.which("cmake")
     if cmake is None:
         raise RuntimeError(
@@ -270,8 +290,14 @@ def _configure_and_build(cache_root: Path, physx_root: Path) -> Path:
     return module_path
 
 
-def load_native_physx() -> ModuleType:
-    """Build once and return the standalone Ludus PhysX module."""
+def prepare_native_physx() -> ModuleType:
+    """Build, load, and cache the standalone Ludus PhysX module."""
+    if _CACHED_MODULE is not None:
+        return _CACHED_MODULE
+    return _load_native_physx()
+
+
+def _load_native_physx() -> ModuleType:
     global _CACHED_MODULE
     if _CACHED_MODULE is not None:
         return _CACHED_MODULE
@@ -295,4 +321,14 @@ def load_native_physx() -> ModuleType:
     return module
 
 
-__all__ = ["load_native_physx"]
+def load_native_physx() -> ModuleType:
+    """Return the prepared module without performing preparation work."""
+    if _CACHED_MODULE is None:
+        raise RuntimeError(
+            "native PhysX is not prepared; call prepare_physx() during "
+            "IApplication.init() before creating a PhysXWorld"
+        )
+    return _CACHED_MODULE
+
+
+__all__ = ["load_native_physx", "prepare_native_physx"]

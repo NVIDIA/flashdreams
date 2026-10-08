@@ -11,6 +11,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import torch
@@ -282,6 +283,7 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
     event_buffer = EventBuffer()
     event_buffer.register(0)
     step_timings: list[float] = []
+    steps_run_out: list[int] = []
 
     def publish(
         generation: int,
@@ -298,8 +300,10 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
         reader_id=0,
         publish=publish,
         max_steps=2,
+        steps_run_out=steps_run_out,
     )
 
+    assert steps_run_out == [2]
     assert failure_queue.empty()
     assert step_timings == pytest.approx([0.9, 0.9])
     assert model_loop.inference_state is ModelInferenceState.FINISHED
@@ -463,7 +467,7 @@ class FakeModelLoop(IModelLoop["FakeSession"]):
 class FakeUILoop(IUILoop["FakeSession"]):
     """Delegate direct UI rendering to the test session."""
 
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         return self.state.run_ui(step_index, events)
 
     def reset(self) -> None:
@@ -527,18 +531,20 @@ class FakeSession(ISession):
             output_layout=self._session_desc.output_layout,
         )
 
-    def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+    def run_ui(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         del events
         self._log.record("ui_loop.step")
         frame = self._presentation_manager.presented_frame(0)
         if frame is None:
-            return None
-        return StepResult(
-            step_index=step_index,
-            output=frame.unsqueeze(0).unsqueeze(2),
-            frame_count=1,
-            output_layout=self.session_desc.output_layout,
-        )
+            return []
+        return [
+            StepResult(
+                step_index=step_index,
+                output=frame.unsqueeze(0).unsqueeze(2),
+                frame_count=1,
+                output_layout=self.session_desc.output_layout,
+            )
+        ]
 
     def is_finished(self) -> bool:
         return False
@@ -739,16 +745,19 @@ def test_run_session_presents_every_step_in_order() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
     window = RecordingClientWindow(log)
+    completed_steps: list[int] = []
 
-    run_session(session, window, steps=3)
+    run_session(session, window, steps=3, completed_steps=completed_steps)
 
+    assert completed_steps == [3]
     assert [
         result.read_output()[0, 0, 0, 0, 0].item() for result in window.results
     ] == [0, 1, 2]
     assert [result.step_index for result in window.results] == sorted(
         result.step_index for result in window.results
     )
-    assert window.results[-1] is session.ui_loop.latest_result
+    assert session.ui_loop.latest_result is not None
+    assert window.results[-1] is session.ui_loop.latest_result[0]
     steps = [call for call in log.calls if call.startswith("session.step(")]
     assert steps == ["session.step(0)", "session.step(1)", "session.step(2)"]
 
@@ -851,7 +860,7 @@ def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
             assert input_processed.wait(timeout=1.0)
             return super().step(step_index, events)
 
-        def run_ui(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+        def run_ui(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
             self.ui_model_states.append(self.ui_loop.model_inference_state)
             if events.get_events():
                 input_processed.set()
@@ -935,15 +944,65 @@ def test_default_ui_composites_channels_and_holds_the_latest_frame() -> None:
 
     assert manager.advance(0, now=1.0)[0]
     first = ui.step(0, UserInputEvents([]))
-    assert first is not None
-    assert first.read_output()[0, :, 0, 0].tolist() == [0.5, 0.25, 0.0]
+    assert first
+    assert first[0].read_output()[0, :, 0, 0].tolist() == [0.5, 0.25, 0.0]
     assert not manager.advance(0)[0]
     held = ui.step(1, UserInputEvents([]))
-    assert held is not None
-    assert torch.equal(held.read_output(), first.read_output())
+    assert held
+    assert torch.equal(held[0].read_output(), first[0].read_output())
     assert not manager.advance(1)[0]
     assert manager.presented_frame_count == 0
-    assert ui.step(2, UserInputEvents([])) is None
+    assert ui.step(2, UserInputEvents([])) == []
+
+
+def test_ui_loop_rejects_more_than_one_result() -> None:
+    log = CallLog()
+
+    class TwoResultUILoop(FakeUILoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            del events
+            result = StepResult(
+                step_index=step_index,
+                output=torch.zeros((1, 3, 1, 1, 1)),
+                frame_count=1,
+                output_layout=self.state.session_desc.output_layout,
+            )
+            return [result, result]
+
+    class TwoResultSession(FakeSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_ui_loop(TwoResultUILoop, state=self)
+            self.register_model_loop(FakeModelLoop, state=self)
+
+    with pytest.raises(TypeError, match="at most one StepResult"):
+        run_session(
+            TwoResultSession(_session_desc(), log),
+            RecordingClientWindow(log),
+            steps=1,
+        )
+
+
+def test_ui_loop_rejects_a_non_step_result_element() -> None:
+    log = CallLog()
+
+    class BadElementUILoop(FakeUILoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            del step_index, events
+            return [0]  # ty: ignore[invalid-return-type]
+
+    class BadElementSession(FakeSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_ui_loop(BadElementUILoop, state=self)
+            self.register_model_loop(FakeModelLoop, state=self)
+
+    with pytest.raises(TypeError, match="list of StepResult"):
+        run_session(
+            BadElementSession(_session_desc(), log),
+            RecordingClientWindow(log),
+            steps=1,
+        )
 
 
 def test_default_ui_finishes_only_after_drawing_the_final_model_frame() -> None:
@@ -985,7 +1044,7 @@ def test_default_ui_finishes_only_after_drawing_the_final_model_frame() -> None:
     assert not ui.is_finished()
     assert manager.advance(0, now=1.0)[0]
     assert not ui.is_finished()
-    assert ui.step(0, UserInputEvents([])) is not None
+    assert ui.step(0, UserInputEvents([]))
     assert ui.is_finished()
 
 
@@ -1329,7 +1388,7 @@ def test_run_session_stops_when_the_window_reports_a_close(
 
     def record_finish(
         self: FakeUILoop,
-        result: StepResult | list[StepResult] | None,
+        result: list[StepResult] | None,
         *,
         step_completed: bool,
     ) -> None:
@@ -1368,11 +1427,29 @@ def test_run_session_returns_a_ui_requested_replacement_after_cleanup() -> None:
     assert "window.close" not in log.calls
 
 
+def test_timeout_wins_over_a_ui_requested_replacement() -> None:
+    log = CallLog()
+    resolved = _session_desc()
+
+    class RequestingSession(FakeSession):
+        def init(self) -> None:
+            super().init()
+            self.ui_loop.request_new_session(resolved)
+
+    session = RequestingSession(resolved, log)
+    window = RecordingClientWindow(log)
+
+    next_session_desc = run_session(session, window, timeout_seconds=0.0)
+
+    assert next_session_desc is None
+    assert log.calls[-2:] == ["window.close", "session.close"]
+
+
 def test_interactive_ui_can_replace_an_already_finished_session() -> None:
     log = CallLog()
 
     class RequestingUILoop(FakeUILoop):
-        def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
             self.state.ui_model_states.append(self.model_inference_state)
             self.state.ui_steps += 1
             if self.state.ui_steps == 2:
@@ -1386,12 +1463,14 @@ def test_interactive_ui_can_replace_an_already_finished_session() -> None:
                         },
                     )
                 )
-                return StepResult(
-                    step_index=step_index,
-                    output=torch.zeros((1, 3, 1, 2, 2)),
-                    frame_count=1,
-                    output_layout=self.state.session_desc.output_layout,
-                )
+                return [
+                    StepResult(
+                        step_index=step_index,
+                        output=torch.zeros((1, 3, 1, 2, 2)),
+                        frame_count=1,
+                        output_layout=self.state.session_desc.output_layout,
+                    )
+                ]
             return super().step(step_index, events)
 
     class RequestingSession(FiniteSession):
@@ -1769,13 +1848,115 @@ def test_run_session_discards_results_generated_before_a_reset(
     assert any("before a reset" in record.getMessage() for record in caplog.records)
 
 
+def test_publishing_nothing_queues_nothing_and_waits_for_nothing() -> None:
+    """A step that presented nothing must not fill the queue or block on it.
+
+    ``BLOCK`` is the default backpressure mode, so an empty chunk taking the
+    ordinary path would wait for room it does not need, once per step, on the
+    thread doing the generating.
+    """
+    manager = PresentationManager()
+    manager.configure(
+        backpressure_mode=BackpressureMode.BLOCK,
+        stop=threading.Event(),
+        put_timeout=0.01,
+    )
+
+    manager.publish(0, [])
+    manager.publish(0, [])
+
+    assert manager.buffered_chunk_count == 0
+    assert not manager.has_pending_frames()
+    assert manager.advance(0) == (False, None)
+    assert manager.presented_frame(0) is None
+
+
+def test_a_model_loop_that_presents_nothing_still_runs_and_ends() -> None:
+    """The worker rank of a sharded run: it generates, and nobody watches it.
+
+    Every rank of such a run computes the same frames and only one of them has a
+    client. The rest used to have to decode a copy nobody reads and write a file
+    nobody opens, because a step publishing no channel was refused. Nothing
+    reaches the window now, and the run still ends on its own.
+    """
+    log = CallLog()
+
+    class SilentSession(FiniteSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_model_loop(SilentModelLoop, state=self)
+
+    class SilentModelLoop(FakeModelLoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            self.state.step(step_index, events)
+            return []
+
+    session = SilentSession(_session_desc(), log, length=3)
+    window = RecordingClientWindow(log)
+
+    run_session(session, window, steps=None)
+
+    assert [call for call in log.calls if call.startswith("session.step(")] == [
+        "session.step(0)",
+        "session.step(1)",
+        "session.step(2)",
+    ]
+    assert window.results == []
+    assert "ui_loop.step" not in log.calls
+    assert log.calls[-2:] == ["window.close", "session.close"]
+
+
+def test_a_step_that_presents_nothing_records_no_metrics() -> None:
+    """No channel is no result, so there is nothing for a metrics sink to write.
+
+    Worth pinning rather than assuming: a benchmark reading a worker rank's file
+    should find a run that measured nothing, not one that measured zeros.
+    """
+    log = CallLog()
+
+    class SilentModelLoop(FakeModelLoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            del step_index, events
+            return []
+
+    class SilentSession(FiniteSession):
+        def init(self) -> None:
+            self._log.record("session.init")
+            self.register_model_loop(SilentModelLoop, state=self)
+
+    class RecordingMetricsSink(MetricsOutputSink):
+        def __init__(self) -> None:
+            self.results: list[StepResult] = []
+
+        def open(self, session_desc: SessionDesc) -> None:
+            del session_desc
+
+        def write(self, result: StepResult) -> None:
+            self.results.append(result)
+
+        def close(self) -> None:
+            return
+
+    metrics = RecordingMetricsSink()
+    run_session(
+        SilentSession(_session_desc(), log, length=2),
+        RecordingClientWindow(log),
+        metrics_output_sink=metrics,
+        steps=2,
+    )
+
+    assert metrics.results == []
+
+
 def test_run_session_with_no_steps_still_opens_and_closes() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)
     window = RecordingClientWindow(log)
 
-    run_session(session, window, steps=0)
+    completed_steps: list[int] = []
+    run_session(session, window, steps=0, completed_steps=completed_steps)
 
+    assert completed_steps == [0]
     assert "window.open" in log.calls
     assert log.calls[-2:] == ["window.close", "session.close"]
     assert window.results == []
@@ -1792,7 +1973,7 @@ def test_run_session_closes_both_when_a_step_raises(
 
     def record_finish(
         self: FakeModelLoop,
-        result: StepResult | list[StepResult] | None,
+        result: list[StepResult] | None,
         *,
         step_completed: bool,
     ) -> None:
@@ -1809,6 +1990,49 @@ def test_run_session_closes_both_when_a_step_raises(
     assert completed == [True, False]
     assert log.calls[-2:] == ["window.close", "session.close"]
     assert [result.step_index for result in window.results] == [1]
+
+
+@pytest.mark.parametrize("fail_at", [None, 0])
+def test_run_session_preserves_first_failure_and_finishes_cleanup(
+    fail_at: int | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    log = CallLog()
+    desc = replace(
+        _session_desc(),
+        metadata={
+            "trace_chunk_lifecycle": True,
+            "trace_chunk_lifecycle_path": str(tmp_path / "trace.log"),
+        },
+    )
+    session = FakeSession(desc, log, fail_at=fail_at, fail_to_close=True)
+    window = RecordingClientWindow(log, fail_to_close=True)
+    metrics = MetricsOutputSink(tmp_path / "metrics.json")
+    trace_logger = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
+    original_handlers = list(trace_logger.handlers)
+    original_level = trace_logger.level
+    original_propagate = trace_logger.propagate
+
+    def fail_metrics_close() -> None:
+        log.record("metrics.close")
+        raise RuntimeError("metrics close failed")
+
+    monkeypatch.setattr(metrics, "close", fail_metrics_close)
+    expected_failure = "metrics close failed" if fail_at is None else "step failed"
+    with caplog.at_level(logging.ERROR, logger=_RUNNER_LOGGER):
+        with pytest.raises(RuntimeError, match=expected_failure):
+            run_session(session, window, metrics_output_sink=metrics, steps=1)
+
+    assert log.calls[-3:] == ["metrics.close", "window.close", "session.close"]
+    assert "RuntimeError: close failed" in caplog.text
+    assert "session close failed" in caplog.text
+    if fail_at is not None:
+        assert "metrics close failed" in caplog.text
+    assert trace_logger.handlers == original_handlers
+    assert trace_logger.level == original_level
+    assert trace_logger.propagate is original_propagate
 
 
 def test_run_session_reports_a_window_that_fails_to_close() -> None:
