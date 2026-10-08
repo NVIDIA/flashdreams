@@ -609,6 +609,12 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
             self.state.physics_world.close()
             self.state.physics_world = None
         self.state.scene = None
+        if self.state.control_group is not None:
+            # Locally and without a shutdown collective, the way the runtime
+            # releases the group `StepAgreement` keeps: one rank can reach here
+            # unwinding from a failure while the others are still generating.
+            group, self.state.control_group = self.state.control_group, None
+            dist.destroy_process_group(group)
 
     def _initialize_rollout(self) -> None:
         state = self.state
@@ -1061,6 +1067,11 @@ def _mosaic(cells: Sequence[Tensor], *, columns: int, rows: int) -> Tensor:
                 "Every camera in the grid must be the same size; received "
                 f"{tuple(cell.shape)} alongside {tuple(first.shape)}."
             )
+    if len(cells) == 1 and rows * columns == 1:
+        # The grid a lone camera makes is the camera. Tiling it anyway would
+        # clear and then fill a frame-sized buffer on every step of the drive
+        # every integration but one is running.
+        return first
     channels, height, width = first.shape
     grid = first.new_zeros((rows * columns, channels, height, width))
     for index, cell in enumerate(cells):

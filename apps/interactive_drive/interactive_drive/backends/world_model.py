@@ -394,7 +394,11 @@ class WorldModelRenderBackend(RenderBackend):
     def _initialize_cache(self, initial_rgbs: Sequence[object], prompt: str) -> Any:
         with torch.cuda.device(self._pipeline.device):
             return self._pipeline.initialize_cache(
-                text=[[prompt]],
+                # ``text`` is ``[B, V]``, so the scene's one sentence is aimed
+                # at each camera in turn. A scene describes a place rather than
+                # a camera, and the pipeline sizes its caches from the view
+                # count it reads here, which left a rig with caches for one.
+                text=[[prompt for _ in self._view_names]],
                 image=self._initial_rgb_tensor(initial_rgbs),
                 view_names=list(self._view_names),
             )

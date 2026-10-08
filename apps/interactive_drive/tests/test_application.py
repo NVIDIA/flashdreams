@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections import deque
+from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -627,6 +628,37 @@ def test_conditioning_tensor_carries_the_rig_on_the_view_axis() -> None:
     assert [round(float(pixel)) for pixel in pixels] == [0, 1, 2]
 
 
+def test_every_camera_in_the_rig_is_given_the_scene_to_condition_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pipeline reads ``text`` as ``[B, V]`` and sizes its caches from it.
+
+    One sentence for a rig of four left the text a view wide while the images
+    and the conditioning carried the whole rig, so the caches came out too
+    small to generate into.
+    """
+    monkeypatch.setattr(torch.cuda, "device", lambda _device: nullcontext())
+    asked: dict[str, Any] = {}
+    backend = object.__new__(WorldModelRenderBackend)
+    backend._pipeline = cast(
+        Any,
+        SimpleNamespace(
+            device=torch.device("cpu"),
+            initialize_cache=lambda **kwargs: asked.update(kwargs),
+        ),
+    )
+    backend._view_names = ("front", "left", "right", "rear")
+
+    backend._initialize_cache(
+        [np.full((2, 3, 3), view, dtype=np.uint8) for view in range(4)],
+        "A drive through somewhere.",
+    )
+
+    assert asked["text"] == [["A drive through somewhere."] * 4]
+    assert asked["view_names"] == ["front", "left", "right", "rear"]
+    assert tuple(asked["image"].shape) == (1, 4, 1, 3, 2, 3)
+
+
 def test_initial_image_tensor_carries_one_frame_per_camera() -> None:
     backend = object.__new__(WorldModelRenderBackend)
     backend._pipeline = cast(Any, SimpleNamespace(device=torch.device("cpu")))
@@ -795,6 +827,7 @@ def test_interactive_drive_uses_regular_application_contract() -> None:
             owns_backend=False,
             physics_world=None,
             scene=object(),
+            control_group=None,
         ),
     )
     loop.close()
@@ -1473,6 +1506,36 @@ def test_the_hud_shrinks_for_a_model_that_generates_a_smaller_frame() -> None:
 
 def test_the_hud_stops_shrinking_before_its_text_is_unreadable() -> None:
     assert _hud_scale(320, 240) == 0.6
+
+
+def test_a_grid_of_one_camera_is_that_camera() -> None:
+    """Nothing to tile, and the drive most integrations run takes this path."""
+    cell = torch.arange(24, dtype=torch.uint8).reshape(2, 3, 4)
+
+    assert core_module._mosaic([cell], columns=1, rows=1) is cell
+
+
+def test_closing_a_session_lets_go_of_the_group_its_buttons_agreed_over(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A replaced session would otherwise leave its gloo group behind."""
+    scene = tmp_path / "local.usdz"
+    scene.touch()
+    app = InteractiveDriveApplication()
+    app.init(["--scene", str(scene)])
+    session = app.create_session(app.session_desc())
+    session.init()
+    model_loop = session.model_loop
+    assert isinstance(model_loop, InteractiveDriveModelLoop)
+    group: Any = object()
+    model_loop.state.control_group = group
+    released: list[Any] = []
+    monkeypatch.setattr(core_module.dist, "destroy_process_group", released.append)
+
+    model_loop.close()
+
+    assert released == [group]
+    assert model_loop.state.control_group is None
 
 
 def test_an_ordinary_restart_asks_for_no_prompt_of_its_own(
