@@ -1,4 +1,6 @@
-# Versioning and PyPI Publishing
+# Releasing FlashDreams
+
+Maintainer instructions for versioning and PyPI publication.
 
 ## Version source of truth
 

@@ -144,7 +144,7 @@ uv run --group lint pre-commit run -a
 uv run pytest -m "not manual"
 ```
 
-See [`DEV.md`](DEV.md) for repository-specific workflow notes.
+See [`RELEASE.md`](RELEASE.md) for versioning and release procedures.
 
 ## Contributing
 
