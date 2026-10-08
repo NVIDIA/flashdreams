@@ -348,9 +348,8 @@ splits it into local segments, runs public PAI-Bench-G on those segments, and
 reports 0-100 ``pai_bench_long_*`` metrics in the HTML report. These metrics
 are non-gating and separate from the baseline similarity metrics.
 
-The adapter follows the same external-evaluator pattern as WorldLens: it owns
-the checkout/staging/summary glue, while PAI-Bench itself remains an external
-checkout. By default it clones
+The adapter owns the checkout/staging/summary glue, while PAI-Bench itself
+remains an external checkout. By default it clones
 ``https://github.com/SHI-Labs/physical-ai-bench.git`` at the pinned revision
 declared in ``tools.benchmarks.pai_bench_profile`` under
 ``<repo-root>/.cache/flashdreams/evaluators/physical-ai-bench`` when the
