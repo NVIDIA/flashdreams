@@ -64,6 +64,8 @@ from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import (
     CameraCalibration,
     ConditionBatch,
+    DriverCommand,
+    PhysicsDebugFrame,
     SceneDefinition,
     VehicleState,
 )
