@@ -34,6 +34,8 @@ First install the model package, then launch the app through
    uv run flashdreams-profile -- t2v-self-forcing-wan2.1-t2v-1.3b --timeout 300 \
        --output-path artifacts/run.mp4 -- --prompt "A city street at night" --total-blocks 7
 
+If the model takes longer to compile, increase ``--timeout``.
+
 The report is saved in ``artifacts/profiles/``. To save it somewhere else, pass
 ``--report-path``. By default the report records CUDA, NVTX, OS runtime and
 Vulkan activity; to record something different, pass ``--trace``.
