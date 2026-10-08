@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import statistics
 import subprocess
@@ -145,22 +146,53 @@ def main() -> None:
                     manifest["runs"].append(record)
                     manifest_path.write_text(json.dumps(manifest, indent=2))
                     result_file = output / f"{label}.json"
-                    rows = []
-                    if result_file.exists():
-                        try:
-                            rows = json.loads(result_file.read_text()).get(
-                                "benchmarks", []
-                            )
-                        except json.JSONDecodeError:
-                            record["artifact_error"] = "incomplete benchmark JSON"
-                    if (
-                        len(rows) == 1
-                        and rows[0].get("extra_info", {}).get("backend") == backend
-                        and rows[0].get("extra_info", {}).get("execution") == mode
-                        and len(rows[0].get("stats", {}).get("data", [])) == 50
-                    ):
+                    try:
+                        rows = json.loads(result_file.read_text())["benchmarks"]
+                        if not isinstance(rows, list) or len(rows) != 1:
+                            raise ValueError("expected one benchmark row")
                         info, stats = rows[0]["extra_info"], rows[0]["stats"]
-                        raw_ms = sorted(value * 1000 for value in stats["data"])
+                        if info["backend"] != backend or info["execution"] != mode:
+                            raise ValueError("benchmark backend or execution mismatch")
+                        samples = stats["data"]
+                        if not isinstance(samples, list) or len(samples) != 50:
+                            raise ValueError("expected 50 timing samples")
+                        for key, value in (
+                            ("stats.median", stats["median"]),
+                            *(("timing sample", value) for value in samples),
+                        ):
+                            if (
+                                type(value) not in (int, float)
+                                or not math.isfinite(value)
+                                or value <= 0
+                            ):
+                                raise ValueError(f"{key} must be finite and positive")
+                        for key in (
+                            "cuda_event_median_ms",
+                            "preparation_ms",
+                            "first_call_ms",
+                            "capture_first_call_ms",
+                            "steady_peak_allocated_bytes",
+                            "relative_l2",
+                        ):
+                            value = info[key]
+                            if (
+                                type(value) not in (int, float)
+                                or not math.isfinite(value)
+                                or value < 0
+                            ):
+                                raise ValueError(
+                                    f"{key} must be finite and nonnegative"
+                                )
+                        raw_ms = sorted(value * 1000 for value in samples)
+                    except (
+                        FileNotFoundError,
+                        KeyError,
+                        TypeError,
+                        ValueError,
+                        OverflowError,
+                    ) as exc:
+                        record["artifact_error"] = f"invalid benchmark export: {exc}"
+                    else:
                         info.update(
                             {
                                 "label": label,
@@ -173,11 +205,6 @@ def main() -> None:
                         summaries.append(info)
                         (output / "measurements.json").write_text(
                             json.dumps(summaries, indent=2)
-                        )
-                    else:
-                        record.setdefault(
-                            "artifact_error",
-                            "missing or incomplete benchmark measurements",
                         )
                     lines = [
                         "# Component measurements",

@@ -21,6 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -35,13 +36,36 @@ _RUNNER = (
 
 @pytest.mark.parametrize(
     "result_kind",
-    ("missing", "skipped", "truncated", "incomplete", "wrong_backend", "valid"),
+    (
+        "missing",
+        "skipped",
+        "truncated",
+        "incomplete",
+        "wrong_backend",
+        "valid",
+        "missing:stats.median",
+        "missing:extra_info.preparation_ms",
+        "missing:extra_info.first_call_ms",
+        "missing:extra_info.capture_first_call_ms",
+        "missing:extra_info.cuda_event_median_ms",
+        "missing:extra_info.steady_peak_allocated_bytes",
+        "missing:extra_info.relative_l2",
+        "zero_median",
+        "invalid_metric",
+        "nonfinite_sample",
+        "null_document",
+        "null_info",
+        "mixed",
+    ),
 )
 def test_runner_requires_measurements(result_kind: str) -> None:
     """Fail zero-exit subprocesses without complete measurements and keep their logs."""
     main = runpy.run_path(str(_RUNNER))["main"]
 
+    completed = 0
+
     def run(command, **kwargs):
+        nonlocal completed
         if "--benchmark-json" in command:
             path = Path(command[command.index("--benchmark-json") + 1])
             _, backend, mode, _ = path.stem.split("-")
@@ -57,16 +81,32 @@ def test_runner_requires_measurements(result_kind: str) -> None:
                 0.0,
             )
             info.update(backend=backend, execution=mode)
-            record = {
+            record: dict[str, Any] = {
                 "extra_info": info,
                 "stats": {"data": [0.001] * 50, "median": 0.001},
             }
+            completed += 1
+            if result_kind.startswith("missing:"):
+                section, key = result_kind.removeprefix("missing:").split(".")
+                del record[section][key]
+            if result_kind == "mixed" and completed == 2:
+                del info["preparation_ms"]
+            if result_kind == "zero_median":
+                record["stats"]["median"] = 0
+            if result_kind == "invalid_metric":
+                info["relative_l2"] = "invalid"
+            if result_kind == "nonfinite_sample":
+                record["stats"]["data"][0] = float("nan")
+            if result_kind == "null_info":
+                record["extra_info"] = None
             if result_kind == "wrong_backend":
                 info["backend"] = "unrelated"
             if result_kind == "incomplete":
                 record["stats"]["data"] = []
             if result_kind == "truncated":
                 path.write_text('{"benchmarks":')
+            elif result_kind == "null_document":
+                path.write_text("null")
             elif result_kind != "missing":
                 path.write_text(
                     json.dumps(
@@ -97,12 +137,18 @@ def test_runner_requires_measurements(result_kind: str) -> None:
         assert len(manifest["runs"]) == 18
         assert all(row["returncode"] == 0 for row in manifest["runs"])
         assert all(
-            ("artifact_error" in row) == (result_kind != "valid")
-            for row in manifest["runs"]
+            ("artifact_error" in row)
+            == (index == 1 if result_kind == "mixed" else result_kind != "valid")
+            for index, row in enumerate(manifest["runs"])
         )
         assert len(list(output.glob("*.log"))) == 18
-        if result_kind == "valid":
-            assert len(json.loads((output / "measurements.json").read_text())) == 18
+        if result_kind in ("valid", "mixed"):
+            measurements = json.loads((output / "measurements.json").read_text())
+            assert len(measurements) == (17 if result_kind == "mixed" else 18)
+            assert measurements[0]["label"] == manifest["runs"][0]["label"]
+            assert measurements[-1]["label"] == manifest["runs"][-1]["label"]
+        else:
+            assert not (output / "measurements.json").exists()
 
 
 def test_runner_preserves_existing_directory() -> None:
