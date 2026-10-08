@@ -45,7 +45,9 @@ compile and autotune kernels.
 
 ### Runner presets
 
-Twelve OmniDreams runner configurations are registered:
+Twelve OmniDreams runner configurations are registered. The
+[exported options reference](#export-the-options-reference) includes their
+inheritance, shared defaults, render sizes, and exact setting differences:
 
 | Runner | Configuration |
 | --- | --- |
@@ -193,6 +195,11 @@ description.
 It also includes the application CLI help. Export uses the runner preset and
 exits after writing the file; it needs no model downloads, GPU session, or
 presentation window. An em dash in the CLI column means to use Options or YAML.
+
+OmniDreams exports also compare all twelve runner presets with their parents,
+using values from the current configs. Preset-owned fields are marked as
+non-editable. The guide explains active backends, native acceleration,
+responsive history, and how saved overrides affect preset comparisons.
 
 ### Launch arguments
 

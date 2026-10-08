@@ -89,6 +89,8 @@ class CrazyRobotaxiApplicationDefaults:
     width: int = 1280
     height: int = 704
     pipeline_config: Any | None = None
+    preset_documentation: Callable[[], str] | None = None
+    """Optional model-owned preset guide appended to the options export."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +250,10 @@ class CrazyRobotaxiApplication(IApplication):
             documentation += (
                 f"\n## Application arguments\n\n```text\n{parser.format_help()}```\n"
             )
+            if self._application_defaults.preset_documentation is not None:
+                documentation += (
+                    "\n" + self._application_defaults.preset_documentation()
+                )
             try:
                 args.export_options_docs.expanduser().write_text(
                     documentation, encoding="utf-8"

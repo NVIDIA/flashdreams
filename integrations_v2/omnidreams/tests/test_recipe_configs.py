@@ -84,6 +84,54 @@ from flashdreams.api_v2.application import IApplication
 pytestmark = pytest.mark.ci_cpu
 
 
+def test_options_export_includes_current_preset_comparisons(tmp_path: Path) -> None:
+    def unexpected(*args: object, **kwargs: object) -> object:
+        pytest.fail("Preset documentation export attempted model or scene preparation")
+
+    app = CrazyRobotaxiApplication(
+        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS,
+        pipeline_factory=unexpected,
+        scene_factory=cast(Any, unexpected),
+        native_preparer=unexpected,
+    )
+    output = tmp_path / "options.md"
+    with pytest.raises(SystemExit) as error:
+        app.init(["--export-options-docs", str(output)])
+
+    assert error.value.code == 0
+    reference = output.read_text()
+    guide = reference.split("## OmniDreams runner presets\n", 1)[1]
+    project = Path(__file__).parents[1] / "pyproject.toml"
+    registry = tomllib.loads(project.read_text())["project"]["entry-points"][
+        "flashdreams.applications_v2"
+    ]
+    overview = guide.split("### Standard and shared values", 1)[0]
+    runners = re.findall(r"^\| `(crazy-robotaxi[^`]+)` \|", overview, re.M)
+    assert set(runners) == {
+        slug for slug in registry if slug.startswith("crazy-robotaxi-")
+    }
+    assert len(runners) == 12
+    assert "1280 × 704" in overview
+    assert "1024 × 560" in overview
+
+    perf = guide.split("### `crazy-robotaxi-omnidreams-perf`\n", 1)[1].split("###", 1)[
+        0
+    ]
+    assert "`[1000, 500]` | `[1000, 100]`" in perf
+    assert "`disabled` | `required`" in perf
+    fast = guide.split("### `crazy-robotaxi-omnidreams-fast-perf`\n", 1)[1].split(
+        "###", 1
+    )[0]
+    assert "`model.pipeline.diffusion_model.seed`" in fast
+    assert "`42` | `null`" in fast
+    assert "`bfloat16` | `float16`" in fast
+    assert "`model.pipeline.image_encoder.native_vae_backend` | Preset-owned" in guide
+    assert "32 GB VRAM" in guide
+    assert "inactive" in guide
+    assert "schema_version: 1" in guide
+    assert app._config is None
+
+
 @pytest.mark.parametrize(
     "config", OMNIDREAMS_CONFIGS.values(), ids=OMNIDREAMS_CONFIGS.keys()
 )
