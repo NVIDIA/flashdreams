@@ -182,11 +182,11 @@ style editing, while rain or snow items automatically enable weather editing.
 ### Export the options reference
 
 Add `--export-options-docs PATH` after `--` in a game launch command to generate
-a Markdown reference for the selected runner. For example, using browser mode:
+a Markdown reference for the selected runner. For example, using `null` mode:
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  crazy-robotaxi-omnidreams --mode webrtc -- \
+  crazy-robotaxi-omnidreams --mode null -- \
   --export-options-docs /tmp/crazy-robotaxi-options.md
 ```
 
