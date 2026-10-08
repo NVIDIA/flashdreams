@@ -1,0 +1,3 @@
+# Six seconds at 30 frames/s, starting with the authored initial pose.
+steps:
+  - {frames: 180, throttle: 1}

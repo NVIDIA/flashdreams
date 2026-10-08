@@ -37,6 +37,7 @@ from omnidreams_game_engine.game_map.vicinity import (
     GameMapVicinity,
     GameMapVicinityResolver,
 )
+from omnidreams_game_engine.math3d import quaternion_to_matrix_xyzw
 from omnidreams_game_engine.simulation.actor_controller import (
     PhysicsActorController,
 )
@@ -704,7 +705,26 @@ class GamePhysicsWorld:
 
     def debug_frame(self, state: VehicleState) -> PhysicsDebugFrame:
         """Capture the active collider topology without rendering it."""
-        half_yaw = state.yaw_rad * 0.5
+        ego = getattr(self, "_last_debug_ego", None)
+        if ego is None:
+            ego = _body_state_from_vehicle(state, self._ego_model.half_extents_m[2])
+        rotation = quaternion_to_matrix_xyzw(ego.orientation_xyzw.tolist())
+        rig_position = (
+            ego.position_m - rotation[:, 2] * self._ego_model.half_extents_m[2]
+        )
+        state = replace(
+            state,
+            x_m=float(rig_position[0]),
+            y_m=float(rig_position[1]),
+            z_m=float(rig_position[2]),
+            yaw_rad=_yaw_from_quaternion_xyzw(ego.orientation_xyzw),
+            speed_mps=float(np.dot(ego.linear_velocity_mps, rotation[:, 0])),
+            pitch_rad=-math.asin(float(np.clip(rotation[2, 0], -1, 1))),
+            roll_rad=math.atan2(float(rotation[2, 1]), float(rotation[2, 2])),
+            velocity_x_mps=float(ego.linear_velocity_mps[0]),
+            velocity_y_mps=float(ego.linear_velocity_mps[1]),
+            yaw_rate_radps=float(ego.angular_velocity_radps[2]),
+        )
         ego_xy = np.asarray([state.x_m, state.y_m], dtype=np.float32)
         forward = np.asarray(
             [math.cos(state.yaw_rad), math.sin(state.yaw_rad)], dtype=np.float32
@@ -813,18 +833,8 @@ class GamePhysicsWorld:
             barrier_heights = self._debug_barrier_heights
             barrier_ids = self._debug_barrier_ids
         return PhysicsDebugFrame(
-            ego_position_m=np.asarray(
-                [
-                    state.x_m,
-                    state.y_m,
-                    state.z_m + self._ego_model.half_extents_m[2],
-                ],
-                dtype=np.float32,
-            ),
-            ego_orientation_xyzw=np.asarray(
-                [0.0, 0.0, math.sin(half_yaw), math.cos(half_yaw)],
-                dtype=np.float32,
-            ),
+            ego_position_m=ego.position_m.copy(),
+            ego_orientation_xyzw=ego.orientation_xyzw.copy(),
             ego_dimensions_lwh=np.asarray(
                 self._ego_model.half_extents_m, dtype=np.float32
             )
@@ -837,6 +847,26 @@ class GamePhysicsWorld:
             barrier_heights_m=barrier_heights,
             actor_ids=actor_ids,
             barrier_ids=barrier_ids,
+            vehicle_state=state,
+            actor_collision=self.last_step_actor_collision,
+            static_barrier_collision=self.last_step_static_barrier_collision,
+            ego_chassis_offset_m=(
+                None
+                if self._ego_model.vehicle is None
+                else np.asarray(
+                    self._ego_model.vehicle.chassis_offset_m, dtype=np.float32
+                )
+            ),
+            ego_chassis_dimensions_lwh=(
+                None
+                if self._ego_model.vehicle is None
+                else np.asarray(
+                    self._ego_model.vehicle.chassis_half_extents_m, dtype=np.float32
+                )
+                * 2
+            ),
+            ego_linear_velocity_mps=ego.linear_velocity_mps.copy(),
+            ego_angular_velocity_radps=ego.angular_velocity_radps.copy(),
         )
 
     def step(
@@ -1009,6 +1039,13 @@ class GamePhysicsWorld:
         self._detached_entity_ids = detached_ids
 
         ego = physics_step.ego
+        # Preserve observations independently of gameplay policy and ground snap.
+        self._last_debug_ego = BodyState(
+            position_m=ego.position_m.copy(),
+            orientation_xyzw=ego.orientation_xyzw.copy(),
+            linear_velocity_mps=ego.linear_velocity_mps.copy(),
+            angular_velocity_radps=ego.angular_velocity_radps.copy(),
+        )
         yaw = _yaw_from_quaternion_xyzw(ego.orientation_xyzw)
         collision_response_active = (
             physics_step.impact
