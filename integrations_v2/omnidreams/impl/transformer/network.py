@@ -71,88 +71,46 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
 
     _target: type["CosmosDiTNetwork"] = field(default_factory=lambda: CosmosDiTNetwork)
 
-    in_channels: int = field(
-        default=16,
-        metadata={"user_setting": False},
-    )
+    in_channels: int = 16
     """Number of input latent channels before patch embedding."""
 
-    out_channels: int = field(
-        default=16,
-        metadata={"user_setting": False},
-    )
+    out_channels: int = 16
     """Output latent channels after the final layer."""
 
-    patch_spatial: int = field(
-        default=2,
-        metadata={"user_setting": False},
-    )
+    patch_spatial: int = 2
     """Spatial patch size (applied to both H and W)."""
 
-    patch_temporal: int = field(
-        default=1,
-        metadata={"user_setting": False},
-    )
+    patch_temporal: int = 1
     """Temporal patch size."""
 
-    model_channels: int = field(
-        default=2048,
-        metadata={"user_setting": False},
-    )
+    model_channels: int = 2048
     """Transformer hidden size (width)."""
 
-    num_blocks: int = field(
-        default=28,
-        metadata={"user_setting": False},
-    )
+    num_blocks: int = 28
     """Number of transformer blocks."""
 
-    num_heads: int = field(
-        default=16,
-        metadata={"user_setting": False},
-    )
+    num_heads: int = 16
     """Number of attention heads."""
 
-    mlp_ratio: float = field(
-        default=4.0,
-        metadata={"user_setting": False},
-    )
+    mlp_ratio: float = 4.0
     """FFN inner-dim multiplier relative to ``model_channels``."""
 
-    concat_padding_mask: bool = field(
-        default=True,
-        metadata={"user_setting": False},
-    )
+    concat_padding_mask: bool = True
     """If ``True``, expect a padding mask channel concatenated to the input at training."""
 
-    use_adaln_lora: bool = field(
-        default=True,
-        metadata={"user_setting": False},
-    )
+    use_adaln_lora: bool = True
     """If ``True``, factorize AdaLN modulation through a low-rank LoRA path."""
 
-    adaln_lora_dim: int = field(
-        default=256,
-        metadata={"user_setting": False},
-    )
+    adaln_lora_dim: int = 256
     """Rank of the AdaLN LoRA factorization when ``use_adaln_lora`` is ``True``."""
 
-    use_crossattn_projection: bool = field(
-        default=True,
-        metadata={"user_setting": False},
-    )
+    use_crossattn_projection: bool = True
     """If ``True``, project text embeddings through a linear before cross-attention."""
 
-    crossattn_proj_in_channels: int = field(
-        default=100352,
-        metadata={"user_setting": False},
-    )
+    crossattn_proj_in_channels: int = 100352
     """Input dimension of the optional cross-attention projection."""
 
-    crossattn_emb_channels: int = field(
-        default=1024,
-        metadata={"user_setting": False},
-    )
+    crossattn_emb_channels: int = 1024
     """Cross-attention key/value dimension."""
 
     timestep_scale: float = 0.001
@@ -161,16 +119,10 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
     apply_rope_before_kvcache: bool = True
     """Rotate keys before caching. ``False`` enables cache-relative RoPE."""
 
-    additional_concat_ch: int = field(
-        default=0,
-        metadata={"user_setting": False},
-    )
+    additional_concat_ch: int = 0
     """Extra channels concatenated for HDMap conditioning; ``0`` disables HDMap input."""
 
-    enable_cross_view_attn: bool = field(
-        default=False,
-        metadata={"user_setting": False},
-    )
+    enable_cross_view_attn: bool = False
     """If ``True``, enable multi-view cross-view attention and AdaLN view modulation."""
 
     cp_method: Literal["ring", "ulysses"] = "ring"
@@ -198,16 +150,10 @@ class CosmosDiTNetworkConfig(InstantiateConfig):
     )
     """Optimized implementation policy used by accelerated cross-attention."""
 
-    view_condition_dim: int = field(
-        default=16,
-        metadata={"user_setting": False},
-    )
+    view_condition_dim: int = 16
     """Embedding dim for the per-view conditioning vector."""
 
-    n_cameras_emb: int = field(
-        default=7,
-        metadata={"user_setting": False},
-    )
+    n_cameras_emb: int = 7
     """Number of distinct camera-view embeddings (size of the lookup table)."""
 
 

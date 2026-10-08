@@ -48,70 +48,60 @@ class RasterConfig:
         default="cuda",
         metadata={
             "description": "Device used for raster computation.",
-            "user_setting": False,
         },
     )
     sync_gpu_timing: bool = field(
         default=False,
         metadata={
             "description": "Synchronizes GPU work for timing measurements.",
-            "user_setting": False,
         },
     )
     perf_log_interval_frames: int = field(
         default=20,
         metadata={
             "description": "Interval for raster performance logs.",
-            "user_setting": False,
         },
     )
     near_plane_m: float = field(
         default=0.1,
         metadata={
             "description": "Nearest camera clipping distance; must be less than Far Plane M.",
-            "user_setting": False,
         },
     )
     far_plane_m: float = field(
         default=200.0,
         metadata={
             "description": "Farthest camera clipping distance; must exceed Near Plane M.",
-            "user_setting": False,
         },
     )
     fog_start_m: float = field(
         default=40.0,
         metadata={
             "description": "Distance where fog begins; must be less than Fog End M.",
-            "user_setting": False,
         },
     )
     fog_end_m: float = field(
         default=140.0,
         metadata={
             "description": "Distance where fog reaches full strength; must exceed Fog Start M.",
-            "user_setting": False,
         },
     )
     fog_power: float = field(
         default=1.5,
         metadata={
             "description": "Exponent controlling the fog transition curve.",
-            "user_setting": False,
         },
     )
     triangle_raytrace_distance_m: float = field(
         default=25.0,
         metadata={
             "description": "Maximum distance for triangle ray tracing.",
-            "user_setting": False,
         },
     )
     triangle_raytrace_edge_samples: int = field(
         default=8,
         metadata={
             "description": "Number of edge samples for triangle ray tracing.",
-            "user_setting": False,
         },
     )
     lane_segment_interval_m: float = field(
@@ -148,7 +138,6 @@ class RasterConfig:
         default=1.0e6,
         metadata={
             "description": "Initial depth-buffer distance.",
-            "user_setting": False,
         },
     )
 

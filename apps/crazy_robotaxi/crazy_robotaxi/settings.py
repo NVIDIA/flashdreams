@@ -31,6 +31,60 @@ from crazy_robotaxi.rules import TaxiGameConfig
 SettingPath = tuple[str, ...]
 LiveEditMappingLocation = Literal["buttons", "control hints"]
 _NON_USER_SETTING_PATHS = frozenset({("model", "pipeline", "name")})
+_DEPRECATED_SETTING_PATHS = frozenset(
+    tuple(path.split("."))
+    for path in (
+        "model.pipeline.diffusion_model.transformer.batch_shape",
+        "model.pipeline.diffusion_model.transformer.network.adaln_lora_dim",
+        "model.pipeline.diffusion_model.transformer.network.additional_concat_ch",
+        "model.pipeline.diffusion_model.transformer.network.concat_padding_mask",
+        "model.pipeline.diffusion_model.transformer.network.crossattn_emb_channels",
+        "model.pipeline.diffusion_model.transformer.network.crossattn_proj_in_channels",
+        "model.pipeline.diffusion_model.transformer.network.enable_cross_view_attn",
+        "model.pipeline.diffusion_model.transformer.network.in_channels",
+        "model.pipeline.diffusion_model.transformer.network.mlp_ratio",
+        "model.pipeline.diffusion_model.transformer.network.model_channels",
+        "model.pipeline.diffusion_model.transformer.network.n_cameras_emb",
+        "model.pipeline.diffusion_model.transformer.network.num_blocks",
+        "model.pipeline.diffusion_model.transformer.network.num_heads",
+        "model.pipeline.diffusion_model.transformer.network.out_channels",
+        "model.pipeline.diffusion_model.transformer.network.patch_spatial",
+        "model.pipeline.diffusion_model.transformer.network.patch_temporal",
+        "model.pipeline.diffusion_model.transformer.network.use_adaln_lora",
+        "model.pipeline.diffusion_model.transformer.network.use_crossattn_projection",
+        "model.pipeline.diffusion_model.transformer.network.view_condition_dim",
+        "model.pipeline.diffusion_model.transformer.num_views",
+        "model.pipeline.encoder.base_dim",
+        "model.pipeline.encoder.is_residual",
+        "model.pipeline.encoder.latent_mean",
+        "model.pipeline.encoder.latent_std",
+        "model.pipeline.encoder.native_vae_backend",
+        "model.pipeline.encoder.patch_size",
+        "model.pipeline.encoder.z_dim",
+        "model.pipeline.image_encoder.base_dim",
+        "model.pipeline.image_encoder.is_residual",
+        "model.pipeline.image_encoder.latent_mean",
+        "model.pipeline.image_encoder.latent_std",
+        "model.pipeline.image_encoder.native_vae_backend",
+        "model.pipeline.image_encoder.patch_size",
+        "model.pipeline.image_encoder.z_dim",
+        "model.pipeline.synthetic_text_max_length",
+        "model.pipeline.text_encoder.embedding_concat_strategy",
+        "model.pipeline.text_encoder.n_layers_per_group",
+        "renderer.raster.compute_device",
+        "renderer.raster.depth_clear_m",
+        "renderer.raster.far_plane_m",
+        "renderer.raster.fog_end_m",
+        "renderer.raster.fog_power",
+        "renderer.raster.fog_start_m",
+        "renderer.raster.near_plane_m",
+        "renderer.raster.perf_log_interval_frames",
+        "renderer.raster.sync_gpu_timing",
+        "renderer.raster.triangle_raytrace_distance_m",
+        "renderer.raster.triangle_raytrace_edge_samples",
+    )
+)
+"""Settings excluded by Crazy Robotaxi that may remain in older YAML files."""
 
 
 @dataclass(frozen=True)
@@ -592,7 +646,7 @@ def _overlay_dataclass(
     deprecated = {
         item.name
         for item in fields(base)
-        if not item.metadata.get("user_setting", True)
+        if (*path, item.name) in _DEPRECATED_SETTING_PATHS
     }
     values = {name: value for name, value in values.items() if name not in deprecated}
     unknown = sorted(set(values) - set(known))
@@ -656,13 +710,18 @@ def _convert_value(
             isinstance(name, str) for name in raw
         ):
             raise SettingsError(f"{context} must be a mapping with string keys")
-        raw_values = cast(Mapping[str, object], raw)
+        raw_values = {
+            name: value
+            for name, value in raw.items()
+            if (*path, name) not in _DEPRECATED_SETTING_PATHS
+        }
         configurable = {
             item.name: item
             for item in fields(expected)
             if item.init
             and item.name != "_target"
             and (*path, item.name) not in _NON_USER_SETTING_PATHS
+            and (*path, item.name) not in _DEPRECATED_SETTING_PATHS
         }
         unknown = sorted(set(raw_values) - set(configurable))
         if unknown:
@@ -997,7 +1056,7 @@ def iter_setting_fields(
     value: object,
     path: SettingPath = (),
 ) -> tuple[tuple[Field[Any], Any], ...]:
-    """Return user-authored dataclass fields in definition order."""
+    """Return user-authored fields at ``path`` within the app's settings tree."""
     if not is_dataclass(value) or isinstance(value, type):
         return ()
     hints = get_type_hints(type(value))
@@ -1028,7 +1087,7 @@ def _is_user_setting_field(
     if (
         item.name == "_target"
         or path in _NON_USER_SETTING_PATHS
-        or not item.metadata.get("user_setting", True)
+        or path in _DEPRECATED_SETTING_PATHS
     ):
         return False
     alternatives = (

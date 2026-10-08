@@ -201,16 +201,10 @@ class CosmosTransformerConfig(TransformerConfig):
     state_dict_transform: Callable[[dict[str, Tensor]], dict[str, Tensor]] | None = None
     """Pre-load state-dict remap. Defaults to a ``net.`` prefix stripper."""
 
-    batch_shape: tuple[int, ...] = field(
-        default=(1,),
-        metadata={"user_setting": False},
-    )
+    batch_shape: tuple[int, ...] = (1,)
     """Batch dims of the latent (excluding ``V, T, HW, D``)."""
 
-    num_views: int = field(
-        default=1,
-        metadata={"user_setting": False},
-    )
+    num_views: int = 1
     """Number of camera views; >1 enables cross-view attention."""
 
     len_t: int = 4

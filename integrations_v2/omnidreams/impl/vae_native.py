@@ -87,7 +87,6 @@ class OmnidreamsWanVAEEncoderConfig(WanVAEEncoderConfig):
         default="fp8",
         metadata={
             "description": "Native VAE compute backend, currently fp8.",
-            "user_setting": False,
         },
     )
     native_vae_fp8_state_path: str | None = field(

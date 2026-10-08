@@ -62,17 +62,11 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
         },
     )
 
-    embedding_concat_strategy: str = field(
-        default="full_concat",
-        metadata={"user_setting": False},
-    )
+    embedding_concat_strategy: str = "full_concat"
     """``"full_concat"`` (default, 100352 dims, matches upstream),
     ``"mean_pooling"``, or ``"pool_every_n_layers_and_concat"``."""
 
-    n_layers_per_group: int = field(
-        default=5,
-        metadata={"user_setting": False},
-    )
+    n_layers_per_group: int = 5
     """Group size for the pool-every-N strategy."""
 
     run_on_cpu: bool = False

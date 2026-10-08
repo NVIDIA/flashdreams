@@ -15,6 +15,7 @@ from crazy_robotaxi.settings import (
     SettingsDocument,
     SettingsError,
     iter_setting_fields,
+    parse_editor_value,
     setting_description,
 )
 
@@ -36,7 +37,7 @@ class _Pipeline:
     name: str
     diffusion_model: _Diffusion = _Diffusion()
     quantization: _Quantization = _Quantization()
-    internal_value: int = field(default=7, metadata={"user_setting": False})
+    synthetic_text_max_length: int = 7
     """Preset-owned value excluded from user overrides."""
 
     state_dict_transform: Callable[[object], object] | None = None
@@ -208,14 +209,17 @@ def test_pipeline_name_is_not_a_user_setting(tmp_path: Path) -> None:
         _load(path)
 
 
-@pytest.mark.parametrize("name", ("internal_value", "state_dict_transform"))
+@pytest.mark.parametrize("name", ("synthetic_text_max_length", "state_dict_transform"))
 def test_internal_fields_are_excluded_from_yaml_and_drafts(
     tmp_path: Path, name: str
 ) -> None:
     path = tmp_path / "config.yaml"
     document = _load(path)
     names = {
-        item.name for item, _ in iter_setting_fields(document.settings.model.pipeline)
+        item.name
+        for item, _ in iter_setting_fields(
+            document.settings.model.pipeline, ("model", "pipeline")
+        )
     }
     assert name not in names
     assert "optional_boolean" in names
@@ -232,7 +236,7 @@ def test_internal_fields_are_excluded_from_yaml_and_drafts(
             _load(path)
     else:
         loaded = _load(path)
-        assert loaded.settings.model.pipeline.internal_value == 7
+        assert loaded.settings.model.pipeline.synthetic_text_max_length == 7
         loaded.save(loaded.settings)
         assert name not in path.read_text(encoding="utf-8")
 
@@ -257,7 +261,10 @@ def test_unused_raster_fields_are_not_user_settings(tmp_path: Path, name: str) -
     path = tmp_path / "config.yaml"
     document = _load(path)
     names = {
-        item.name for item, _ in iter_setting_fields(document.settings.renderer.raster)
+        item.name
+        for item, _ in iter_setting_fields(
+            document.settings.renderer.raster, ("renderer", "raster")
+        )
     }
     assert name not in names
 
@@ -277,6 +284,28 @@ def test_unused_raster_fields_are_not_user_settings(tmp_path: Path, name: str) -
     assert name not in saved
     assert "width: 1024 # keep" in saved
     assert _load(path).settings.renderer.raster.width == 1024
+
+
+def test_new_dataclass_values_ignore_deprecated_settings(tmp_path: Path) -> None:
+    raster = _load(tmp_path / "config.yaml").defaults.renderer.raster
+    parsed = parse_editor_value(
+        "{near_plane_m: null, width: 1024}",
+        type(raster),
+        None,
+        ("renderer", "raster"),
+        base_dir=tmp_path,
+    )
+    assert parsed.near_plane_m == raster.near_plane_m
+    assert parsed.width == 1024
+
+    with pytest.raises(SettingsError, match="unknown keys: near_plnae_m"):
+        parse_editor_value(
+            "{near_plane_m: null, near_plnae_m: 2}",
+            type(raster),
+            None,
+            ("renderer", "raster"),
+            base_dir=tmp_path,
+        )
 
 
 def test_deprecated_settings_do_not_hide_unknown_keys(tmp_path: Path) -> None:
