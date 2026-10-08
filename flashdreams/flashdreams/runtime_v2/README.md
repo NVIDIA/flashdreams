@@ -224,22 +224,19 @@ presentation-queue depth/publish-wait measurements under the reserved
 `runtime_` metric prefix. UI and window timings are not folded into a later
 model record because they describe a different frame.
 
-`--stats-path` also turns on per-stage timings
-(`FLASHDREAMS_SYNC_AND_PROFILE=1`), frame rates (`FLASHDREAMS_FPS=1`) and input
-latency (`FLASHDREAMS_INPUT_LATENCY=1`) in every model record:
+The `--stats-path` flag also turns on stage timings, frame rates and input
+latency, by setting `FLASHDREAMS_SYNC_AND_PROFILE=1`, `FLASHDREAMS_FPS=1` and
+`FLASHDREAMS_INPUT_LATENCY=1` before the application starts. The model records
+then include:
 
-| Key | Meaning |
-|---|---|
-| `present.frame_fps` | frames shown per second (end to end) |
-| `model.frame_fps` | frames generated per second |
-| `ui.step_fps` | UI loop iterations per second |
-| `pipeline.generate_fps` | `generate()` calls per second |
-| `input.latency_ms` | input arriving to the first frame that shows it |
-| `input.queue_ms` | the part spent waiting for the step to start |
-| `input.present_ms` | the part from the step returning to the frame being shown |
+- frame rates: `present.frame_fps`, `model.frame_fps`, `ui.step_fps` and
+  `pipeline.generate_fps`
+- input latency: `input.latency_ms`, split into `input.queue_ms` and
+  `input.present_ms`
 
-Values cover the model step just ended; `_avg_fps` and `_avg_ms` forms cover the
-session. Applications add their own numbers through `StepResult.metrics`.
+Each also has a session average (`_avg_fps` or `_avg_ms`). Input latency appears
+on a later record, once its frame has been shown. To add your own numbers, return
+them in `StepResult.metrics`.
 
 ## Starting and stopping a run
 
