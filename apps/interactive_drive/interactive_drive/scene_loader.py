@@ -7,6 +7,7 @@ import io
 import json
 import zipfile
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Final
@@ -22,7 +23,7 @@ from interactive_drive.colors import (
     HDMAP_V3_COLORS,
     LANE_LINE_STYLE_CONFIG,
 )
-from interactive_drive.config import RasterConfig
+from interactive_drive.config import AppConfig, RasterConfig
 from interactive_drive.math3d import (
     euler_xyz_degrees_to_matrix,
     extract_yaw_from_transform,
@@ -906,21 +907,32 @@ def _load_ground_mesh(
 
 def load_scene_bundle(
     scene_path: Path,
-    camera_name: str,
+    camera_names: Sequence[str],
     variant: str,
     prompt_override: str | None,
     raster: RasterConfig,
+    *,
+    config: AppConfig | None = None,
 ) -> SceneBundle:
+    # A USDZ carries everything a drive needs, so the wider configuration goes
+    # unread here. Loaders that read a recording alongside the scene take their
+    # sample and start frame off it.
+    del config
     # Swap to the requested variant's sibling archive when present; legacy
     # single-archive scenes resolve to the same path (variant picked in-zip).
     scene_path = resolve_variant_archive(Path(scene_path), variant)
     with zipfile.ZipFile(scene_path, "r") as zf:
         metadata = _read_yaml(zf, "metadata.yaml")
-        camera = _load_camera_calibration(zf, camera_name)
+        cameras = tuple(
+            _load_camera_calibration(zf, camera_name) for camera_name in camera_names
+        )
         initial_pose, initial_timestamp, initial_yaw, initial_speed = (
             _load_initial_state(zf)
         )
-        initial_rgb = _load_initial_image(zf, camera_name, variant, raster)
+        initial_rgbs = tuple(
+            _load_initial_image(zf, camera_name, variant, raster)
+            for camera_name in camera_names
+        )
         prompt = _load_prompt(zf, variant, prompt_override)
         line_layers, triangle_layers, polygon_layers = _load_map_layers(zf, raster)
         vehicle_bbox_tracks = _load_vehicle_bbox_tracks(zf)
@@ -930,12 +942,12 @@ def load_scene_bundle(
         scene_path=scene_path,
         scene_id=str(metadata.get("scene_id", scene_path.stem)),
         metadata=metadata,
-        selected_camera=camera,
+        cameras=cameras,
         initial_rig_to_world=initial_pose,
         initial_timestamp_us=initial_timestamp,
         initial_yaw_rad=initial_yaw,
         initial_speed_mps=initial_speed,
-        initial_rgb=initial_rgb,
+        initial_rgbs=initial_rgbs,
         prompt=prompt,
         line_layers=line_layers,
         triangle_layers=triangle_layers,
@@ -949,7 +961,7 @@ def load_scene_bundle(
 def reseed_scene_bundle(
     bundle: SceneBundle,
     scene_path: Path,
-    camera_name: str,
+    camera_names: Sequence[str],
     variant: str,
     prompt_override: str | None,
     raster: RasterConfig,
@@ -962,8 +974,11 @@ def reseed_scene_bundle(
     """
     scene_path = resolve_variant_archive(Path(scene_path), variant)
     with zipfile.ZipFile(scene_path, "r") as zf:
-        initial_rgb = _load_initial_image(zf, camera_name, variant, raster)
+        initial_rgbs = tuple(
+            _load_initial_image(zf, camera_name, variant, raster)
+            for camera_name in camera_names
+        )
         prompt = _load_prompt(zf, variant, prompt_override)
     return replace(
-        bundle, scene_path=scene_path, initial_rgb=initial_rgb, prompt=prompt
+        bundle, scene_path=scene_path, initial_rgbs=initial_rgbs, prompt=prompt
     )
