@@ -271,7 +271,7 @@
 .grey-section {
   border: 1px solid var(--fd-border);
   border-radius: 0.875rem;
-  background-color: #f0f0f0; /* Choose your preferred shade of grey */
+  background-color: var(--fd-surface-muted);
   padding: 20px;             /* Adds breathing room inside the grey block */
   border-radius: 20px;        /* Optional: softens the edges */
 

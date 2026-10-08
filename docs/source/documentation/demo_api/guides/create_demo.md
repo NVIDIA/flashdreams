@@ -98,7 +98,7 @@ behavior in the integration's tests instead.
 
 ## 5. Document the demo
 
-Add `docs/src/content/docs/demos/<demo>.md` with its purpose, controls, runtime
+Add `docs/source/demos/<demo>.md` with its purpose, controls, runtime
 modes, and placeholder launch shape. Add it to `demos/.nav.yml` and link the
 package README to that canonical page. A demo becomes publicly launchable only
 when a model adapter registers an application slug.
@@ -113,6 +113,5 @@ distributable folder that does not require Python, `uv`, or network access.
 
 uv sync --package flashdreams-<demo> --extra dev --inexact
 uv run --no-sync pytest apps/<demo>/tests -m ci_cpu
-python tools/check_docs_layout.py
 
 ```

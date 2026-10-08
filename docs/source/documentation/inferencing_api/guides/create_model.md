@@ -87,7 +87,7 @@ registration; the model implementation does not import the demo.
 
 ## 6. Document and verify
 
-Add or update `docs/src/content/docs/models/<model>.md` with requirements,
+Add or update `docs/source/models/<model>.md` with requirements,
 installation, supported demo bindings, and canonical commands. Keep detailed
 implementation notes in the repository package page.
 

@@ -40,7 +40,7 @@ presets and the standalone `v2v-swiftvr` application.
 uv sync --package flashdreams-swiftvr --inexact
 uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
   --mode mp4 --output-path artifacts/swiftvr-2x.mp4 --timeout unbound -- \
-  --video-path docs/src/content/docs/_static/model_clips/wan22/wan22-ti2v-5b.mp4
+  --video-path docs/source/_static/model_clips/wan22/wan22-ti2v-5b.mp4
 ```
 
 - [Demo presets](#v2v-presets)
@@ -74,7 +74,8 @@ uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
 
 ### Post-processing presets
 
-Use when interfacing with `--post-processing` commandline argument:
+Cam2V and Interactive Drive commands select these presets with
+`--postprocess-preset PRESET` in their application arguments, after `--`:
 
 | Preset | Description |
 | --- | --- |

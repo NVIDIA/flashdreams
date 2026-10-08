@@ -23,10 +23,10 @@ long-running generated view.
 
 ## Quick Start:
 
-<div class="fd-cta-row">
-  <a class="fd-button" href="../models/lingbot_world.md#cam2v">LingBot-World</a>
-  <a class="fd-button" href="../models/hy_worldplay.md#cam2v">HY-WorldPlay</a>
-  <a class="fd-button" href="../models/sana_wm_streaming.md#cam2v">SANA-WM</a>
+<div class="fd-cta-row" markdown="span">
+  [LingBot-World](../models/lingbot_world.md#cam2v){ .fd-button }
+  [HY-WorldPlay](../models/hy_worldplay.md#cam2v){ .fd-button }
+  [SANA-WM](../models/sana_wm_streaming.md#cam2v){ .fd-button }
 </div>
 
 <a id="apps-cam2v-readme--controls"></a>

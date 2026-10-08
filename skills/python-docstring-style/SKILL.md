@@ -307,7 +307,7 @@ Place on its own line, one blank line before and after, short title. Don't use `
 
 ## Zensical compatibility
 
-The Zensical site is built from Markdown under `docs/src/content/docs`; keep
+The Zensical site is built from Markdown under `docs/source`; keep
 Google-style docstrings valid and readable in source.
 
 Practical rules:

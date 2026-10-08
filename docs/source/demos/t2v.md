@@ -23,13 +23,13 @@ sessions from an interactive prompt field.
 
 ## Quick Start:
 
-<div class="fd-cta-row">
-  <a class="fd-button" href="../models/self_forcing.md#t2v">Self-Forcing</a>
-  <a class="fd-button" href="../models/causal_forcing.md#t2v">Causal-Forcing</a>
-  <a class="fd-button" href="../models/causal_wan22.md#t2v">Causal Wan 2.2</a>
-  <a class="fd-button" href="../models/wan21.md#t2v">Wan 2.1</a>
-  <a class="fd-button" href="../models/wan22.md#t2v">Wan 2.2</a>
-  <a class="fd-button" href="../models/cosmos_predict2.md#t2v">Cosmos-Predict2.5</a>
+<div class="fd-cta-row" markdown="span">
+  [Self-Forcing](../models/self_forcing.md#t2v){ .fd-button }
+  [Causal-Forcing](../models/causal_forcing.md#t2v){ .fd-button }
+  [Causal Wan 2.2](../models/causal_wan22.md#t2v){ .fd-button }
+  [Wan 2.1](../models/wan21.md#t2v){ .fd-button }
+  [Wan 2.2](../models/wan22.md#t2v){ .fd-button }
+  [Cosmos-Predict2.5](../models/cosmos_predict2.md#t2v){ .fd-button }
 </div>
 
 <a id="apps-t2v-readme--controls"></a>

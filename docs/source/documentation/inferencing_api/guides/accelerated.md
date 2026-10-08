@@ -5,18 +5,6 @@ title: 'flashdreams.accelerated'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-   http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-
 `flashdreams.accelerated` is a low-level acceleration library used by
 FlashDreams to build high-performance modules for streaming video models. It
 currently contains two components:
@@ -169,24 +157,22 @@ s^{(\mathrm{axis}=1)} =
 \end{bmatrix}.
 $$
 
-:::note
-**Why retain the scale for FP8 quantization?** Although an FP16 or FP32
-tensor can be cast directly to FP8, a direct cast does not adapt FP8's
-limited representable range to the tensor's magnitude. Dividing by the
-scale before conversion maps the tensor into $[-M_t, M_t]$ and uses more of
-the available FP8 range, preserving more precision. The scale must be kept
-to recover the original magnitude during dequantization or to incorporate
-it into a subsequent operation. This is especially important for quantized
-algorithms such as SageAttention, whose accuracy depends on applying the
-quantization scales correctly.
+!!! note
+    **Why retain the scale for FP8 quantization?** Although an FP16 or FP32
+    tensor can be cast directly to FP8, a direct cast does not adapt FP8's
+    limited representable range to the tensor's magnitude. Dividing by the
+    scale before conversion maps the tensor into $[-M_t, M_t]$ and uses more of
+    the available FP8 range, preserving more precision. The scale must be kept
+    to recover the original magnitude during dequantization or to incorporate
+    it into a subsequent operation. This is especially important for quantized
+    algorithms such as SageAttention, whose accuracy depends on applying the
+    quantization scales correctly.
 
-**Planned: per-tile quantization.** SageAttention also uses per-tile
-quantization, a powerful scheme that computes scales over individual tensor
-tiles. The Quantization Toolkit does not currently support this granularity;
-it is one of its most important missing features and should be planned for a
-future version.
-
-:::
+    **Planned: per-tile quantization.** SageAttention also uses per-tile
+    quantization, a powerful scheme that computes scales over individual tensor
+    tiles. The Quantization Toolkit does not currently support this granularity;
+    it is one of its most important missing features and should be planned for a
+    future version.
 
 <img alt="Tile-wise quantization applies a separate scale to each tensor tile." src="../../../_static/diagrams/accelerated/tile-wise-quantization.svg" />
 
@@ -268,26 +254,25 @@ Slice–tensor quantized GEMM combines per-slice scales with one scalar scale.
 
 Tile–tile quantized GEMM scales and accumulates individual tile products. Tile
 granularity is planned and is not currently supported by the toolkit.
-:::note
-**Inner-dimension rule for slice-quantized GEMM.** For
-$C = AB$ with $A \in \mathbb{R}^{M \times K}$ and
-$B \in \mathbb{R}^{K \times N}$, the shared inner dimension $K$ must be the
-quantization axis: use `axis=1` for $A$ and `axis=0` for $B$. This produces
-row scales $s_{A,i}$ and column scales $s_{B,j}$ that remain constant across
-each dot product, allowing
-$C_{ij} \approx s_{A,i}s_{B,j}\sum_k \bar A_{ik}\bar B_{kj}$. If either
-scale varied with $k$, it would have to stay inside the sum; a single scale
-applied after GEMM could not dequantize the accumulator correctly. For
-$QK^\mathsf{T}$, both $Q$ and the untransposed $K$ store their shared feature
-dimension on `axis=1`, so both are quantized with `axis=1`. For token-major
-$Q$ and $K$, this produces one scale per token and is referred to as
-per-token quantization in the
-[SageAttention paper](https://arxiv.org/abs/2410.02367).
-Transposing $K$ then moves
-that dimension to `axis=0` of the GEMM's right operand, satisfying the same
-rule.
 
-:::
+!!! note
+    **Inner-dimension rule for slice-quantized GEMM.** For
+    $C = AB$ with $A \in \mathbb{R}^{M \times K}$ and
+    $B \in \mathbb{R}^{K \times N}$, the shared inner dimension $K$ must be the
+    quantization axis: use `axis=1` for $A$ and `axis=0` for $B$. This produces
+    row scales $s_{A,i}$ and column scales $s_{B,j}$ that remain constant across
+    each dot product, allowing
+    $C_{ij} \approx s_{A,i}s_{B,j}\sum_k \bar A_{ik}\bar B_{kj}$. If either
+    scale varied with $k$, it would have to stay inside the sum; a single scale
+    applied after GEMM could not dequantize the accumulator correctly. For
+    $QK^\mathsf{T}$, both $Q$ and the untransposed $K$ store their shared feature
+    dimension on `axis=1`, so both are quantized with `axis=1`. For token-major
+    $Q$ and $K$, this produces one scale per token and is referred to as
+    per-token quantization in the
+    [SageAttention paper](https://arxiv.org/abs/2410.02367).
+    Transposing $K$ then moves
+    that dimension to `axis=0` of the GEMM's right operand, satisfying the same
+    rule.
 
 <img alt="Invalid slice quantization varies scales along the GEMM inner dimension." src="../../../_static/diagrams/accelerated/invalid-inner-quantized-gemm.svg" />
 
@@ -782,41 +767,34 @@ DSL, analogous to a simplified Halide schedule.
 All configurations require CUDA FP16/BF16 inputs, compute capability 9.0 or
 newer, and a power-of-two head dimension from 16 through 256.
 
-:::note
-**Why do we need a scheduling language for optimized MHA?** The generic MHA
-interface supports variants with different query and context widths, head
-counts, head dimensions, normalization scopes, RoPE styles, and RoPE cache
-scopes. A schedule that performs well for one variant may be less effective
-for another. Even within one model, self-attention and cross-attention have
-different projection, sequence-length, and cache-reuse behavior and can prefer
-very different schedules. The best schedule for the same MHA variant can also
-change across hardware platforms.
+!!! note
+    **Why do we need a scheduling language for optimized MHA?** The generic MHA
+    interface supports variants with different query and context widths, head
+    counts, head dimensions, normalization scopes, RoPE styles, and RoPE cache
+    scopes. A schedule that performs well for one variant may be less effective
+    for another. Even within one model, self-attention and cross-attention have
+    different projection, sequence-length, and cache-reuse behavior and can prefer
+    very different schedules. The best schedule for the same MHA variant can also
+    change across hardware platforms.
 
-The benchmark-selected policies in
-`integrations_v2/omnidreams/benchmarks/cases.py` make these differences concrete:
+    The benchmark-selected policies in
+    `integrations_v2/omnidreams/benchmarks/cases.py` make these differences concrete:
 
-+--------------+-----------------+----------------+-------------+-----------+-----+------------+----------+
-| Platform     | Component       | Implementation | Fusion      | SDPA      | TMA | Projection | FP8 SDPA |
-+==============+=================+================+=============+===========+=====+============+==========+
-| GB300        | Self-attention  | Optimized MHA  | `FULL`    | `CUDNN` | Off | Native     | On       |
-+--------------+-----------------+----------------+-------------+-----------+-----+------------+----------+
-| GB300        | Cross-attention | Optimized MHA  | `FUSE_KV` | `FA2`   | On  | Native     | Off      |
-+--------------+-----------------+----------------+-------------+-----------+-----+------------+----------+
-| RTX PRO 6000 | Self-attention  | Optimized MHA  | `FULL`    | `FA2`   | On  | FP8 e4m3   | On       |
-+--------------+-----------------+----------------+-------------+-----------+-----+------------+----------+
-| RTX PRO 6000 | Cross-attention | OmniDreams     | N/A         | N/A       | N/A | N/A        | N/A      |
-+--------------+-----------------+----------------+-------------+-----------+-----+------------+----------+
+    | Platform | Component | Implementation | Fusion | SDPA | TMA | Projection | FP8 SDPA |
+    | --- | --- | --- | --- | --- | --- | --- | --- |
+    | GB300 | Self-attention | Optimized MHA | `FULL` | `CUDNN` | Off | Native | On |
+    | GB300 | Cross-attention | Optimized MHA | `FUSE_KV` | `FA2` | On | Native | Off |
+    | RTX PRO 6000 | Self-attention | Optimized MHA | `FULL` | `FA2` | On | FP8 e4m3 | On |
+    | RTX PRO 6000 | Cross-attention | OmniDreams | N/A | N/A | N/A | N/A | N/A |
 
-On GB300, self-attention prefers native-precision projections with cuDNN FP8
-SDPA, while cross-attention prefers fused KV projection with TMA
-FlashAttention2 in native precision. On RTX PRO 6000, self-attention instead
-prefers TMA FlashAttention2 with FP8 e4m3 projection and FP8 SDPA, while
-cross-attention remains on the checkpoint-native OmniDreams implementation.
-Treating `OptimizedImplConfig` as a small scheduling language makes these
-choices easy to enumerate, benchmark, and select independently for every
-component and hardware platform.
-
-:::
+    On GB300, self-attention prefers native-precision projections with cuDNN FP8
+    SDPA, while cross-attention prefers fused KV projection with TMA
+    FlashAttention2 in native precision. On RTX PRO 6000, self-attention instead
+    prefers TMA FlashAttention2 with FP8 e4m3 projection and FP8 SDPA, while
+    cross-attention remains on the checkpoint-native OmniDreams implementation.
+    Treating `OptimizedImplConfig` as a small scheduling language makes these
+    choices easy to enumerate, benchmark, and select independently for every
+    component and hardware platform.
 
 ## Supporting flashdreams.accelerated in an Integration
 
@@ -1003,14 +981,12 @@ schedules, and the RTX PRO 6000 variant keeps its original cross-attention
 implementation. Exposing the schedules at this level avoids baking one
 hardware-specific result into the model architecture.
 
-:::note
-**Future direction.** FlashDreams should define a more general declarative,
-nested configuration system and scheduling DSL. `OptimizedImplConfig` should
-be refactored into that common DSL, and an autotuning system should be built
-around it to search schedules and replace the current manual performance
-tuning process.
-
-:::
+!!! note
+    **Future direction.** FlashDreams should define a more general declarative,
+    nested configuration system and scheduling DSL. `OptimizedImplConfig` should
+    be refactored into that common DSL, and an autotuning system should be built
+    around it to search schedules and replace the current manual performance
+    tuning process.
 
 ## Running, Testing, and Benchmarking
 
@@ -1033,13 +1009,13 @@ uv run --no-sync flashdreams-run-v2 --help
 
 The accelerated-relevant Interactive Drive application slugs are:
 
-+---------------------------------------------------------+---------------------------------------------------+
-### | Application slug                                        | Purpose                                           |
-### | `interactive-drive-omnidreams`                        | Reference OmniDreams implementation.              |
-### | `interactive-drive-omnidreams-perf`                   | Native-accelerated performance preset.            |
-### | `interactive-drive-omnidreams-fast-perf`              | Faster native-accelerated preset.                 |
-### | `interactive-drive-omnidreams-optimized-gb300`        | Optimized MHA schedule selected for GB300.        |
-### | `interactive-drive-omnidreams-optimized-rtx-pro-6000` | Optimized MHA schedule selected for RTX PRO 6000. |
+| Application slug | Purpose |
+| --- | --- |
+| `interactive-drive-omnidreams` | Reference OmniDreams implementation. |
+| `interactive-drive-omnidreams-perf` | Native-accelerated performance preset. |
+| `interactive-drive-omnidreams-fast-perf` | Faster native-accelerated preset. |
+| `interactive-drive-omnidreams-optimized-gb300` | Optimized MHA schedule selected for GB300. |
+| `interactive-drive-omnidreams-optimized-rtx-pro-6000` | Optimized MHA schedule selected for RTX PRO 6000. |
 
 For example, render the GB300 preset to MP4. Runtime arguments precede `--`;
 application-specific arguments follow it:

@@ -69,7 +69,8 @@ uv run --no-sync flashdreams-run-v2 \
 
 ### Post-processing presets
 
-Use when interfacing with `--post-processing` commandline argument:
+Cam2V and Interactive Drive commands select these presets with
+`--postprocess-preset PRESET` in their application arguments, after `--`:
 
 | Preset | Description |
 | --- | --- |
@@ -109,10 +110,6 @@ under matched settings.
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
   <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
     <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
-  <video autoplay muted loop playsinline preload="metadata" style="position: absolute; left: 10px; bottom: 10px; width: 50%; border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); pointer-events: none;">
-    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/example1.mp4" type="video/mp4">
     Your browser does not support the video tag.
   </video>
   <figcaption class="tiny-figcaption">

@@ -6,18 +6,7 @@ title: 'Build Website'
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 FlashDreams uses Zensical to render the Markdown under
-`docs/src/content/docs/`. Run all commands from the repository root.
-
-## Validate the documentation layout
-
-```bash
-
-python tools/check_docs_layout.py
-
-```
-
-This checks canonical page locations, repository README rules, required site
-files, and integration-page links.
+`docs/source/`. Run all commands from the repository root.
 
 ## Build the website
 
@@ -42,6 +31,6 @@ Open `http://localhost:8000`. The development server watches the documentation
 sources and rebuilds changed pages. Stop it with `Ctrl+C`.
 
 The site configuration lives in `docs/zensical.toml`, and the sidebar is
-defined by `.nav.yml` files below `docs/src/content/docs/`. The documentation
+defined by `.nav.yml` files below `docs/source/`. The documentation
 workflow builds the same site for pull requests and publishes updates from
 `main` and releases to GitHub Pages.

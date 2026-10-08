@@ -78,26 +78,26 @@ title: 'FlashDreams'
   profiling chart on its model page.
 
   <div class="fd-card-grid fd-card-grid-four">
-    <a class="fd-card fd-stat-card" href="models/self_forcing/#profiling-benchmark">
+    <a class="fd-card fd-stat-card" href="models/self_forcing/#performance-outdated">
       <span class="fd-stat-value">2.12×</span>
       <span class="fd-stat-label">Self-Forcing speedup</span>
     </a>
-    <a class="fd-card fd-stat-card" href="models/lingbot_world/#profiling-benchmark">
+    <a class="fd-card fd-stat-card" href="models/lingbot_world/#performance-outdated">
       <span class="fd-stat-value">3.10×</span>
       <span class="fd-stat-label">LingBot-World speedup</span>
     </a>
-    <a class="fd-card fd-stat-card" href="models/wan21/#profiling-benchmark">
+    <a class="fd-card fd-stat-card" href="models/wan21/#performance-outdated">
       <span class="fd-stat-value">1.40×</span>
       <span class="fd-stat-label">Wan2.1 speedup</span>
     </a>
-    <a class="fd-card fd-stat-card" href="models/flashvsr/#profiling-benchmark">
+    <a class="fd-card fd-stat-card" href="models/flashvsr/#performance-outdated">
       <span class="fd-stat-value">1.42×</span>
       <span class="fd-stat-label">FlashVSR speedup</span>
     </a>
   </div>
 </div>
 
-<div class="transparent-section">
+<div class="transparent-section" markdown="1">
   <h2>Try FlashDreams!</h2>
 
   FlashDreams brings best-in-class per-step latency to interactive

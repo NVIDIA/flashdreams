@@ -23,8 +23,8 @@ BEV minimap.
 
 ## Quick Start:
 
-<div class="fd-cta-row">
-  <a class="fd-button" href="../models/omnidreams.md#interactive-drive">OmniDreams</a>
+<div class="fd-cta-row" markdown="span">
+  [OmniDreams](../models/omnidreams.md#interactive-drive){ .fd-button }
 </div>
 
 <a id="apps-interactivedrive-readme--controls"></a>

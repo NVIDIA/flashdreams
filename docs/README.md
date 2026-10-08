@@ -1,1 +1,1 @@
-[Build and preview the FlashDreams website](src/content/docs/documentation/tools/build_website.md)
+[Build and preview the FlashDreams website](source/documentation/tools/build_website.md)

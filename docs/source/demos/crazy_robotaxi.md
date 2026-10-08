@@ -23,8 +23,8 @@ keyboard, gamepad, or steering wheel.
 
 ## Quick Start:
 
-<div class="fd-cta-row">
-  <a class="fd-button" href="../models/omnidreams.md#crazy-robotaxi">OmniDreams</a>
+<div class="fd-cta-row" markdown="span">
+  [OmniDreams](../models/omnidreams.md#crazy-robotaxi){ .fd-button }
 </div>
 
 <a id="apps-crazyrobotaxi-readme--controls"></a>

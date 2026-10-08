@@ -4,8 +4,8 @@ site_description = "Inference and serving for interactive video and world models
 site_url = "https://nvidia.github.io/flashdreams/main/"
 repo_url = "https://github.com/NVIDIA/flashdreams"
 repo_name = "NVIDIA/flashdreams"
-edit_uri = "edit/main/docs/src/content/docs/"
-docs_dir = "src/content/docs"
+edit_uri = "edit/main/docs/source/"
+docs_dir = "source"
 site_dir = "dist"
 extra_css = [
     "stylesheets/custom.css",
