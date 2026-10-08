@@ -49,8 +49,12 @@ class EventBuffer:
         with self._lock:
             self._reader_indexes.setdefault(reader_id, self._base_index)
 
-    def append(self, events: UserInputEvents) -> None:
-        """Add a batch of client input events."""
+    def append(self, events: UserInputEvents) -> int:
+        """Add a batch of client input events.
+
+        Returns:
+            When the batch reached the runtime, as ``time.monotonic_ns()``.
+        """
         received = events.get_events()
         now_ns = time.monotonic_ns()
         with self._lock:
@@ -59,6 +63,7 @@ class EventBuffer:
             self._generation += sum(
                 isinstance(event, ResetUserInputEvent) for event in received
             )
+        return now_ns
 
     def read(self, reader_id: int) -> tuple[UserInputEvents, int]:
         """Return unread events and advance ``reader_id`` to the buffer end."""

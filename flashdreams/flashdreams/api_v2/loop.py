@@ -427,12 +427,13 @@ class IModelLoop(ILoop[StateT], ABC):
 
                 # Carry timing across steps whose output remains buffered.
                 if result:
-                    self.profiler.event("model.frame", count=result[0].frame_count)
                     # Keyed by the result's own step index, which is what the
                     # presenter sees, and recorded before the result can be shown.
-                    self.profiler.input_consumed(
-                        (generation, result[0].step_index), received_ns, step_started_ns
+                    step = (generation, result[0].step_index)
+                    self.profiler.event(
+                        "model.frame", count=result[0].frame_count, step=step
                     )
+                    self.profiler.input_consumed(step, received_ns, step_started_ns)
                     # Read the rates before publishing: afterwards the result
                     # belongs to the presentation thread and must not be touched.
                     step_metrics = self.profiler.collect_fps()

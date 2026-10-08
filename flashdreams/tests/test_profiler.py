@@ -28,6 +28,7 @@ from typing import Iterator
 
 import pytest
 import torch
+from numpy import uint64
 
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.infra import profiler as profiler_module
@@ -91,6 +92,8 @@ class _RecordingNvtx:
     def __init__(self) -> None:
         self.events: list[str] = []
         self.marks: list[str] = []
+        self.started: dict[int, str] = {}
+        self.ended: list[int] = []
 
     def range_push(self, name: str) -> None:
         self.events.append(f"push:{name}")
@@ -100,6 +103,14 @@ class _RecordingNvtx:
 
     def mark(self, name: str) -> None:
         self.marks.append(name)
+
+    def range_start(self, name: str) -> int:
+        range_id = len(self.started) + 1
+        self.started[range_id] = name
+        return range_id
+
+    def range_end(self, range_id: int) -> None:
+        self.ended.append(range_id)
 
 
 @pytest.fixture
@@ -232,6 +243,146 @@ def test_code_without_a_session_still_profiles_from_the_environment(
         assert isinstance(get_inference_profiler(), CudaEventProfiler)
     finally:
         _reset_default_profiler()
+
+
+def test_nvtx_marks_name_the_step_they_belong_to(
+    nvtx_recorder: _RecordingNvtx,
+) -> None:
+    profiler = NVTXProfiler()
+    profiler.event("present.frame", step=(0, 5))
+    profiler.event("present.frame", step=(2, 0))
+    profiler.event("ui.step")
+
+    assert nvtx_recorder.marks == [
+        "present.frame [step 5]",
+        "present.frame [gen 2, step 0]",
+        "ui.step",
+    ]
+
+
+def test_input_wait_runs_from_arrival_to_the_consuming_steps_frame(
+    nvtx_recorder: _RecordingNvtx,
+) -> None:
+    profiler = NVTXProfiler()
+    profiler.input_received(1_000, 2)
+    profiler.input_received(2_000, 1)
+    profiler.input_consumed((0, 3), [1_000, 1_000, 2_000], 3_000)
+    assert nvtx_recorder.ended == [], "nothing is shown yet"
+
+    profiler.step_presented((0, 3))
+
+    assert nvtx_recorder.started == {1: "input.wait", 2: "input.wait"}
+    assert sorted(nvtx_recorder.ended) == [1, 2], "one wait per batch, ended once"
+
+
+def test_a_dropped_steps_wait_ends_when_a_later_step_shows(
+    nvtx_recorder: _RecordingNvtx,
+) -> None:
+    profiler = NVTXProfiler()
+    profiler.input_received(1_000, 1)
+    profiler.input_consumed((0, 3), [1_000], 1_500)
+    profiler.input_received(2_000, 1)
+    profiler.input_consumed((0, 4), [2_000], 2_500)
+    profiler.step_presented((0, 4))
+
+    assert sorted(nvtx_recorder.ended) == [1, 2]
+    profiler.step_presented((0, 3))  # too late: already closed
+    assert len(nvtx_recorder.ended) == 2
+
+
+def test_reset_counts_ends_every_open_wait(nvtx_recorder: _RecordingNvtx) -> None:
+    profiler = NVTXProfiler()
+    profiler.input_received(1_000, 1)  # never consumed
+    profiler.input_received(2_000, 1)
+    profiler.input_consumed((0, 1), [2_000], 2_500)  # consumed, never shown
+    profiler.reset_counts()
+
+    assert sorted(nvtx_recorder.ended) == [1, 2]
+
+
+def test_frame_rates_ignore_the_step(clock: _Clock) -> None:
+    profiler = FrameRateProfiler()
+    clock.now += 1.0
+    profiler.event("present.frame", step=(0, 1))
+    profiler.event("present.frame", step=(0, 2))
+
+    assert profiler.collect_fps()["present.frame_fps"] == pytest.approx(2.0)
+
+
+def test_a_session_labels_its_frames_and_closes_every_input_wait(
+    nvtx_recorder: _RecordingNvtx,
+) -> None:
+    """red_screen through the real runner, with key presses part way through."""
+    red_screen = pytest.importorskip("red_screen")
+    from flashdreams.api_v2.client_window import IClientWindow
+    from flashdreams.runtime_v2.session_desc import (
+        BackpressureMode,
+        PresentationMode,
+        SessionDesc,
+    )
+    from flashdreams.runtime_v2.session_runner import run_session
+    from flashdreams.runtime_v2.user_input_event import (
+        KeyboardInputState,
+        KeyboardUserInputEvent,
+    )
+    from flashdreams.runtime_v2.user_input_events import UserInputEvents
+    from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+
+    class _Keys(IClientWindow):
+        def __init__(self) -> None:
+            self.polls = 0
+            self.batches = 0
+
+        def get_user_input_events(self) -> UserInputEvents:
+            self.polls += 1
+            if self.polls % 3:
+                return UserInputEvents([])
+            self.batches += 1
+            state = (
+                KeyboardInputState.PRESSED
+                if self.batches % 2
+                else KeyboardInputState.RELEASED
+            )
+            return UserInputEvents(
+                [KeyboardUserInputEvent(timestamp=uint64(0), key="r", state=state)]
+            )
+
+        def open(self, session_desc: object) -> None:
+            pass
+
+        def write(self, result: object) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    keys = _Keys()
+    app = red_screen.create_app()
+    app.init([])
+    try:
+        with set_flashdreams_inference_profiler(NVTXProfiler()):
+            session = app.create_session(
+                SessionDesc(
+                    output_layout=VideoTensorLayout.bcthw,
+                    backpressure_mode=BackpressureMode.BLOCK,
+                    presentation_mode=PresentationMode.ON_DEMAND,
+                    frames_per_second_for_ui=60,
+                    frames_per_second_for_step=30,
+                    video_width=2,
+                    video_height=2,
+                )
+            )
+            run_session(session, keys, steps=20)
+    finally:
+        app.close()
+
+    assert keys.batches > 0
+    assert len(nvtx_recorder.started) == keys.batches, "one wait per input batch"
+    assert sorted(nvtx_recorder.ended) == sorted(nvtx_recorder.started), (
+        "every wait ends exactly once"
+    )
+    shown = [mark for mark in nvtx_recorder.marks if mark.startswith("present.frame")]
+    assert shown and all(mark.startswith("present.frame [step ") for mark in shown)
 
 
 def test_composite_enters_every_backend(nvtx_recorder: _RecordingNvtx) -> None:

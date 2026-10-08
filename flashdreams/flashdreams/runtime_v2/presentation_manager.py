@@ -402,7 +402,10 @@ class PresentationManager:
             self._presented_frame_count += 1
             self._trace_presented_frame(generation)
             self._presentation_clock.mark_advanced(now, backlog=backlog)
-            get_inference_profiler().event("present.frame")
+            get_inference_profiler().event(
+                "present.frame",
+                step=(generation, self._presented_chunk[0].step_index),
+            )
             return True, None
 
         chunk = self._take_buffered_chunk(
@@ -417,8 +420,9 @@ class PresentationManager:
         self._trace_presented_frame(generation)
         self._presentation_clock.mark_advanced(now, backlog=backlog)
         profiler = get_inference_profiler()
-        profiler.event("present.frame")
-        profiler.step_presented((generation, chunk[0].step_index))
+        step = (generation, chunk[0].step_index)
+        profiler.event("present.frame", step=step)
+        profiler.step_presented(step)
         return True, chunk
 
     @property
