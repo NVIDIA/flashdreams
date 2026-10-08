@@ -64,7 +64,13 @@ from omnidreams_game_engine.simulation.game_physics import (
 from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import (
     CameraCalibration,
+<<<<<<< HEAD
     DriverCommand,
+=======
+    ConditionBatch,
+    DriverCommand,
+    PhysicsDebugFrame,
+>>>>>>> 5d107aa4 ([Demo - Crazy Robotaxi] Add scripted headless debug captures)
     SceneDefinition,
     VehicleState,
 )

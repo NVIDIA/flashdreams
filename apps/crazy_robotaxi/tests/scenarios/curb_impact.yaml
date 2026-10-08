@@ -1,0 +1,6 @@
+# Accelerate, turn toward the right curb, then recover and coast.
+steps:
+  - {frames: 60, throttle: 1}
+  - {frames: 18, throttle: 1, steer: -0.7, steer_is_direct: true}
+  - {frames: 42, throttle: 1}
+  - {frames: 60}
