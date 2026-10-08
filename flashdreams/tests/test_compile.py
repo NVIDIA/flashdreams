@@ -142,3 +142,46 @@ def test_compile_module_installs_cache_repairs_before_compile(monkeypatch) -> No
         "bundle",
         "compile:max-autotune-no-cudagraphs:None",
     ]
+
+
+def test_compile_module_merges_local_options(monkeypatch) -> None:
+    """Preserve mode defaults while copying and forwarding explicit overrides."""
+    import torch._inductor
+    from torch._inductor import config
+
+    module = nn.Identity()
+    preset = {"max_autotune": True, "triton.cudagraphs": False}
+    options = {"max_autotune": False, "emulate_precision_casts": True}
+    before = config.emulate_precision_casts
+    received = {}
+    monkeypatch.setattr(compile_module_impl, "_configure_inductor_cache", lambda: None)
+    monkeypatch.setattr(
+        compile_module_impl, "_patch_triton_bundle_collection", lambda: None
+    )
+
+    def mode_options(mode, dynamic):
+        assert mode == "max-autotune-no-cudagraphs" and dynamic is False
+        return preset
+
+    def compile(value, **kwargs):
+        assert value is module
+        received.update(kwargs)
+        return value
+
+    monkeypatch.setattr(torch._inductor, "list_mode_options", mode_options)
+    monkeypatch.setattr(compile_module_impl.torch, "compile", compile)
+    assert (
+        compile_module_impl.compile_module(module, dynamic=False, options=options)
+        is module
+    )
+    assert received == {
+        "dynamic": False,
+        "options": {
+            "max_autotune": False,
+            "triton.cudagraphs": False,
+            "emulate_precision_casts": True,
+        },
+    }
+    assert options == {"max_autotune": False, "emulate_precision_casts": True}
+    assert preset == {"max_autotune": True, "triton.cudagraphs": False}
+    assert config.emulate_precision_casts == before

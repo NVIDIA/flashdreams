@@ -20,13 +20,11 @@ from __future__ import annotations
 import math
 from abc import abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import Literal
 
 import torch
-from torch import Tensor, nn
-from torch.nn.attention.flex_attention import BlockMask
-
 from flashdreams.accelerated.common.non_persistent_linear import (
     NonPersistentLinear,
 )
@@ -54,6 +52,7 @@ from flashdreams.accelerated.multi_head_attention.triton import (
 )
 from flashdreams.accelerated.quantization.linear import (
     QuantizedNonPersistentLinear,
+    TorchaoNonPersistentLinear,
     WeightGranularity,
 )
 from flashdreams.accelerated.quantization.quantizer import (
@@ -63,6 +62,8 @@ from flashdreams.accelerated.quantization.quantizer import (
 )
 from flashdreams.core.attention import BlockKVCache
 from flashdreams.core.attention.rope_kernel import apply_rotary_pos_emb
+from torch import Tensor, nn
+from torch.nn.attention.flex_attention import BlockMask
 
 
 class SDPABackend(str, Enum):
@@ -116,6 +117,11 @@ class QuantizationOption:
     can make attention inaccurate, so output accuracy is not guaranteed.
     """
 
+    output_projection_backend: Literal["flashdreams", "torchao"] = field(
+        default="flashdreams", kw_only=True
+    )
+    """Output-only backend; ``output_projection=None`` disables quantization."""
+
     def __post_init__(self) -> None:
         """Validate the projection quantization dtypes."""
         if self.projection is not None and self.projection not in DTYPE_MAX:
@@ -133,6 +139,21 @@ class QuantizationOption:
         if not isinstance(self.quantized_sdpa, bool):
             raise TypeError(
                 f"quantized_sdpa must be a bool; got {self.quantized_sdpa!r}"
+            )
+        if self.output_projection_backend not in ("flashdreams", "torchao"):
+            raise ValueError(
+                f"unsupported output projection backend: {self.output_projection_backend}"
+            )
+        if (
+            self.output_projection_backend == "torchao"
+            and self.output_projection is not None
+            and (
+                self.output_projection is not torch.float8_e4m3fn
+                or self.output_granularity is not Granularity.SLICE
+            )
+        ):
+            raise ValueError(
+                "torchao output projection requires E4M3 and SLICE granularity"
             )
 
 
@@ -247,7 +268,9 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
     quantized_value_projection: QuantizedNonPersistentLinear | None
     """Nonpersistent quantized value projection."""
 
-    quantized_output_projection: QuantizedNonPersistentLinear | None
+    quantized_output_projection: (
+        QuantizedNonPersistentLinear | TorchaoNonPersistentLinear | None
+    )
     """Nonpersistent quantized output projection."""
 
     _validated_cuda_device_index: int | None
@@ -390,11 +413,19 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             self.optimized_impl_config.quantization.output_projection
         )
         if output_projection_dtype is not None:
-            self.quantized_output_projection = self._new_quantized_projection(
-                self.output_projection.weight,
-                self.output_projection.bias,
-                output_projection_dtype,
-            )
+            if (
+                self.optimized_impl_config.quantization.output_projection_backend
+                == "torchao"
+            ):
+                self.quantized_output_projection = TorchaoNonPersistentLinear(
+                    self.output_projection.weight, self.output_projection.bias
+                )
+            else:
+                self.quantized_output_projection = self._new_quantized_projection(
+                    self.output_projection.weight,
+                    self.output_projection.bias,
+                    output_projection_dtype,
+                )
 
         if self.qkv_fusion_option is QKVFusionOption.FULL:
             fused_weight = (
@@ -463,6 +494,8 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             This module with fused projection modules refreshed.
         """
         # Move/cast canonical parameters first, then regenerate fused projections.
+        if isinstance(self.quantized_output_projection, TorchaoNonPersistentLinear):
+            self.quantized_output_projection = None
         module = super()._apply(fn, recurse=recurse)
         self._refresh_derived_weights()
         return module
@@ -1261,6 +1294,8 @@ class OptimizedMultiHeadAttention(MultiHeadAttention[BlockKVCache]):
             return self.output_projection(x)
         if self.quantized_output_projection is None:
             raise RuntimeError("quantized output projection is not initialized")
+        if isinstance(self.quantized_output_projection, TorchaoNonPersistentLinear):
+            return self.quantized_output_projection(x)
         return self.quantized_output_projection(
             x,
             self.optimized_impl_config.quantization.output_granularity,

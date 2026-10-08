@@ -809,7 +809,14 @@ DSL, analogous to a simplified Halide schedule.
     projection GEMMs when set to `torch.float8_e4m3fn`, `torch.float8_e5m2`, or
     `torch.int8`. Weights use one scale per output channel, activations use one
     scale per input slice, and projection results return to the input FP16/BF16
-    dtype. The output projection remains in native precision.
+    dtype. This setting does not change output projection precision.
+  - `output_projection` controls the output Linear independently of Q/K/V.
+    `None` retains native precision. Set `torch.float8_e4m3fn` and
+    `output_granularity=Granularity.SLICE` for rowwise FP8 output projection.
+  - `output_projection_backend` is a keyword-only choice between `"flashdreams"`
+    (the default implementation) and the optional `"torchao"` backend. It only
+    affects output projection; Q/K/V fusion and activation sharing are unchanged.
+    A `None` output dtype disables quantization regardless of backend selection.
   - `quantized_sdpa` (`bool`, default `False`) directly casts Q, K, and V to
     unscaled `torch.float8_e4m3fn`, stores K/V caches in that dtype, and runs the
     selected SDPA backend in FP8. The FA2 path also uses FP8 softmax
@@ -817,8 +824,121 @@ DSL, analogous to a simplified Halide schedule.
     quantization scheme such as SageAttention3 and can make attention
     inaccurate, so validate quality for each model and workload.
 
-All configurations require CUDA FP16/BF16 inputs, compute capability 9.0 or
-newer, and a power-of-two head dimension from 16 through 256.
+### Experimental torchao output projection
+
+This component experiment targets **torchao 0.18.0, PyTorch 2.12.1/CUDA 13,
+and B200**. The default compile configuration fails the measured eager/compiled
+elementwise parity check. The explicit local compiler options below resolve
+the measured rounding differences; this is component validation, not evidence
+of model-level quality or throughput benefits.
+Install torchao separately in an environment with the matching PyTorch stack:
+
+```bash
+uv pip install --python /path/to/venv/bin/python torchao==0.18.0
+```
+
+No mandatory dependency or model default changes. The public config is:
+
+```python
+import torch
+from flashdreams.accelerated.multi_head_attention.optimized import (
+    OptimizedImplConfig, QuantizationOption,
+)
+
+policy = OptimizedImplConfig(
+    quantization=QuantizationOption(
+        output_projection=torch.float8_e4m3fn,
+        output_projection_backend="torchao",
+    ),
+)
+```
+
+Apply this policy only to explicitly selected attention modules. Leave sensitive
+modules at `output_projection=None`; this also provides the explicit BF16
+fallback when the source model is BF16. Missing packages and unsupported
+configurations raise errors instead of silently switching backend.
+
+`TorchaoNonPersistentLinear(weight, bias)` is also available from
+`flashdreams.accelerated.quantization.linear`. It uses the public `quantize_`
+API with rowwise E4M3 weights and activations, PyTorch kernels, fast accumulation
+disabled, and no torchao changes to global Inductor configuration. The executable
+path requires CUDA/BF16 and nonempty weight dimensions divisible by 16. CPU,
+meta, and other source dtypes are preparation states; inference there raises an
+error. Only SM90+ devices pass the hardware guard; B200 is the measured target.
+
+Torchao 0.18's default PyTorch quantizer emits NaNs for zero activation rows.
+The adapter sets the public activation lower bound to `float32.tiny * 448`
+before scale calculation. Its public config has no corresponding weight lower
+bound, so zero/underflow weight rows that produce nonfinite quantized data are
+rejected during preparation. Use the native backend for those weights.
+
+Checkpoint parameters remain in their original names and precision. Derived
+FP8 data and scales are nonpersistent buffers; the adapter's BF16 source is an
+alias, not an additional checkpoint entry. Retaining checkpoint-native weights
+means FP8 adds execution storage: do not infer whole-model memory savings from
+the FP8 payload size alone.
+
+Load the checkpoint, move/cast the model, then compile and capture. The existing
+attention load hook and `_apply` rebuild the derived output projection. After
+reloading or replacing weights, discard compiled instances and reset/recreate
+CUDA graphs before warming up and capturing again. Captured graphs are not
+invalidated automatically by checkpoint loading. Do not hot-swap weights while
+a graph is replaying. Direct parameter replacement must also be followed by the
+attention owner's `_refresh_derived_weights()` before compilation.
+Standalone derived linears must likewise be reconstructed
+from their source after source mutation; their empty state dictionaries are not
+standalone model checkpoints.
+
+For the component experiment, use `compile_module` with
+`max-autotune-no-cudagraphs`, and drain lazy compilation with
+`CUDAGraphWrapper.drain` before capture. Torchao's rowwise activation quantizer
+requires both intermediate BF16 rounding and correctly rounded division to
+match eager execution on the measured stack:
+
+```python
+from flashdreams.infra.compile import compile_module
+
+compiled = compile_module(
+    layer,  # A prepared TorchaoNonPersistentLinear.
+    dynamic=False,
+    options={
+        "emulate_precision_casts": True,
+        "eager_numerics.division_rounding": True,
+    },
+)
+```
+
+These options apply to this compiled callable; they do not change the process's
+global numerical policy or subsequent default compilation. `compile_module`
+merges explicit options over the selected mode's defaults without modifying
+the caller's dictionary. Reuse the same options when recompiling after a weight
+reload. Compiling a larger callable applies its options to that entire region;
+whole-model effects are outside this component experiment.
+
+The reproducible runner is:
+
+```bash
+PYTHONPATH=flashdreams python \
+  flashdreams/benchmarks/accelerated/quantization/run_torchao_comparison.py \
+  --output artifacts/torchao-625/run-001 --repeats 3 --torchao-eager-numerics
+```
+
+Run this command on an allocated GPU. It measures BF16, existing FP8, and torchao
+FP8 across eager, compile, graph, and compile+graph paths. Each process preserves
+raw benchmark samples, startup costs, numerical differences, memory accounting,
+and graph-break/recompilation logs. Compile cases run with empty and reused
+cache directories in separate processes. The B200 experiment did not establish
+a benefit for the measured projection; retain the default backend. See
+`flashdreams/benchmarks/accelerated/quantization/TORCHAO_REPORT.md` for measured
+results, limitations, and the adoption recommendation.
+
+Omit `--torchao-eager-numerics` to reproduce the original default-compiler
+comparison, including its parity failures. The flag only affects torchao
+compile and compile+graph rows, and the JSON records the applied options.
+
+Optimized attention requires CUDA FP16/BF16 inputs, compute capability 9.0 or
+newer, and a power-of-two head dimension from 16 through 256. The experimental
+torchao output projection specifically requires BF16.
 
 > **Why do we need a scheduling language for optimized MHA?** The generic MHA
 > interface supports variants with different query and context widths, head

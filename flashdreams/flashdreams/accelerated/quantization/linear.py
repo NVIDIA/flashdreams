@@ -20,8 +20,6 @@ from enum import Enum
 from typing import overload
 
 import torch
-from torch import Tensor
-
 from flashdreams.accelerated.common.non_persistent_linear import (
     NonPersistentLinear,
 )
@@ -34,6 +32,128 @@ from flashdreams.accelerated.quantization.quantizer_kernel import (
     requires_triton_rowwise_fp8_mm,
     rowwise_fp8_mm_triton,
 )
+from torch import Tensor, nn
+
+
+class TorchaoNonPersistentLinear(NonPersistentLinear):
+    """Optional rowwise FP8 projection rebuilt from checkpoint-native weights.
+
+    CPU, meta, and non-BF16 tensors are staging states, not executable paths.
+    Move to CUDA/BF16 before compilation or capture. After changing source
+    weights, reconstruct this layer and any compiled or captured callable.
+    Neither the source aliases nor derived tensor subclass enter checkpoints.
+    """
+
+    source_weight: Tensor
+    """Nonpersistent alias of the high-precision weight used for reconstruction."""
+
+    _prepared: bool
+    """Whether the execution weight has been quantized on CUDA."""
+
+    def __init__(self, weight: Tensor, bias: Tensor | None) -> None:
+        """Prepare a projection from an aligned ``[out_features, in_features]`` weight."""
+        if weight.ndim != 2 or any(d == 0 or d % 16 for d in weight.shape):
+            raise ValueError(
+                "torchao FP8 requires nonempty weight dimensions divisible by 16"
+            )
+        if bias is not None and (
+            bias.shape != (weight.shape[0],)
+            or bias.device != weight.device
+            or bias.dtype != weight.dtype
+        ):
+            raise ValueError(
+                "bias must match the weight's output width, device, and dtype"
+            )
+        super().__init__(weight.detach(), None if bias is None else bias.detach())
+        self.register_buffer("source_weight", weight.detach(), persistent=False)
+        self._rebuild()
+
+    @torch.no_grad()
+    def _rebuild(self) -> None:
+        """Quantize materialized CUDA/BF16 weights without retaining parameters."""
+        self.weight = self.source_weight
+        self._prepared = False
+        if (
+            not self.source_weight.is_cuda
+            or self.source_weight.dtype is not torch.bfloat16
+        ):
+            return
+        if torch.cuda.get_device_capability(self.source_weight.device) < (9, 0):
+            raise RuntimeError(
+                "torchao rowwise FP8 requires an SM90 or newer CUDA device"
+            )
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            installed_version = version("torchao").split("+")[0]
+        except PackageNotFoundError as exc:
+            raise ImportError(
+                "torchao output projection requires torchao==0.18.0; "
+                "set output_projection=None for the native precision fallback"
+            ) from exc
+        if installed_version != "0.18.0":
+            raise RuntimeError(f"expected torchao==0.18.0, found {installed_version}")
+        from torchao.quantization import (
+            Float8DynamicActivationFloat8WeightConfig,
+            Float8MMConfig,
+            Float8Tensor,
+            PerRow,
+            quantize_,
+        )
+        from torchao.quantization.quantize_.common import KernelPreference
+
+        temporary = nn.Linear(
+            self.in_features, self.out_features, bias=False, device="meta"
+        )
+        temporary.weight = nn.Parameter(self.source_weight, requires_grad=False)
+        with torch.cuda.device(self.source_weight.device):
+            quantize_(
+                temporary,
+                Float8DynamicActivationFloat8WeightConfig(
+                    granularity=PerRow(),
+                    activation_dtype=torch.float8_e4m3fn,
+                    weight_dtype=torch.float8_e4m3fn,
+                    kernel_preference=KernelPreference.TORCH,
+                    mm_config=Float8MMConfig(use_fast_accum=False),
+                    set_inductor_config=False,
+                    # Keep zero activation rows finite in torchao 0.18.
+                    activation_value_lb=torch.finfo(torch.float32).tiny * 448,
+                ),
+            )
+        if (
+            not isinstance(temporary.weight, Float8Tensor)
+            or temporary.weight.qdata.dtype is not torch.float8_e4m3fn
+        ):
+            raise RuntimeError("torchao did not produce the requested FP8 weight")
+        if not torch.isfinite(temporary.weight.qdata.float()).all():
+            raise ValueError(
+                "torchao 0.18 cannot quantize zero/underflow weight rows; use the native backend"
+            )
+        self.weight = temporary.weight.detach()
+        self._prepared = True
+
+    def _apply(
+        self, fn: Callable[[Tensor], Tensor], recurse: bool = True
+    ) -> "TorchaoNonPersistentLinear":
+        """Move source buffers and regenerate quantization on the final device."""
+        self.weight = self.source_weight.new_empty(0)
+        super()._apply(fn, recurse=recurse)
+        self._rebuild()
+        return self
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Project CUDA/BF16 activations, including dynamic activation quantization."""
+        if not self._prepared:
+            raise RuntimeError(
+                "prepare torchao weights on CUDA in BF16 before inference"
+            )
+        if x.dtype is not torch.bfloat16 or x.device != self.source_weight.device:
+            raise ValueError(
+                "torchao activations must be BF16 on the weight's CUDA device"
+            )
+        if x.ndim == 0 or x.shape[-1] != self.in_features:
+            raise ValueError("torchao activation width must match in_features")
+        return super().forward(x)
 
 
 class WeightGranularity(str, Enum):

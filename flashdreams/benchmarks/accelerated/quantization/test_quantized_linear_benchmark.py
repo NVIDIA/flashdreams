@@ -40,8 +40,6 @@ import torch.nn.functional as F
 
 if TYPE_CHECKING:
     from pytest_benchmark.fixture import BenchmarkFixture
-from torch import Tensor, nn
-
 from flashdreams.accelerated.quantization.linear import (
     QuantizedNonPersistentLinear,
     WeightGranularity,
@@ -51,6 +49,7 @@ from flashdreams.accelerated.quantization.quantizer import (
     Granularity,
     quantize,
 )
+from torch import Tensor, nn
 
 pytestmark = [
     pytest.mark.manual,
@@ -80,6 +79,12 @@ _WARMUP_ROUNDS = 5
 
 _BENCHMARK_ROUNDS = 50
 """Measured calls used for each linear comparison."""
+
+_TORCHAO_EAGER_NUMERICS = {
+    "emulate_precision_casts": True,
+    "eager_numerics.division_rounding": True,
+}
+"""Explicit per-compile policy for reproducing eager FP8 quantization numerics."""
 
 _DTYPE_FORMATS = {
     torch.float16: "fp16",
@@ -320,3 +325,275 @@ def test_quantized_linear_benchmark(
         )
     )
     assert relative_error.item() <= tolerance
+
+
+class _RowwiseFP8Linear(QuantizedNonPersistentLinear):
+    """Expose the existing dynamic FP8 path with the standard Linear signature."""
+
+    def forward(self, x: Tensor) -> Tensor:
+        return super().forward(x, Granularity.SLICE, out_dtype=torch.bfloat16)
+
+
+@pytest.mark.parametrize("backend", ("bf16", "flashdreams", "torchao"))
+@pytest.mark.parametrize("execution", ("eager", "compile", "graph", "compile_graph"))
+@torch.inference_mode()
+def test_torchao_comparison(
+    benchmark: BenchmarkFixture, backend: str, execution: str
+) -> None:
+    """Measure startup and steady output-projection costs in an isolated process."""
+    import os
+    import statistics
+    import time
+    from importlib.metadata import version
+
+    from flashdreams.accelerated.quantization.linear import TorchaoNonPersistentLinear
+    from flashdreams.infra.compile import compile_module
+    from flashdreams.infra.cuda_graph import CUDAGraphWrapper
+
+    def timed(call):
+        torch.cuda.synchronize()
+        start = time.perf_counter()
+        value = call()
+        torch.cuda.synchronize()
+        return value, (time.perf_counter() - start) * 1000
+
+    m, k, n = 4800, 2048, 2048
+    generator = torch.Generator(device="cuda").manual_seed(_SEED)
+    inputs = torch.randn(m, k, device="cuda", dtype=torch.bfloat16, generator=generator)
+    weight = torch.randn(n, k, device="cuda", dtype=torch.bfloat16, generator=generator)
+    torch.cuda.synchronize()
+    torch.cuda.reset_peak_memory_stats()
+    base_allocated = torch.cuda.memory_allocated()
+
+    def prepare():
+        if backend == "bf16":
+            result = nn.Linear(k, n, bias=False, device="meta")
+            result.weight = nn.Parameter(weight, requires_grad=False)
+            return result
+        if backend == "flashdreams":
+            return _RowwiseFP8Linear(
+                weight, None, WeightGranularity.PER_OUT_CHANNEL, torch.float8_e4m3fn
+            )
+        return TorchaoNonPersistentLinear(weight, None)
+
+    layer, preparation_ms = timed(prepare)
+    # Tensor-subclass logical dtype/numel describe BF16, not packed storage.
+    storages = {weight.untyped_storage().data_ptr(): weight.untyped_storage().nbytes()}
+    derived_bytes = 0
+    for tensor in (*layer.parameters(), *layer.buffers()):
+        parts = (tensor.qdata, tensor.scale) if hasattr(tensor, "qdata") else (tensor,)
+        for part in parts:
+            storage = part.untyped_storage()
+            if storage.data_ptr() not in storages:
+                derived_bytes += storage.nbytes()
+                storages[storage.data_ptr()] = storage.nbytes()
+    setup_peak = torch.cuda.max_memory_allocated()
+    operation = layer
+    compile_wrap_ms = 0.0
+    compile_options = (
+        _TORCHAO_EAGER_NUMERICS
+        if backend == "torchao"
+        and "compile" in execution
+        and os.environ.get("FLASHDREAMS_TORCHAO_EAGER_NUMERICS") == "1"
+        else None
+    )
+    if "compile" in execution:
+        operation, compile_wrap_ms = timed(
+            lambda: compile_module(layer, dynamic=False, options=compile_options)
+        )
+    graph = (
+        CUDAGraphWrapper(operation, warmup_iters=2) if "graph" in execution else None
+    )
+    first_call = (
+        (lambda: graph.drain(inputs))
+        if graph is not None
+        else (lambda: operation(inputs))
+    )
+    _, first_call_ms = timed(first_call)
+
+    def warmup():
+        for _ in range(_WARMUP_ROUNDS):
+            first_call()
+        if graph is not None:
+            for _ in range(graph.warmup_iters):
+                graph(inputs)
+
+    _, warmup_ms = timed(warmup)
+    capture_first_call_ms = 0.0
+    if graph is not None:
+        _, capture_first_call_ms = timed(lambda: graph(inputs))
+        assert graph._graph is not None
+    active = graph if graph is not None else operation
+    startup_peak = torch.cuda.max_memory_allocated()
+    torch.cuda.reset_peak_memory_stats()
+    steady_base = torch.cuda.memory_allocated()
+
+    def synchronized():
+        result = active(inputs)
+        torch.cuda.synchronize()
+        return result
+
+    benchmark.group = "torchao-output-projection"
+    output = benchmark.pedantic(
+        synchronized, iterations=1, rounds=_BENCHMARK_ROUNDS, warmup_rounds=0
+    )
+    steady_peak = torch.cuda.max_memory_allocated()
+    reserved_peak = torch.cuda.max_memory_reserved()
+    event_ms = []
+    for _ in range(_BENCHMARK_ROUNDS):
+        start, end = (
+            torch.cuda.Event(enable_timing=True),
+            torch.cuda.Event(enable_timing=True),
+        )
+        start.record()
+        active(inputs)
+        end.record()
+        end.synchronize()
+        event_ms.append(start.elapsed_time(end))
+    reference = F.linear(inputs, weight)
+    eager_output = layer(inputs)
+    delta = output.float() - reference.float()
+    ref_norm = reference.float().norm().item()
+    relative_l2 = (
+        delta.norm().item() / ref_norm
+        if ref_norm
+        else (0.0 if not delta.any() else float("inf"))
+    )
+    from torch._dynamo.utils import counters
+
+    benchmark.extra_info.update(
+        {
+            "backend": backend,
+            "execution": execution,
+            "torchao": version("torchao") if backend == "torchao" else None,
+            "m": m,
+            "k": k,
+            "n": n,
+            "bias": False,
+            "seed": _SEED,
+            "source_dtype": "bfloat16",
+            "activation_quantization_timed": backend != "bf16",
+            "warmup_rounds": _WARMUP_ROUNDS,
+            "benchmark_rounds": _BENCHMARK_ROUNDS,
+            "cache_state": os.environ.get(
+                "FLASHDREAMS_BENCH_CACHE_STATE", "unspecified"
+            ),
+            "inductor_cache": os.environ.get("TORCHINDUCTOR_CACHE_DIR"),
+            "preparation_ms": preparation_ms,
+            "compile_wrap_ms": compile_wrap_ms,
+            "compile_options": compile_options,
+            "first_call_ms": first_call_ms,
+            "warmup_ms": warmup_ms,
+            "capture_first_call_ms": capture_first_call_ms,
+            "cuda_event_samples_ms": event_ms,
+            "cuda_event_median_ms": statistics.median(event_ms),
+            "cuda_event_p90_ms": sorted(event_ms)[44],
+            "source_weight_bytes": weight.untyped_storage().nbytes(),
+            "derived_weight_bytes": derived_bytes,
+            "resident_weight_bytes": sum(storages.values()),
+            "input_and_source_allocated_bytes": base_allocated,
+            "preparation_peak_allocated_bytes": setup_peak,
+            "startup_peak_allocated_bytes": startup_peak,
+            "steady_base_allocated_bytes": steady_base,
+            "steady_peak_allocated_bytes": steady_peak,
+            "steady_peak_reserved_bytes": reserved_peak,
+            "relative_l2": relative_l2,
+            "eager_relative_l2": (
+                (output.float() - eager_output.float()).norm()
+                / eager_output.float().norm().clamp_min(torch.finfo(torch.float32).tiny)
+            ).item(),
+            "eager_max_abs_error": (output.float() - eager_output.float())
+            .abs()
+            .max()
+            .item(),
+            "eager_mismatch_fraction": (
+                ~torch.isclose(output, eager_output, rtol=0.02, atol=0.02)
+            )
+            .float()
+            .mean()
+            .item(),
+            "mae": delta.abs().mean().item(),
+            "max_abs_error": delta.abs().max().item(),
+            "cosine_similarity": F.cosine_similarity(
+                output.float().flatten(), reference.float().flatten(), dim=0
+            ).item(),
+            "dynamo_counters": {key: dict(value) for key, value in counters.items()},
+            "requested_torchao_config": "PerRow/e4m3/TORCH/fast_accum=False/inductor_config=False/activation_lb=float32.tiny*448"
+            if backend == "torchao"
+            else None,
+        }
+    )
+
+    # Record evidence before assertions, including numerical compatibility failures.
+    assert output.dtype is torch.bfloat16 and output.shape == (m, n)
+    assert torch.isfinite(output).all()
+    assert relative_l2 <= (
+        0.0 if backend == "bf16" else torch.finfo(torch.float8_e4m3fn).eps
+    )
+    torch.testing.assert_close(output, eager_output, rtol=0.02, atol=0.02)
+
+
+@pytest.mark.parametrize("seed", (0, 1, 42))
+@pytest.mark.parametrize("use_bias", (False, True))
+@torch.inference_mode()
+def test_torchao_compile_lifecycle(seed: int, use_bias: bool) -> None:
+    """Preserve random/zero numerics and output ownership through recompilation."""
+    from torch._inductor import config
+
+    from flashdreams.accelerated.quantization.linear import TorchaoNonPersistentLinear
+    from flashdreams.infra.compile import compile_module
+    from flashdreams.infra.cuda_graph import CUDAGraphWrapper
+
+    before = (config.emulate_precision_casts, config.eager_numerics.division_rounding)
+    generator = torch.Generator(device="cuda").manual_seed(seed)
+    source = torch.randn(
+        128, 128, device="cuda", dtype=torch.bfloat16, generator=generator
+    )
+    bias = (
+        torch.randn(128, device="cuda", dtype=torch.bfloat16, generator=generator)
+        if use_bias
+        else None
+    )
+    layer = TorchaoNonPersistentLinear(source, bias)
+    compiled = compile_module(layer, dynamic=False, options=_TORCHAO_EAGER_NUMERICS)
+    x = torch.randn(
+        2, 16, 128, device="cuda", dtype=torch.bfloat16, generator=generator
+    )
+    torch.testing.assert_close(compiled(x), layer(x), rtol=0.02, atol=0.02)
+    reference = F.linear(x, source, bias)
+    assert (
+        compiled(x).float() - reference.float()
+    ).norm() / reference.float().norm() < 0.125
+    zero = torch.zeros_like(x)
+    torch.testing.assert_close(
+        compiled(zero), F.linear(zero, source, bias), rtol=0, atol=0
+    )
+    graph = CUDAGraphWrapper(compiled, warmup_iters=2)
+    graph.drain(x)
+    for _ in range(3):
+        retained = graph(x)
+    retained_copy = retained.clone()
+    graph(x * 2)
+    torch.testing.assert_close(retained, retained_copy, rtol=0, atol=0)
+    torch.testing.assert_close(retained, layer(x), rtol=0.02, atol=0.02)
+    changed_shape = x[:, :8].contiguous()
+    graph.drain(changed_shape)
+    for _ in range(3):
+        output = graph(changed_shape)
+    torch.testing.assert_close(output, layer(changed_shape), rtol=0.02, atol=0.02)
+
+    graph.reset()
+    replacement = TorchaoNonPersistentLinear(source * 0.5, bias)
+    graph.fn = compile_module(
+        replacement, dynamic=False, options=_TORCHAO_EAGER_NUMERICS
+    )
+    graph.drain(x)
+    for _ in range(3):
+        output = graph(x)
+    torch.testing.assert_close(output, replacement(x), rtol=0.02, atol=0.02)
+    torch.testing.assert_close(retained, retained_copy, rtol=0, atol=0)
+    assert not torch.equal(output, retained)
+    assert (
+        config.emulate_precision_casts,
+        config.eager_numerics.division_rounding,
+    ) == before
