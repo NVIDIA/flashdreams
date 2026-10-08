@@ -17,15 +17,16 @@
 Profiling with Nsight Systems
 =============================
 
-Nsight Systems puts the model thread, the UI thread and the GPU on a single
-timeline, so you can see when each stage runs, which stages overlap, and where
-time is spent waiting. If you only need per-stage timings, ``--stats-path`` is
-simpler.
+Nsight Systems shows the model thread, the UI thread and the GPU on one
+timeline, so you can see what each of them was doing at the same moment. If you
+only need numbers for each step, such as stage timings, frame rates and input
+latency, use ``--stats-path`` instead.
 
 Collecting a report
 -------------------
 
-Install the model package and launch the app through the profiler:
+First install the model package, then launch the app through
+``flashdreams-profile``:
 
 .. code-block:: bash
 
@@ -33,31 +34,27 @@ Install the model package and launch the app through the profiler:
    uv run flashdreams-profile -- t2v-self-forcing-wan2.1-t2v-1.3b --timeout 300 \
        --output-path artifacts/run.mp4 -- --prompt "A city street at night" --total-blocks 7
 
-By default the report is saved under ``artifacts/profiles/`` and the trace
-captures ``cuda,nvtx,osrt,vulkan``. Use ``--report-path PATH`` and ``--trace``
-to change either. The example passes the runner's ``--timeout`` because the t2v
-app keeps its window open after the last block, and the timeout ends the run
-instead.
+The report is saved in ``artifacts/profiles/``. To save it somewhere else, pass
+``--report-path``. By default the report records CUDA, NVTX, OS runtime and
+Vulkan activity; to record something different, pass ``--trace``.
 
-Leave ``--stats-path`` and ``FLASHDREAMS_SYNC_AND_PROFILE=1`` off while
-tracing. Each of them adds two ``torch.cuda.synchronize()`` calls per step, and
-those calls change the timeline you are trying to measure.
+``--stats-path`` and ``FLASHDREAMS_SYNC_AND_PROFILE=1`` make the CPU wait for the
+GPU on every step, which can shift the timeline, so leave them off when you
+want the closest view of a normal run.
 
 Reading the report
 ------------------
 
-Open the ``.nsys-rep`` file in the Nsight Systems GUI to explore the timeline,
-or summarize the annotated stages from the terminal:
+To read the report, open the ``.nsys-rep`` file in the Nsight Systems GUI. For a
+quick summary in the terminal instead, run:
 
 .. code-block:: bash
 
    nsys stats --report nvtx_sum artifacts/profiles/<report>.nsys-rep
 
-Each row is one NVTX range, showing how many times it ran and how long it took
-on the CPU timeline. Ranges nest, so a parent's duration overlaps its children.
-These durations also include time spent waiting, so they do not measure GPU
-execution. To see the GPU work a range launched, run the same command with
-``--report nvtx_gpu_proj_sum`` and match the rows by range name.
+Each row of the summary is one of the ranges below, with how many times it ran
+and how long it took. These durations are CPU time and include waiting. For the
+GPU work that each range launched, use ``--report nvtx_gpu_proj_sum`` instead.
 
 .. list-table::
    :header-rows: 1
@@ -66,26 +63,24 @@ execution. To see the GPU work a range launched, run the same command with
    * - Range
      - Meaning
    * - ``model.pace``
-     - Waiting to hold the target step rate.
+     - Waiting to hold the step rate.
    * - ``model.step[i]``
      - One autoregressive step.
    * - ``model.publish``
-     - Handing the chunk to the presentation queue.
+     - Handing the chunk to presentation.
    * - ``pipeline.encode`` / ``diffuse`` / ``decode``
-     - Conditioning encode, denoising loop, VAE decode. The names match the
-       stage timings ``finalize`` returns.
+     - Encode, denoising loop, VAE decode.
    * - ``pipeline.finalize``
-     - Deferred KV-cache update for the next step.
+     - KV-cache update for the next step.
    * - ``ui.step``
-     - One UI loop iteration on the main thread.
+     - One UI loop iteration.
    * - ``input.wait``
-     - From a batch of input reaching the runtime to the first frame of the
-       step that used it being shown. Waits overlap each other and the steps.
+     - From an input arriving to the first frame that shows it.
 
-Marks for generated and shown frames name the step they belong to, such as
-``present.frame [step 5]``, so the frames of one step can be found together.
+Besides these ranges, the timeline has a mark each time a frame is generated
+(``model.frame``) or shown (``present.frame``). Each mark includes the step that
+produced the frame, such as ``present.frame [step 5]``, so you can follow a frame
+on screen back to the step that made it.
 
-The ranges are added in the shared runtime and pipeline, so individual
-schedulers do not add any of their own. FlashVSR and SwiftVR provide their own
-``generate`` implementations, so their traces do not include the
+FlashVSR and SwiftVR use their own ``generate`` method, so their reports have no
 ``pipeline.*`` ranges.

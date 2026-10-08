@@ -224,34 +224,22 @@ presentation-queue depth/publish-wait measurements under the reserved
 `runtime_` metric prefix. UI and window timings are not folded into a later
 model record because they describe a different frame.
 
-`--stats-path` also sets `FLASHDREAMS_SYNC_AND_PROFILE=1` before constructing the
-application, enabling synchronized per-stage pipeline profiling for the run, and
-`FLASHDREAMS_FPS=1`, which adds these rates to every model record:
+`--stats-path` also turns on per-stage timings
+(`FLASHDREAMS_SYNC_AND_PROFILE=1`), frame rates (`FLASHDREAMS_FPS=1`) and input
+latency (`FLASHDREAMS_INPUT_LATENCY=1`) in every model record:
 
-| Key | Counts |
+| Key | Meaning |
 |---|---|
-| `present.frame_fps` | new frames shown in the window (end to end) |
-| `model.frame_fps` | frames the model generated |
-| `ui.step_fps` | UI loop iterations |
-| `pipeline.generate_fps` | `generate()` calls |
+| `present.frame_fps` | frames shown per second (end to end) |
+| `model.frame_fps` | frames generated per second |
+| `ui.step_fps` | UI loop iterations per second |
+| `pipeline.generate_fps` | `generate()` calls per second |
+| `input.latency_ms` | input arriving to the first frame that shows it |
+| `input.queue_ms` | the part spent waiting for the step to start |
+| `input.present_ms` | the part from the step returning to the frame being shown |
 
-Each is a count per wall-clock second over the model step just ended, waits
-included. Each key also has an `_avg_fps` form covering the session so far,
-compilation included.
-`present.frame_fps` below `model.frame_fps` means the window is not consuming
-everything generated. Counting costs no synchronization, so `FLASHDREAMS_FPS=1`
-is safe to set on its own while tracing.
-
-It also sets `FLASHDREAMS_INPUT_LATENCY=1`, which adds `input.latency_ms`: for
-each input a step consumed, the time from the runtime receiving the input to that
-step's first frame being picked to show, averaged over the inputs. `input.queue_ms`
-is the wait for the step to start, `input.present_ms` runs from the step
-returning to its frame being shown, and the rest is the step. Each has an
-`_avg_ms` form for the session, and the per-step records allow percentiles. A
-step's latency appears on a later record, once its frame has been shown.
-
-An application records its own measurements by returning them in
-`StepResult.metrics`; they reach the stats file beside the runtime's.
+Values cover the model step just ended; `_avg_fps` and `_avg_ms` forms cover the
+session. Applications add their own numbers through `StepResult.metrics`.
 
 ## Starting and stopping a run
 
