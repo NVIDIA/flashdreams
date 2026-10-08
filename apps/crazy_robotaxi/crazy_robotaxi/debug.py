@@ -222,6 +222,7 @@ class RobotaxiDebugWindow(IClientWindow):
         self._finalized = False
         self._physics_trail: deque[tuple[float, float]] = deque(maxlen=90)
         self._contact_frames: list[int] = []
+        self._last_frames: dict[str, np.ndarray] = {}
 
     def open(self, session_desc: SessionDesc) -> None:
         """Start one capture in a fresh directory using the game session contract."""
@@ -300,6 +301,7 @@ class RobotaxiDebugWindow(IClientWindow):
         )
         if contact:
             self._contact_frames.append(self.frame_count)
+        latest_frames = {}
         for index, (name, encoder) in enumerate(self._encoders.items()):
             if name == "physics":
                 frame = render_physics_view(
@@ -313,6 +315,7 @@ class RobotaxiDebugWindow(IClientWindow):
                     rgb[:, :, index * desc.video_width : (index + 1) * desc.video_width]
                 )
             encoder.write(frame)
+            latest_frames[name] = frame[0].copy()
             if self.frame_count % self.snapshot_every == 0 or last or contact:
                 Image.fromarray(frame[0]).save(
                     self.directory / "frames" / name / f"{self.frame_count:06d}.png"
@@ -321,6 +324,7 @@ class RobotaxiDebugWindow(IClientWindow):
             json.dumps(result.record, default=_json_value, allow_nan=False) + "\n"
         )
         self._telemetry.flush()
+        self._last_frames = latest_frames
         self.frame_count += 1
 
     def close(self) -> None:
@@ -329,6 +333,15 @@ class RobotaxiDebugWindow(IClientWindow):
             with ExitStack() as cleanup:
                 for encoder in self._encoders.values():
                     cleanup.callback(encoder.close)
+                for name, frame in self._last_frames.items():
+                    path = (
+                        self.directory
+                        / "frames"
+                        / name
+                        / f"{self.frame_count - 1:06d}.png"
+                    )
+                    if not path.exists():
+                        Image.fromarray(frame).save(path)
             self._finalized = True
         finally:
             if self._telemetry is not None:
