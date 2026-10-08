@@ -47,6 +47,19 @@ Launch the LingBot v2 Cam2V application:
    uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
        --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 
+Preload and validate a v2 application without opening a window:
+
+.. code-block:: bash
+
+   uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
+       --preload-application -- --example-data
+
+Preload runs ``IApplication.init`` and one model block without opening a window.
+It defaults to warning; use ``FLASHDREAMS_PREPARATION_POLICY`` to select
+``none``, ``warn``, or ``error``. Findings go to ``preparation_issues.txt`` in
+the FlashDreams cache, or ``FLASHDREAMS_PREPARATION_ISSUES_PATH`` when set.
+Add ``--skip-preload-validation`` to skip validation (running first-block of `ISession`).
+
 The common command shape is ``flashdreams-run <runner> [mode]``. A runner only
 advertises modes it implements; unsupported pairs fail before CUDA
 initialization. Shared modes are ``run``, ``mp4``, ``null``, ``webrtc``, and
@@ -81,8 +94,13 @@ Video Super Resolution. Install the optional dependency with
 ``uv pip install 'flashdreams[rtx-postprocess]'`` and run on a supported RTX GPU
 before selecting this preset.
 
-Native v2 applications receive their own arguments after ``--``. Interactive
-Drive exposes the equivalent setting with the hyphenated
+Native v2 applications receive their own arguments after ``--``.
+``flashdreams-run-v2 --mode mp4`` requires ``--timeout`` and/or
+``--total-model-steps`` (a number or ``unbound``). Native-window and WebRTC may
+omit both. A named ``--total-model-steps N`` is remaining for the whole
+application run; a replacement session receives what is left.
+
+Interactive Drive exposes the equivalent setting with the hyphenated
 ``--postprocess-preset`` option:
 
 .. code-block:: bash

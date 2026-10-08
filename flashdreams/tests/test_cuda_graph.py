@@ -71,3 +71,9 @@ def test_failed_capture_does_not_store_invalid_graph(
     assert isinstance(wrapper._graph, FakeGraph)
     assert state["replays"] == 1
     assert state["capture_error_mode"] == "thread_local"
+
+
+def test_make_slot_preserves_channels_last_3d() -> None:
+    value = torch.empty(1, 3, 4, 8, 8).contiguous(memory_format=torch.channels_last_3d)
+    slot = CUDAGraphWrapper._make_slot(value)
+    assert slot.is_contiguous(memory_format=torch.channels_last_3d)

@@ -62,6 +62,13 @@ dependencies = [
 
 [tool.uv]
 managed = true
+# CVE-2026-59890; PyTorch's <82 cap was unnecessary.
+# ponytail: override legacy metadata until all profiles use torch>=2.13.
+# https://github.com/pytorch/pytorch/pull/188190
+override-dependencies = ["setuptools>=83.0.0,<84"]
+build-constraint-dependencies = ["setuptools>=83.0.0,<84"]
+# Security floors for HTTP handling and Pillow image operations.
+constraint-dependencies = ["urllib3>=2.8.0,<3", "multidict>=6.9.1,<7", "pillow>=12.3.0"]
 
 [tool.uv.sources]
 # flashdreams is not on PyPI; install it from the local source tree

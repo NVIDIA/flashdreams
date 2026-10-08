@@ -72,7 +72,7 @@ To run Causal-Forcing, launch its v2 T2V application:
    uv run --project integrations_v2/causal_forcing \
        flashdreams-run-v2 \
        t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise \
-       --output-path artifacts/t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise.mp4 -- \
+       --output-path artifacts/t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise.mp4 --timeout unbound -- \
        --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
        --total-blocks 21
 
@@ -84,7 +84,7 @@ For multi-GPU inference, run the same command under ``torchrun`` (taking
    uv run --project integrations_v2/causal_forcing \
        torchrun --nproc_per_node=4 --no-python flashdreams-run-v2 \
        t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise \
-       --output-path artifacts/t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise.mp4 -- \
+       --output-path artifacts/t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise.mp4 --timeout unbound -- \
        --prompt "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle." \
        --total-blocks 21
 

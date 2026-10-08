@@ -25,6 +25,7 @@ from ludus_renderer import (
     MutableObjectSceneBuffer,
     OrthographicCamera,
     TimestampedScene,
+    prepare_ludus,
 )
 from ludus_renderer import (
     load_scene as load_ludus_scene,
@@ -135,6 +136,7 @@ class _LudusConditionRasterizerImpl:
 
         logger.info(f"[rasterizer] ludus_backend=cuda device={self._device}")
         self.ctx = LudusCudaTimestampedContext(device=self._device)
+        prepare_ludus()
         self.ctx.set_depth_scaling(True)
         self.ctx.set_msaa_samples(4)
         # Keep adaptive cube tessellation enabled. F-theta projection curves

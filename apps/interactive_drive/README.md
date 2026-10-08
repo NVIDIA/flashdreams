@@ -97,6 +97,7 @@ For example, render every generated frame once, in order, with the HUD disabled 
 ```bash
 uv run flashdreams-run-v2 interactive-drive-omnidreams-perf \
     --mode mp4 --output-path artifacts/test/interactive-drive.mp4 \
+    --timeout unbound \
     --backpressure-mode block --presentation-mode on_demand -- \
     --no-ui --total-blocks 60
 ```
