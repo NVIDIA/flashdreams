@@ -64,6 +64,7 @@ from omnidreams_game_engine.types import (
     CameraCalibration,
     ConditionBatch,
     DriverCommand,
+    PhysicsDebugFrame,
     SceneDefinition,
     VehicleState,
 )

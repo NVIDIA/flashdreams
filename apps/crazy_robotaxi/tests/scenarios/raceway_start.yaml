@@ -1,0 +1,3 @@
+# Three seconds on FlashDreams Raceway's flat starting straight.
+steps:
+  - {frames: 90, throttle: 1}
