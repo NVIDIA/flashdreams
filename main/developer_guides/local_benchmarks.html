@@ -719,9 +719,8 @@ one-minute LingBot and Omnidreams scenarios. It stages the first generated MP4,
 splits it into local segments, runs public PAI-Bench-G on those segments, and
 reports 0-100 <code class="docutils literal notranslate"><span class="pre">pai_bench_long_*</span></code> metrics in the HTML report. These metrics
 are non-gating and separate from the baseline similarity metrics.</p>
-<p>The adapter follows the same external-evaluator pattern as WorldLens: it owns
-the checkout/staging/summary glue, while PAI-Bench itself remains an external
-checkout. By default it clones
+<p>The adapter owns the checkout/staging/summary glue, while PAI-Bench itself
+remains an external checkout. By default it clones
 <code class="docutils literal notranslate"><span class="pre">https://github.com/SHI-Labs/physical-ai-bench.git</span></code> at the pinned revision
 declared in <code class="docutils literal notranslate"><span class="pre">tools.benchmarks.pai_bench_profile</span></code> under
 <code class="docutils literal notranslate"><span class="pre">&lt;repo-root&gt;/.cache/flashdreams/evaluators/physical-ai-bench</span></code> when the
