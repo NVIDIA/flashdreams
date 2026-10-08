@@ -19,6 +19,7 @@ from flashdreams.api_v2.loop import (
     UILoopRequests,
 )
 from flashdreams.api_v2.session import ISession
+from flashdreams.infra.profiler import get_inference_profiler
 from flashdreams.runtime_v2.coordination import StepAgreement
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
@@ -157,7 +158,10 @@ def run_session(
         def collect_input() -> None:
             if window is None:
                 return
-            event_buffer.append(window.get_user_input_events())
+            events = window.get_user_input_events()
+            received_ns = event_buffer.append(events)
+            if count := len(events.get_events()):
+                get_inference_profiler().input_received(received_ns, count)
 
         def run_ui_once(*, step_requested: bool = True) -> None:
             """Process UI lifecycle control and run a requested UI step."""
@@ -361,6 +365,8 @@ def run_session(
             cleanup(presentation_manager.close)
         cleanup_failures.extend(session._shutdown_registered_loops())
         cleanup(event_buffer.clear)
+        # Both loops have stopped, so nothing will close an input wait still open.
+        cleanup(lambda: get_inference_profiler().reset_counts())
         if metrics_output_sink is not None:
             cleanup(metrics_output_sink.close)
         if next_session_desc is None and window is not None:

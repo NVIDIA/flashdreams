@@ -78,6 +78,12 @@ execution. To see the GPU work a range launched, run the same command with
      - Deferred KV-cache update for the next step.
    * - ``ui.step``
      - One UI loop iteration on the main thread.
+   * - ``input.wait``
+     - From a batch of input reaching the runtime to the first frame of the
+       step that used it being shown. Waits overlap each other and the steps.
+
+Marks for generated and shown frames name the step they belong to, such as
+``present.frame [step 5]``, so the frames of one step can be found together.
 
 The ranges are added in the shared runtime and pipeline, so individual
 schedulers do not add any of their own. FlashVSR and SwiftVR provide their own

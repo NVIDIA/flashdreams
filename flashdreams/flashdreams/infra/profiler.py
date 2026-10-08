@@ -33,6 +33,13 @@ _STAGES = ("latency", "queue", "present")
 """Input latency and the two parts of it measured on their own."""
 
 
+def _step_label(step: tuple[int, int]) -> str:
+    generation, step_index = step
+    if generation == 0:
+        return f"[step {step_index}]"
+    return f"[gen {generation}, step {step_index}]"
+
+
 class IProfiler(ABC):
     """Profiling backend for the runtime and the pipeline.
 
@@ -44,13 +51,25 @@ class IProfiler(ABC):
     def range(self, name: str) -> ContextManager[None]:
         """Return a context manager covering the block as ``name``."""
 
-    def event(self, name: str, *, count: int = 1) -> None:
+    def event(
+        self, name: str, *, count: int = 1, step: tuple[int, int] | None = None
+    ) -> None:
         """Mark that ``name`` happened, covering ``count`` items.
 
         A range has width; an event does not. ``count`` is how many items the
-        event stands for, so one chunk of frames is a single call.
+        event stands for, so one chunk of frames is a single call. ``step`` is the
+        ``(generation, step_index)`` the event belongs to, which a trace shows
+        beside the name so samples from one step can be found together.
         """
-        del name, count
+        del name, count, step
+
+    def input_received(self, received_ns: int, count: int) -> None:
+        """Note that ``count`` inputs reached the runtime at ``received_ns``.
+
+        The time is ``time.monotonic_ns()`` and matches what the step that
+        consumes them later reports to :meth:`input_consumed`.
+        """
+        del received_ns, count
 
     def collect_stage_ms(self) -> dict[str, float]:
         """Return and clear the pipeline stage timings of the step just run.
@@ -106,9 +125,19 @@ class NullProfiler(IProfiler):
 class NVTXProfiler(IProfiler):
     """Marks ranges for Nsight Systems.
 
+    Each batch of input also gets an ``input.wait`` range, from reaching the
+    runtime to the first frame of the step that consumed it being shown. It is a
+    start/end range, since waits overlap one another and the steps between them.
+
     ``torch.cuda.nvtx.range_push`` raises on CPU-only builds, so construct this
     only when CUDA is available.
     """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        # Open input.wait ranges: by arrival until a step consumes them, then by step.
+        self._arrived: dict[int, list[int]] = {}
+        self._waiting: dict[tuple[int, int], list[int]] = {}
 
     @contextmanager
     def range(self, name: str) -> Iterator[None]:
@@ -118,9 +147,52 @@ class NVTXProfiler(IProfiler):
         finally:
             torch.cuda.nvtx.range_pop()
 
-    def event(self, name: str, *, count: int = 1) -> None:
+    def event(
+        self, name: str, *, count: int = 1, step: tuple[int, int] | None = None
+    ) -> None:
         del count
-        torch.cuda.nvtx.mark(name)
+        torch.cuda.nvtx.mark(name if step is None else f"{name} {_step_label(step)}")
+
+    def input_received(self, received_ns: int, count: int) -> None:
+        if count <= 0:
+            return
+        range_id = torch.cuda.nvtx.range_start("input.wait")
+        with self._lock:
+            self._arrived.setdefault(received_ns, []).append(range_id)
+
+    def input_consumed(
+        self, step: tuple[int, int], received_ns: Sequence[int], started_ns: int
+    ) -> None:
+        del started_ns
+        with self._lock:
+            range_ids = [
+                range_id
+                for arrived_ns in set(received_ns)
+                for range_id in self._arrived.pop(arrived_ns, [])
+            ]
+            if range_ids:
+                self._waiting.setdefault(step, []).extend(range_ids)
+
+    def step_presented(self, step: tuple[int, int]) -> None:
+        with self._lock:
+            ended = self._waiting.pop(step, [])
+            # An older step still waiting was dropped; its wait ends here.
+            for older in [key for key in self._waiting if key < step]:
+                ended += self._waiting.pop(older)
+        for range_id in ended:
+            torch.cuda.nvtx.range_end(range_id)
+
+    def reset_counts(self) -> None:
+        with self._lock:
+            ended = [
+                range_id
+                for range_ids in (*self._arrived.values(), *self._waiting.values())
+                for range_id in range_ids
+            ]
+            self._arrived.clear()
+            self._waiting.clear()
+        for range_id in ended:
+            torch.cuda.nvtx.range_end(range_id)
 
 
 class CudaEventProfiler(IProfiler):
@@ -185,7 +257,10 @@ class FrameRateProfiler(IProfiler):
         del name
         return nullcontext()
 
-    def event(self, name: str, *, count: int = 1) -> None:
+    def event(
+        self, name: str, *, count: int = 1, step: tuple[int, int] | None = None
+    ) -> None:
+        del step
         if count <= 0:
             return
         with self._lock:
@@ -306,9 +381,15 @@ class CompositeProfiler(IProfiler):
                 stack.enter_context(profiler.range(name))
             yield
 
-    def event(self, name: str, *, count: int = 1) -> None:
+    def event(
+        self, name: str, *, count: int = 1, step: tuple[int, int] | None = None
+    ) -> None:
         for profiler in self._profilers:
-            profiler.event(name, count=count)
+            profiler.event(name, count=count, step=step)
+
+    def input_received(self, received_ns: int, count: int) -> None:
+        for profiler in self._profilers:
+            profiler.input_received(received_ns, count)
 
     def input_consumed(
         self, step: tuple[int, int], received_ns: Sequence[int], started_ns: int
