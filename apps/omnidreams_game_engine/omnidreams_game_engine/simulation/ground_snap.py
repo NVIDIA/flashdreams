@@ -168,6 +168,17 @@ class GroundSnapper:
             result[np.asarray(indices)[hit]] = z[np.flatnonzero(hit), best[hit]]
         return result
 
+    def ground_height_at(self, x: float, y: float, z_ref: float) -> float | None:
+        """Sample the nearest ground height without snapping or changing state.
+
+        Args:
+            x: World x coordinate.
+            y: World y coordinate.
+            z_ref: Reference height for choosing among overlapping surfaces.
+        """
+        height = self._raycast(x, y, z_ref)
+        return float(height) if math.isfinite(height) else None
+
     def _sample_body_grid(self, vehicle: VehicleConfig) -> np.ndarray:
         key = (
             vehicle.aabb_length_m,
