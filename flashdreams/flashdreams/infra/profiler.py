@@ -21,7 +21,7 @@ import os
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager, nullcontext
 from contextvars import ContextVar, Token
 from typing import ContextManager
@@ -29,6 +29,8 @@ from typing import ContextManager
 import torch
 
 _STAGE_PREFIX = "pipeline."
+_STAGES = ("latency", "queue", "present")
+"""Input latency and the two parts of it measured on their own."""
 
 
 class IProfiler(ABC):
@@ -61,6 +63,30 @@ class IProfiler(ABC):
         """Return event rates since the previous call and since the session began.
 
         Empty when the backend does not count events.
+        """
+        return {}
+
+    def input_consumed(
+        self, step: tuple[int, int], received_ns: Sequence[int], started_ns: int
+    ) -> None:
+        """Note that the step keyed ``(generation, step_index)``, started at
+        ``started_ns`` and returning now, consumed inputs that reached the runtime
+        at ``received_ns``.
+
+        Times are ``time.monotonic_ns()``. The key is the one its result carries,
+        which is how presentation identifies the step.
+        """
+        del step, received_ns, started_ns
+
+    def step_presented(self, step: tuple[int, int]) -> None:
+        """Note that the first frame of the step keyed ``(generation, step_index)``
+        was picked to show."""
+        del step
+
+    def collect_input_latency_ms(self) -> dict[str, float]:
+        """Return input latency since the previous call and over the session.
+
+        Empty when the backend does not measure it.
         """
         return {}
 
@@ -192,6 +218,81 @@ class FrameRateProfiler(IProfiler):
             self._last_read_at = self._started_at
 
 
+class InputLatencyProfiler(IProfiler):
+    """Times each input from reaching the runtime to its first frame being shown.
+
+    Every input a step consumed counts, and the reported value is their mean.
+    ``input.queue_ms`` is the wait for the step to start, ``input.present_ms`` runs
+    from the step returning to its frame being shown, and the rest is the step
+    itself. Each key also has an ``_avg_ms`` form covering the session. Inputs of
+    a step that returns no frames are left out, since nothing of theirs is shown.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        # Steps that consumed input and have not shown a frame yet:
+        # (generation, step) -> (step start, step end, input arrivals), in ns.
+        self._waiting: dict[tuple[int, int], tuple[int, int, list[int]]] = {}
+        self._since_read: dict[str, list[float]] = {name: [] for name in _STAGES}
+        self._totals: dict[str, float] = dict.fromkeys(_STAGES, 0.0)
+        self._count = 0
+
+    def range(self, name: str) -> ContextManager[None]:
+        del name
+        return nullcontext()
+
+    def input_consumed(
+        self, step: tuple[int, int], received_ns: Sequence[int], started_ns: int
+    ) -> None:
+        if not received_ns:
+            return
+        ended_ns = time.monotonic_ns()
+        with self._lock:
+            self._waiting[step] = (started_ns, ended_ns, list(received_ns))
+
+    def step_presented(self, step: tuple[int, int]) -> None:
+        presented_ns = time.monotonic_ns()
+        with self._lock:
+            entry = self._waiting.pop(step, None)
+            # An older step still waiting was dropped, so its frame never appears.
+            for older in [key for key in self._waiting if key < step]:
+                del self._waiting[older]
+            if entry is None:
+                return
+            started_ns, ended_ns, received_ns = entry
+            for arrived_ns in received_ns:
+                stages_ms = {
+                    "latency": (presented_ns - arrived_ns) / 1e6,
+                    "queue": (started_ns - arrived_ns) / 1e6,
+                    "present": (presented_ns - ended_ns) / 1e6,
+                }
+                for name, value in stages_ms.items():
+                    self._since_read[name].append(value)
+                    self._totals[name] += value
+                self._count += 1
+
+    def collect_input_latency_ms(self) -> dict[str, float]:
+        with self._lock:
+            result: dict[str, float] = {}
+            # A record with no input shown since the last one leaves these keys out.
+            for name, values in self._since_read.items():
+                if values:
+                    result[f"input.{name}_ms"] = sum(values) / len(values)
+                    values.clear()
+            if self._count:
+                for name, total in self._totals.items():
+                    result[f"input.{name}_avg_ms"] = total / self._count
+            return result
+
+    def reset_counts(self) -> None:
+        with self._lock:
+            self._waiting.clear()
+            for values in self._since_read.values():
+                values.clear()
+            self._totals = dict.fromkeys(_STAGES, 0.0)
+            self._count = 0
+
+
 class CompositeProfiler(IProfiler):
     """Runs several backends over one set of call sites, outermost first."""
 
@@ -208,6 +309,22 @@ class CompositeProfiler(IProfiler):
     def event(self, name: str, *, count: int = 1) -> None:
         for profiler in self._profilers:
             profiler.event(name, count=count)
+
+    def input_consumed(
+        self, step: tuple[int, int], received_ns: Sequence[int], started_ns: int
+    ) -> None:
+        for profiler in self._profilers:
+            profiler.input_consumed(step, received_ns, started_ns)
+
+    def step_presented(self, step: tuple[int, int]) -> None:
+        for profiler in self._profilers:
+            profiler.step_presented(step)
+
+    def collect_input_latency_ms(self) -> dict[str, float]:
+        latency_ms: dict[str, float] = {}
+        for profiler in self._profilers:
+            latency_ms.update(profiler.collect_input_latency_ms())
+        return latency_ms
 
     def collect_stage_ms(self) -> dict[str, float]:
         # Drain every backend: one left uncollected would carry into the next step.
@@ -289,8 +406,9 @@ def create_profiler() -> IProfiler:
 
     ``FLASHDREAMS_NVTX`` adds Nsight Systems ranges,
     ``FLASHDREAMS_SYNC_AND_PROFILE`` adds the CUDA-event stage timings that
-    ``finalize`` returns, and ``FLASHDREAMS_FPS`` adds the frame rates the model
-    loop reports. None set means nothing is recorded.
+    ``finalize`` returns, ``FLASHDREAMS_FPS`` adds the frame rates the model loop
+    reports, and ``FLASHDREAMS_INPUT_LATENCY`` adds input latency beside them.
+    None set means nothing is recorded.
     """
     profilers: list[IProfiler] = []
     if os.environ.get("FLASHDREAMS_NVTX") == "1" and torch.cuda.is_available():
@@ -299,6 +417,8 @@ def create_profiler() -> IProfiler:
         profilers.append(CudaEventProfiler())
     if os.environ.get("FLASHDREAMS_FPS") == "1":
         profilers.append(FrameRateProfiler())
+    if os.environ.get("FLASHDREAMS_INPUT_LATENCY") == "1":
+        profilers.append(InputLatencyProfiler())
     if not profilers:
         return NullProfiler()
     if len(profilers) == 1:

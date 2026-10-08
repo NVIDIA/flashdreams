@@ -242,6 +242,14 @@ compilation included.
 everything generated. Counting costs no synchronization, so `FLASHDREAMS_FPS=1`
 is safe to set on its own while tracing.
 
+It also sets `FLASHDREAMS_INPUT_LATENCY=1`, which adds `input.latency_ms`: for
+each input a step consumed, the time from the runtime receiving the input to that
+step's first frame being picked to show, averaged over the inputs. `input.queue_ms`
+is the wait for the step to start, `input.present_ms` runs from the step
+returning to its frame being shown, and the rest is the step. Each has an
+`_avg_ms` form for the session, and the per-step records allow percentiles. A
+step's latency appears on a later record, once its frame has been shown.
+
 An application records its own measurements by returning them in
 `StepResult.metrics`; they reach the stats file beside the runtime's.
 
