@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import dataclasses
+import gc
 import json
 import queue
 import subprocess
@@ -806,6 +807,25 @@ def test_a_finished_loop_leaves_the_caller_s_context_alone() -> None:
     unbind_inference_profiler(token)
 
     assert get_inference_profiler() is not recording
+
+
+def test_runs_that_skip_their_last_finalize_do_not_pile_up_timers(
+    stub_events: None,
+) -> None:
+    """The batch runner skips finalize() on its last step, so that step's timer is
+    never collected; it must go once the run's cache does."""
+    null_model = pytest.importorskip("null_model")
+    pipeline = null_model.NULL_MODEL_CONFIG.setup().to("cpu")
+    profiler = CudaEventProfiler()
+
+    with set_flashdreams_inference_profiler(profiler):
+        for _ in range(5):
+            cache = pipeline.initialize_cache()
+            pipeline.generate(0, cache, input=torch.tensor([[1]]))  # last step
+            del cache
+            gc.collect()
+
+    assert len(profiler._timers()) <= 1, "only the latest run's timer may remain"
 
 
 @pytest.mark.parametrize("inner_times_itself", [True, False])

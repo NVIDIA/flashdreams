@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+import weakref
 from abc import ABC
 from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager, nullcontext
@@ -220,23 +221,31 @@ class CudaEventProfiler(IProfiler):
     Other ranges are marked but not timed: the timings are consecutive stages of
     one AR step, which nested or repeated names would not describe. Each
     :meth:`stage_scope` owner has its own timer, so a pipeline run between
-    another's ``generate`` and ``finalize`` does not mix their stages. State is
-    per-thread, so concurrent sessions do not interleave one another's stages.
+    another's ``generate`` and ``finalize`` does not mix their stages. A timer is
+    dropped once its owner is gone, since a run may skip its last ``finalize``.
+    State is per-thread, so concurrent sessions do not interleave one another's
+    stages.
     """
 
     def __init__(self) -> None:
         self._state = threading.local()
 
-    def _timers(self) -> dict[int | None, tuple[EventProfiler, set[str]]]:
+    def _timers(
+        self,
+    ) -> dict[int | None, tuple[weakref.ref | None, EventProfiler, set[str]]]:
         timers = getattr(self._state, "timers", None)
         if timers is None:
             timers = self._state.timers = {}
         return timers
 
+    def _owner(self) -> tuple[object, int | None]:
+        owner = getattr(self._state, "owner", None)
+        return owner, None if owner is None else id(owner)
+
     @contextmanager
     def stage_scope(self, owner: object) -> Iterator[None]:
         previous = getattr(self._state, "owner", None)
-        self._state.owner = id(owner)
+        self._state.owner = owner
         try:
             yield
         finally:
@@ -249,13 +258,21 @@ class CudaEventProfiler(IProfiler):
             return
         stage = name.removeprefix(_STAGE_PREFIX)
         timers = self._timers()
-        owner = getattr(self._state, "owner", None)
-        timer = timers.get(owner)
-        if timer is None or stage in timer[1]:
-            # Either the first stage of a step, or a step that raised before
-            # finalize collected it. Start a fresh one rather than assert.
-            timer = timers[owner] = (EventProfiler(), set())
-        events, recorded = timer
+        owner, key = self._owner()
+        timer = timers.get(key)
+        if (
+            timer is None
+            or stage in timer[2]
+            or (timer[0] is not None and timer[0]() is not owner)
+        ):
+            # The first stage of a step, a step that raised before finalize
+            # collected it, or an id reused after its owner was freed. Start a
+            # fresh timer, and drop those whose owner is gone.
+            for stale in [k for k, (ref, _, _) in timers.items() if ref and not ref()]:
+                del timers[stale]
+            ref = None if owner is None else weakref.ref(owner)
+            timer = timers[key] = (ref, EventProfiler(), set())
+        _, events, recorded = timer
         try:
             yield
         finally:
@@ -263,10 +280,10 @@ class CudaEventProfiler(IProfiler):
             recorded.add(stage)
 
     def collect_stage_ms(self) -> dict[str, float]:
-        timer = self._timers().pop(getattr(self._state, "owner", None), None)
+        timer = self._timers().pop(self._owner()[1], None)
         if timer is None:
             return {}
-        return timer[0].sync_and_summarize()
+        return timer[1].sync_and_summarize()
 
 
 class FrameRateProfiler(IProfiler):
