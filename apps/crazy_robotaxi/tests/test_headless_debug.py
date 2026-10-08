@@ -230,6 +230,62 @@ def test_sink_preserves_both_views_and_reports_incomplete_runs(
         RobotaxiDebugWindow(window.directory).open(desc)
 
 
+@pytest.mark.parametrize("written,requested", [(0, 3), (1, 3), (2, 3), (2, 2)])
+def test_close_saves_last_written_views_without_rewriting_snapshots(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    written: int,
+    requested: int,
+) -> None:
+    monkeypatch.setattr("crazy_robotaxi.debug.Mp4Encoder", RecordingEncoder)
+    saved = []
+    original_save = Image.Image.save
+
+    def save(image, path, *args, **kwargs):
+        saved.append(Path(path))
+        return original_save(image, path, *args, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "save", save)
+    window = RobotaxiDebugWindow(tmp_path / "capture", snapshot_every=30)
+    window.open(
+        SessionDesc(
+            video_width=6,
+            video_height=4,
+            presentation_mode=PresentationMode.ON_DEMAND,
+            metadata={DEBUG_METADATA_KEY: {"frame_count": requested}},
+        )
+    )
+    for frame in range(written):
+        window.write(
+            DebugFrameResult(
+                step_index=frame,
+                output=torch.full((1, 3, 4, 12), (frame + 1) / 5),
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+                record=_debug_record(frame),
+            )
+        )
+    before_close = set(saved)
+    if written == 2 and requested == 3:
+        assert len(before_close) == 3  # Only frame zero was sampled.
+    window.close()
+    window.close()
+    assert len(saved) == len(set(saved))
+    expected = before_close.copy()
+    for view, encoder in window._encoders.items():
+        if written:
+            path = window.directory / "frames" / view / f"{written - 1:06d}.png"
+            expected.add(path)
+            with Image.open(path) as image:
+                np.testing.assert_array_equal(
+                    np.asarray(image), cast(RecordingEncoder, encoder).frames[-1]
+                )
+    assert set(saved) == expected
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert manifest["complete"] == (written == requested)
+    assert manifest["frames_written"] == written
+
+
 def test_physics_video_shows_bounds_and_saves_contact_between_snapshots(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
