@@ -29,29 +29,9 @@ uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
   --mode webrtc --host 0.0.0.0 --port 8089
 ```
 
-Use the runtime command's `--` separator when the application needs its own
-arguments:
-
-```bash
-uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
-  --output artifacts/interactive-drive-omnidreams-bundle \
-  ::: flashdreams-run-v2 interactive-drive-omnidreams \
-  --mode native-window \
-  -- --game-mode
-```
-
 If `--output` is omitted, the default is
 `artifacts/<application-slug>-bundle`. The output directory must not already
 exist.
-
-To package the fast-perf Interactive Drive game mode:
-
-```powershell
-uv run python tools/package-as-offline-exe/package_as_offline_exe.py `
-  --output artifacts/interactive-drive-omnidreams-fast-perf-onefile-1700 `
-  ::: flashdreams-run-v2 interactive-drive-omnidreams-fast-perf `
-  --mode native-window -- --game-mode
-```
 
 The output is still a directory. `cache/` holds the downloaded model weights
 and prepared kernels. When a onefile bundle would exceed 1,700 files, the
@@ -63,30 +43,6 @@ overriding the default per-user cache.
 PyInstaller extracts the embedded runtime files to a temporary directory on
 each launch, which adds startup time.
 
-On a Windows build of `interactive-drive-omnidreams-fast-perf` on 2026-10-07,
-the completed bundle contained **98 files**: a 2.28 GiB EXE, a 0.47 GiB cache
-archive, and 93 files in the 21.79 GiB `cache/`. A one-step native-window
-game-mode run used the default per-user cache, restored the PhysX tree, rendered
-five frames, and exited successfully in 136.1 seconds. This timing is
-host-specific and includes model startup.
-
-## Runtime and application arguments
-
-Arguments before the runtime command's `--` are FlashDreams runtime arguments;
-arguments after it are application arguments:
-
-```bash
-uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
-  --output artifacts/interactive-drive-omnidreams-bundle \
-  ::: flashdreams-run-v2 interactive-drive-omnidreams \
-  --mode native-window --timeout 120 \
-  -- --game-mode
-```
-
-Do not pass `--preload-application`; the packager controls preparation so it
-can validate and populate the bundle's caches.
-
-The generated launcher embeds the supplied application arguments to this installer program inside the executable.
 
 The packager runs initialization and one model block. Preparation findings are
 written to `PREPARATION_ISSUES.txt` beside `INSTALLER_OUTPUT.txt`.
