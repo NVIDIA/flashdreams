@@ -384,6 +384,7 @@ class IModelLoop(ILoop[StateT], ABC):
                 elif stopping:
                     break
                 events, generation = event_buffer.read(reader_id)
+                received_ns = event_buffer.last_read_received_ns(reader_id)
                 if step_control is not None:
                     events, generation = step_control.inputs(events, generation)
                 if generation != unpublished_generation:
@@ -414,6 +415,7 @@ class IModelLoop(ILoop[StateT], ABC):
                     # handled at the next boundary, never by skipping a collective.
                     assert run.step_index is not None
                     step_started_at = time.monotonic()
+                    step_started_ns = time.monotonic_ns()
                     with self.profiler.range(f"model.step[{run.step_index}]"):
                         raw_result = self.step(run.step_index, self.user_events)
                     step_elapsed_s = time.monotonic() - step_started_at
@@ -426,13 +428,19 @@ class IModelLoop(ILoop[StateT], ABC):
                 # Carry timing across steps whose output remains buffered.
                 if result:
                     self.profiler.event("model.frame", count=result[0].frame_count)
+                    # Keyed by the result's own step index, which is what the
+                    # presenter sees, and recorded before the result can be shown.
+                    self.profiler.input_consumed(
+                        (generation, result[0].step_index), received_ns, step_started_ns
+                    )
                     # Read the rates before publishing: afterwards the result
                     # belongs to the presentation thread and must not be touched.
-                    frames_per_second = self.profiler.collect_fps()
-                    if frames_per_second:
+                    step_metrics = self.profiler.collect_fps()
+                    step_metrics.update(self.profiler.collect_input_latency_ms())
+                    if step_metrics:
                         for channel in result:
                             if channel.metrics is not None:
-                                channel.metrics.update(frames_per_second)
+                                channel.metrics.update(step_metrics)
                     with self.profiler.range("model.publish"):
                         publish(generation, result, unpublished_step_elapsed_s)
                     unpublished_step_elapsed_s = 0.0

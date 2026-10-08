@@ -35,6 +35,7 @@ from flashdreams.infra.profiler import (
     CompositeProfiler,
     CudaEventProfiler,
     FrameRateProfiler,
+    InputLatencyProfiler,
     IProfiler,
     NullProfiler,
     NVTXProfiler,
@@ -57,7 +58,12 @@ def _no_profiling_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     ``flashdreams-run-v2 --stats-path`` sets these in its own process, and a
     test elsewhere that runs it in-process leaves them set for later tests.
     """
-    for name in ("FLASHDREAMS_NVTX", "FLASHDREAMS_SYNC_AND_PROFILE", "FLASHDREAMS_FPS"):
+    for name in (
+        "FLASHDREAMS_NVTX",
+        "FLASHDREAMS_SYNC_AND_PROFILE",
+        "FLASHDREAMS_FPS",
+        "FLASHDREAMS_INPUT_LATENCY",
+    ):
         monkeypatch.delenv(name, raising=False)
     _reset_default_profiler()
     yield
@@ -351,6 +357,9 @@ class _Clock:
     def monotonic(self) -> float:
         return self.now
 
+    def monotonic_ns(self) -> int:
+        return round(self.now * 1e9)
+
 
 @pytest.fixture
 def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
@@ -466,9 +475,86 @@ def test_composite_fans_events_out_and_merges_rates(clock: _Clock) -> None:
     assert profiler.collect_fps()["ui.step_fps"] == pytest.approx(2.0)
 
 
+def _ns(seconds: float) -> int:
+    return round(seconds * 1e9)
+
+
+def test_input_latency_runs_from_arrival_to_the_first_frame_shown(
+    clock: _Clock,
+) -> None:
+    """Inputs at 0.0 s and 0.5 s; the step runs 1.0-1.6 s; its frame shows at 2.8 s."""
+    profiler = InputLatencyProfiler()
+    clock.now = 101.6  # the loop reports consumption as the step returns
+    profiler.input_consumed((0, 3), [_ns(100.0), _ns(100.5)], _ns(101.0))
+    clock.now = 102.8
+    profiler.step_presented((0, 3))
+
+    latency = profiler.collect_input_latency_ms()
+    assert latency["input.latency_ms"] == pytest.approx((2800 + 2300) / 2)
+    assert latency["input.queue_ms"] == pytest.approx((1000 + 500) / 2)
+    assert latency["input.present_ms"] == pytest.approx(1200)
+
+
+def test_a_step_without_input_reports_no_latency(clock: _Clock) -> None:
+    profiler = InputLatencyProfiler()
+    profiler.input_consumed((0, 1), [], _ns(100.0))
+    profiler.step_presented((0, 1))
+
+    assert profiler.collect_input_latency_ms() == {}
+
+
+def test_input_latency_average_covers_the_session(clock: _Clock) -> None:
+    profiler = InputLatencyProfiler()
+    profiler.input_consumed((0, 1), [_ns(100.0)], _ns(100.0))
+    clock.now = 101.0
+    profiler.step_presented((0, 1))
+    profiler.collect_input_latency_ms()
+    profiler.input_consumed((0, 2), [_ns(101.0)], _ns(101.0))
+    clock.now = 104.0
+    profiler.step_presented((0, 2))
+
+    latency = profiler.collect_input_latency_ms()
+    assert latency["input.latency_ms"] == pytest.approx(3000)
+    assert latency["input.latency_avg_ms"] == pytest.approx((1000 + 3000) / 2)
+
+
+def test_a_dropped_step_is_forgotten_once_a_later_one_shows(clock: _Clock) -> None:
+    """A chunk dropped under backpressure never shows; its input must not linger."""
+    profiler = InputLatencyProfiler()
+    profiler.input_consumed((0, 3), [_ns(100.0)], _ns(100.0))
+    profiler.input_consumed((0, 4), [_ns(100.5)], _ns(100.5))
+    clock.now = 101.5
+    profiler.step_presented((0, 4))
+    profiler.step_presented((0, 3))  # too late: already superseded
+
+    assert profiler.collect_input_latency_ms()["input.latency_ms"] == pytest.approx(
+        1000
+    )
+    assert profiler._waiting == {}
+
+
+def test_reset_counts_forgets_a_previous_sessions_input(clock: _Clock) -> None:
+    profiler = InputLatencyProfiler()
+    profiler.input_consumed((0, 1), [_ns(100.0)], _ns(100.0))
+    profiler.reset_counts()
+    profiler.step_presented((0, 1))
+
+    assert profiler.collect_input_latency_ms() == {}
+
+
+def test_composite_forwards_input_latency(clock: _Clock) -> None:
+    profiler = CompositeProfiler((FrameRateProfiler(), InputLatencyProfiler()))
+    profiler.input_consumed((0, 1), [_ns(100.0)], _ns(100.2))
+    clock.now = 100.5
+    profiler.step_presented((0, 1))
+
+    assert profiler.collect_input_latency_ms()["input.queue_ms"] == pytest.approx(200)
+
+
 def test_a_profiler_that_counts_nothing_reports_no_rates() -> None:
     assert NullProfiler().collect_fps() == {}
     assert CudaEventProfiler().collect_fps() == {}
+    assert NullProfiler().collect_input_latency_ms() == {}
 
 
 def test_pipeline_times_the_decode_stage_without_a_decoder() -> None:
