@@ -19,6 +19,7 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipelineCache,
     StreamInferencePipelineConfig,
 )
+from flashdreams.infra.profiler import EventProfiler, record_event
 from swiftvr.impl.decoder import (
     SwiftVRDecoder,
     SwiftVRDecoderCache,
@@ -156,22 +157,32 @@ class SwiftVRPipeline(
             )
         cache.autoregressive_index = autoregressive_index
         cache.transformer_cache.start(autoregressive_index)
+        events: EventProfiler | None = None
+        if self.config.enable_sync_and_profile:
+            events = EventProfiler()
+            cache.event_profiler = events
         assert cache.encoder_cache is not None
         latents = self.encoder(
             input=input,
             autoregressive_index=autoregressive_index,
             cache=cache.encoder_cache,
         )
+        record_event(events, "encode")
         if latents is None:
             return None
-        return self._restore_and_decode(latents, autoregressive_index, cache)
+        return self._restore_and_decode(
+            latents,
+            autoregressive_index,
+            cache,
+            event_profiler=events,
+        )
 
     @torch.no_grad()
     def finalize(  # type: ignore[override]
         self,
         autoregressive_index: int,
         cache: SwiftVRPipelineCache,
-    ) -> None:
+    ) -> dict[str, float] | None:
         """Close one public pipeline step without unused WAN self-KV updates."""
         if cache.autoregressive_index != autoregressive_index:
             raise AssertionError(
@@ -180,6 +191,15 @@ class SwiftVRPipeline(
                 f"{autoregressive_index}."
             )
         cache.transformer_cache.finalize(autoregressive_index)
+        if not self.config.enable_sync_and_profile:
+            return None
+        events = cache.event_profiler
+        assert events is not None, "finalize() called without a SwiftVR profiler"
+        events.record("finalize")
+        stats_ms = events.sync_and_summarize()
+        return events.format_result_as_ms(
+            stats_ms, collect_totals=True, collect_vram_info=True
+        )
 
     @torch.no_grad()
     def flush(self, cache: SwiftVRPipelineCache) -> Tensor | None:
@@ -196,17 +216,22 @@ class SwiftVRPipeline(
         latents: Tensor,
         autoregressive_index: int,
         cache: SwiftVRPipelineCache,
+        *,
+        event_profiler: EventProfiler | None = None,
     ) -> Tensor | None:
+        record_event(event_profiler, "diffuse")
         restored = self.transformer.restore(
             latents.permute(0, 2, 1, 3, 4).contiguous(),
             cache.transformer_cache,
         )
         assert cache.decoder_cache is not None
-        return self.decoder(
+        output = self.decoder(
             input=restored,
             autoregressive_index=autoregressive_index,
             cache=cache.decoder_cache,
         )
+        record_event(event_profiler, "decode")
+        return output
 
     @classmethod
     def from_pretrained(
@@ -218,6 +243,8 @@ class SwiftVRPipeline(
         dtype: torch.dtype,
         attention_window: tuple[int, int],
         compile_blocks: bool,
+        compile_reae_encoder: bool = False,
+        compile_reae_decoder: bool = False,
         chunk_size: int = 8,
     ) -> "SwiftVRPipeline":
         """Resolve a checkpoint and construct the configured pipeline."""
@@ -232,6 +259,8 @@ class SwiftVRPipeline(
             dtype=dtype,
             attention_window=attention_window,
             compile_blocks=compile_blocks,
+            compile_reae_encoder=compile_reae_encoder,
+            compile_reae_decoder=compile_reae_decoder,
             chunk_size=chunk_size,
         ).setup()
         assert isinstance(pipeline, cls)

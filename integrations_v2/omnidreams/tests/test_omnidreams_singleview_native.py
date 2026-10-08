@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -115,6 +116,9 @@ def test_build_info_uses_script_managed_source_provenance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     helper = native._native_build()
+    assert helper.THIRDPARTY_DIR == (
+        Path(__file__).resolve().parents[3] / "artifacts" / "omnidreams" / "thirdparty"
+    )
     monkeypatch.setattr(
         helper,
         "validate_thirdparty",
@@ -129,7 +133,7 @@ def test_build_info_uses_script_managed_source_provenance(
     assert info["thirdparty"]["SageAttention"]["commit"] == "sage-test-sha"
     assert info["thirdparty"]["SpargeAttn"]["commit"] == "sparge-test-sha"
     assert Path(info["cutlass_include"]).parts[-3:] == (
-        "3rdparty",
+        "thirdparty",
         "cutlass",
         "include",
     )
@@ -154,7 +158,7 @@ def test_load_extension_uses_build_root_for_torch_cache(
 
     monkeypatch.setattr(native, "_extension", {})
     monkeypatch.setattr(native, "_extension_load_error", None)
-    monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
+    monkeypatch.setattr(native, "_ensure_thirdparty", lambda: thirdparty_info)
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setattr(native.os, "cpu_count", lambda: 48)
     monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
@@ -418,7 +422,7 @@ def test_load_extension_uses_sage3_stub_when_disabled(
     monkeypatch.setattr(native, "_extension", {})
     monkeypatch.setattr(native, "_extension_load_error", None)
     monkeypatch.setattr(
-        native, "validate_thirdparty", lambda: _fake_thirdparty_info(tmp_path)
+        native, "_ensure_thirdparty", lambda: _fake_thirdparty_info(tmp_path)
     )
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
@@ -454,7 +458,7 @@ def test_load_extension_caches_separate_sage3_modes(
     thirdparty_info = _fake_thirdparty_info(tmp_path)
     monkeypatch.setattr(native, "_extension", {})
     monkeypatch.setattr(native, "_extension_load_error", None)
-    monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
+    monkeypatch.setattr(native, "_ensure_thirdparty", lambda: thirdparty_info)
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
     monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "12.0a")
@@ -491,7 +495,7 @@ def test_load_extension_caches_separate_cuda_architectures(
     thirdparty_info = _fake_thirdparty_info(tmp_path)
     monkeypatch.setattr(native, "_extension", {})
     monkeypatch.setattr(native, "_extension_load_error", None)
-    monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
+    monkeypatch.setattr(native, "_ensure_thirdparty", lambda: thirdparty_info)
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
     monkeypatch.delenv("TORCH_CUDA_ARCH_LIST", raising=False)
@@ -569,7 +573,7 @@ def test_load_extension_respects_existing_max_jobs(
     monkeypatch.setattr(native, "_extension", {})
     monkeypatch.setattr(native, "_extension_load_error", None)
     monkeypatch.setattr(
-        native, "validate_thirdparty", lambda: _fake_thirdparty_info(tmp_path)
+        native, "_ensure_thirdparty", lambda: _fake_thirdparty_info(tmp_path)
     )
     monkeypatch.setattr(cpp_extension, "load", fake_load_torch_extension)
     monkeypatch.setenv("MAX_JOBS", "3")
@@ -601,7 +605,7 @@ def test_load_extension_retries_after_failed_build(
     thirdparty_info = _fake_thirdparty_info(tmp_path)
     monkeypatch.setattr(native, "_extension", {})
     monkeypatch.setattr(native, "_extension_load_error", None)
-    monkeypatch.setattr(native, "validate_thirdparty", lambda: thirdparty_info)
+    monkeypatch.setattr(native, "_ensure_thirdparty", lambda: thirdparty_info)
     monkeypatch.setattr("torch.utils.cpp_extension.load", fake_load_torch_extension)
 
     assert native.load_extension(build_root=tmp_path / "native-build") is None
@@ -630,6 +634,94 @@ def test_native_build_wraps_sync_setup_errors(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(helper.NativeBuildError, match="missing manifest"):
         helper.validate_thirdparty()
+
+
+@pytest.mark.ci_cpu
+def test_native_build_downloads_missing_and_try_resyncs_every_time(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    helper = native._native_build()
+    monkeypatch.delenv(helper._TRY_THIRDPARTY_RESYNC_ENV, raising=False)
+    thirdparty_dir = tmp_path / "thirdparty"
+    source_path = thirdparty_dir / "demo"
+    source = SimpleNamespace(name="demo", destination_name="demo")
+    synced: list[tuple[set[str] | None, bool]] = []
+    state = {"broken": False, "locked": False}
+
+    class ThirdPartySyncError(RuntimeError):
+        pass
+
+    class TrackingFileLock:
+        def __init__(self, path: str) -> None:
+            assert Path(path) == tmp_path / ".thirdparty.sync.lock"
+
+        def acquire(self) -> None:
+            assert not state["locked"]
+            state["locked"] = True
+
+        def release(self) -> None:
+            assert state["locked"]
+            state["locked"] = False
+
+    def sync_sources(
+        *_args: object,
+        selected: set[str] | None = None,
+        force: bool = False,
+        **_kwargs: object,
+    ) -> tuple[object, ...]:
+        assert state["locked"]
+        synced.append((selected, force))
+        source_path.mkdir()
+        state["broken"] = False
+        return ()
+
+    def verify_sources(*_args: object, **_kwargs: object) -> tuple[object, ...]:
+        assert state["locked"]
+        if state["broken"] or not source_path.is_dir():
+            raise ThirdPartySyncError("broken checkout")
+        return (SimpleNamespace(source=source, path=source_path),)
+
+    tool = SimpleNamespace(
+        load_manifest=lambda: (source,),
+        sync_sources=sync_sources,
+        remove_tree=shutil.rmtree,
+        verify_sources=verify_sources,
+    )
+    monkeypatch.setattr(helper, "SYNC_LOCK_PATH", tmp_path / ".thirdparty.sync.lock")
+    monkeypatch.setattr(helper, "THIRDPARTY_DIR", thirdparty_dir)
+    monkeypatch.setattr(helper, "FileLock", TrackingFileLock)
+    monkeypatch.setattr(helper, "_sync_thirdparty_module", tool)
+    monkeypatch.setattr(helper, "_source_info", lambda _source, path: path)
+
+    assert helper.ensure_thirdparty()["demo"] == source_path
+    assert synced == [({"demo"}, False)]
+    assert helper.ensure_thirdparty()["demo"] == source_path
+    assert synced == [({"demo"}, False)]
+
+    state["broken"] = True
+    with pytest.raises(helper.NativeBuildError, match="broken checkout"):
+        helper.ensure_thirdparty()
+    assert synced == [({"demo"}, False)]
+    state["broken"] = False
+
+    monkeypatch.setenv(helper._TRY_THIRDPARTY_RESYNC_ENV, "1")
+    sentinel = thirdparty_dir / "stale"
+    sentinel.write_text("stale", encoding="utf-8")
+
+    assert helper.ensure_thirdparty()["demo"] == source_path
+    assert not sentinel.exists()
+    assert synced == [({"demo"}, False), ({"demo"}, False)]
+
+    sentinel.write_text("stale again", encoding="utf-8")
+    assert helper.ensure_thirdparty()["demo"] == source_path
+    assert not sentinel.exists()
+    assert synced == [({"demo"}, False), ({"demo"}, False), ({"demo"}, False)]
+
+    monkeypatch.setenv(helper._TRY_THIRDPARTY_RESYNC_ENV, "invalid")
+    with pytest.raises(helper.NativeBuildError, match="must be '0' or '1'"):
+        helper.ensure_thirdparty()
+    assert not state["locked"]
 
 
 @pytest.mark.ci_cpu
@@ -674,8 +766,8 @@ def test_native_acceleration_auto_reports_missing_extension() -> None:
 
 
 @pytest.mark.ci_cpu
-def test_native_acceleration_reports_how_to_sync_missing_sources() -> None:
-    error = NativeSourcesUnavailable("third-party sources are missing")
+def test_native_acceleration_reports_failed_source_download() -> None:
+    error = NativeSourcesUnavailable("git clone failed")
 
     selection = select_native_extension(
         NativeAccelerationConfig(mode="auto"),
@@ -685,7 +777,8 @@ def test_native_acceleration_reports_how_to_sync_missing_sources() -> None:
     )
 
     assert selection.error is error
-    assert "sync_thirdparty.py sync" in selection.reason
+    assert "git clone failed" in selection.reason
+    assert "sync_thirdparty.py sync" not in selection.reason
 
 
 @pytest.mark.ci_cpu

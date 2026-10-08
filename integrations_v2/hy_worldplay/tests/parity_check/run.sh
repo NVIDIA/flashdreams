@@ -115,7 +115,7 @@ fi
 # resolve to the same ``${SCRIPT_DIR}/.venv``.
 #
 # The lightweight sync below covers the *native* plugin path only.
-# Vendor's ``wan/generate.py`` additionally requires four heavy deps
+# Vendor's ``wan/generate.py`` additionally requires five heavy deps
 # (kept out of the sub-venv's ``pyproject.toml`` because their resolution
 # toll on the repo-root lock was deemed too high once parity closed).
 # This script ``uv pip install``s them on demand below unless
@@ -124,12 +124,12 @@ echo "[setup] ensuring Python deps via uv sync (isolated venv)"
 ( cd "${SCRIPT_DIR}" && uv sync )
 
 if [[ "${SKIP_HEAVY_DEPS:-0}" != "1" ]]; then
-    echo "[setup] installing vendor-only heavy deps (sageattention, cloudpickle, accelerate, transformers==4.57.6, torchvision==0.26.0)"
+    echo "[setup] installing vendor-only heavy deps (sageattention, cloudpickle, accelerate>=1.15, transformers==4.57.6, torchvision==0.26.0)"
     echo "        set SKIP_HEAVY_DEPS=1 to skip if you only need the native plugin"
     ( cd "${SCRIPT_DIR}" && uv pip install \
         sageattention \
         cloudpickle \
-        "accelerate>=0.30" \
+        "accelerate>=1.15" \
         "transformers==4.57.6" \
         "torchvision==0.26.0" --no-deps )
 else

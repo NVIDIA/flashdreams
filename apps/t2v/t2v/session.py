@@ -91,6 +91,7 @@ class T2VSession(ISession):
         total_blocks: int,
         *,
         image: Any = None,
+        use_ui: bool = True,
     ) -> None:
         """
         Args:
@@ -101,12 +102,14 @@ class T2VSession(ISession):
                 against what the model can produce.
             total_blocks: Blocks this rollout generates before it is finished.
             image: Optional first-frame tensor retained across session resets.
+            use_ui: Whether to register interactive prompt controls.
         """
         self._pipeline = pipeline
         self._prompt = prompt
         self._session_desc = session_desc
         self._total_blocks = total_blocks
         self._image = image
+        self._use_ui = use_ui
 
     def init(self) -> None:
         """Encode the prompt and prepare the rollout's cache.
@@ -122,12 +125,13 @@ class T2VSession(ISession):
         )
         if state.prompt is not None:
             state.cache = _new_cache(state)
-        self.register_ui_loop(
-            T2VImGuiUILoop,
-            state=T2VUIState(prompt=self._prompt or ""),
-            width=self._session_desc.video_width,
-            height=self._session_desc.video_height,
-        )
+        if self._use_ui:
+            self.register_ui_loop(
+                T2VImGuiUILoop,
+                state=T2VUIState(prompt=self._prompt or ""),
+                width=self._session_desc.video_width,
+                height=self._session_desc.video_height,
+            )
         self.register_model_loop(T2VModelLoop, state=state)
 
     @property

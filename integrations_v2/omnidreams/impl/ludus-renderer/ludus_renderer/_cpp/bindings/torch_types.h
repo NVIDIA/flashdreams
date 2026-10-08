@@ -35,10 +35,14 @@ public:
                                  float ego_traj_regular, float ego_traj_bev,
                                  float wireframe);
     void setResolutionScale     (float scale);
+    void setWidthInNdc          (bool enabled);
+    void setDepthFade           (bool enabled);
+    void setCullBehindCamera    (bool enabled);
     void setDepthScaling        (float enabled);
     void setCullRadius          (float radius);
     void setMaxTessellationLevels(int polyline, int polygon, int cube);
     void uploadColorPalette     (torch::Tensor colors);
+    void uploadWidthTable       (torch::Tensor widths);
     void setMsaaSamples         (int samples);
 
     LudusCudaState*             pState;

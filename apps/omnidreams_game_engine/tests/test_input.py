@@ -129,6 +129,60 @@ def test_gamepad_state_overrides_keyboard_until_disconnect() -> None:
     assert state.source() == "keyboard"
 
 
+def test_neutral_controller_does_not_override_active_keyboard() -> None:
+    state = DriverInput()
+    state.apply(_events(_key("w", KeyboardInputState.PRESSED)))
+
+    state.apply(
+        UserInputEvents(
+            [
+                GamepadUserInputEvent(
+                    timestamp=np.uint64(20),
+                    action="state",
+                    axes=(0.0,),
+                    buttons=(0.0,) * 8,
+                )
+            ]
+        )
+    )
+
+    assert state.command().throttle == 1.0
+    assert state.source() == "keyboard"
+
+
+def test_keyboard_can_reclaim_input_from_connected_controller() -> None:
+    state = DriverInput()
+    state.apply(
+        UserInputEvents(
+            [
+                GamepadUserInputEvent(
+                    timestamp=np.uint64(20),
+                    action="state",
+                    axes=(-0.5,),
+                )
+            ]
+        )
+    )
+    assert state.source() == "wheel/gamepad"
+
+    state.apply(_events(_key("w", KeyboardInputState.PRESSED)))
+    state.apply(
+        UserInputEvents(
+            [
+                GamepadUserInputEvent(
+                    timestamp=np.uint64(30),
+                    action="state",
+                    axes=(0.0,),
+                    buttons=(0.0,) * 8,
+                )
+            ]
+        )
+    )
+
+    assert state.command().throttle == 1.0
+    assert state.source() == "keyboard"
+
+
 def test_gamepad_r_shoulder_selects_reverse_only_while_held() -> None:
     state = DriverInput()
     forward_buttons = (0.0,) * 7 + (0.75,)

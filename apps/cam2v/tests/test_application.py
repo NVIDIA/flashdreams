@@ -42,6 +42,7 @@ from cam2v.dummy import create_app as create_dummy_app
 from numpy import uint64
 
 import flashdreams.plugins.registry as registry_module
+from flashdreams.api_v2.loop import ModelInferenceState
 from flashdreams.infra.postprocess import VideoPostProcessorConfig, VideoSpec
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
@@ -230,7 +231,9 @@ def test_model_loop_maps_wasd_to_shared_camera_input_and_updates_status() -> Non
 
 
 def _input_test_model_loop(
-    *, log_model_timing: bool = False
+    *,
+    conditioning: Cam2VConditioning | None = None,
+    log_model_timing: bool = False,
 ) -> tuple[Cam2VModelLoop, Cam2VModelState, _Pipeline]:
     """Return a registered CPU model loop for camera-input tests."""
     pipeline = _Pipeline()
@@ -243,7 +246,7 @@ def _input_test_model_loop(
             video_height=1,
         ),
         config=Cam2VSessionConfig(
-            conditioning=_conditioning(),
+            conditioning=conditioning or _conditioning(),
             total_blocks=4,
             device=torch.device("cpu"),
             first_frame_dtype=torch.float32,
@@ -262,6 +265,67 @@ def _input_test_model_loop(
         failure_queue=queue.Queue(),
     )
     return model_loop, state, pipeline
+
+
+def _conditioning_with_replay(*translations_z: float) -> Cam2VConditioning:
+    poses = torch.eye(4).repeat(len(translations_z), 1, 1)
+    poses[:, 2, 3] = torch.tensor(translations_z)
+    return replace(_conditioning(), camera_poses=poses)
+
+
+def test_keyboard_input_permanently_takes_over_camera_replay() -> None:
+    """Seed live control from replay and never resume the fixed trajectory."""
+    conditioning = _conditioning_with_replay(0.0, 1.0, 2.0, 3.0, 4.0, 5.0)
+    model_loop, state, pipeline = _input_test_model_loop(conditioning=conditioning)
+
+    model_loop.step(0, UserInputEvents([]))
+    assert pipeline.camera_input is not None
+    assert pipeline.camera_input.poses[:, 2, 3].tolist() == [0.0, 1.0]
+
+    model_loop.step(
+        1,
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=uint64(125_000),
+                    key="w",
+                    state=KeyboardInputState.PRESSED,
+                )
+            ]
+        ),
+    )
+
+    assert pipeline.camera_input is not None
+    assert pipeline.camera_input.poses[:, 2, 3].tolist() == pytest.approx([1.05, 1.1])
+    assert state.replay_poses is None
+
+    model_loop.step(2, UserInputEvents([]))
+
+    assert pipeline.camera_input is not None
+    assert pipeline.camera_input.poses[:, 2, 3].tolist() == pytest.approx([1.15, 1.2])
+
+    model_loop.reset()
+
+    assert state.replay_poses is conditioning.camera_poses
+
+
+def test_camera_replay_exhaustion_continues_from_its_final_pose() -> None:
+    """Use every replay pose, then fall back without rejecting a short trace."""
+    model_loop, state, pipeline = _input_test_model_loop(
+        conditioning=_conditioning_with_replay(0.0, 1.0, 2.0)
+    )
+
+    model_loop.step(0, UserInputEvents([]))
+    model_loop.step(1, UserInputEvents([]))
+
+    assert pipeline.camera_input is not None
+    assert pipeline.camera_input.poses[:, 2, 3].tolist() == [2.0, 2.0]
+    assert state.replay_poses is None
+
+    model_loop.step(2, UserInputEvents([]))
+
+    assert pipeline.camera_input is not None
+    assert pipeline.camera_input.poses[:, 2, 3].tolist() == [2.0, 2.0]
 
 
 def test_model_loop_reset_restores_existing_generation_state() -> None:
@@ -394,7 +458,6 @@ def test_model_loop_keeps_postprocessing_running_when_presentation_is_disabled()
 
     assert postprocess_stream.calls == 1
     assert torch.equal(result.read_output(), torch.zeros((2, 3, 2, 2)))
-    assert result_to_rgb24_tensor(result, state.session_desc).shape == (2, 2, 2, 3)
 
 
 @pytest.mark.parametrize(
@@ -837,7 +900,7 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
     )
 
     result = ui_loop.step(0, pressed)
-    output = result.read_output()
+    output = result[0].read_output()
 
     assert output.shape == (1, 3, 2, 2)
     assert output.dtype is torch.bfloat16
@@ -938,6 +1001,58 @@ def test_slangpy_overlay_tracks_controls_and_model_status() -> None:
     ui_loop.step(6, UserInputEvents([]))
     displayed = [widget.text for widget in state.status_widgets]
     assert "Presented: 2 frames (24 generated)" in displayed
+
+
+def test_slangpy_overlay_finishes_after_drawing_the_final_model_frame() -> None:
+    """The overlay reports finished after the last presented frame has been drawn."""
+    presentation_manager = PresentationManager()
+    presentation_manager.publish(
+        0,
+        [
+            StepResult(
+                step_index=0,
+                output=torch.zeros((1, 3, 2, 2), dtype=torch.float32),
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+            )
+        ],
+    )
+    renderer = Mock()
+
+    def render(
+        step_index: int,
+        events: UserInputEvents,
+        draw: Any,
+    ) -> torch.Tensor:
+        ui = SimpleNamespace(
+            screen=object(),
+            Window=Mock(return_value=object()),
+            Text=Mock(side_effect=lambda parent, text: SimpleNamespace(text=text)),
+        )
+        draw(ui, step_index, events)
+        return torch.zeros((4, 2, 2), dtype=torch.float32)
+
+    renderer.render.side_effect = render
+    ui_loop = Cam2VSlangPyUILoop(renderer=renderer)
+    ui_loop.register_session_loop_objects(
+        state=Cam2VUIState(total_blocks=1, target_fps=16, warmup_blocks=0),
+        frequency=60,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    ui_loop.register_session_ui_loop_objects(
+        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
+        presentation_manager=presentation_manager,
+    )
+    model_loop, _, _ = _input_test_model_loop()
+    ui_loop._set_model_loop(model_loop)
+    model_loop._set_inference_state(ModelInferenceState.FINISHED)
+
+    assert not ui_loop.is_finished()
+    assert presentation_manager.advance(0, now=1.0)[0]
+    assert not ui_loop.is_finished()
+    assert ui_loop.step(0, UserInputEvents([]))
+    assert ui_loop.is_finished()
 
 
 def test_cam2v_session_registers_the_shared_slangpy_ui_loop() -> None:

@@ -88,6 +88,18 @@ class WebRTCClientWindow(IClientWindow):
         )
         self._lock_cursor_to_window = lock_cursor_to_window
 
+    def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
+        """Change the active WebRTC stream dimensions.
+
+        Args:
+            new_window_size: Requested ``(width, height)`` in pixels.
+
+        Raises:
+            RuntimeError: The server is closed or has no open session.
+            TimeoutError: The active video track cannot be reset in time.
+        """
+        self.server.request_new_window_size(new_window_size)
+
     def open(self, session_desc: SessionDesc) -> None:
         """Implement ``OutputSink.open`` by configuring WebRTC output.
 

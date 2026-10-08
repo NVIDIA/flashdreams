@@ -20,9 +20,6 @@ From the repository root:
 export HF_TOKEN=<YOUR-HF-TOKEN>
 
 uv sync --package flashdreams-omnidreams --extra interactive-drive
-uv run --package flashdreams-omnidreams python \
-  integrations_v2/omnidreams/impl/omnidreams_singleview/tools/sync_thirdparty.py sync
-
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
   crazy-robotaxi-omnidreams --mode native-window
 ```
@@ -39,7 +36,7 @@ Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
 connecting remotely. The first run downloads model assets and may take time to
 compile and autotune kernels.
 
-Ten OmniDreams runner configurations are registered:
+Twelve OmniDreams runner configurations are registered:
 
 | Runner | Configuration |
 | --- | --- |
@@ -48,22 +45,21 @@ Ten OmniDreams runner configurations are registered:
 | `crazy-robotaxi-omnidreams-optimized-rtx-pro-6000` | RTX PRO 6000-optimized attention |
 | `crazy-robotaxi-omnidreams-perf` | Performance optimized |
 | `crazy-robotaxi-omnidreams-fast-perf` | Fast performance optimized |
+| `crazy-robotaxi-omnidreams-rtx-5090` | Performance schedule fitted to a 32 GB GeForce RTX 5090 at 1168x640 |
+| `crazy-robotaxi-omnidreams-rtx-5090-fast` | RTX 5090 schedule with the native FP8 VAE at 1024x560 (real time) |
 | `crazy-robotaxi-omnidreams-responsive` | Standard with responsive model history |
 | `crazy-robotaxi-omnidreams-perf-responsive` | Performance schedule with responsive model history |
 | `crazy-robotaxi-omnidreams-fast-perf-responsive` | Native FP8 VAE with responsive model history |
 | `crazy-robotaxi-omnidreams-optimized-gb300-responsive` | GB300-optimized attention with responsive model history |
 | `crazy-robotaxi-omnidreams-optimized-rtx-pro-6000-responsive` | RTX PRO 6000-optimized attention with responsive model history |
 
-The `crazy-robotaxi-omnidreams-perf` and
-`crazy-robotaxi-omnidreams-fast-perf` presets use native DiT acceleration and
-require its CUDA sources to be prepared once:
+The five presets whose names end in `-responsive` disable native DiT.
+`fast-perf-responsive` still uses the native FP8 VAE.
 
-```bash
-uv run --package flashdreams-omnidreams omnidreams-prepare --perf
-```
-
-The five presets whose names end in `-responsive` disable native DiT and do
-not require that setup.
+The two `rtx-5090` presets fit a 32 GB GeForce RTX 5090: they run the
+Cosmos-Reason1 text encoder on the host CPU, use a 4-chunk temporal window,
+and use SageAttention-3 FP8 attention on Linux (cuDNN FP8 on Windows, where
+SageAttention-3 is unavailable).
 
 Application arguments follow `--`. For example:
 
@@ -78,36 +74,110 @@ Run the application with `-- --help` to list all game options. Restarting a
 game rebuilds its simulation and autoregressive cache without reloading the
 model.
 
+## Options and user configuration
+
+The mode menu has **CONTROLS** and **OPTIONS** buttons. The Options screen is
+generated from the same typed settings tree used at startup, with pages for
+game, model, renderer, presentation, live edit, runtime, and diagnostics. **SAVE**
+atomically updates the user YAML without leaving the screen. **EXIT** returns
+to the mode menu and changes to **EXIT WITHOUT SAVING** while the draft is
+dirty. **RESET TO DEFAULTS** resets the draft. HUD visibility settings apply
+when saved; presentation dimensions and other startup settings display
+**RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT** because they need a new
+process.
+
+By default, settings are loaded from
+`$XDG_CONFIG_HOME/crazy-robotaxi/config.yaml`, or
+`~/.config/crazy-robotaxi/config.yaml` when `XDG_CONFIG_HOME` is unset. The file
+is created only after the first save. Use `--config PATH` to select another
+user-authored file. YAML values are sparse overrides on the selected runner's
+defaults, and retained comments survive Options saves. Explicit application CLI
+arguments override YAML for the current run without rewriting the saved value;
+the Options screen labels affected fields.
+
+For example:
+
+```yaml
+schema_version: 1
+game:
+  gamepad_button_style: PlayStation
+  taxi:
+    seed: 1234
+    rules:
+      global_time_s: 90.0
+model:
+  pipeline:
+    diffusion_model:
+      seed: 5678
+presentation:
+  width: 1920
+  height: 1080
+  show_fps: true
+live_edit:
+  weather:
+    enabled: true
+```
+
+Mode, map, and race-course selections are intentionally CLI-only and do not
+appear in the YAML or Options screen. Passing `--game-mode`, `--map`, and
+`--race-course` skips their corresponding startup menus; omitted selections
+remain in the normal menu flow. Model diffusion and gameplay seeds are
+independent. Selecting mystery items automatically enables style editing, while
+rain or snow items automatically enable weather editing.
+
 ## Controls
+
+Open **CONTROLS** from the mode menu, then choose **KEYBOARD**, **GAMEPAD**, or
+**WHEEL**. Each gameplay action has primary and secondary binding slots. Select
+a slot and press the desired key or device control. `Escape` is a valid keyboard
+binding. `Backspace`, `Delete`, or **CLEAR** unbinds the slot, while **CANCEL**
+stops capture without changing it. Reusing an existing binding swaps it with the
+previous slot. **SAVE** writes the current device without leaving its page, and
+**RESET TO DEFAULTS** affects only that device.
+
+Bindings are stored as three independent sparse YAML documents under
+`$XDG_CONFIG_HOME/crazy-robotaxi/controls/`, or
+`~/.config/crazy-robotaxi/controls/` when `XDG_CONFIG_HOME` is unset:
+`keyboard.yaml`, `gamepad.yaml`, and `wheel.yaml`. Use the CLI-only
+`--controls-dir PATH` option to select another directory. Control changes take
+effect after restarting the current application process.
 
 ### Keyboard
 
 | Control | Action |
 | --- | --- |
 | `W` or Up Arrow | Drive forward |
-| `S` or Down Arrow | Reverse |
+| `S` or Down Arrow | Brake, then reverse after stopping |
 | `A` or Left Arrow | Steer left |
 | `D` or Right Arrow | Steer right |
 | `Space` | Apply the handbrake and cancel throttle |
 | `R` | Restart the current game |
-| `Escape` | Return to the previous menu, then exit from the mode screen |
-| `Enter` | Submit the focused leaderboard name |
+| `H` | Hide or show the HUD control tooltips |
+| `Escape` | Return to the previous menu, then exit from the mode screen (fixed) |
+| `Enter` | Submit the focused leaderboard name (fixed) |
 
 Menu choices and leaderboard buttons can also be clicked with the mouse.
 
 ### Controller
 
+The Gamepad Controls screen uses one button-label convention at a time. Set
+`game.gamepad_button_style` to `Xbox`, `PlayStation`, or `Nintendo Switch` in
+the Options screen or user-authored settings YAML. Xbox labels are the default.
+
 | Control | Action |
 | --- | --- |
 | Left stick | Steer |
-| Right trigger (`RT` / `R2` / `ZR`) | Throttle |
-| Left trigger (`LT` / `L2` / `ZL`) | Brake |
-| `R` / `RB` / `R1` (hold) | Select reverse gear |
-| Start / Menu / Plus | Restart the current game |
+| Right trigger (`RT` by default) | Throttle |
+| Left trigger (`LT` by default) | Brake, then reverse after stopping |
+| Menu button | Restart the current game |
 | Steering wheel and pedals | Use normalized steering, throttle, and brake input |
 
 A connected gamepad or wheel takes precedence over keyboard driving input.
-Gamepads do not currently control menus, the handbrake, or live-edit actions.
+Menu navigation remains mouse and keyboard controlled. Gamepad and wheel
+handbrake, control-hint, and live-edit actions are supported but unbound by
+default. Wheel bindings use the semantic steering, throttle, brake, clutch, and
+button values supplied by the runtime; physical device calibration remains a
+runtime concern.
 
 ## Race mode
 
@@ -140,18 +210,22 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
 ```
 
 When enabled, `C` toggles coins, `K` cycles style skins, `V` cycles weather,
-and `O` spawns a crossing obstacle. Style mode downloads its additional model
-assets on first use and caches them under `artifacts/crazy_robotaxi/live_edit`.
+and `O` spawns a crossing obstacle. The same enabled actions appear as buttons
+in the live-edit HUD card alongside frame-aligned ability status. Weather cannot
+change while a non-base style is active. Style mode downloads its additional
+model assets on first use and caches them under
+`artifacts/crazy_robotaxi/live_edit`.
+
 Map context appends authored road and landmark descriptions plus topology,
 curve, and vehicle-motion clauses to the active prompt. Complete combined
 prompts are encoded and retained lazily, so the first visit to a new context
 may pause briefly and maps with many unique contexts retain more GPU memory.
 
-Prompt editing requires the Python transformer. When map context is enabled,
-the application disables only native DiT acceleration and otherwise preserves
-the selected preset, including its scheduler, seed, native VAE, and finalize
-settings. Style/weather without map context and obstacle guidance still require
-a compatible non-native DiT configuration.
+Style, weather, and guided obstacles need the Python transformer hooks. When
+one of those features is enabled, the application automatically disables native
+DiT acceleration and logs the reason. Native VAE acceleration and the remaining
+performance configuration stay enabled; pixel-only features such as coins,
+items, and unguided obstacles keep native DiT acceleration.
 
 ## Authored maps
 
@@ -167,6 +241,6 @@ uv run --package crazy-robotaxi crazy-robotaxi-map preview-spawn \
   path/to/city.robotaxi.yaml --spawn taxi_start --output taxi_start.png
 ```
 
-Spawn variants can define both a full `prompt` for normal play and a shorter
+Each spawn can define both a full `prompt` for normal play and a shorter
 `prompt_context` base for `--live-edit-map-context`; dynamic road and motion
 clauses are appended only to the latter.

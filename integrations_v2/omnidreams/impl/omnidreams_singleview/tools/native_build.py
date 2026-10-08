@@ -27,14 +27,19 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from filelock import FileLock
+
 ROOT = Path(__file__).resolve().parents[1]
-THIRDPARTY_DIR = ROOT / "3rdparty"
+ARTIFACT_ROOT = Path(__file__).resolve().parents[5] / "artifacts" / "omnidreams"
+THIRDPARTY_DIR = ARTIFACT_ROOT / "thirdparty"
 CUTLASS_DIR = THIRDPARTY_DIR / "cutlass"
 SAGE_ATTENTION_DIR = THIRDPARTY_DIR / "SageAttention"
 SYNC_THIRDPARTY_PATH = ROOT / "tools" / "sync_thirdparty.py"
 STAMP_NAME = ".flashdreams_source.json"
+SYNC_LOCK_PATH = ARTIFACT_ROOT / ".thirdparty.sync.lock"
 
 _DEFAULT_BUILD_ROOT_ENV = "OMNIDREAMS_SINGLEVIEW_NATIVE_BUILD_ROOT"
+_TRY_THIRDPARTY_RESYNC_ENV = "FLASHDREAMS_OMNIDREAMS_TRY_THIRDPARTY_RESYNC"
 _sync_thirdparty_module: ModuleType | None = None
 
 
@@ -135,6 +140,15 @@ def _sources() -> tuple[Any, ...]:
     return tuple(_sync_tool().load_manifest())
 
 
+def _try_thirdparty_resync() -> bool:
+    value = os.environ.get(_TRY_THIRDPARTY_RESYNC_ENV, "0")
+    if value not in {"0", "1"}:
+        raise NativeBuildError(
+            f"{_TRY_THIRDPARTY_RESYNC_ENV} must be '0' or '1', got {value!r}"
+        )
+    return value == "1"
+
+
 def sync_thirdparty(*, force: bool = False) -> dict[str, SourceInfo]:
     """Synchronize native source checkouts and return their pinned provenance."""
 
@@ -146,6 +160,43 @@ def sync_thirdparty(*, force: bool = False) -> dict[str, SourceInfo]:
             result.source.name: _source_info(result.source, result.path)
             for result in results
         }
+    except NativeBuildError:
+        raise
+    except Exception as exc:
+        raise NativeBuildError(str(exc)) from exc
+
+
+def ensure_thirdparty() -> dict[str, SourceInfo]:
+    """Download missing native sources, then validate their pinned provenance."""
+
+    try:
+        SYNC_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        lock = FileLock(str(SYNC_LOCK_PATH))
+        lock.acquire()
+        try:
+            tool = _sync_tool()
+            sources = _sources()
+            # This lock serializes resync attempts, but resync remains unsafe if
+            # another process is using the third-party sources.
+            if _try_thirdparty_resync():
+                if THIRDPARTY_DIR.exists():
+                    tool.remove_tree(THIRDPARTY_DIR)
+
+            THIRDPARTY_DIR.mkdir(parents=True, exist_ok=True)
+            missing = {
+                source.name
+                for source in sources
+                if not (THIRDPARTY_DIR / source.destination_name).exists()
+            }
+            if missing:
+                tool.sync_sources(sources, THIRDPARTY_DIR, selected=missing)
+            results = tool.verify_sources(sources, THIRDPARTY_DIR)
+            return {
+                result.source.name: _source_info(result.source, result.path)
+                for result in results
+            }
+        finally:
+            lock.release()
     except NativeBuildError:
         raise
     except Exception as exc:

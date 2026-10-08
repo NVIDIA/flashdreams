@@ -59,11 +59,11 @@ slice the live model expects."""
 
 
 @dataclass(kw_only=True)
-class TeahvVAEDecoderConfig(DecoderConfig):
+class TaehvVAEDecoderConfig(DecoderConfig):
     """Config for the TAEHV decoder."""
 
     _target: Annotated[type, tyro.conf.Suppress] = field(
-        default_factory=lambda: TeahvVAEDecoder
+        default_factory=lambda: TaehvVAEDecoder
     )
 
     checkpoint_path: str = AVAILABLE_TAEHV_CHECKPOINT_PATHS["lighttae"]
@@ -85,7 +85,7 @@ class TeahvVAEDecoderConfig(DecoderConfig):
     """``torch.compile(mode="max-autotune-no-cudagraphs")``."""
 
 
-class TeahvVAEDecoder(StreamingVideoDecoder[TAEHVCache]):
+class TaehvVAEDecoder(StreamingVideoDecoder[TAEHVCache]):
     """TAEHV (Tiny AutoEncoder for Hunyuan Video) decoder.
 
     Forward input is a latent ``[..., Tl, Cl, Hl, Wl]``; output is a video
@@ -120,9 +120,9 @@ class TeahvVAEDecoder(StreamingVideoDecoder[TAEHVCache]):
     )  # fmt: skip
     """Per-channel standard deviation for the ``lighttae`` checkpoint's latent scaling."""
 
-    def __init__(self, config: TeahvVAEDecoderConfig) -> None:
+    def __init__(self, config: TaehvVAEDecoderConfig) -> None:
         super().__init__(config)
-        self.config: TeahvVAEDecoderConfig = config
+        self.config: TaehvVAEDecoderConfig = config
 
         self.need_scaled = "lighttae" in config.checkpoint_path
         self.taehv = TAEHV(
@@ -256,7 +256,7 @@ class Hy15TAEHVDecoderConfig(DecoderConfig):
     """``torch.compile(mode="max-autotune-no-cudagraphs")``."""
 
 
-class Hy15TAEHVDecoder(TeahvVAEDecoder):
+class Hy15TAEHVDecoder(TaehvVAEDecoder):
     """Hunyuan Video 1.5 TAEHV decoder with raw 32-channel latents."""
 
     TEMPORAL_COMPRESSION_RATIO = 4
@@ -364,6 +364,6 @@ class Hy15TAEHVEncoder(StreamingVideoEncoder[TAEHVEncoderCache]):
 
 
 if __name__ == "__main__":
-    config = tyro.cli(TeahvVAEDecoderConfig)
+    config = tyro.cli(TaehvVAEDecoderConfig)
     model = config.setup()
     print(model)

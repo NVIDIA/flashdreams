@@ -21,7 +21,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
+import stat
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -30,13 +32,27 @@ from typing import Any, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "thirdparty_sources.json"
-DEFAULT_DEST_ROOT = ROOT / "3rdparty"
+DEFAULT_DEST_ROOT = (
+    Path(__file__).resolve().parents[5] / "artifacts" / "omnidreams" / "thirdparty"
+)
 STAMP_NAME = ".flashdreams_source.json"
 SCHEMA_VERSION = 1
 
 
 class ThirdPartySyncError(RuntimeError):
     """Raised when a managed third-party checkout cannot be synchronized."""
+
+
+def remove_tree(path: Path) -> None:
+    """Remove a tree, clearing Windows read-only file attributes when needed."""
+
+    def remove_readonly(func: Any, failed_path: str, exc_info: Any) -> None:
+        if os.name != "nt" or not isinstance(exc_info[1], PermissionError):
+            raise exc_info[1]
+        os.chmod(failed_path, stat.S_IWRITE)
+        func(failed_path)
+
+    shutil.rmtree(path, onerror=remove_readonly)
 
 
 @dataclass(frozen=True)
@@ -113,7 +129,13 @@ def _hash_tree(path: Path, *, exclude_top_level: set[str] | None = None) -> str:
     if not path.exists():
         return digest.hexdigest()
     for file_path in sorted(p for p in path.rglob("*") if p.is_file()):
-        rel = file_path.relative_to(path).as_posix()
+        relative_path = file_path.relative_to(path)
+        if "__pycache__" in relative_path.parts or relative_path.suffix in {
+            ".pyc",
+            ".pyo",
+        }:
+            continue
+        rel = relative_path.as_posix()
         if rel.split("/", 1)[0] in excluded:
             continue
         digest.update(rel.encode("utf-8"))
@@ -319,7 +341,7 @@ def _sync_git_checkout(source: SourceSpec, path: Path, *, force: bool) -> bool:
     if path.exists():
         if not _is_git_checkout(path):
             if force:
-                shutil.rmtree(path)
+                remove_tree(path)
                 _clone_source(source, path)
                 return True
             raise ThirdPartySyncError(
@@ -335,7 +357,7 @@ def _sync_git_checkout(source: SourceSpec, path: Path, *, force: bool) -> bool:
                 f"{path} origin is {origin_url!r}, expected {source.repo!r}; pass --force to replace it"
             )
         if force and origin_url != source.repo:
-            shutil.rmtree(path)
+            remove_tree(path)
             _clone_source(source, path)
             return True
         _run_git(path, ["fetch", "--quiet", "--filter=blob:none", "--tags", "origin"])
@@ -360,7 +382,7 @@ def _delete_paths(source: SourceSpec, path: Path) -> None:
     for rel in source.delete_paths:
         target = path / rel
         if target.is_dir():
-            shutil.rmtree(target)
+            remove_tree(target)
         elif target.exists():
             target.unlink()
 

@@ -10,6 +10,7 @@ access through driveway relationships.
 schema_version: 1
 id: example-map
 name: Example Map
+menu_thumbnail: menu.png
 compiler:
   sample_spacing_m: 2.0
   ground_margin_m: 20.0
@@ -23,8 +24,14 @@ traffic: []
 spawns: []
 ```
 
-`profiles`, `race_courses`, `traffic_count`, and `traffic` are optional. All
-other root fields are required, and unknown root fields are errors.
+`menu_thumbnail`, `profiles`, `race_courses`, `traffic_count`, and `traffic`
+are optional. All other root fields are required, and unknown root fields are
+errors.
+
+`menu_thumbnail` accepts a map-relative path or
+`package://package/resource` reference. Map selection falls back to the first
+authored spawn image when it is omitted. If no spawn has an authored image,
+the map retains its text button without a thumbnail.
 
 The compiler settings control road sampling, ground extent, and routing-only
 turn-connector resolution. They do not configure the renderer archive.
@@ -350,11 +357,17 @@ globally unique node or road IDs:
 ```yaml
 race_courses:
   - id: neighborhood-loop
+    spawn: race_start
     start: south_intersection
     checkpoints: [east_road, north_intersection, west_road]
     lap_count: 3
     checkpoint_markers: true
 ```
+
+Every course requires `spawn`, which must reference an authored map spawn. Race
+initialization and the course-selection thumbnail both use that spawn. The
+spawn's `image` remains optional; a course without one retains its text button
+without a thumbnail.
 
 Each referenced node or road supplies geometry for a fixed cross-course gate.
 The start line crosses its element near the exit toward the first checkpoint;
@@ -425,7 +438,7 @@ compiled cyclic route and defaults to zero. Vehicles are physical, collidable,
 and maintain simple same-lane headway; traffic signals and right-of-way are not
 currently modeled.
 
-## Spawns and visual variants
+## Spawns and visual conditioning
 
 A spawn names an authored road lane and a distance along its directed
 centerline. Lane indices follow the effective `lanes` order.
@@ -436,25 +449,22 @@ spawns:
     road: oak_street
     lane: 1
     distance_m: 5
-    variants:
-      default:
-        image: seed.png
-        prompt: A forward-facing taxi view in a quiet neighborhood at daylight.
-        prompt_context: A forward-facing taxi view on a road at daylight.
+    image: seed.png
+    prompt: A forward-facing taxi view in a quiet neighborhood at daylight.
+    prompt_context: A forward-facing taxi view on a road at daylight.
 ```
 
-Every spawn requires a `default` variant. `image` is optional; when omitted (or
-set to `null`), the compiler generates a deterministic synthetic first-person
-view by projecting the semantic map from that spawn through the runtime front
-camera. This fallback shows aligned road surfaces, boundaries, curbs, and
-markings, but does not synthesize scenery. Use it as a robust placeholder, not
-as a photorealistic authoring result.
+Every spawn requires a non-empty `prompt`. `image` is optional; when omitted
+(or set to `null`), the compiler generates a deterministic synthetic
+first-person view by projecting the semantic map from that spawn through the
+runtime front camera. This fallback shows aligned road surfaces, boundaries,
+curbs, and markings, but does not synthesize scenery. Use it as a robust
+placeholder, not as a photorealistic authoring result.
 
 `prompt` is the complete standalone scene description. `prompt_context` is an
 optional shorter base prompt for applications that append live road, topology,
 and motion context. When that mode is selected, `prompt_context` is used if
-present and otherwise falls back to `prompt`. An explicit runtime prompt
-override remains authoritative in either mode.
+present and otherwise falls back to `prompt`.
 
 Authored images may be map-relative paths or `package://package/resource`
 references. Resolved geometry, compiler and fallback-renderer code, seed

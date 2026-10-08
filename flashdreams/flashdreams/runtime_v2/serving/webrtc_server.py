@@ -25,6 +25,7 @@ from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
 from loguru import logger
+from torch.nn import functional as F
 
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -37,6 +38,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    QueryStringUserInputEvent,
     ResetUserInputEvent,
     TouchUserInputEvent,
     UserInputEvent,
@@ -85,13 +87,10 @@ class _PinnedRGBFrameBuffer:
         self._retired_frames: list[torch.Tensor] = []
 
     def get(self, shape: tuple[int, ...]) -> torch.Tensor:
-        """Return pinned storage with the session's fixed output shape."""
-        if self._shape is None:
+        """Return pinned storage matching the current output shape."""
+        if self._shape != shape:
             self._shape = shape
-        elif self._shape != shape:
-            raise ValueError(
-                f"Pinned RGB frame shape changed from {self._shape} to {shape}."
-            )
+            self._frame = None
         if self._frame is None:
             self._frame = torch.empty(
                 shape,
@@ -338,6 +337,7 @@ class WebRTCServer:
         self._final_video_track_metrics: dict[str, float | int] | None = None
         self._media_connected = threading.Event()
         self._session_desc: SessionDesc | None = None
+        self._window_size: tuple[int, int] | None = None
         self._event_origin_ns: int | None = None
         self._transfer_streams: dict[int, torch.cuda.Stream] = {}
         self._materialization_buffer = _PinnedRGBFrameBuffer()
@@ -489,10 +489,55 @@ class WebRTCServer:
                 future.cancel()
                 raise
         self._session_desc = session_desc
+        if current_session_desc is None:
+            self._window_size = (
+                session_desc.video_width,
+                session_desc.video_height,
+            )
         if self._event_origin_ns is None:
             # Keep timestamps comparable across sessions so events buffered
             # during a handoff retain their real order.
             self._event_origin_ns = time.monotonic_ns()
+
+    def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
+        """Change the dimensions used to present subsequent UI frames.
+
+        Frames already queued at the old dimensions are discarded before the
+        new presentation size becomes active. The fixed session output is
+        resampled on its current device before host materialization. WebRTC
+        carries each frame's dimensions, so the peer connection and current
+        application session stay alive.
+
+        Args:
+            new_window_size: Requested ``(width, height)`` in pixels.
+
+        Raises:
+            RuntimeError: The server is closed or has no open session.
+            TimeoutError: The active video track cannot be reset before the
+                server timeout.
+        """
+        if self._closed:
+            raise RuntimeError("Cannot resize a closed WebRTC server.")
+        session_desc = self._session_desc
+        window_size = self._window_size
+        if session_desc is None or window_size is None:
+            raise RuntimeError("Open the WebRTC server before resizing.")
+        width, height = new_window_size
+        if (width, height) == window_size:
+            return
+
+        track = self._video_track
+        loop = self._loop
+        if track is not None and loop is not None:
+            future = asyncio.run_coroutine_threadsafe(
+                self._start_session_if_active(track), loop
+            )
+            try:
+                future.result(timeout=self._startup_timeout_seconds)
+            except BaseException:
+                future.cancel()
+                raise
+        self._window_size = (width, height)
 
     def register_input_callback(
         self, callback: Callable[[UserInputEvent], None]
@@ -523,9 +568,14 @@ class WebRTCServer:
         if self._closed:
             raise RuntimeError("Cannot write to a closed WebRTC server.")
         session_desc = self._session_desc
-        if session_desc is None:
+        window_size = self._window_size
+        if session_desc is None or window_size is None:
             raise RuntimeError("Open the WebRTC server before writing.")
-        frames = _validated_result_frames(result, session_desc)
+        frames = _validated_result_frames(
+            result,
+            session_desc,
+            window_size,
+        )
         if result.frame_count != 1:
             raise ValueError(
                 "WebRTC window writes must contain exactly one UI-composited frame."
@@ -533,7 +583,11 @@ class WebRTCServer:
         track = self._video_track
         if track is None:
             return
-        queued_frame = self._materialize_video_frame(result, frames[0])
+        queued_frame = self._materialize_video_frame(
+            result,
+            frames[0],
+            window_size,
+        )
         track.enqueue(queued_frame)
 
     def close(self) -> None:
@@ -606,9 +660,11 @@ class WebRTCServer:
         self,
         result: StepResult,
         frame: torch.Tensor,
+        window_size: tuple[int, int],
     ) -> VideoFrame:
         """Return one owned video frame before admitting it to WebRTC."""
         if not frame.is_cuda:
+            frame = _resize_video_frame(frame, window_size)
             materialized = _prepare_cpu_video_frame(frame)
             self._materialization_count += 1
             return materialized
@@ -616,6 +672,7 @@ class WebRTCServer:
         transfer_stream = self._transfer_stream(device)
         with torch.cuda.device(device), torch.cuda.stream(transfer_stream):
             result.read_output()
+            frame = _resize_video_frame(frame, window_size)
         materialized = _materialize_cuda_video_frame(
             frame,
             transfer_stream=transfer_stream,
@@ -846,6 +903,16 @@ class WebRTCServer:
             self._sent_cursor_options = None
             if control_channel is not None and control_channel.readyState == "open":
                 self._send_cursor_options()
+            query_string = request.rel_url.raw_query_string
+            if query_string:
+                timestamp_us = self._timestamp_us()
+                if timestamp_us is not None:
+                    self._append_event(
+                        QueryStringUserInputEvent(
+                            timestamp=timestamp_us,
+                            query_string=query_string,
+                        )
+                    )
             return web.json_response(
                 {"sdp": local_description.sdp, "type": local_description.type}
             )
@@ -1218,7 +1285,9 @@ def _controller_action(
 
 
 def _validated_result_frames(
-    result: StepResult, session_desc: SessionDesc
+    result: StepResult,
+    session_desc: SessionDesc,
+    presentation_size: tuple[int, int],
 ) -> torch.Tensor:
     """Return validated time-major frames without materializing them on the host."""
     # This path may inspect metadata and create views only. The transfer-stream
@@ -1249,8 +1318,7 @@ def _validated_result_frames(
         raise ValueError("StepResult.frame_count does not match its output tensor.")
     if frames.shape[1] not in (1, 3):
         raise ValueError("WebRTC output must have one or three color channels.")
-    if frames.shape[2:] != (session_desc.video_height, session_desc.video_width):
-        raise ValueError("WebRTC output dimensions do not match SessionDesc.")
+
     if result.output_layout != session_desc.output_layout:
         raise ValueError("StepResult.output_layout does not match SessionDesc.")
 
@@ -1266,6 +1334,26 @@ def _rgb_uint8_thwc(frames: torch.Tensor) -> torch.Tensor:
         frames = ((frames.to(torch.float32).clamp(-1.0, 1.0) + 1.0) * 127.5).round()
     frames = frames.clamp(0, 255).to(torch.uint8)
     return frames.permute(0, 2, 3, 1).contiguous()
+
+
+def _resize_video_frame(
+    frame: torch.Tensor,
+    window_size: tuple[int, int],
+) -> torch.Tensor:
+    """Resample one CHW frame on its current device."""
+    width, height = window_size
+    if frame.shape[1:] == (height, width):
+        return frame
+    source_is_floating_point = frame.is_floating_point()
+    resized = F.interpolate(
+        frame.unsqueeze(0) if source_is_floating_point else frame[None].float(),
+        size=(height, width),
+        mode="bilinear",
+        align_corners=False,
+    ).squeeze(0)
+    if source_is_floating_point:
+        return resized
+    return resized.round().to(frame.dtype)
 
 
 def _prepare_cpu_video_frame(frame: torch.Tensor) -> VideoFrame:

@@ -24,6 +24,9 @@ import triton
 import triton.language as tl
 from torch import Tensor
 
+_FP8_PROBABILITY_SCALE = tl.constexpr(256.0)
+"""Power-of-two scale that expands softmax probabilities into the FP8 range."""
+
 _ATTENTION_CONFIGS = [
     triton.Config(
         {"BLOCK_M": block_m, "BLOCK_N": block_n},
@@ -48,6 +51,65 @@ _ATTENTION_CONFIGS = [
 ``BLOCK_M`` controls query rows and the FP32 output-accumulator footprint;
 ``BLOCK_N`` controls each streamed K/V tile. Warp and stage variants let Triton
 balance parallel dot products against load-pipeline resource use."""
+
+
+def _validate_fp8_attention_scales(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    query_scale: Tensor | None,
+    key_scale: Tensor | None,
+    value_scale: Tensor | None,
+    query_scale_block: int = 1,
+    key_scale_block: int = 1,
+) -> bool:
+    """Validate optional blockwise Q/K and channelwise V scales."""
+    if any(
+        type(block) is not int or block < 1 or block & (block - 1)
+        for block in (query_scale_block, key_scale_block)
+    ):
+        raise ValueError("Q/K scale blocks must be positive powers of two")
+    scales = (query_scale, key_scale, value_scale)
+    if all(scale is None for scale in scales):
+        return False
+    if any(scale is None for scale in scales):
+        raise ValueError("query, key, and value scales must be provided together")
+    scaled_types = (
+        query.dtype is torch.int8
+        and key.dtype is torch.int8
+        and value.dtype is torch.float8_e4m3fn
+    ) or all(x.dtype is torch.float8_e4m3fn for x in (query, key, value))
+    if not scaled_types:
+        raise RuntimeError("attention scales require INT8 Q/K with FP8 V, or FP8 Q/K/V")
+    assert query_scale is not None
+    assert key_scale is not None
+    assert value_scale is not None
+    expected_shapes = (
+        (
+            query.shape[0],
+            triton.cdiv(query.shape[1], query_scale_block),
+            query.shape[2],
+            1,
+        ),
+        (key.shape[0], triton.cdiv(key.shape[1], key_scale_block), key.shape[2], 1),
+        (value.shape[0], 1, value.shape[2], value.shape[3]),
+    )
+    for name, scale, expected_shape in zip(
+        ("query", "key", "value"), scales, expected_shapes, strict=True
+    ):
+        assert scale is not None
+        if scale.shape != expected_shape:
+            raise ValueError(
+                f"{name} scale must have shape {expected_shape}; "
+                f"got {tuple(scale.shape)}"
+            )
+        if scale.dtype is not torch.float32:
+            raise RuntimeError(f"{name} scale must use FP32 storage")
+        if scale.device != query.device:
+            raise RuntimeError(f"{name} scale must occupy the Q/K/V CUDA device")
+        if any(stride < 0 for stride in scale.stride()):
+            raise RuntimeError(f"{name} scale requires non-negative strides")
+    return True
 
 
 def _prune_attention_configs(
@@ -115,6 +177,9 @@ def _flash_attention_2_kernel(
     key_ptr,
     value_ptr,
     output_ptr,
+    query_scale_ptr,
+    key_scale_ptr,
+    value_scale_ptr,
     query_stride_b,
     query_stride_h,
     query_stride_l,
@@ -131,14 +196,26 @@ def _flash_attention_2_kernel(
     output_stride_h,
     output_stride_l,
     output_stride_d: tl.constexpr,
+    query_scale_stride_b,
+    query_scale_stride_l,
+    query_scale_stride_h,
+    key_scale_stride_b,
+    key_scale_stride_s,
+    key_scale_stride_h,
+    value_scale_stride_b,
+    value_scale_stride_h,
+    value_scale_stride_d,
     num_heads: tl.constexpr,
     query_length: tl.constexpr,
     key_length: tl.constexpr,
     scale,
     HEAD_DIM: tl.constexpr,
     QUANTIZED_SDPA: tl.constexpr,
+    SCALED_FP8: tl.constexpr,
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
+    QUERY_SCALE_BLOCK: tl.constexpr,
+    KEY_SCALE_BLOCK: tl.constexpr,
 ):
     """Apply tiled non-causal FlashAttention2 with pointer loads and stores.
 
@@ -173,7 +250,8 @@ def _flash_attention_2_kernel(
         key_length: Logical key/value-token count ``S``.
         scale: Multiplier applied to QK scores before softmax.
         HEAD_DIM: Compile-time head width ``D``.
-        QUANTIZED_SDPA: Whether Q/K/V and P use FP8 e4m3.
+        QUANTIZED_SDPA: Whether the P/V dot product uses FP8 e4m3.
+        SCALED_FP8: Whether Q/K/V dequantization scales are applied.
         BLOCK_M: Compile-time number of query rows owned by one program.
         BLOCK_N: Compile-time number of key/value rows loaded per iteration.
     """
@@ -202,6 +280,15 @@ def _flash_attention_2_kernel(
     denominator = tl.zeros((BLOCK_M,), tl.float32)
     accumulator = tl.zeros((BLOCK_M, HEAD_DIM), tl.float32)
     qk_scale = scale.to(tl.float32) * 1.4426950408889634
+    if SCALED_FP8:
+        query_scales = tl.load(
+            query_scale_ptr
+            + batch * query_scale_stride_b
+            + (query_offsets // QUERY_SCALE_BLOCK) * query_scale_stride_l
+            + head * query_scale_stride_h,
+            mask=query_mask,
+            other=0.0,
+        )
 
     for key_start in tl.range(0, key_length, BLOCK_N):
         key_offsets = key_start + tl.arange(0, BLOCK_N)
@@ -213,7 +300,19 @@ def _flash_attention_2_kernel(
             mask=key_mask[:, None],
             other=0.0,
         )
-        scores = tl.dot(query, tl.trans(key)) * qk_scale
+        scores = tl.dot(query, tl.trans(key))
+        if SCALED_FP8:
+            key_scales = tl.load(
+                key_scale_ptr
+                + batch * key_scale_stride_b
+                + (key_offsets // KEY_SCALE_BLOCK) * key_scale_stride_s
+                + head * key_scale_stride_h,
+                mask=key_mask,
+                other=0.0,
+            )
+            scores *= qk_scale * query_scales[:, None] * key_scales[None, :]
+        else:
+            scores *= qk_scale
         scores = tl.where(key_mask[None, :], scores, -float("inf"))
 
         tile_max = tl.max(scores, axis=1)
@@ -231,13 +330,23 @@ def _flash_attention_2_kernel(
         )
         accumulator *= correction[:, None]
         if QUANTIZED_SDPA:
-            probabilities = probabilities.to(tl.float8e4nv)
+            probabilities = (probabilities * _FP8_PROBABILITY_SCALE).to(tl.float8e4nv)
         else:
             probabilities = probabilities.to(value.dtype)
         accumulator = tl.dot(probabilities, value, accumulator)
         row_max = next_row_max
 
     output = accumulator / denominator[:, None]
+    if QUANTIZED_SDPA:
+        output /= _FP8_PROBABILITY_SCALE
+    if SCALED_FP8:
+        value_scales = tl.load(
+            value_scale_ptr
+            + batch * value_scale_stride_b
+            + head * value_scale_stride_h
+            + feature_offsets * value_scale_stride_d
+        )
+        output *= value_scales[None, :]
     tl.store(
         output_base
         + query_offsets[:, None] * output_stride_l
@@ -254,6 +363,11 @@ def flash_attention_2(
     *,
     scale: float | None = None,
     output_dtype: torch.dtype | None = None,
+    query_scale: Tensor | None = None,
+    key_scale: Tensor | None = None,
+    value_scale: Tensor | None = None,
+    query_scale_block: int = 1,
+    key_scale_block: int = 1,
 ) -> Tensor:
     """Apply non-causal pointer-based FlashAttention2 to Q/K/V tensors.
 
@@ -263,14 +377,20 @@ def flash_attention_2(
     sequence axis must be positive.
 
     Args:
-        query: CUDA FP16, BF16, or FP8 e4m3 query tensor with shape
-            ``[B, L, H, D]``.
-        key: Same-device and same-dtype key tensor with shape
-            ``[B, S, H, D]``.
-        value: Value tensor matching ``key`` exactly.
+        query: CUDA FP16, BF16, FP8 e4m3, or scaled INT8 query tensor with
+            shape ``[B, L, H, D]``.
+        key: Same-device key tensor with shape ``[B, S, H, D]``. Scaled INT8
+            queries require scaled INT8 keys.
+        value: Value tensor matching ``key`` geometry. Scaled INT8 Q/K accept
+            FP16/BF16 values or FP8 e4m3 values with a channelwise scale.
         scale: Multiplier applied to QK scores before softmax; ``None`` uses
             ``1 / sqrt(D)``.
         output_dtype: Output storage dtype; ``None`` uses ``query.dtype``.
+        query_scale: FP32 scales shaped ``[B, ceil(L / query_scale_block), H, 1]``.
+        key_scale: FP32 scales shaped ``[B, ceil(S / key_scale_block), H, 1]``.
+        value_scale: Optional FP32 channelwise value scales ``[B, 1, H, D]``.
+        query_scale_block: Query tokens sharing each scale; one by default.
+        key_scale_block: Key tokens sharing each scale; one by default.
 
     Returns:
         Attention result with shape ``[B, L, H, D]`` on the query device and
@@ -295,14 +415,27 @@ def flash_attention_2(
         raise RuntimeError("FlashAttention2 requires CUDA tensors")
     if query.device != key.device or query.device != value.device:
         raise RuntimeError("query, key, and value must occupy the same CUDA device")
-    if query.dtype != key.dtype or query.dtype != value.dtype:
-        raise RuntimeError("query, key, and value must have the same dtype")
-    if query.dtype not in (
-        torch.float16,
-        torch.bfloat16,
-        torch.float8_e4m3fn,
-    ):
-        raise RuntimeError("FlashAttention2 requires FP16, BF16, or FP8 e4m3 tensors")
+    scaled_fp8 = _validate_fp8_attention_scales(
+        query,
+        key,
+        value,
+        query_scale,
+        key_scale,
+        value_scale,
+        query_scale_block,
+        key_scale_block,
+    )
+    if not scaled_fp8:
+        if query.dtype != key.dtype or query.dtype != value.dtype:
+            raise RuntimeError("query, key, and value must have the same dtype")
+        if query.dtype not in (
+            torch.float16,
+            torch.bfloat16,
+            torch.float8_e4m3fn,
+        ):
+            raise RuntimeError(
+                "FlashAttention2 requires FP16, BF16, or FP8 e4m3 tensors"
+            )
     if not (16 <= head_dim <= 256 and head_dim & (head_dim - 1) == 0):
         raise RuntimeError(
             "FlashAttention2 requires a power-of-two head_dim in [16, 256]"
@@ -337,6 +470,11 @@ def flash_attention_2(
         output.stride(1),
         output.stride(3),
     )
+    if not scaled_fp8:
+        query_scale = key_scale = value_scale = query
+    assert query_scale is not None
+    assert key_scale is not None
+    assert value_scale is not None
 
     def grid(meta: dict[str, int]) -> tuple[int, int]:
         """Build the two-dimensional launch grid for an autotuned query tile.
@@ -357,16 +495,31 @@ def flash_attention_2(
         key,
         value,
         output,
+        query_scale,
+        key_scale,
+        value_scale,
         *query_strides,
         *key_strides,
         *value_strides,
         *output_strides,
+        query_scale.stride(0) if scaled_fp8 else 0,
+        query_scale.stride(1) if scaled_fp8 else 0,
+        query_scale.stride(2) if scaled_fp8 else 0,
+        key_scale.stride(0) if scaled_fp8 else 0,
+        key_scale.stride(1) if scaled_fp8 else 0,
+        key_scale.stride(2) if scaled_fp8 else 0,
+        value_scale.stride(0) if scaled_fp8 else 0,
+        value_scale.stride(2) if scaled_fp8 else 0,
+        value_scale.stride(3) if scaled_fp8 else 0,
         num_heads,
         query_length,
         key_length,
         1.0 / math.sqrt(head_dim) if scale is None else scale,
         HEAD_DIM=head_dim,
-        QUANTIZED_SDPA=query.dtype is torch.float8_e4m3fn,
+        QUANTIZED_SDPA=scaled_fp8 or query.dtype is torch.float8_e4m3fn,
+        SCALED_FP8=scaled_fp8,
+        QUERY_SCALE_BLOCK=query_scale_block,
+        KEY_SCALE_BLOCK=key_scale_block,
     )
     return output
 

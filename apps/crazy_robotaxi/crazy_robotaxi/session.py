@@ -9,7 +9,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from functools import cached_property
+from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -19,8 +19,17 @@ from omnidreams_game_engine.model import WorldModelRollout
 from omnidreams_game_engine.scene import SceneRequest
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 
+from crazy_robotaxi.controls import (
+    BoundActionState,
+    gamepad_driver_command,
+    keyboard_drive_key,
+    keyboard_driver_command,
+    wheel_driver_command,
+)
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
+from crazy_robotaxi.headless_ui import CrazyRobotaxiHeadlessUILoop
+from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
 from crazy_robotaxi.race import RaceGameSnapshot
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.ui import (
@@ -34,11 +43,6 @@ from flashdreams.runtime_v2.input_timeline import RealtimeInputTimeline
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import (
-    GamepadUserInputEvent,
-    KeyboardInputState,
-    KeyboardUserInputEvent,
-)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
@@ -48,8 +52,6 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
 _TRACE_PREFIX = "[crazy-robotaxi-chunk-trace]"
-_GAMEPAD_START_BUTTON_INDEX = 9
-"""Browser-standard gamepad index shared by Start and Nintendo Plus."""
 
 
 @dataclass(slots=True)
@@ -66,11 +68,17 @@ class ModelState:
     input_timeline: RealtimeInputTimeline = field(init=False)
     """Frame-rate sampling clock for timestamped driving transitions."""
 
+    control_actions: BoundActionState = field(init=False)
+    """Rising-edge gameplay actions for the process-start bindings."""
+
     ui_loop: IUILoop[TaxiHudState]
     """UI-loop endpoint used only through ``invoke_async``."""
 
     pipeline: Any | None = None
     """Lazily constructed after the client opens and a game is selected."""
+
+    owns_pipeline: bool = True
+    """Whether shutdown closes the pipeline instead of its application owner."""
 
     scene: SceneDefinition | None = None
     """Selected immutable scene; ``None`` while the startup menu is active."""
@@ -82,6 +90,7 @@ class ModelState:
     menu_video: torch.Tensor | None = None
     """Cached black model channel published while the menu is active."""
     last_video: torch.Tensor | None = None
+    last_hdmap: torch.Tensor | None = None
     last_bev: torch.Tensor | None = None
     last_pose: np.ndarray | None = None
     last_speed_mps: float = 0.0
@@ -103,6 +112,7 @@ class ModelState:
         self.input_timeline = RealtimeInputTimeline(
             samples_per_second=self.session_desc.frames_per_second_for_step,
         )
+        self.control_actions = BoundActionState(self.config.controls)
 
     def ensure_rollout(self) -> WorldModelRollout:
         """Build and prewarm renderer, PhysX, game, and cache on the model thread."""
@@ -140,8 +150,9 @@ class ModelState:
     def select_game(self, selection: GameSelection) -> None:
         """Load the selected map and configure its rules on the model thread."""
         option = selection.map_option
+        course = option.race_course(selection.race_course_id)
         if selection.mode == "race":
-            if selection.race_course_id not in option.race_course_ids:
+            if course is None:
                 raise ValueError(
                     f"Unknown race course {selection.race_course_id!r} "
                     f"for map {option.map_id!r}"
@@ -153,13 +164,7 @@ class ModelState:
         request = replace(
             self.config.scene_request,
             map_path=option.path,
-            variant=option.variant,
-            prompt=(
-                self.config.scene_request.prompt
-                if option.path
-                == self.config.scene_request.map_path.expanduser().resolve()
-                else None
-            ),
+            spawn_id=None if course is None else course.spawn_id,
         )
         scene = self.scene_factory(request, self.config.renderer.raster)
         self.close()
@@ -275,6 +280,7 @@ class ModelState:
         self.finished = False
         self.realtime_miss_count = 0
         self.last_video = None
+        self.last_hdmap = None
         self.last_bev = None
         self.last_pose = None
         self.driver_input.reset()
@@ -299,14 +305,24 @@ class ModelState:
         self.close()
         pipeline = self.pipeline
         self.pipeline = None
-        close = getattr(pipeline, "close", None)
-        if callable(close):
-            close()
+        if self.owns_pipeline:
+            close = getattr(pipeline, "close", None)
+            if callable(close):
+                close()
 
     def submit_player_name(self, name: str) -> None:
         """Submit a UI-validated leaderboard name on the model thread."""
         rollout = self.ensure_rollout()
         rollout.engine.submit_text(name)
+
+    def request_live_edit_action(self, action: LiveEditAction) -> None:
+        """Forward one UI action to the active live-edit gameplay state."""
+        rollout = self.rollout
+        if rollout is None:
+            return
+        live_edit = getattr(rollout.engine, "live_edit", None)
+        if live_edit is not None:
+            live_edit.request_action(action)
 
 
 class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
@@ -319,6 +335,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         # Match Interactive Drive: apply every unread edge before rollout setup,
         # reset handling, or simulation reads the retained command.
         input_times_s = state.driver_input.apply(events)
+        control_actions = state.control_actions.apply(events)
         if not state.game_selected:
             return state.menu_result(step_index)
         rollout = state.ensure_rollout()
@@ -327,7 +344,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         snapshot = rollout.engine.current_game_frame
         if not isinstance(snapshot, (TaxiGameSnapshot, RaceGameSnapshot)):
             raise TypeError("Crazy Robotaxi engine returned an unknown game frame")
-        if _restart_requested(events):
+        if "restart" in control_actions:
             state.restart_game()
             rollout = state.ensure_rollout()
             snapshot = rollout.engine.current_game_frame
@@ -337,10 +354,15 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         autoregressive_index = -1
         simulation_timestamps_us: tuple[int, ...] | None = None
         cache_finalize_returned_ns: int | None = None
+        live_edit_statuses: tuple[LiveEditHudStatus, ...] | None = None
+        current_prompt = ""
         if snapshot.session_state in active_states:
+            current_prompt = rollout.scene.prompt
             live_edit = getattr(rollout.engine, "live_edit", None)
             if live_edit is not None:
-                live_edit.process_events(events)
+                for action in ("style", "weather", "coins", "obstacle"):
+                    if action in control_actions:
+                        live_edit.request_action(action)
             autoregressive_index = state.blocks_generated
             frame_count = rollout.frame_count(autoregressive_index)
             input_window = state.input_timeline.next_window(
@@ -404,6 +426,10 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     )
             if live_edit is not None and live_edit.style is not None:
                 live_edit.style.after_v2_chunk()
+            if live_edit is not None:
+                live_edit_statuses = live_edit.hud_statuses()
+                if live_edit.style is not None:
+                    current_prompt = live_edit.style.active_prompt or current_prompt
             state.blocks_generated += 1
             video = generated.video_bvtchw[0, 0]
             expected_shape = (
@@ -417,6 +443,14 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     f"expected {expected_shape}, got {tuple(video.shape[1:])}"
                 )
             engine_step = generated.engine
+            hdmap = engine_step.condition.hdmap_bvtchw
+            expected_hdmap_shape = (1, 1, int(video.shape[0]), *expected_shape)
+            if tuple(hdmap.shape) != expected_hdmap_shape:
+                raise ValueError(
+                    "HD-map conditioning does not match the generated video: "
+                    f"expected {expected_hdmap_shape}, got {tuple(hdmap.shape)}"
+                )
+            hdmap = hdmap[0, 0]
             game_frames = engine_step.game_frames
             poses = engine_step.trajectory.rig_poses_world
             if trace_enabled:
@@ -427,24 +461,28 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 vehicle.speed_mps for vehicle in engine_step.trajectory.vehicle_states
             )
             bev = engine_step.condition.bev_tchw
-            finalize_metrics = generated.finalize_metrics
             metrics = dict(generated.metrics)
             if state.blocks_generated == 1 and state.prewarm_wall_ms > 0.0:
                 metrics["startup_prewarm_wall_ms"] = state.prewarm_wall_ms
                 metrics["startup_prewarm_blocks"] = state.config.prewarm_blocks
             state.last_video = video[-1:].detach()
+            state.last_hdmap = hdmap[-1:].detach()
             state.last_bev = None if bev is None else bev[-1:].detach()
             state.last_pose = poses[-1].copy()
             state.last_speed_mps = speeds_mps[-1]
         else:
-            if state.last_video is None or state.last_pose is None:
+            if (
+                state.last_video is None
+                or state.last_hdmap is None
+                or state.last_pose is None
+            ):
                 raise RuntimeError("Terminal game state has no generated frame")
             video = state.last_video
+            hdmap = state.last_hdmap
             game_frames = (snapshot,)
             poses = state.last_pose[None, ...]
             speeds_mps = (state.last_speed_mps,)
             bev = state.last_bev
-            finalize_metrics = {}
             metrics = {}
             transition_timestamps_us = (None,) * int(video.shape[0])
 
@@ -460,6 +498,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             autoregressive_index=autoregressive_index,
             simulation_timestamps_us=simulation_timestamps_us,
             cache_finalize_returned_ns=cache_finalize_returned_ns,
+            live_edit_statuses=live_edit_statuses,
+            current_prompt=current_prompt,
         )
         invoke_async(
             state.ui_loop,
@@ -527,7 +567,13 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 output=video,
                 frame_count=count,
                 output_layout=VideoTensorLayout.tchw,
-                metrics=finalize_metrics,
+                metrics=metrics,
+            ),
+            StepResult(
+                step_index=step_index,
+                output=hdmap,
+                frame_count=count,
+                output_layout=VideoTensorLayout.tchw,
             ),
         ]
         if bev is not None:
@@ -537,7 +583,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     output=bev,
                     frame_count=count,
                     output_layout=VideoTensorLayout.tchw,
-                    metrics=finalize_metrics,
                 )
             )
         return results
@@ -580,32 +625,89 @@ class CrazyRobotaxiSession(ISession):
         return PresentationManager(device=torch.device(self._config.device))
 
     def init(self) -> None:
+        presentation_width, presentation_height = (
+            self._config.presentation_resolution_wh
+            or (
+                self._session_desc.video_width,
+                self._session_desc.video_height,
+            )
+        )
         hud_state = TaxiHudState(
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
             calibration=None,
+            presentation_size=(presentation_width, presentation_height),
             bev=self._config.renderer.bev,
             profile_input_latency=self._config.profile_input_latency,
             show_fps=self._config.show_fps,
+            show_current_prompt=self._config.show_current_prompt,
+            hud_enabled=self._config.hud_enabled,
+            live_edit=self._config.live_edit,
+            native_dit_disabled_for_live_edit=(
+                self._config.native_dit_disabled_for_live_edit
+            ),
+            show_control_tooltips=self._config.show_control_hints,
+            show_live_edit_buttons=self._config.show_live_edit_buttons,
+            live_edit_mapping_location=self._config.live_edit_mapping_location,
+            settings_document=self._config.settings_document,
+            controls=self._config.controls,
+            gamepad_button_style=self._config.gamepad_button_style,
+            control_documents=self._config.control_documents,
             map_options=self._map_options,
-            initial_game_mode=self._config.cli_game_mode,
-            initial_map_path=self._config.cli_map_path,
-            initial_race_course_id=self._config.cli_race_course_id,
+            initial_game_mode=self._config.initial_game_mode,
+            initial_map_path=self._config.initial_map_path,
+            initial_race_course_id=self._config.initial_race_course_id,
         )
-        ui_loop = self.register_ui_loop(
-            CrazyRobotaxiImGuiUILoop,
-            state=hud_state,
-            width=self._session_desc.video_width,
-            height=self._session_desc.video_height,
-        )
+        if self._config.no_ui:
+            if (
+                self._config.initial_game_mode is None
+                or self._config.initial_map_path is None
+                or self._config.total_blocks is None
+            ):
+                raise ValueError(
+                    "--no-ui requires explicit --game-mode, --map, and --total-blocks"
+                )
+            if (
+                self._config.initial_game_mode == "race"
+                and self._config.initial_race_course_id is None
+            ):
+                # Without one the HUD stops at the course menu, which a
+                # headless run has no way to answer: it would publish menu
+                # frames forever instead of generating --total-blocks.
+                raise ValueError("--no-ui in race mode requires --race-course")
+            ui_loop = self.register_ui_loop(
+                CrazyRobotaxiHeadlessUILoop,
+                state=hud_state,
+            )
+        else:
+            ui_loop = self.register_ui_loop(
+                CrazyRobotaxiImGuiUILoop,
+                state=hud_state,
+                width=self._session_desc.video_width,
+                height=self._session_desc.video_height,
+            )
         model_loop = self.register_model_loop(
             CrazyRobotaxiModelLoop,
             state=ModelState(
                 pipeline_factory=self._pipeline_factory,
                 scene_factory=self._scene_factory,
+                owns_pipeline=False,
                 config=self._config,
                 session_desc=self._session_desc,
-                driver_input=DriverInput(),
+                driver_input=DriverInput(
+                    keyboard_command=partial(
+                        keyboard_driver_command, self._config.controls.keyboard
+                    ),
+                    key_normalizer=partial(
+                        keyboard_drive_key, self._config.controls.keyboard
+                    ),
+                    gamepad_command=partial(
+                        gamepad_driver_command, self._config.controls.gamepad
+                    ),
+                    wheel_command=partial(
+                        wheel_driver_command, self._config.controls.wheel
+                    ),
+                ),
                 ui_loop=ui_loop,
             ),
         )
@@ -623,25 +725,6 @@ def _log_chunk_trace(phase: str, *, time_ns: int, **fields: object) -> None:
         time_ns,
         details,
     )
-
-
-def _restart_requested(events: UserInputEvents) -> bool:
-    """Return whether this model step received a keyboard or gamepad restart."""
-    for event in events.get_events():
-        if (
-            isinstance(event, KeyboardUserInputEvent)
-            and event.state is KeyboardInputState.PRESSED
-            and str(event.key).strip().lower() == "r"
-        ):
-            return True
-        if (
-            isinstance(event, GamepadUserInputEvent)
-            and event.action == "state"
-            and len(event.pressed) > _GAMEPAD_START_BUTTON_INDEX
-            and event.pressed[_GAMEPAD_START_BUTTON_INDEX]
-        ):
-            return True
-    return False
 
 
 def _taxi_driver_command(command: DriverCommand) -> DriverCommand:

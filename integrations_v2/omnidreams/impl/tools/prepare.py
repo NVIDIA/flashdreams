@@ -153,10 +153,11 @@ def parse_args() -> argparse.Namespace:
         "--perf",
         action="store_true",
         help=(
-            "Sync the pinned third-party CUDA sources required by the perf "
-            "application config's native acceleration. "
+            "Pre-download the pinned third-party CUDA sources used by the perf "
+            "application config's native acceleration. The extension otherwise "
+            "downloads them automatically on first use. "
             "Clones them into omnidreams_singleview/3rdparty/; the extension "
-            "itself compiles on first run. Requires a source checkout and git."
+            "itself compiles on first use. Requires a source checkout and git."
         ),
     )
     parser.add_argument(
@@ -316,7 +317,7 @@ def _sync_thirdparty_module() -> ModuleType:
 
 
 def sync_perf_thirdparty(*, force: bool) -> None:
-    """Sync the pinned native CUDA sources the perf application builds against.
+    """Pre-download pinned native CUDA sources the perf application builds against.
 
     The app-owned perf manifests compile against CUTLASS, SageAttention,
     SpargeAttn, and cudnn-frontend. Clones them into

@@ -33,6 +33,7 @@ from flashdreams.runtime_v2.application_registry import (
     create_application,
     registered_application_slugs,
 )
+from flashdreams.runtime_v2.application_runner import Unbound
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
@@ -313,6 +314,12 @@ def _install(
         )
         monkeypatch.setattr(
             T2VImGuiUILoop,
+            "frames_to_blit",
+            BlitModelOutputToScreenLoop.frames_to_blit,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            T2VImGuiUILoop,
             "step",
             BlitModelOutputToScreenLoop.step,
         )
@@ -330,7 +337,7 @@ def _install(
         monkeypatch.setattr(
             cli,
             "client_window_mode",
-            lambda name: StubMode(name, window),
+            lambda name, *, modes=None: StubMode(name, window),
         )
 
 
@@ -347,6 +354,8 @@ def test_a_run_writes_what_the_application_generated(
             "stub",
             "--output-path",
             str(path),
+            "--timeout",
+            "unbound",
             "--",
             "--prompt",
             _PROMPT,
@@ -412,6 +421,8 @@ def test_a_run_can_record_what_generating_the_clip_cost(
             str(clip_path),
             "--stats-path",
             str(stats_path),
+            "--timeout",
+            "unbound",
             "--",
             "--prompt",
             _PROMPT,
@@ -441,6 +452,8 @@ def test_nothing_is_measured_unless_a_run_asks(
             "stub",
             "--output-path",
             str(tmp_path / "clip.mp4"),
+            "--timeout",
+            "unbound",
             "--",
             "--prompt",
             _PROMPT,
@@ -463,6 +476,28 @@ def test_a_continuous_application_can_wait_for_its_first_prompt(
 
     assert window.session_desc.presentation_mode is PresentationMode.CONTINUOUS
     assert pipeline.caches == []
+
+
+def test_mp4_mode_defaults_to_on_demand_presentation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = RecordingWindow()
+    _install(monkeypatch, StubT2VApplication(_stand_in()), window)
+
+    cli.entrypoint(
+        [
+            "stub",
+            "--output-path",
+            "clip.mp4",
+            "--timeout",
+            "unbound",
+            "--",
+            "--prompt",
+            _PROMPT,
+        ]
+    )
+
+    assert window.session_desc.presentation_mode is PresentationMode.ON_DEMAND
 
 
 ## Describing the session to run
@@ -545,7 +580,7 @@ def test_the_run_goes_to_the_window_the_mode_asked_for(
     monkeypatch.setattr(
         cli,
         "client_window_mode",
-        lambda name: (asked_for.append(name), StubMode(name, window))[1],
+        lambda name, *, modes=None: (asked_for.append(name), StubMode(name, window))[1],
     )
 
     cli.entrypoint(
@@ -569,16 +604,17 @@ def test_the_run_goes_to_the_window_the_mode_asked_for(
 def test_the_command_passes_its_timeout_to_the_application_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    received: list[float | None] = []
+    received: list[float | Unbound] = []
 
     def record_run(
         self: object,
         session_desc: SessionDesc,
         commandline_args: Sequence[str],
         *,
-        timeout_seconds: float | None = None,
+        timeout_seconds: float | Unbound = Unbound.unbound,
+        steps: int | Unbound = Unbound.unbound,
     ) -> None:
-        del self, session_desc, commandline_args
+        del self, session_desc, commandline_args, steps
         received.append(timeout_seconds)
 
     _install(monkeypatch, UndescribedApplication(), ClosingWindow())
@@ -595,7 +631,8 @@ def test_the_command_rejects_an_invalid_timeout(timeout: str) -> None:
         cli.entrypoint(["stub", "--mode", "webrtc", "--timeout", timeout])
 
 
-def test_the_command_needs_somewhere_to_write() -> None:
+def test_the_command_needs_somewhere_to_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install(monkeypatch, UndescribedApplication())
     with pytest.raises(SystemExit):
         cli.entrypoint(["stub"])
 

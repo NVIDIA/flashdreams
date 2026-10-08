@@ -4,13 +4,12 @@
 """Immediate Dear ImGui UI loop rendered through SlangPy."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar, final
+from typing import Any, Generic, TypeVar, cast, final
 
 from torch import Tensor
 
 from flashdreams.api_v2.loop import IUILoop
 from flashdreams.runtime_v2.imgui_ui_renderer import _ImGuiUIRenderer
-from flashdreams.runtime_v2.slangpy_ui_renderer import _UIRenderer
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.ui_compositing import prepare_ui_back_buffer
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -29,7 +28,7 @@ class ImGuiUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
     def __init__(
         self,
         *,
-        renderer: _UIRenderer | None = None,
+        renderer: _ImGuiUIRenderer | None = None,
         width: int | None = None,
         height: int | None = None,
         cuda_device: str | None = None,
@@ -47,6 +46,14 @@ class ImGuiUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
             )
         self.renderer = renderer
 
+    def resize_ui_loop(self, width: int, height: int) -> None:
+        """Resize the ImGui renderer."""
+        self.renderer.resize(width, height)
+
+    def get_ui_loop_size(self) -> tuple[int, int]:
+        """Return the current ImGui render-target size."""
+        return self.renderer.width, self.renderer.height
+
     @abstractmethod
     def step_ui(
         self,
@@ -58,7 +65,7 @@ class ImGuiUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
         ...
 
     @final
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Render and composite one ImGui frame."""
         back_buffer: Tensor | None = None
 
@@ -69,12 +76,14 @@ class ImGuiUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
         overlay = self.renderer.render(step_index, events, draw)
         back_buffer = prepare_ui_back_buffer(back_buffer, overlay)
         frame = self._presentation_manager.composite(back_buffer, overlay)
-        return StepResult(
-            step_index=step_index,
-            output=frame.unsqueeze(0),
-            frame_count=1,
-            output_layout=self.output_layout,
-        )
+        return [
+            StepResult(
+                step_index=step_index,
+                output=frame.unsqueeze(0),
+                frame_count=1,
+                output_layout=self.output_layout,
+            )
+        ]
 
     def reset(self) -> None:
         """Reset renderer state after a session reset event."""

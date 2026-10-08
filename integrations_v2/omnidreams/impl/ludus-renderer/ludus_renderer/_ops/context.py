@@ -472,11 +472,56 @@ class LudusCudaTimestampedContext:
         scale = min(width / reference_width, height / reference_height)
         self.cpp_wrapper.set_resolution_scale(scale)
 
+    def set_width_in_ndc(self, enabled: bool = True) -> None:
+        """Measure a line's width in normalised device coordinates, not pixels.
+
+        A width is normally the pixels a line covers whichever way it lies.
+        Measured in NDC it is the pixels a line up the picture covers, and one
+        across the picture comes out narrower by the aspect ratio, because both
+        sides step by an amount worked out from the picture's width. Only a
+        caller matching a renderer that offsets in NDC wants this.
+        """
+        self.cpp_wrapper.set_width_in_ndc(bool(enabled))
+
+    def set_depth_fade(self, enabled: bool = True) -> None:
+        """Whether a colour dims towards black the further off it is drawn.
+
+        ``set_depth_scaling`` governs both this and how a line narrows with
+        distance. This separates them, for a caller matching a renderer that
+        narrows its lines but leaves their colour alone.
+        """
+        self.cpp_wrapper.set_depth_fade(bool(enabled))
+
+    def set_cull_behind_camera(self, enabled: bool = True) -> None:
+        """Whether geometry the camera's own plane has behind it is drawn at all.
+
+        On, anything wholly behind the plane is dropped and anything crossing
+        it is cut back to it: a pooled cube's face along its tessellation, a
+        step or two coarser than the plane itself, and an immediately drawn
+        one at the crossings themselves. Off, a point behind the camera is
+        projected well off centre instead, which keeps a stray point out of
+        frame but draws a box straddling the camera right across it.
+
+        On is the reference renderer's rule and suits a lens of no more than a
+        hemisphere. A wider one sees past the plane and loses a little of its
+        own field to the test, so this is left off by default.
+        """
+        self.cpp_wrapper.set_cull_behind_camera(bool(enabled))
+
     def set_cull_radius(self, scale: float = 1.5) -> None:
         self.cpp_wrapper.set_cull_radius(scale)
 
     def set_msaa_samples(self, samples: int) -> None:
         self.cpp_wrapper.set_msaa_samples(samples)
+
+    def set_max_extrapolation_us(self, microseconds: int) -> None:
+        """How far outside its track a cube is still drawn, holding its end pose.
+
+        Zero confines a cube to its own track, which is what a set of cubes
+        sharing a place and dividing up the time between them needs, since any
+        overlap draws two of them in the same spot.
+        """
+        self._max_extrapolation_us = int(microseconds)
 
     def set_line_widths(
         self,
@@ -514,8 +559,25 @@ class LudusCudaTimestampedContext:
             r, g, b = int(rgba[0]), int(rgba[1]), int(rgba[2])
             a = int(rgba[3]) if len(rgba) > 3 else 255
             packed = r | (g << 8) | (b << 16) | (a << 24)
-            palette[prim_id] = packed
+            # The buffer is signed and the shader reads it back unsigned, so an
+            # alpha of 128 or more has to wrap rather than overflow.
+            palette[prim_id] = packed - (1 << 32) if packed >= (1 << 31) else packed
         self.cpp_wrapper.upload_color_palette(palette)
+
+    def upload_width_table(self, widths: dict) -> None:
+        """Upload a line width per primitive type.
+
+        ``widths`` maps ``prim_type_id`` (int) to a width in pixels, before it
+        narrows with distance. Anything left out, or given zero, keeps the
+        width it would have had. Poles are the only type whose width is
+        otherwise fixed, so a caller drawing several layers at several widths
+        has no other way to say so.
+        """
+        largest = max(widths.keys()) + 1 if widths else 0
+        table = torch.zeros(largest, dtype=torch.float32)
+        for prim_id, width in widths.items():
+            table[prim_id] = float(width)
+        self.cpp_wrapper.upload_width_table(table)
 
     def clear_scenes(self) -> None:
         self._scenes.clear()

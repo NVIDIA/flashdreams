@@ -244,6 +244,33 @@ void LudusCudaStateWrapper::setLineWidths(float polyline_regular, float polyline
     pState->widthWireframe = wireframe;
 }
 
+void LudusCudaStateWrapper::setWidthInNdc(bool enabled)
+{
+    const at::cuda::OptionalCUDAGuard device_guard(
+        c10::Device(c10::kCUDA, cudaDeviceIdx));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    synchronizeStateForMutation(*this);
+    pState->widthInNdc = enabled ? 1 : 0;
+}
+
+void LudusCudaStateWrapper::setDepthFade(bool enabled)
+{
+    const at::cuda::OptionalCUDAGuard device_guard(
+        c10::Device(c10::kCUDA, cudaDeviceIdx));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    synchronizeStateForMutation(*this);
+    pState->noDepthFade = enabled ? 0 : 1;
+}
+
+void LudusCudaStateWrapper::setCullBehindCamera(bool enabled)
+{
+    const at::cuda::OptionalCUDAGuard device_guard(
+        c10::Device(c10::kCUDA, cudaDeviceIdx));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    synchronizeStateForMutation(*this);
+    pState->cullBehindCamera = enabled ? 1 : 0;
+}
+
 void LudusCudaStateWrapper::setResolutionScale(float scale)
 {
     const at::cuda::OptionalCUDAGuard device_guard(
@@ -311,6 +338,18 @@ void LudusCudaStateWrapper::uploadColorPalette(torch::Tensor colors)
     auto colors_cpu = colors.to(torch::kCPU).to(torch::kInt32);
     memcpy(hostPalette.data(), colors_cpu.data_ptr<int32_t>(), count * sizeof(uint32_t));
     ludusCudaUploadColorPalette(*pState, hostPalette.data(), count);
+}
+
+void LudusCudaStateWrapper::uploadWidthTable(torch::Tensor widths)
+{
+    const at::cuda::OptionalCUDAGuard device_guard(
+        c10::Device(c10::kCUDA, cudaDeviceIdx));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    synchronizeStateForMutation(*this);
+    NVDR_CHECK(widths.dim() == 1, "width table must be a 1D tensor of pixels per prim type");
+    int count = widths.size(0);
+    auto widths_cpu = widths.to(torch::kCPU).to(torch::kFloat32).contiguous();
+    ludusCudaUploadWidthTable(*pState, widths_cpu.data_ptr<float>(), count);
 }
 
 //------------------------------------------------------------------------
@@ -614,6 +653,11 @@ torch::Tensor ludus_render_fwd_cuda_timestamped(
     params.cameraTypeId = camera_type_id;
     params.colorPaletteSize = s.colorPaletteSize;
     params.colorPalette = s.colorPalette;
+    params.widthTableSize = s.widthTableSize;
+    params.widthTable = s.widthTable;
+    params.widthInNdc = s.widthInNdc;
+    params.noDepthFade = s.noDepthFade;
+    params.cullBehindCamera = s.cullBehindCamera;
 
     // FLU → RDF, then transpose for column-major
     torch::Tensor camera_poses_t = flu_to_rdf_cuda(camera_poses).transpose(-2, -1).contiguous();

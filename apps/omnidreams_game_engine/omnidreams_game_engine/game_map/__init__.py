@@ -7,6 +7,7 @@ from omnidreams_game_engine.game_map._schema import (
     GAME_MAP_SUFFIX,
     GameMapError,
     GameMapHeader,
+    GameMapRaceCourseHeader,
     load_game_map_header,
     resolve_seed_asset,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "GameMapCurb",
     "GameMapElement",
     "GameMapHeader",
+    "GameMapRaceCourseHeader",
     "GameMapLane",
     "GameMapLaneDivider",
     "GameMapLinearAttributes",

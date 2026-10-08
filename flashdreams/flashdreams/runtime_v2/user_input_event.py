@@ -116,6 +116,19 @@ class FocusUserInputEvent(UserInputEvent):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class QueryStringUserInputEvent(UserInputEvent):
+    """Query string supplied by a browser when it connects."""
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "query_string"
+
+    query_string: str = ""
+    """Raw query string without its leading question mark."""
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class TouchUserInputEvent(UserInputEvent):
     """User input event for touch."""
 

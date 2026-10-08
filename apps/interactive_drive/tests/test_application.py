@@ -345,6 +345,24 @@ def test_interactive_drive_uses_regular_application_contract() -> None:
     assert app.session_desc().video_width == 1280
     assert app.session_desc().video_height == 704
 
+    closed: list[bool] = []
+    backend = cast(Any, SimpleNamespace(close=lambda: closed.append(True)))
+    loop = InteractiveDriveModelLoop()
+    loop.state = cast(
+        Any,
+        SimpleNamespace(
+            backend=backend,
+            owns_backend=False,
+            physics_world=None,
+            scene=object(),
+        ),
+    )
+    loop.close()
+    assert closed == []
+    app._backend = backend
+    app.close()
+    assert closed == [True]
+
 
 def test_interactive_drive_no_ui_skips_ui_and_bev(tmp_path: Path) -> None:
     scene = tmp_path / "local.usdz"
@@ -426,9 +444,7 @@ def test_world_model_accepts_postprocess_preset(
         lambda _: _FakePostProcessorConfig(),
     )
     app = InteractiveDriveApplication(
-        defaults=InteractiveDriveApplicationDefaults(
-            pipeline_config=cast(Any, object()),
-        ),
+        defaults=InteractiveDriveApplicationDefaults(),
     )
     initial_desc = app.session_desc()
 
@@ -440,7 +456,7 @@ def test_world_model_accepts_postprocess_preset(
             "example-preset",
             "--postprocess-device",
             "cuda:1",
-        ]
+        ],
     )
 
     assert app._config is not None

@@ -20,16 +20,17 @@ from flashdreams.api_v2.session import ISession
 from flashdreams.infra.postprocess import VideoPostprocessStream
 from flashdreams.infra.postprocess.base import from_bvtchw, to_bvtchw
 from flashdreams.infra.runner_io import ResizeInterpolation, load_first_frame_tensor
-from flashdreams.runtime_v2.input_timeline import RealtimeInputTimeline
+from flashdreams.runtime_v2.input_timeline import InputWindow, RealtimeInputTimeline
 from flashdreams.runtime_v2.keyboard_input import KeyboardStateTrack
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateTracker
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import KeyboardUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
-from .controls import CameraPoseIntegrator, KeyboardResampler
+from .controls import CameraPoseIntegrator, KeyboardResampler, PoseSegment
 from .defaults import Cam2VConditioning, Cam2VGenerateStep, generate_camera_step
 from .postprocess_comparison import compose_postprocess_comparison
 from .ui import (
@@ -39,6 +40,29 @@ from .ui import (
     Cam2VUIState,
     Cam2VUIStatus,
 )
+
+
+def _integrate_camera_poses(
+    integrator: CameraPoseIntegrator,
+    segments: list[PoseSegment],
+    frame_times: list[float],
+) -> torch.Tensor:
+    """Integrate one live camera-pose window into a tensor."""
+    return torch.from_numpy(
+        integrator.integrate_chunk(segments=segments, frame_times=frame_times)
+    )
+
+
+def _segments_starting_at(
+    segments: list[PoseSegment],
+    start_s: float,
+) -> list[PoseSegment]:
+    """Trim sampled keyboard state to the live portion of a mixed window."""
+    return [
+        (max(segment_start_s, start_s), segment_end_s, keys)
+        for segment_start_s, segment_end_s, keys in segments
+        if segment_end_s > start_s
+    ]
 
 
 @dataclass(kw_only=True, slots=True)
@@ -163,6 +187,9 @@ class Cam2VModelState:
     pose_integrator: CameraPoseIntegrator = field(default_factory=CameraPoseIntegrator)
     """Session-local continuous camera state."""
 
+    replay_poses: torch.Tensor | None = field(init=False)
+    """Fixed trajectory used until keyboard takeover or replay exhaustion."""
+
     steady_started_at: float | None = None
     """Wall-clock origin immediately after excluded warmup blocks."""
 
@@ -189,6 +216,74 @@ class Cam2VModelState:
             self.keyboard_resampler = keyboard_resampler
         self.input_timeline = keyboard_resampler.input_timeline
         self.keyboard_track = keyboard_resampler.keyboard_track
+        self.replay_poses = self.config.conditioning.camera_poses
+
+    def sample_camera_poses(
+        self,
+        window: InputWindow,
+        *,
+        keyboard_takeover_s: float | None,
+    ) -> torch.Tensor:
+        """Use replay poses until they end or timestamped keyboard control begins."""
+        segments = self.keyboard_track.segments(window)
+        frame_times = list(window.sample_times_s)
+        replay_poses = self.replay_poses
+
+        # Case 1: Replay already finished, so keyboard control owns every frame.
+        if replay_poses is None:
+            return _integrate_camera_poses(self.pose_integrator, segments, frame_times)
+
+        frame_start = self.frames_generated
+        replay_count = min(len(frame_times), max(len(replay_poses) - frame_start, 0))
+        if keyboard_takeover_s is not None:
+            # A key event affects the interval after its timestamp, so replay
+            # samples at or before that time and give later samples to the keyboard.
+            replay_count = min(
+                replay_count,
+                sum(sample_s <= keyboard_takeover_s for sample_s in frame_times),
+            )
+
+        replay_chunk = replay_poses[frame_start : frame_start + replay_count]
+
+        # Case 2: Replay owns every frame in this window.
+        if replay_count == len(frame_times):
+            replay_ends_here = frame_start + replay_count == len(replay_poses)
+            if replay_ends_here or keyboard_takeover_s is not None:
+                self._finish_camera_replay(replay_chunk[-1])
+            return replay_chunk
+
+        # Case 3: Replay owns a prefix, possibly empty, and live control owns
+        # the rest. Seed live control from the last pose before that handoff.
+        if replay_count:
+            last_replay_pose = replay_chunk[-1]
+            live_start_s = frame_times[replay_count - 1]
+        else:
+            previous_replay_index = min(max(frame_start - 1, 0), len(replay_poses) - 1)
+            last_replay_pose = replay_poses[previous_replay_index]
+            live_start_s = window.start_s
+
+        self._finish_camera_replay(last_replay_pose)
+        live_frame_times = frame_times[replay_count:]
+        live_poses = _integrate_camera_poses(
+            self.pose_integrator,
+            _segments_starting_at(segments, live_start_s),
+            live_frame_times,
+        )
+
+        if replay_count == 0:
+            return live_poses
+        live_poses = live_poses.to(
+            device=replay_chunk.device,
+            dtype=replay_chunk.dtype,
+        )
+        return torch.cat((replay_chunk, live_poses))
+
+    def _finish_camera_replay(self, pose: torch.Tensor) -> None:
+        """Seed continuous control from the last replay pose exactly once."""
+        self.pose_integrator.reset(
+            pose.detach().to(device="cpu", dtype=torch.float32).numpy()
+        )
+        self.replay_poses = None
 
     def set_postprocess_enabled(self, enabled: bool) -> None:
         """Select generated or post-processed frames without resetting the stream."""
@@ -247,18 +342,24 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
                 result.timestamp_s for result in keyboard_events if result.tracked
             ),
         )
-        segments = state.keyboard_track.segments(input_window)
-        frame_times = list(input_window.sample_times_s)
-        poses = state.pose_integrator.integrate_chunk(
-            segments=segments,
-            frame_times=frame_times,
+        keyboard_takeover_s = min(
+            (
+                result.timestamp_s
+                for result in keyboard_events
+                if result.tracked and isinstance(result.event, KeyboardUserInputEvent)
+            ),
+            default=None,
+        )
+        poses = state.sample_camera_poses(
+            input_window,
+            keyboard_takeover_s=keyboard_takeover_s,
         )
         camera_input = CameraControlInput(
             intrinsics=conditioning.base_intrinsics.repeat(frame_count, 1).to(
                 device=state.config.device,
                 dtype=torch.float32,
             ),
-            poses=torch.from_numpy(poses).to(
+            poses=poses.to(
                 device=state.config.device,
                 dtype=torch.float32,
             ),
@@ -405,6 +506,7 @@ class Cam2VModelLoop(IModelLoop[Cam2VModelState]):
         state.input_timeline.reset(start_s=0.0)
         state.keyboard_track.reset()
         state.pose_integrator.reset()
+        state.replay_poses = state.config.conditioning.camera_poses
         state.steady_started_at = None
         state.steady_frames_generated = 0
         state._recent_model_frame_rate_tracker.reset()

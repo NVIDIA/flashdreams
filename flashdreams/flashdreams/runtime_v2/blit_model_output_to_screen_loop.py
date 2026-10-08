@@ -15,7 +15,7 @@
 
 """Default UI loop for presenting model output."""
 
-from typing import final
+from typing import Generic, TypeVar, final
 
 from torch import Tensor
 
@@ -24,38 +24,47 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
+_StateT = TypeVar("_StateT")
 
-class BlitModelOutputToScreenLoop(IUILoop[None]):
+
+class BlitModelOutputToScreenLoop(IUILoop[_StateT], Generic[_StateT]):
     """Draw every model channel into one UI frame."""
 
     def _initialize_loop_state(self) -> None:
         self._last_presented_frame_count = 0
 
+    def frames_to_blit(self) -> tuple[Tensor, ...]:
+        """Return the model channels to draw, bottom channel first.
+
+        Subclasses that present a subset (a headless run that wants the
+        generated video without the debug channels, say) override this.
+        """
+        return self.presented_model_frames()
+
     @final
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult | None:
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Draw the model channels in list order."""
         del events
         output = None
-        for frame in self.presented_model_frames():
+        for frame in self.frames_to_blit():
             output = self._presentation_manager.composite(output, frame)
-        self._last_presented_frame_count = (
-            self._presentation_manager.presented_frame_count
-        )
+        self._last_presented_frame_count = self.presented_model_frame_count
         if output is None:
-            return None
-        return StepResult(
-            step_index=step_index,
-            output=_frame_to_layout(output, self.output_layout),
-            frame_count=1,
-            output_layout=self.output_layout,
-        )
+            return []
+        return [
+            StepResult(
+                step_index=step_index,
+                output=_frame_to_layout(output, self.output_layout),
+                frame_count=1,
+                output_layout=self.output_layout,
+            )
+        ]
 
     def is_finished(self) -> bool:
         return (
             self.model_inference_state is ModelInferenceState.FINISHED
-            and not self._presentation_manager.has_pending_frames()
-            and self._last_presented_frame_count
-            == self._presentation_manager.presented_frame_count
+            and not self.has_pending_model_frames()
+            and self._last_presented_frame_count == self.presented_model_frame_count
         )
 
     def reset(self) -> None:

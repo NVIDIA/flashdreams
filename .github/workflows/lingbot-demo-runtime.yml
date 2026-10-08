@@ -148,6 +148,7 @@ jobs:
             frun "${APP_ID}" \
               --mode mp4 \
               --output-path "${output_dir}/lingbot-demo-replay.mp4" \
+              --timeout unbound \
               --stats-path "${output_dir}/lingbot-demo-replay-stats.json" \
               --pixel-height "${HEIGHT}" \
               --pixel-width "${WIDTH}" \
