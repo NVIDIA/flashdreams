@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import threading
 import time
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager, nullcontext
 from contextvars import ContextVar, Token
@@ -47,9 +47,16 @@ class IProfiler(ABC):
     timing, or nothing. Call sites name a range and never import a backend.
     """
 
-    @abstractmethod
     def range(self, name: str) -> ContextManager[None]:
         """Return a context manager covering the block as ``name``."""
+        del name
+        return nullcontext()
+
+    def stage_scope(self, owner: object) -> ContextManager[None]:
+        """Return a context manager that files the stages timed inside under
+        ``owner``, so a pipeline run inside another keeps its own timings."""
+        del owner
+        return nullcontext()
 
     def event(
         self, name: str, *, count: int = 1, step: tuple[int, int] | None = None
@@ -88,14 +95,21 @@ class IProfiler(ABC):
     def input_consumed(
         self, step: tuple[int, int], received_ns: Sequence[int], started_ns: int
     ) -> None:
-        """Note that the step keyed ``(generation, step_index)``, started at
-        ``started_ns`` and returning now, consumed inputs that reached the runtime
-        at ``received_ns``.
+        """Note that the step keyed ``(generation, step_index)``, returning now,
+        carries the output for inputs that reached the runtime at ``received_ns``
+        and were read by a step started at ``started_ns``.
 
-        Times are ``time.monotonic_ns()``. The key is the one its result carries,
-        which is how presentation identifies the step.
+        A step that buffered its output read them earlier, so this is called once
+        per step that read input since the last output. Times are
+        ``time.monotonic_ns()``. The key is the one its result carries, which is
+        how presentation identifies the step.
         """
         del step, received_ns, started_ns
+
+    def input_dropped(self, received_ns: Sequence[int]) -> None:
+        """Note that the inputs that reached the runtime at ``received_ns`` will
+        never be shown, because a reset discarded the output they went into."""
+        del received_ns
 
     def step_presented(self, step: tuple[int, int]) -> None:
         """Note that the first frame of the step keyed ``(generation, step_index)``
@@ -116,10 +130,6 @@ class IProfiler(ABC):
 
 class NullProfiler(IProfiler):
     """Records nothing. The default, so an unprofiled run pays one no-op."""
-
-    def range(self, name: str) -> ContextManager[None]:
-        del name
-        return nullcontext()
 
 
 class NVTXProfiler(IProfiler):
@@ -160,18 +170,27 @@ class NVTXProfiler(IProfiler):
         with self._lock:
             self._arrived.setdefault(received_ns, []).append(range_id)
 
+    def _take_arrived(self, received_ns: Sequence[int]) -> list[int]:
+        """Remove and return the waits of these arrivals. Hold the lock."""
+        return [
+            range_id
+            for arrived_ns in set(received_ns)
+            for range_id in self._arrived.pop(arrived_ns, [])
+        ]
+
     def input_consumed(
         self, step: tuple[int, int], received_ns: Sequence[int], started_ns: int
     ) -> None:
         del started_ns
         with self._lock:
-            range_ids = [
-                range_id
-                for arrived_ns in set(received_ns)
-                for range_id in self._arrived.pop(arrived_ns, [])
-            ]
-            if range_ids:
+            if range_ids := self._take_arrived(received_ns):
                 self._waiting.setdefault(step, []).extend(range_ids)
+
+    def input_dropped(self, received_ns: Sequence[int]) -> None:
+        with self._lock:
+            ended = self._take_arrived(received_ns)
+        for range_id in ended:
+            torch.cuda.nvtx.range_end(range_id)
 
     def step_presented(self, step: tuple[int, int]) -> None:
         with self._lock:
@@ -199,12 +218,29 @@ class CudaEventProfiler(IProfiler):
     """Times ``pipeline.*`` ranges with CUDA events, as ``finalize`` reports them.
 
     Other ranges are marked but not timed: the timings are consecutive stages of
-    one AR step, which nested or repeated names would not describe. State is
+    one AR step, which nested or repeated names would not describe. Each
+    :meth:`stage_scope` owner has its own timer, so a pipeline run between
+    another's ``generate`` and ``finalize`` does not mix their stages. State is
     per-thread, so concurrent sessions do not interleave one another's stages.
     """
 
     def __init__(self) -> None:
         self._state = threading.local()
+
+    def _timers(self) -> dict[int | None, tuple[EventProfiler, set[str]]]:
+        timers = getattr(self._state, "timers", None)
+        if timers is None:
+            timers = self._state.timers = {}
+        return timers
+
+    @contextmanager
+    def stage_scope(self, owner: object) -> Iterator[None]:
+        previous = getattr(self._state, "owner", None)
+        self._state.owner = id(owner)
+        try:
+            yield
+        finally:
+            self._state.owner = previous
 
     @contextmanager
     def range(self, name: str) -> Iterator[None]:
@@ -212,14 +248,14 @@ class CudaEventProfiler(IProfiler):
             yield
             return
         stage = name.removeprefix(_STAGE_PREFIX)
-        events: EventProfiler | None = getattr(self._state, "events", None)
-        recorded: set[str] = getattr(self._state, "recorded", set())
-        if events is None or stage in recorded:
+        timers = self._timers()
+        owner = getattr(self._state, "owner", None)
+        timer = timers.get(owner)
+        if timer is None or stage in timer[1]:
             # Either the first stage of a step, or a step that raised before
             # finalize collected it. Start a fresh one rather than assert.
-            events = EventProfiler()
-            recorded = set()
-            self._state.events, self._state.recorded = events, recorded
+            timer = timers[owner] = (EventProfiler(), set())
+        events, recorded = timer
         try:
             yield
         finally:
@@ -227,12 +263,10 @@ class CudaEventProfiler(IProfiler):
             recorded.add(stage)
 
     def collect_stage_ms(self) -> dict[str, float]:
-        events: EventProfiler | None = getattr(self._state, "events", None)
-        if events is None:
+        timer = self._timers().pop(getattr(self._state, "owner", None), None)
+        if timer is None:
             return {}
-        self._state.events = None
-        self._state.recorded = set()
-        return events.sync_and_summarize()
+        return timer[0].sync_and_summarize()
 
 
 class FrameRateProfiler(IProfiler):
@@ -252,10 +286,6 @@ class FrameRateProfiler(IProfiler):
         self._since_start: dict[str, int] = {}
         self._started_at = time.monotonic()
         self._last_read_at = self._started_at
-
-    def range(self, name: str) -> ContextManager[None]:
-        del name
-        return nullcontext()
 
     def event(
         self, name: str, *, count: int = 1, step: tuple[int, int] | None = None
@@ -299,22 +329,18 @@ class InputLatencyProfiler(IProfiler):
     Every input a step consumed counts, and the reported value is their mean.
     ``input.queue_ms`` is the wait for the step to start, ``input.present_ms`` runs
     from the step returning to its frame being shown, and the rest is the step
-    itself. Each key also has an ``_avg_ms`` form covering the session. Inputs of
-    a step that returns no frames are left out, since nothing of theirs is shown.
+    itself. Each key also has an ``_avg_ms`` form covering the session. Input read
+    by a step that buffered its output counts once a later step shows it.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        # Steps that consumed input and have not shown a frame yet:
-        # (generation, step) -> (step start, step end, input arrivals), in ns.
-        self._waiting: dict[tuple[int, int], tuple[int, int, list[int]]] = {}
+        # Steps that carry input and have not shown a frame yet:
+        # (generation, step) -> [(input arrival, read start, step end)], in ns.
+        self._waiting: dict[tuple[int, int], list[tuple[int, int, int]]] = {}
         self._since_read: dict[str, list[float]] = {name: [] for name in _STAGES}
         self._totals: dict[str, float] = dict.fromkeys(_STAGES, 0.0)
         self._count = 0
-
-    def range(self, name: str) -> ContextManager[None]:
-        del name
-        return nullcontext()
 
     def input_consumed(
         self, step: tuple[int, int], received_ns: Sequence[int], started_ns: int
@@ -323,19 +349,18 @@ class InputLatencyProfiler(IProfiler):
             return
         ended_ns = time.monotonic_ns()
         with self._lock:
-            self._waiting[step] = (started_ns, ended_ns, list(received_ns))
+            self._waiting.setdefault(step, []).extend(
+                (arrived_ns, started_ns, ended_ns) for arrived_ns in received_ns
+            )
 
     def step_presented(self, step: tuple[int, int]) -> None:
         presented_ns = time.monotonic_ns()
         with self._lock:
-            entry = self._waiting.pop(step, None)
+            entries = self._waiting.pop(step, [])
             # An older step still waiting was dropped, so its frame never appears.
             for older in [key for key in self._waiting if key < step]:
                 del self._waiting[older]
-            if entry is None:
-                return
-            started_ns, ended_ns, received_ns = entry
-            for arrived_ns in received_ns:
+            for arrived_ns, started_ns, ended_ns in entries:
                 stages_ms = {
                     "latency": (presented_ns - arrived_ns) / 1e6,
                     "queue": (started_ns - arrived_ns) / 1e6,
@@ -381,6 +406,13 @@ class CompositeProfiler(IProfiler):
                 stack.enter_context(profiler.range(name))
             yield
 
+    @contextmanager
+    def stage_scope(self, owner: object) -> Iterator[None]:
+        with ExitStack() as stack:
+            for profiler in self._profilers:
+                stack.enter_context(profiler.stage_scope(owner))
+            yield
+
     def event(
         self, name: str, *, count: int = 1, step: tuple[int, int] | None = None
     ) -> None:
@@ -396,6 +428,10 @@ class CompositeProfiler(IProfiler):
     ) -> None:
         for profiler in self._profilers:
             profiler.input_consumed(step, received_ns, started_ns)
+
+    def input_dropped(self, received_ns: Sequence[int]) -> None:
+        for profiler in self._profilers:
+            profiler.input_dropped(received_ns)
 
     def step_presented(self, step: tuple[int, int]) -> None:
         for profiler in self._profilers:

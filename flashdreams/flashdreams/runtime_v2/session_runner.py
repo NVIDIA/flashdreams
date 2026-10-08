@@ -19,7 +19,11 @@ from flashdreams.api_v2.loop import (
     UILoopRequests,
 )
 from flashdreams.api_v2.session import ISession
-from flashdreams.infra.profiler import get_inference_profiler
+from flashdreams.infra.profiler import (
+    IProfiler,
+    bind_inference_profiler,
+    unbind_inference_profiler,
+)
 from flashdreams.runtime_v2.coordination import StepAgreement
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
@@ -49,6 +53,18 @@ class _ChunkTraceLog:
 def _log_secondary_failure(message: str, error: BaseException) -> None:
     """Log a cleanup failure that cannot replace an earlier exception."""
     _LOGGER.error(message, exc_info=error)
+
+
+def _write_session_end(profiler: IProfiler, sink: MetricsOutputSink) -> None:
+    """Write what was measured after the last model record.
+
+    Its frames are shown after the record is written, so their frame rate and
+    input latency reach no step's record.
+    """
+    measured = profiler.collect_fps()
+    measured.update(profiler.collect_input_latency_ms())
+    if measured:
+        sink.write_summary(measured)
 
 
 def run_session(
@@ -124,6 +140,10 @@ def run_session(
     stop: threading.Event | None = None
     presentation_manager = None
     trace_log: _ChunkTraceLog | None = None
+    # Bound on this thread for the whole session, so input, presentation and
+    # cleanup report to the profiler the session gave its loops.
+    profiler = session._profiler
+    profiler_token = bind_inference_profiler(profiler)
 
     def cleanup(action: Callable[[], None]) -> None:
         """Keep releasing resources after a cleanup failure."""
@@ -161,7 +181,7 @@ def run_session(
             events = window.get_user_input_events()
             received_ns = event_buffer.append(events)
             if count := len(events.get_events()):
-                get_inference_profiler().input_received(received_ns, count)
+                profiler.input_received(received_ns, count)
 
         def run_ui_once(*, step_requested: bool = True) -> None:
             """Process UI lifecycle control and run a requested UI step."""
@@ -365,10 +385,12 @@ def run_session(
             cleanup(presentation_manager.close)
         cleanup_failures.extend(session._shutdown_registered_loops())
         cleanup(event_buffer.clear)
-        # Both loops have stopped, so nothing will close an input wait still open.
-        cleanup(lambda: get_inference_profiler().reset_counts())
         if metrics_output_sink is not None:
-            cleanup(metrics_output_sink.close)
+            sink = metrics_output_sink
+            cleanup(lambda: _write_session_end(profiler, sink))
+            cleanup(sink.close)
+        # Both loops have stopped, so nothing will close an input wait still open.
+        cleanup(profiler.reset_counts)
         if next_session_desc is None and window is not None:
             cleanup(window.close)
         cleanup(session.close)
@@ -376,6 +398,7 @@ def run_session(
             cleanup(agreement.close)
         if trace_log is not None:
             cleanup(lambda: _close_chunk_trace(trace_log))
+        unbind_inference_profiler(profiler_token)
 
     loop_failures = (
         None if session._failure_queue.empty() else session._failure_queue.get()

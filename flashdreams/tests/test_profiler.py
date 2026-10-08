@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import queue
 import subprocess
 import threading
@@ -30,6 +31,7 @@ import pytest
 import torch
 from numpy import uint64
 
+from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.infra import profiler as profiler_module
 from flashdreams.infra.profiler import (
@@ -47,6 +49,22 @@ from flashdreams.infra.profiler import (
     set_flashdreams_inference_profiler,
     unbind_inference_profiler,
 )
+from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
+from flashdreams.runtime_v2.session_desc import (
+    BackpressureMode,
+    PresentationMode,
+    SessionDesc,
+)
+from flashdreams.runtime_v2.session_runner import run_session
+from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import (
+    KeyboardInputState,
+    KeyboardUserInputEvent,
+    ResetUserInputEvent,
+)
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from tools.profiling import cli as profiling_cli
 
 pytestmark = pytest.mark.ci_cpu
@@ -309,72 +327,81 @@ def test_frame_rates_ignore_the_step(clock: _Clock) -> None:
     assert profiler.collect_fps()["present.frame_fps"] == pytest.approx(2.0)
 
 
+class _KeyWindow(IClientWindow):
+    """A window that presses a key on every ``every``-th poll, at most ``limit``
+    times (``None`` for no limit)."""
+
+    def __init__(self, *, every: int = 1, limit: int | None = 1) -> None:
+        self.polls = 0
+        self.batches = 0
+        self._every = every
+        self._limit = limit
+
+    def get_user_input_events(self) -> UserInputEvents:
+        self.polls += 1
+        if self.polls % self._every or self.batches == self._limit:
+            return UserInputEvents([])
+        self.batches += 1
+        return UserInputEvents([_key_press()])
+
+    def open(self, session_desc: SessionDesc) -> None:
+        pass
+
+    def write(self, result: StepResult) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def _key_press() -> KeyboardUserInputEvent:
+    return KeyboardUserInputEvent(
+        timestamp=uint64(0), key="r", state=KeyboardInputState.PRESSED
+    )
+
+
+def _run_red_screen(
+    *,
+    steps: int,
+    profiler: IProfiler,
+    window: IClientWindow | None = None,
+    metrics_output_sink: MetricsOutputSink | None = None,
+) -> None:
+    """Run red_screen through the real session runner, with ``profiler`` given
+    to the session and no profiler bound around it."""
+    red_screen = pytest.importorskip("red_screen")
+    app = red_screen.create_app()
+    app.init([])
+    try:
+        session = app.create_session(
+            SessionDesc(
+                output_layout=VideoTensorLayout.bcthw,
+                backpressure_mode=BackpressureMode.BLOCK,
+                presentation_mode=PresentationMode.ON_DEMAND,
+                frames_per_second_for_ui=60,
+                frames_per_second_for_step=30,
+                video_width=2,
+                video_height=2,
+            )
+        )
+        session._profiler = profiler
+        run_session(
+            session,
+            window or _KeyWindow(),
+            steps=steps,
+            metrics_output_sink=metrics_output_sink,
+        )
+    finally:
+        app.close()
+
+
 def test_a_session_labels_its_frames_and_closes_every_input_wait(
     nvtx_recorder: _RecordingNvtx,
 ) -> None:
     """red_screen through the real runner, with key presses part way through."""
-    red_screen = pytest.importorskip("red_screen")
-    from flashdreams.api_v2.client_window import IClientWindow
-    from flashdreams.runtime_v2.session_desc import (
-        BackpressureMode,
-        PresentationMode,
-        SessionDesc,
-    )
-    from flashdreams.runtime_v2.session_runner import run_session
-    from flashdreams.runtime_v2.user_input_event import (
-        KeyboardInputState,
-        KeyboardUserInputEvent,
-    )
-    from flashdreams.runtime_v2.user_input_events import UserInputEvents
-    from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+    keys = _KeyWindow(every=3, limit=None)
 
-    class _Keys(IClientWindow):
-        def __init__(self) -> None:
-            self.polls = 0
-            self.batches = 0
-
-        def get_user_input_events(self) -> UserInputEvents:
-            self.polls += 1
-            if self.polls % 3:
-                return UserInputEvents([])
-            self.batches += 1
-            state = (
-                KeyboardInputState.PRESSED
-                if self.batches % 2
-                else KeyboardInputState.RELEASED
-            )
-            return UserInputEvents(
-                [KeyboardUserInputEvent(timestamp=uint64(0), key="r", state=state)]
-            )
-
-        def open(self, session_desc: object) -> None:
-            pass
-
-        def write(self, result: object) -> None:
-            pass
-
-        def close(self) -> None:
-            pass
-
-    keys = _Keys()
-    app = red_screen.create_app()
-    app.init([])
-    try:
-        with set_flashdreams_inference_profiler(NVTXProfiler()):
-            session = app.create_session(
-                SessionDesc(
-                    output_layout=VideoTensorLayout.bcthw,
-                    backpressure_mode=BackpressureMode.BLOCK,
-                    presentation_mode=PresentationMode.ON_DEMAND,
-                    frames_per_second_for_ui=60,
-                    frames_per_second_for_step=30,
-                    video_width=2,
-                    video_height=2,
-                )
-            )
-            run_session(session, keys, steps=20)
-    finally:
-        app.close()
+    _run_red_screen(steps=20, profiler=NVTXProfiler(), window=keys)
 
     assert keys.batches > 0
     assert len(nvtx_recorder.started) == keys.batches, "one wait per input batch"
@@ -779,6 +806,177 @@ def test_a_finished_loop_leaves_the_caller_s_context_alone() -> None:
     unbind_inference_profiler(token)
 
     assert get_inference_profiler() is not recording
+
+
+@pytest.mark.parametrize("inner_times_itself", [True, False])
+def test_a_pipeline_run_inside_another_keeps_both_timings(
+    stub_events: None, inner_times_itself: bool
+) -> None:
+    """Interactive Drive runs a FlashVSR step between its model's generate and
+    finalize, on the same thread and through the same profiler."""
+    null_model = pytest.importorskip("null_model")
+    outer = null_model.NULL_MODEL_CONFIG.setup().to("cpu")
+    inner = null_model.NULL_MODEL_CONFIG.setup().to("cpu")
+    outer_cache, inner_cache = outer.initialize_cache(), inner.initialize_cache()
+
+    with set_flashdreams_inference_profiler(CudaEventProfiler()):
+        outer.generate(0, outer_cache, input=torch.tensor([[1]]))
+        if inner_times_itself:  # FlashVSR: its own generate(), timed on its cache
+            inner_cache.autoregressive_index = 0
+            inner_cache.final_state = outer_cache.final_state
+            inner_cache.event_profiler = profiler_module.EventProfiler()
+            inner_cache.event_profiler.record("denoise")
+        else:
+            inner.generate(0, inner_cache, input=torch.tensor([[1]]))
+        inner_stats = inner.finalize(0, inner_cache)
+        outer_stats = outer.finalize(0, outer_cache)
+
+    stages = ("encode_ms", "diffuse_ms", "decode_ms", "finalize_ms")
+    assert outer_stats is not None and all(stage in outer_stats for stage in stages)
+    assert inner_stats is not None and "finalize_ms" in inner_stats
+
+
+class _CallCounter(IProfiler):
+    """Counts the session-level callbacks it receives."""
+
+    def __init__(self) -> None:
+        self.calls: dict[str, int] = {}
+
+    def _count(self, name: str) -> None:
+        self.calls[name] = self.calls.get(name, 0) + 1
+
+    def input_received(self, received_ns: int, count: int) -> None:
+        self._count("input_received")
+
+    def step_presented(self, step: tuple[int, int]) -> None:
+        self._count("step_presented")
+
+    def reset_counts(self) -> None:
+        self._count("reset_counts")
+
+
+def test_a_session_runs_every_callback_through_the_profiler_it_was_given() -> None:
+    """``session._profiler`` must reach input, presentation and cleanup too."""
+    counter = _CallCounter()
+
+    _run_red_screen(steps=3, profiler=counter)
+
+    assert counter.calls.get("input_received", 0) >= 1
+    assert counter.calls.get("step_presented", 0) >= 1
+    assert counter.calls.get("reset_counts", 0) >= 1
+
+
+def test_a_one_step_session_writes_its_last_latency_and_frame_rate(
+    tmp_path: Path,
+) -> None:
+    """The last step's frame is shown after its record, so the session's end
+    must write what it measured."""
+    stats = tmp_path / "stats.json"
+    _run_red_screen(
+        steps=1,
+        profiler=CompositeProfiler((FrameRateProfiler(), InputLatencyProfiler())),
+        metrics_output_sink=MetricsOutputSink(stats),
+    )
+
+    end = {
+        sample["name"]
+        for sample in json.loads(stats.read_text())["samples"]
+        if sample["step_index"] is None
+    }
+    assert {"input.latency_s", "present.frame_fps"} <= end
+
+
+class _BufferingLoop(IModelLoop[None]):
+    """Returns frames only on the calls in ``frames_on`` and presses a key on
+    every call, reported to the profiler as the session runner reports input."""
+
+    def __init__(
+        self, profiler: IProfiler, frames_on: set[int], reset_after: int = 0
+    ) -> None:
+        self.event_buffer = EventBuffer()
+        self.event_buffer.register(0)
+        self._frames_on = frames_on
+        self._reset_after = reset_after
+        self._calls = 0
+        self.register_session_loop_objects(
+            state=None,
+            frequency=0,
+            shutdown_event=threading.Event(),
+            failure_queue=queue.Queue(),
+            profiler=profiler,
+        )
+        self._press()  # read by the first step
+
+    def _press(self) -> None:
+        received_ns = self.event_buffer.append(UserInputEvents([_key_press()]))
+        self.profiler.input_received(received_ns, 1)
+
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        self._calls += 1
+        self._press()  # read by the next step
+        if self._calls == self._reset_after:
+            self.event_buffer.append(
+                UserInputEvents([ResetUserInputEvent(timestamp=uint64(0))])
+            )
+        if self._calls not in self._frames_on:
+            return []
+        return [
+            StepResult(
+                step_index=step_index,
+                output=torch.zeros((1, 3, 1, 1, 1)),
+                frame_count=1,
+                output_layout=VideoTensorLayout.bcthw,
+            )
+        ]
+
+    def reset(self) -> None:
+        pass
+
+    def run(self, steps: int) -> list[int]:
+        """Run ``steps`` steps, showing each result at once; return the
+        generation of each one shown."""
+        shown: list[int] = []
+
+        def publish(generation: int, results: list[StepResult], _: float) -> None:
+            shown.append(generation)
+            self.profiler.step_presented((generation, results[0].step_index))
+
+        self._run_model_loop(
+            event_buffer=self.event_buffer,
+            reader_id=0,
+            publish=publish,
+            max_steps=steps,
+        )
+        return shown
+
+
+def test_input_read_by_a_buffering_step_is_timed_to_the_frame_that_shows_it(
+    nvtx_recorder: _RecordingNvtx,
+) -> None:
+    latency = InputLatencyProfiler()
+    loop = _BufferingLoop(CompositeProfiler((NVTXProfiler(), latency)), {2, 4})
+
+    loop.run(steps=4)
+
+    assert sorted(nvtx_recorder.ended) == [1, 2, 3, 4], (
+        "every key read by the four steps has its wait ended; only the fifth is unread"
+    )
+    assert latency._count == 4, "keys read by the steps that buffered count too"
+
+
+def test_a_reset_ends_the_wait_of_input_whose_output_was_discarded(
+    nvtx_recorder: _RecordingNvtx,
+) -> None:
+    latency = InputLatencyProfiler()
+    loop = _BufferingLoop(
+        CompositeProfiler((NVTXProfiler(), latency)), {2}, reset_after=1
+    )
+
+    assert loop.run(steps=2) == [1], "only the step after the reset shows"
+    assert sorted(nvtx_recorder.ended) == [1, 2], (
+        "the discarded key's wait ends, and so does the key shown after the reset"
+    )
+    assert latency._count == 2, "the second key and the reset, never the first key"
 
 
 def test_profile_wraps_the_runner_console_script(
