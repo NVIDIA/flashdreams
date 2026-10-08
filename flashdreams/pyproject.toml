@@ -14,7 +14,7 @@
 # limitations under the License.
 
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=83.0.0,<84", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -42,7 +42,7 @@ dependencies = [
     "tqdm>=4.60",
     "transformers>=5.17,<6",
     # Security floor for botocore/requests transitive use.
-    "urllib3>=2.7.0",
+    "urllib3>=2.8.0,<3",
     # tyro powers the ``flashdreams-run`` console script (subcommand
     # union over the integration registry, per-field CLI overrides), so it
     # has to ship as a runtime dependency, not a dev-only one.
@@ -135,6 +135,8 @@ rtx-postprocess = [
 serving = [
     "aiohttp>=3.14.3",
     "aiortc>=1.9",
+    # Security floor for aiohttp/yarl's items-view reference leak.
+    "multidict>=6.9.1,<7",
 ]
 
 [tool.setuptools.dynamic]
