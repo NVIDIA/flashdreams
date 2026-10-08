@@ -234,9 +234,9 @@ then include:
 - input latency: `input.latency_ms`, split into `input.queue_ms` and
   `input.present_ms`
 
-Each also has a session average (`_avg_fps` or `_avg_ms`). Input latency appears
-on a later record, once its frame has been shown. To add your own numbers, return
-them in `StepResult.metrics`.
+Each also has a session average (`_avg_fps` or `_avg_ms`). Input latency is left
+out until an input's frame has been shown, then appears on the next record. To add
+your own numbers, return them in `StepResult.metrics`.
 
 ## Starting and stopping a run
 
