@@ -76,29 +76,53 @@ model.
 
 ## Options and user configuration
 
-See the [Options menu index](OPTIONS.md) for field-by-field guides to each page.
-The guides explain menu options, identify which project defines each setting,
-and list available application arguments. Hover an option's label or editor
-to see its description and full YAML path.
+Open **OPTIONS** from **SELECT GAME MODE**. The screen is generated from the
+same typed settings tree used at startup, with pages for game, model, renderer,
+presentation, live edit, runtime, and diagnostics. Hover an option's label or
+editor to see its description, full YAML path, and available CLI flags.
+Repeated labels such as **Seed:** and **Enabled:** are identified by their
+surrounding menu headings.
 
-The mode menu has **CONTROLS** and **OPTIONS** buttons. The Options screen is
-generated from the same typed settings tree used at startup, with pages for
-game, model, renderer, presentation, live edit, runtime, and diagnostics. **SAVE**
-atomically updates the user YAML without leaving the screen. **EXIT** returns
-to the mode menu and changes to **EXIT WITHOUT SAVING** while the draft is
-dirty. **RESET TO DEFAULTS** resets the draft. HUD visibility settings apply
-when saved; presentation dimensions and other startup settings display
-**RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT** because they need a new
-process.
+Model architecture and embedding formats come from the selected runner preset.
+Checkpoint overrides must match that architecture. Performance and scheduler
+controls remain editable. Internal checkpoint hooks, benchmark-only fields, and
+raster fields unused by the game are excluded. Deprecated overrides in existing
+YAML files are ignored and removed on the next save. Unknown keys produce an
+error.
 
-By default, settings are loaded from
+### Editing and saving
+
+A checkbox changes a Boolean, a drop-down presents a fixed set of choices, and
+other fields accept text. Lists and structured values use YAML flow syntax, such
+as `[1000, 500]`. A blank optional field means `None`.
+
+**SAVE** atomically writes the draft and stays on the screen, retaining YAML
+comments. **RESET TO DEFAULTS** resets the draft to the selected runner's
+defaults; press **SAVE** to persist the reset. **EXIT** returns to the mode menu.
+While edits are pending it says **EXIT WITHOUT SAVING** and discards them.
+Presentation changes take effect on save. Other changes display **RESTART
+REQUIRED FOR SETTINGS TO TAKE EFFECT** because they need a new process. A
+**COMMAND-LINE OVERRIDE ACTIVE** note means a launch argument controls the
+current run even if you save a different value.
+
+### Settings ownership
+
+Crazy Robotaxi settings belong to this app. Game engine settings come from
+`omnidreams_game_engine`; OmniDreams and FlashDreams settings come from the model
+integration and framework. All four kinds are saved in the same `config.yaml`.
+Shared source names are kept intact, so readable menu labels may differ from
+their YAML keys. The exported reference's **Defined by** column identifies the
+project that first declared a field, even when this app overrides its default.
+
+### Configuration file and CLI overrides
+
+The screen displays the settings file path. By default it is
 `$XDG_CONFIG_HOME/crazy-robotaxi/config.yaml`, or
 `~/.config/crazy-robotaxi/config.yaml` when `XDG_CONFIG_HOME` is unset. The file
-is created only after the first save. Use `--config PATH` to select another
-user-authored file. YAML values are sparse overrides on the selected runner's
-defaults, and retained comments survive Options saves. Explicit application CLI
-arguments override YAML for the current run without rewriting the saved value;
-the Options screen labels affected fields.
+is created after the first save. Use `--config PATH` to select another file.
+Only values different from the runner preset are saved, so **MODEL** values can
+vary by runner. Paths entered relative to the settings file resolve relative to
+its directory.
 
 For offline YAML edits by users or agents, keys are the Python dataclass field
 names, nested along the settings tree. Start at `CrazyRobotaxiUserSettings` in
@@ -110,14 +134,57 @@ use their dataclass field names.
 To derive a key from a menu label or section heading, remove the trailing colon,
 lowercase it, and replace spaces with underscores. Keep each section as a nested
 mapping: **PRESENTATION → Show Fps** becomes `presentation.show_fps`, a
-`show_fps` key inside the `presentation` mapping.
+`show_fps` key inside the `presentation` mapping. The tooltip gives the full
+path. Units are in field names: `_m` means meters, `_s` seconds, `_mps` meters
+per second, `_rad` radians, and `_deg` degrees.
 
-Mode, map, and race-course selections are intentionally CLI-only and do not
-appear in the YAML or Options screen. Passing `--game-mode`, `--map`, and
-`--race-course` skips their corresponding startup menus; omitted selections
-remain in the normal menu flow. Model diffusion and gameplay seeds are
-independent. Selecting mystery items automatically enables style editing, while
-rain or snow items automatically enable weather editing.
+Application CLI arguments follow the runner's `--`. Explicit CLI values override
+saved YAML for the current run without rewriting it. Where both `--flag` and
+`--no-flag` are listed, the latter explicitly turns the setting off.
+
+Model diffusion and gameplay seeds are independent. `--seed` sets both;
+`--game-seed` and `--model-seed` select them separately. If both are passed,
+`--model-seed` takes precedence over `--seed` for the model, and `--seed` takes
+precedence over `--game-seed` for taxi gameplay. `--profile-input-latency
+[TRACE_PATH]` enables profiling and sets its trace path together; omitting the
+path uses the default trace file. Selecting mystery items automatically enables
+style editing, while rain or snow items automatically enable weather editing.
+
+### Export the options reference
+
+Use `--export-options-docs PATH` to generate a Markdown reference for the
+selected runner:
+
+```bash
+uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+  crazy-robotaxi-omnidreams -- --export-options-docs /tmp/crazy-robotaxi-options.md
+```
+
+The export lists every editable option, grouped by menu heading, with its
+on-screen label, full YAML key, defining project, available CLI flags, and tooltip
+description.
+It also includes the application CLI help. Export uses the runner preset and
+exits after writing the file; it needs no model downloads, GPU session, or
+presentation window. An em dash in the CLI column means to use Options or YAML.
+
+### Launch arguments
+
+These arguments select startup behavior and have no Options field:
+
+| CLI flag | Purpose |
+| --- | --- |
+| `--config PATH` | Select the user settings YAML file. |
+| `--game-mode` | Choose `taxi` or `race` and skip the mode menu. |
+| `--map PATH` | Choose a map and skip map selection. |
+| `--race-course ID` | Choose a race course; requires race mode. |
+| `--force-map-recompile` | Rebuild the compiled map. |
+| `--ui`, `--no-ui` | Enable or disable the ImGui UI. |
+| `--controls-dir PATH` | Select the separate controls settings directory. |
+
+`--no-ui` requires explicit `--game-mode`, `--map`, and `--total-blocks`
+arguments; race mode also requires `--race-course`. Omitted mode, map, and
+race-course selections remain in the normal menu flow. The runner name chooses
+the starting model preset before application arguments are parsed.
 
 ## Controls
 

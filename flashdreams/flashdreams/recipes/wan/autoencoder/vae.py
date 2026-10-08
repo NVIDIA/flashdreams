@@ -1279,18 +1279,12 @@ class WanVAEEncoderConfig(EncoderConfig):
         default_factory=lambda: WanVAEEncoder
     )
 
-    checkpoint_path: str = field(
-        default=AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"],
-        metadata={
-            "description": "Checkpoint for the Wan VAE encoder.",
-        },
-    )
-    dtype: torch.dtype = field(
-        default=torch.bfloat16,
-        metadata={
-            "description": "Parameter and activation precision of the Wan VAE encoder.",
-        },
-    )
+    checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
+    """Checkpoint for the Wan VAE encoder."""
+
+    dtype: torch.dtype = torch.bfloat16
+    """Parameter and activation precision of the Wan VAE encoder."""
+
     use_cuda_graph: bool = True
     """Wrap the encoder forward in a CUDA graph for replay."""
 

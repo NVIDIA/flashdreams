@@ -73,6 +73,7 @@ from crazy_robotaxi.rules import (
     project_target_pose_to_bev_edge,
 )
 from crazy_robotaxi.settings import (
+    SETTING_CLI_FLAGS,
     CrazyRobotaxiUserSettings,
     LiveEditMappingLocation,
     SettingsDocument,
@@ -4182,12 +4183,14 @@ def _settings_widget_content_width(
 
 
 def _draw_option_tooltip(imgui: Any, description: str | None, yaml_key: str) -> None:
-    """Show wrapped help and the YAML path for the hovered setting row."""
+    """Show wrapped help, the YAML path, and available CLI flags on hover."""
     if imgui.begin_item_tooltip():
         imgui.push_text_wrap_pos(imgui.get_font_size() * 35.0)
         try:
             help_text = f"{description}\n\n" if description else ""
-            imgui.text_unformatted(f"{help_text}YAML: {yaml_key}")
+            cli_flags = SETTING_CLI_FLAGS.get(yaml_key)
+            cli_help = f"\nCLI: {cli_flags}" if cli_flags else ""
+            imgui.text_unformatted(f"{help_text}YAML: {yaml_key}{cli_help}")
         finally:
             imgui.pop_text_wrap_pos()
             imgui.end_tooltip()

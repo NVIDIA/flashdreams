@@ -12,7 +12,7 @@ import re
 import tempfile
 import types
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import MISSING, Field, dataclass, field, fields, is_dataclass, replace
+from dataclasses import MISSING, Field, dataclass, fields, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal, Union, cast, get_args, get_origin, get_type_hints
@@ -30,6 +30,76 @@ from crazy_robotaxi.rules import TaxiGameConfig
 
 SettingPath = tuple[str, ...]
 LiveEditMappingLocation = Literal["buttons", "control hints"]
+SETTING_CLI_FLAGS: dict[str, str] = {
+    "diagnostics.input_trace_path": "--profile-input-latency [TRACE_PATH]",
+    "diagnostics.profile_input_latency": "--profile-input-latency [TRACE_PATH]",
+    "diagnostics.profile_pipeline": "--profile-pipeline",
+    "game.effects.visual_flare": "--visual-flare, --no-visual-flare",
+    "game.race.times_path": "--race-times",
+    "game.taxi.high_scores_path": "--high-scores",
+    "game.taxi.rules.global_time_s": "--game-time-s",
+    "game.taxi.seed": "--game-seed, --seed",
+    "live_edit.coins.enabled": "--live-edit-coins, --no-live-edit-coins",
+    "live_edit.coins.max_visible_sprites": "--live-edit-coin-max-visible",
+    "live_edit.coins.sprite_path": "--live-edit-coin-sprite",
+    "live_edit.items.enabled": "--live-edit-items, --no-live-edit-items",
+    "live_edit.items.item_types": "--live-edit-item-types",
+    "live_edit.items.mystery_seed": "--live-edit-item-mystery-seed",
+    "live_edit.items.mystery_sprite_path": "--live-edit-item-mystery-sprite",
+    "live_edit.items.nitro_boost": "--live-edit-nitro-boost",
+    "live_edit.items.nitro_duration_s": "--live-edit-nitro-duration-s",
+    "live_edit.items.nitro_max_speed_mps": "--live-edit-nitro-max-speed",
+    "live_edit.items.nitro_sprite_path": "--live-edit-item-nitro-sprite",
+    "live_edit.items.rain_sprite_path": "--live-edit-item-rain-sprite",
+    "live_edit.items.snow_sprite_path": "--live-edit-item-snow-sprite",
+    "live_edit.items.spacing_m": "--live-edit-item-spacing",
+    "live_edit.map_context.enabled": "--live-edit-map-context, --no-live-edit-map-context",
+    "live_edit.obstacle.active_chunks": "--live-edit-obstacle-chunks",
+    "live_edit.obstacle.annotate": "--live-edit-obstacle-annotate, --no-live-edit-obstacle-annotate",
+    "live_edit.obstacle.count": "--live-edit-obstacle-count",
+    "live_edit.obstacle.enabled": "--live-edit-obstacle, --no-live-edit-obstacle",
+    "live_edit.obstacle.guide_scale": "--live-edit-obstacle-guide-scale",
+    "live_edit.obstacle.physics": "--live-edit-obstacle-physics, --no-live-edit-obstacle-physics",
+    "live_edit.obstacle.placement": "--live-edit-obstacle-placement",
+    "live_edit.obstacle.spawn_ahead_m": "--live-edit-obstacle-ahead-m",
+    "live_edit.obstacle.stagger_chunks": "--live-edit-obstacle-stagger-chunks",
+    "live_edit.obstacle.static_ahead_m": "--live-edit-obstacle-static-ahead-m",
+    "live_edit.obstacle.static_count": "--live-edit-obstacle-static-count",
+    "live_edit.obstacle.static_lateral_m": "--live-edit-obstacle-static-lateral-m",
+    "live_edit.perf_log_every_frames": "--live-edit-perf-log",
+    "live_edit.style.base_corrector_checkpoint": "--live-edit-base-corrector",
+    "live_edit.style.base_corrector_gain": "--live-edit-base-corrector-gain",
+    "live_edit.style.corrector_checkpoint": "--live-edit-style-corrector",
+    "live_edit.style.corrector_gain": "--live-edit-style-gain",
+    "live_edit.style.corrector_mode": "--live-edit-corrector-mode",
+    "live_edit.style.enabled": "--live-edit-style, --no-live-edit-style",
+    "live_edit.style.gate_alpha_json": "--live-edit-gate-alpha-json",
+    "live_edit.style.guidance_chunks": "--live-edit-skin-guidance-chunks",
+    "live_edit.style.lora_checkpoint": "--live-edit-style-lora",
+    "live_edit.style.reswap_interval_chunks": "--live-edit-style-reswap-chunks",
+    "live_edit.style.skins": "--live-edit-skin-first (cycle order only)",
+    "live_edit.weather.clear_guidance_chunks": "--live-edit-weather-clear-guidance-chunks",
+    "live_edit.weather.corrector_checkpoint": "--live-edit-weather-corrector",
+    "live_edit.weather.corrector_gain": "--live-edit-weather-corrector-gain",
+    "live_edit.weather.enabled": "--live-edit-weather, --no-live-edit-weather",
+    "live_edit.weather.guidance_chunks": "--live-edit-weather-guidance-chunks",
+    "live_edit.weather.guidance_scale": "--live-edit-weather-guidance",
+    "live_edit.weather.maintain_chunks": "--live-edit-weather-maintain-chunks",
+    "live_edit.weather.maintain_interval_chunks": "--live-edit-weather-maintain-interval",
+    "live_edit.weather.weathers": "--live-edit-weather-first (cycle order only)",
+    "model.device": "--device",
+    "model.pipeline.diffusion_model.seed": "--model-seed, --seed",
+    "model.pipeline.diffusion_model.transformer.compile_network": "--compile, --no-compile",
+    "presentation.height": "--display-height",
+    "presentation.show_fps": "--show-fps, --no-show-fps",
+    "presentation.width": "--display-width",
+    "renderer.raster.height": "--height",
+    "renderer.raster.width": "--width",
+    "runtime.prewarm_blocks": "--prewarm-blocks",
+    "runtime.total_blocks": "--total-blocks",
+}
+"""CLI flags that change each setting, keyed by its path in Crazy Robotaxi."""
+
 _NON_USER_SETTING_PATHS = frozenset({("model", "pipeline", "name")})
 _DEPRECATED_SETTING_PATHS = frozenset(
     tuple(path.split("."))
@@ -91,162 +161,79 @@ _DEPRECATED_SETTING_PATHS = frozenset(
 class TaxiRulesSettings:
     """Taxi rules without session persistence or vehicle dynamics."""
 
-    waypoint_spacing_m: float = field(
-        default=10.0,
-        metadata={
-            "description": "Distance between candidate points sampled along navigation routes.",
-        },
-    )
-    pickup_grid_spacing_m: float = field(
-        default=60.0,
-        metadata={
-            "description": "Spacing used to spread pickup locations across the map.",
-        },
-    )
-    pickup_min_distance_m: float = field(
-        default=20.0,
-        metadata={
-            "description": "Minimum straight-line distance from the taxi to a new pickup.",
-        },
-    )
-    initial_pickup_max_distance_m: float = field(
-        default=200.0,
-        metadata={
-            "description": "Preferred maximum distance to the first, camera-visible pickup.",
-        },
-    )
-    pickup_radius_m: float = field(
-        default=5.0,
-        metadata={
-            "description": "Distance at which a passenger is collected.",
-        },
-    )
-    dropoff_radius_m: float = field(
-        default=6.0,
-        metadata={
-            "description": "Distance at which a fare is completed.",
-        },
-    )
-    fare_min_route_distance_m: float = field(
-        default=200.0,
-        metadata={
-            "description": "Preferred minimum route length from pickup to dropoff.",
-        },
-    )
-    fare_max_route_distance_m: float = field(
-        default=250.0,
-        metadata={
-            "description": (
-                "Preferred maximum straight-line distance between fare endpoints. The "
-                "minimum may not exceed this maximum."
-            ),
-        },
-    )
-    target_speed_mps: float = field(
-        default=10.0,
-        metadata={
-            "description": "Nominal speed used to calculate a fare's time limit.",
-        },
-    )
-    grace_s: float = field(
-        default=8.0,
-        metadata={
-            "description": "Extra time added to the distance-based fare limit.",
-        },
-    )
-    min_time_s: float = field(
-        default=12.0,
-        metadata={
-            "description": "Lower bound for a fare's calculated time limit.",
-        },
-    )
-    max_time_s: float = field(
-        default=45.0,
-        metadata={
-            "description": (
-                "Upper bound for a fare's calculated time limit; must be at least Min "
-                "Time S."
-            ),
-        },
-    )
-    trip_time_multiplier: float = field(
-        default=2.0,
-        metadata={
-            "description": "Multiplies the fare limit after it is calculated and clamped.",
-        },
-    )
-    base_fare_points: int = field(
-        default=500,
-        metadata={
-            "description": "Points awarded for a completed fare.",
-        },
-    )
-    bonus_points_per_second: int = field(
-        default=100,
-        metadata={
-            "description": "Additional points per whole second remaining on a completed fare.",
-        },
-    )
-    event_banner_s: float = field(
-        default=2.0,
-        metadata={
-            "description": "Duration of pickup, completion, and failure banners in simulation time.",
-        },
-    )
-    global_time_s: float = field(
-        default=60.0,
-        metadata={
-            "description": "Starting game clock; must be positive.",
-        },
-    )
-    dropoff_time_bonus_s: float = field(
-        default=30.0,
-        metadata={
-            "description": "Time added to the game clock after a successful dropoff.",
-        },
-    )
-    ground_snap_max_absolute_rotation_deg: float = field(
-        default=10.0,
-        metadata={
-            "description": (
-                "Largest ground rotation accepted when aligning the taxi to the road "
-                "surface."
-            ),
-        },
-    )
-    ground_snap_settle_fraction: float = field(
-        default=0.25,
-        metadata={
-            "description": (
-                "Fraction of stale ground attitude removed after an invalid ground "
-                "sample."
-            ),
-        },
-    )
+    waypoint_spacing_m: float = 10.0
+    """Distance between candidate points sampled along navigation routes."""
+
+    pickup_grid_spacing_m: float = 60.0
+    """Spacing used to spread pickup locations across the map."""
+
+    pickup_min_distance_m: float = 20.0
+    """Minimum straight-line distance from the taxi to a new pickup."""
+
+    initial_pickup_max_distance_m: float = 200.0
+    """Preferred maximum distance to the first, camera-visible pickup."""
+
+    pickup_radius_m: float = 5.0
+    """Distance at which a passenger is collected."""
+
+    dropoff_radius_m: float = 6.0
+    """Distance at which a fare is completed."""
+
+    fare_min_route_distance_m: float = 200.0
+    """Preferred minimum route length from pickup to dropoff."""
+
+    fare_max_route_distance_m: float = 250.0
+    """Preferred maximum straight-line distance between fare endpoints. The minimum may
+    not exceed this maximum."""
+
+    target_speed_mps: float = 10.0
+    """Nominal speed used to calculate a fare's time limit."""
+
+    grace_s: float = 8.0
+    """Extra time added to the distance-based fare limit."""
+
+    min_time_s: float = 12.0
+    """Lower bound for a fare's calculated time limit."""
+
+    max_time_s: float = 45.0
+    """Upper bound for a fare's calculated time limit; must be at least Min Time S."""
+
+    trip_time_multiplier: float = 2.0
+    """Multiplies the fare limit after it is calculated and clamped."""
+
+    base_fare_points: int = 500
+    """Points awarded for a completed fare."""
+
+    bonus_points_per_second: int = 100
+    """Additional points per whole second remaining on a completed fare."""
+
+    event_banner_s: float = 2.0
+    """Duration of pickup, completion, and failure banners in simulation time."""
+
+    global_time_s: float = 60.0
+    """Starting game clock; must be positive."""
+
+    dropoff_time_bonus_s: float = 30.0
+    """Time added to the game clock after a successful dropoff."""
+
+    ground_snap_max_absolute_rotation_deg: float = 10.0
+    """Largest ground rotation accepted when aligning the taxi to the road surface."""
+
+    ground_snap_settle_fraction: float = 0.25
+    """Fraction of stale ground attitude removed after an invalid ground sample."""
 
 
 @dataclass(frozen=True)
 class TaxiSettings:
     """Taxi rules, vehicle behavior, and persistence."""
 
-    seed: int | None = field(
-        default=None,
-        metadata={
-            "description": (
-                "Seed for repeatable taxi gameplay; blank uses fresh randomness. This is "
-                "independent of the model diffusion seed."
-            ),
-        },
-    )
-    high_scores_path: Path | None = field(
-        default=None,
-        metadata={
-            "description": (
-                "CSV file for the taxi leaderboard; blank uses the default high-score "
-                "location."
-            ),
-        },
-    )
+    seed: int | None = None
+    """Seed for repeatable taxi gameplay; blank uses fresh randomness. This is
+    independent of the model diffusion seed."""
+
+    high_scores_path: Path | None = None
+    """CSV file for the taxi leaderboard; blank uses the default high-score location."""
+
     rules: TaxiRulesSettings = TaxiRulesSettings()
     vehicle: TaxiVehicleConfig = TaxiVehicleConfig()
 
@@ -266,39 +253,26 @@ class TaxiSettings:
 class RaceSettings:
     """Race persistence settings; course selection belongs to launch."""
 
-    times_path: Path | None = field(
-        default=None,
-        metadata={
-            "description": "File for race times; blank uses the default leaderboard location.",
-        },
-    )
+    times_path: Path | None = None
+    """File for race times; blank uses the default leaderboard location."""
 
 
 @dataclass(frozen=True)
 class GameEffectsSettings:
     """Game-directed presentation effects."""
 
-    visual_flare: bool = field(
-        default=False,
-        metadata={
-            "description": "Enables the game-directed visual flare effect.",
-        },
-    )
+    visual_flare: bool = False
+    """Enables the game-directed visual flare effect."""
 
 
 @dataclass(frozen=True)
 class GameSettings:
     """Complete gameplay configuration."""
 
-    gamepad_button_style: GamepadButtonStyle = field(
-        default="Xbox",
-        metadata={
-            "description": (
-                "Labels shown for gamepad buttons: Xbox, PlayStation, or Nintendo Switch. "
-                "It does not remap controls."
-            ),
-        },
-    )
+    gamepad_button_style: GamepadButtonStyle = "Xbox"
+    """Labels shown for gamepad buttons: Xbox, PlayStation, or Nintendo Switch. It does
+    not remap controls."""
+
     taxi: TaxiSettings = TaxiSettings()
     race: RaceSettings = RaceSettings()
     effects: GameEffectsSettings = GameEffectsSettings()
@@ -308,12 +282,9 @@ class GameSettings:
 class ModelSettings:
     """Runner-owned pipeline configuration and device placement."""
 
-    device: str = field(
-        default="cuda",
-        metadata={
-            "description": "Device used for the world model, normally cuda.",
-        },
-    )
+    device: str = "cuda"
+    """Device used for the world model, normally cuda."""
+
     pipeline: Any = None
 
 
@@ -339,85 +310,48 @@ class PresentationSettings:
     Set together with the width.
     """
 
-    hud_enabled: bool = field(
-        default=True,
-        metadata={"description": "Shows the gameplay HUD."},
-    )
-    show_fps: bool = field(
-        default=False,
-        metadata={
-            "description": "Shows the frame-rate counter.",
-        },
-    )
-    show_current_prompt: bool = field(
-        default=False,
-        metadata={
-            "description": "Shows the world-model prompt.",
-        },
-    )
-    show_control_hints: bool = field(
-        default=True,
-        metadata={
-            "description": "Shows the control help on the HUD.",
-        },
-    )
-    show_live_edit_buttons: bool = field(
-        default=True,
-        metadata={
-            "description": "Shows live-edit ability buttons.",
-        },
-    )
-    live_edit_mapping_location: LiveEditMappingLocation = field(
-        default="buttons",
-        metadata={
-            "description": "Places live-edit mappings in buttons or control hints.",
-        },
-    )
+    hud_enabled: bool = True
+    """Shows the gameplay HUD."""
+
+    show_fps: bool = False
+    """Shows the frame-rate counter."""
+
+    show_current_prompt: bool = False
+    """Shows the world-model prompt."""
+
+    show_control_hints: bool = True
+    """Shows the control help on the HUD."""
+
+    show_live_edit_buttons: bool = True
+    """Shows live-edit ability buttons."""
+
+    live_edit_mapping_location: LiveEditMappingLocation = "buttons"
+    """Places live-edit mappings in buttons or control hints."""
 
 
 @dataclass(frozen=True)
 class RuntimeSettings:
     """Operational controls for one application session."""
 
-    total_blocks: int | None = field(
-        default=None,
-        metadata={
-            "description": (
-                "Optional limit on generated model blocks; blank leaves the run "
-                "unbounded."
-            ),
-        },
-    )
-    prewarm_blocks: int = field(
-        default=8,
-        metadata={
-            "description": "Blocks generated before play to warm the pipeline; must be nonnegative.",
-        },
-    )
+    total_blocks: int | None = None
+    """Optional limit on generated model blocks; blank leaves the run unbounded."""
+
+    prewarm_blocks: int = 8
+    """Blocks generated before play to warm the pipeline; must be nonnegative."""
 
 
 @dataclass(frozen=True)
 class DiagnosticsSettings:
     """Opt-in profiling and diagnostic output."""
 
-    profile_pipeline: bool = field(
-        default=False,
-        metadata={
-            "description": "Enables pipeline profiling output.",
-        },
-    )
-    profile_input_latency: bool = field(
-        default=False,
-        metadata={
-            "description": "Measures input-to-output latency.",
-        },
-    )
-    input_trace_path: Path | None = field(
-        default=None,
-        metadata={
-            "description": "Optional file for input trace output.",
-        },
-    )
+    profile_pipeline: bool = False
+    """Enables pipeline profiling output."""
+
+    profile_input_latency: bool = False
+    """Measures input-to-output latency."""
+
+    input_trace_path: Path | None = None
+    """Optional file for input trace output."""
 
 
 @dataclass(frozen=True)
@@ -1068,14 +1002,73 @@ def iter_setting_fields(
 
 
 def setting_description(value: object, item: Field[Any]) -> str | None:
-    """Return the first help paragraph from metadata or a field docstring as plain text."""
-    description = item.metadata.get("description")
-    if description is None:
-        description = get_field_docstring(type(value), item.name, ())
+    """Return the first paragraph of a field docstring as plain text."""
+    description = get_field_docstring(type(value), item.name, ())
     if not description:
         return None
     summary = " ".join(description.split("\n\n", 1)[0].split())
     return re.sub(r":[a-z]+:`([^`]+)`", r"\1", summary).replace("`", "")
+
+
+def options_documentation(settings: CrazyRobotaxiUserSettings) -> str:
+    """Return a Markdown reference using the Options menu's fields and help."""
+    lines = [
+        "# Crazy Robotaxi options reference",
+        "",
+        "Each section follows the menu headings and uses the exact on-screen "
+        "labels. An em dash in the CLI column means the setting is configured "
+        "through Options or the user YAML file.",
+        "",
+    ]
+
+    def section(value: object, path: SettingPath) -> None:
+        heading = " → ".join(name.replace("_", " ").upper() for name in path)
+        lines.extend([f"{'#' * min(len(path) + 1, 6)} {heading}", ""])
+        leaves = []
+        children = []
+        for item, _annotation in iter_setting_fields(value, path):
+            current = getattr(value, item.name)
+            item_path = (*path, item.name)
+            if is_dataclass(current) and not isinstance(current, type):
+                children.append((current, item_path))
+            else:
+                label = f"**{item.name.replace('_', ' ').title()}:**"
+                description = (setting_description(value, item) or "—").replace(
+                    "|", "\\|"
+                )
+                declaring_type = next(
+                    cls
+                    for cls in reversed(type(value).__mro__)
+                    if item.name in cls.__dict__.get("__annotations__", {})
+                )
+                package = declaring_type.__module__.split(".")[0]
+                owner = {
+                    "crazy_robotaxi": "Crazy Robotaxi",
+                    "omnidreams_game_engine": "Game engine",
+                    "omnidreams": "OmniDreams",
+                    "flashdreams": "FlashDreams",
+                }.get(package, package)
+                yaml_key = ".".join(item_path)
+                flags = SETTING_CLI_FLAGS.get(yaml_key)
+                cli = f"`{flags}`" if flags else "—"
+                leaves.append(
+                    f"| {label} | `{yaml_key}` | {owner} | {cli} | {description} |"
+                )
+        if leaves:
+            lines.extend(
+                [
+                    "| On-screen label | YAML key | Defined by | CLI flag | What it changes |",
+                    "| --- | --- | --- | --- | --- |",
+                    *leaves,
+                    "",
+                ]
+            )
+        for child, child_path in children:
+            section(child, child_path)
+
+    for item, _annotation in iter_setting_fields(settings):
+        section(getattr(settings, item.name), (item.name,))
+    return "\n".join(lines)
 
 
 def _is_user_setting_field(
@@ -1109,6 +1102,7 @@ def _is_user_setting_field(
 
 
 __all__ = [
+    "SETTING_CLI_FLAGS",
     "CrazyRobotaxiUserSettings",
     "LiveEditMappingLocation",
     "SettingsDocument",
@@ -1118,6 +1112,7 @@ __all__ = [
     "format_editor_value",
     "iter_setting_fields",
     "normalize_settings",
+    "options_documentation",
     "parse_editor_value",
     "presentation_resolution_wh",
     "restart_required_settings",

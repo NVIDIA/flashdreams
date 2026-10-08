@@ -50,7 +50,6 @@ from crazy_robotaxi.ui import (
     _NATIVE_DIT_NOTICE_RGBA,
     _RESTART_NOTICE_RGBA,
     _SAVED_NOTICE_RGBA,
-    CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
     build_hud_frames,
 )
@@ -58,28 +57,21 @@ from crazy_robotaxi.world_overlay import draw_waypoints, project_waypoints
 from omnidreams_game_engine.types import CameraCalibration
 
 from flashdreams.api_v2.loop import IModelLoop
-from flashdreams.runtime_v2.presentation_manager import PresentationManager
-from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
 
 
 @dataclass(frozen=True)
 class _SettingsTransformer:
-    dtype: str = field(
-        default="bfloat16",
-        metadata={
-            "description": "Test model parameter precision.",
-        },
-    )
+    dtype: str = "bfloat16"
+    """Test model parameter precision."""
+
     native_dit_acceleration: str = "required"
     state_dict_transform: Callable[[object], object] | None = None
     """Internal checkpoint hook that must stay off the Options screen."""
@@ -101,11 +93,8 @@ class _SettingsPipeline:
 
 @dataclass(frozen=True)
 class _SettingsEncoder:
-    precision: str = field(
-        default="bfloat16",
-        metadata={"description": "Encoder precision."},
-    )
-    """Shared setting used by both encoder instances."""
+    precision: str = "bfloat16"
+    """Encoder precision."""
 
 
 @dataclass(frozen=True)
@@ -2777,7 +2766,7 @@ def test_options_excludes_backend_fields(
 
 
 @pytest.mark.parametrize(
-    ("category", "hovered_item", "description", "yaml_key"),
+    ("category", "hovered_item", "description", "yaml_key", "cli_flags"),
     [
         (
             "game",
@@ -2785,6 +2774,7 @@ def test_options_excludes_backend_fields(
             "Labels shown for gamepad buttons: Xbox, PlayStation, or Nintendo "
             "Switch. It does not remap controls.",
             "game.gamepad_button_style",
+            None,
         ),
         (
             "game",
@@ -2792,6 +2782,7 @@ def test_options_excludes_backend_fields(
             "Labels shown for gamepad buttons: Xbox, PlayStation, or Nintendo "
             "Switch. It does not remap controls.",
             "game.gamepad_button_style",
+            None,
         ),
         (
             "game",
@@ -2799,48 +2790,56 @@ def test_options_excludes_backend_fields(
             "Seed for repeatable taxi gameplay; blank uses fresh randomness. "
             "This is independent of the model diffusion seed.",
             "game.taxi.seed",
+            "--game-seed, --seed",
         ),
         (
             "game",
             "##game.taxi.vehicle.max_steer_rad",
             "Full-lock steering angle for tight arcade turns.",
             "game.taxi.vehicle.max_steer_rad",
+            None,
         ),
         (
             "game",
             "##game.taxi.vehicle.max_speed_mps",
             "Normal forward speed cap.",
             "game.taxi.vehicle.max_speed_mps",
+            None,
         ),
         (
             "renderer",
             "##renderer.raster.width",
             "Main raster width in pixels; must be positive.",
             "renderer.raster.width",
+            "--width",
         ),
         (
             "presentation",
             "##presentation.show_fps",
             "Shows the frame-rate counter.",
             "presentation.show_fps",
+            "--show-fps, --no-show-fps",
         ),
         (
             "model",
             "##model.device",
             "Device used for the world model, normally cuda.",
             "model.device",
+            "--device",
         ),
         (
             "model",
             "##model.pipeline.diffusion_model.transformer.dtype",
             "Test model parameter precision.",
             "model.pipeline.diffusion_model.transformer.dtype",
+            None,
         ),
         (
             "runtime",
             "Total Blocks:",
             "Optional limit on generated model blocks; blank leaves the run unbounded.",
             "runtime.total_blocks",
+            "--total-blocks",
         ),
     ],
 )
@@ -2850,6 +2849,7 @@ def test_options_show_help_only_for_the_hovered_setting(
     hovered_item: str,
     description: str,
     yaml_key: str,
+    cli_flags: str | None,
 ) -> None:
     document = _settings_document(tmp_path / "config.yaml")
     state = TaxiHudState(1280, 720, _calibration(), settings_document=document)
@@ -2863,7 +2863,8 @@ def test_options_show_help_only_for_the_hovered_setting(
     imgui.hovered_items.add(hovered_item)
     state.draw(imgui)
 
-    assert imgui.tooltips == [f"{description}\n\nYAML: {yaml_key}"]
+    cli_help = f"\nCLI: {cli_flags}" if cli_flags else ""
+    assert imgui.tooltips == [f"{description}\n\nYAML: {yaml_key}{cli_help}"]
     assert not imgui.wrap_positions
     assert not imgui._tooltip_open
     assert state._options_draft == document.settings
@@ -2887,6 +2888,7 @@ def test_options_tooltip_covers_a_scrolling_text_editor(tmp_path: Path) -> None:
     assert "##model.device-horizontal-scroll" in imgui.child_sizes
     assert imgui.tooltips == [
         "Device used for the world model, normally cuda.\n\nYAML: model.device"
+        "\nCLI: --device"
     ]
 
 

@@ -55,12 +55,8 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
     max_length: int = 512
     """Token length to pad/truncate to."""
 
-    dtype: torch.dtype = field(
-        default=torch.bfloat16,
-        metadata={
-            "description": "Parameter and activation precision of the text encoder.",
-        },
-    )
+    dtype: torch.dtype = torch.bfloat16
+    """Parameter and activation precision of the text encoder."""
 
     embedding_concat_strategy: str = "full_concat"
     """``"full_concat"`` (default, 100352 dims, matches upstream),

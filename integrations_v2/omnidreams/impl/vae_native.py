@@ -59,48 +59,26 @@ class OmnidreamsWanVAEEncoderConfig(WanVAEEncoderConfig):
 
     _target: type = field(default_factory=lambda: OmnidreamsWanVAEEncoder)
 
-    native_vae_acceleration: NativeAccelerationMode = field(
-        default="disabled",
-        metadata={
-            "description": "Native VAE policy: disabled, auto, or required.",
-        },
-    )
-    native_vae_build_root: str | None = field(
-        default=None,
-        metadata={
-            "description": "Native extension build and cache directory.",
-        },
-    )
-    native_vae_max_jobs: int | str | None = field(
-        default=None,
-        metadata={
-            "description": "Parallel job cap for the native build.",
-        },
-    )
-    native_vae_verbose_build: bool = field(
-        default=False,
-        metadata={
-            "description": "Enables detailed native build logs.",
-        },
-    )
-    native_vae_backend: NativeVAEBackend = field(
-        default="fp8",
-        metadata={
-            "description": "Native VAE compute backend, currently fp8.",
-        },
-    )
-    native_vae_fp8_state_path: str | None = field(
-        default=None,
-        metadata={
-            "description": "File containing the exported FP8 VAE state.",
-        },
-    )
-    native_vae_fp8_auto_export: bool = field(
-        default=False,
-        metadata={
-            "description": "Automatically exports FP8 state when needed.",
-        },
-    )
+    native_vae_acceleration: NativeAccelerationMode = "disabled"
+    """Native VAE policy: disabled, auto, or required."""
+
+    native_vae_build_root: str | None = None
+    """Native extension build and cache directory."""
+
+    native_vae_max_jobs: int | str | None = None
+    """Parallel job cap for the native build."""
+
+    native_vae_verbose_build: bool = False
+    """Enables detailed native build logs."""
+
+    native_vae_backend: NativeVAEBackend = "fp8"
+    """Native VAE compute backend, currently fp8."""
+
+    native_vae_fp8_state_path: str | None = None
+    """File containing the exported FP8 VAE state."""
+
+    native_vae_fp8_auto_export: bool = False
+    """Automatically exports FP8 state when needed."""
 
 
 def _native_acceleration_config(

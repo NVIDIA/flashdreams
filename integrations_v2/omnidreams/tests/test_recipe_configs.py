@@ -14,10 +14,12 @@ import pytest
 import tomli as tomllib
 from crazy_robotaxi.application import CrazyRobotaxiApplication
 from crazy_robotaxi.settings import (
+    SETTING_CLI_FLAGS,
     SettingsDocument,
     SettingsError,
     default_settings,
     iter_setting_fields,
+    options_documentation,
     setting_description,
     setting_value,
 )
@@ -85,29 +87,29 @@ pytestmark = pytest.mark.ci_cpu
 @pytest.mark.parametrize(
     "config", OMNIDREAMS_CONFIGS.values(), ids=OMNIDREAMS_CONFIGS.keys()
 )
-def test_options_descriptions_match_the_guides(
+def test_exported_options_match_the_menu(
     config: OmnidreamsPipelineConfig,
 ) -> None:
-    documented: Counter[tuple[str, str]] = Counter()
-    guides = Path(__file__).parents[3] / "apps" / "crazy_robotaxi" / "options"
-    for guide in guides.glob("*.md"):
-        for line in guide.read_text(encoding="utf-8").splitlines():
-            if not line.startswith("| **"):
-                continue
-            columns = re.split(r"(?<!\\)\|", line)[1:-1]
-            assert len(columns) == 4
-            label = columns[0].strip().replace("**", "")
-            description = (
-                columns[-1]
-                .strip()
-                .replace("\\|", "|")
-                .replace("**", "")
-                .replace("`", "")
-            )
-            documented[label, description] += 1
+    settings = default_settings(config, width=1280, height=704)
+    documented: Counter[tuple[str, str, str, str]] = Counter()
+    owners: dict[tuple[str, str], str] = {}
+    heading = ""
+    for line in options_documentation(settings).splitlines():
+        if line.startswith("#"):
+            heading = line.lstrip("# ")
+        if not line.startswith("| **"):
+            continue
+        columns = re.split(r"(?<!\\)\|", line)[1:-1]
+        assert len(columns) == 5
+        label = columns[0].strip().replace("**", "")
+        yaml_key = columns[1].strip().replace("`", "")
+        description = columns[-1].strip().replace("\\|", "|")
+        cli_flags = columns[3].strip().replace("`", "")
+        documented[label, yaml_key, description, cli_flags] += 1
+        owners[heading, label] = columns[2].strip()
     assert documented
 
-    descriptions: Counter[tuple[str, str]] = Counter()
+    descriptions: Counter[tuple[str, str, str, str]] = Counter()
 
     def collect(value: object, path: tuple[str, ...] = ()) -> None:
         for item, _annotation in iter_setting_fields(value, path):
@@ -119,10 +121,19 @@ def test_options_descriptions_match_the_guides(
                 description = setting_description(value, item)
                 assert description, item_path
                 label = f"{item.name.replace('_', ' ').title()}:"
-                descriptions[label, description] += 1
+                yaml_key = ".".join(item_path)
+                cli_flags = SETTING_CLI_FLAGS.get(yaml_key, "—")
+                descriptions[label, yaml_key, description, cli_flags] += 1
 
-    collect(default_settings(config, width=1280, height=704))
+    collect(settings)
     assert descriptions == documented
+    assert owners["GAME", "Gamepad Button Style:"] == "Crazy Robotaxi"
+    assert owners["GAME → TAXI → VEHICLE", "Max Speed Mps:"] == "Game engine"
+    assert owners["MODEL → PIPELINE → DIFFUSION MODEL", "Seed:"] == "FlashDreams"
+    assert (
+        owners["MODEL → PIPELINE → IMAGE ENCODER", "Native Vae Acceleration:"]
+        == "OmniDreams"
+    )
 
 
 def test_noise_option_reuses_its_existing_field_docstring() -> None:

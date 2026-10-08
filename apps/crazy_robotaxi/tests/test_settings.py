@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, fields
 from pathlib import Path
 
 import pytest
@@ -52,16 +52,13 @@ class _Pipeline:
 
 @dataclass
 class _DocumentedOptions:
-    """Options with source documentation and an explicit help override."""
+    """Options with source documentation and an undocumented field."""
 
     documented: int = 0
     """Existing help with ``None`` and :attr:`other_value`.
 
     Additional implementation notes stay out of the tooltip.
     """
-
-    overridden: int = field(default=0, metadata={"description": "Explicit help."})
-    """Source documentation overridden by the menu help."""
 
     undocumented: int = 0
 
@@ -74,7 +71,7 @@ class _InheritedDocumentedOptions(_DocumentedOptions):
 @pytest.mark.parametrize(
     "config_type", (_DocumentedOptions, _InheritedDocumentedOptions)
 )
-def test_setting_description_reads_source_docs_and_explicit_overrides(
+def test_setting_description_reads_source_docs(
     config_type: type[_DocumentedOptions],
 ) -> None:
     config = config_type()
@@ -82,7 +79,6 @@ def test_setting_description_reads_source_docs_and_explicit_overrides(
         item.name: setting_description(config, item) for item in fields(config)
     } == {
         "documented": "Existing help with None and other_value.",
-        "overridden": "Explicit help.",
         "undocumented": None,
     }
 
