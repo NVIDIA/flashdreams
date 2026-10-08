@@ -505,6 +505,15 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     raise RuntimeError(
                         "Scripted game run requires per-frame physics observations"
                     )
+                game_ended = False
+                for index, frame in enumerate(game_frames[:valid_count]):
+                    if (
+                        cast(TaxiGameSnapshot | RaceGameSnapshot, frame).session_state
+                        not in active_states
+                    ):
+                        valid_count = index + 1
+                        game_ended = True
+                        break
                 records = []
                 for index in range(valid_count):
                     physics = trajectory.physics_debug_frames[index]
@@ -548,14 +557,17 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     )
                 debug_records = tuple(records)
                 state.scripted_frames += valid_count
-                state.finished = state.scripted_frames == script.frame_count
-                # Models generate full chunks. Export only the requested prefix
-                # of the last chunk, including its matching simulation data.
+                state.finished = (
+                    game_ended or state.scripted_frames == script.frame_count
+                )
+                # Export through the first terminal frame or the script's end,
+                # excluding the rest of the model's full chunk from every view.
                 video = video[:valid_count]
                 hdmap = hdmap[:valid_count]
                 game_frames = game_frames[:valid_count]
                 poses = poses[:valid_count]
                 speeds_mps = speeds_mps[:valid_count]
+                transition_timestamps_us = transition_timestamps_us[:valid_count]
                 assert simulation_timestamps_us is not None
                 simulation_timestamps_us = simulation_timestamps_us[:valid_count]
                 bev = None if bev is None else bev[:valid_count]
