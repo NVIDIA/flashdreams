@@ -25,7 +25,6 @@ text-to-video (T2V) and image-to-video (I2V) tasks.
   </figcaption>
 </div>
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -41,9 +40,8 @@ uv run --no-sync flashdreams-run-v2 \
 - [Demo presets](#t2v-presets)
 - [Demo arguments](../demos/t2v.md#demo-arguments)
 
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="t2v-presets"></a>
@@ -53,8 +51,6 @@ uv run --no-sync flashdreams-run-v2 \
 | Preset | Description |
 | --- | --- |
 | `t2v-wan21-t2v-1.3b-480p` | Wan 2.1 T2V 1.3B at 480p with a single bidirectional block. |
-
-</div>
 
 <hr>
 
@@ -74,6 +70,8 @@ uv run --no-sync flashdreams-run-v2 \
 | --- | --- |
 | `wan21-t2v-1.3b-480p` | Wan 2.1 T2V 1.3B at 480p (single AR step, prompt-only). |
 | `wan21-i2v-14b-480p` | Wan 2.1 I2V 14B at 480p (single AR step, prompt + first-frame). |
+
+<hr>
 
 ## Performance (Outdated)
 
@@ -101,6 +99,8 @@ matched settings.
  </figure>
 <script src="../_static/js/benchmark_chart.js"></script>
 
+<hr>
+
 ## Samples
 
 <div class="model-video-card">
@@ -114,6 +114,8 @@ matched settings.
     image: https://raw.githubusercontent.com/Wan-Video/Wan2.1/main/examples/i2v_input.JPG
   </figcaption>
 </div>
+
+<hr>
 
 ## Citation
 

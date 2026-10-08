@@ -27,7 +27,6 @@ Introduced by [Robbyant](https://technology.robbyant.com/), LingBot-World is a c
   <a href="https://technology.robbyant.com/lingbot-world">LingBot-World project page</a>.
 </figcaption>
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -47,9 +46,8 @@ uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
 - [Demo presets](#cam2v-presets)
 - [Demo arguments](../demos/cam2v.md#demo-arguments)
 
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="cam2v-presets"></a>
@@ -65,8 +63,6 @@ uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
 | `cam2v-lingbot-world-v2-14b-causal-fast-taehv-window15-sink3` | LingBot-World v2 14B causal-fast with TAEHV and bounded streaming KV cache. |
 | `cam2v-lingbot-world-v2-1p3b-causal-fast-perf` | LingBot-World v2 1.3B tuned for RTX 5090-class GPUs with row-wise FP8 and in-tree Sage attention. |
 | `cam2v-lingbot-world-v2-1p3b-causal-fast-perf-taehv` | The 1.3B performance preset with TAEHV decoding. |
-
-</div>
 
 <hr>
 
@@ -88,6 +84,8 @@ The 1.3B performance presets use row-wise FP8 linear layers and the in-tree
 package. The TAEHV variant replaces the Wan VAE decoder. These paths were
 validated on Linux with an RTX 5090; exclude compilation warmup from
 steady-state benchmarks.
+
+<hr>
 
 ## Performance (Outdated)
 
@@ -115,6 +113,8 @@ matched settings.
 <script src="../_static/js/benchmark_chart.js"></script>
 
 
+<hr>
+
 ## Samples
 
 <div class="model-video-grid zoomable">
@@ -137,6 +137,8 @@ matched settings.
     </figcaption>
   </div>
 </div>
+
+<hr>
 
 ## Citation
 

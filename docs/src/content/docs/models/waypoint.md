@@ -29,7 +29,6 @@ per-action metrics and MP4, WebRTC, or native-window presentation.
   this is not a FlashDreams benchmark artifact.
 </figcaption>
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -46,9 +45,8 @@ uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
 - [Demo presets](#action2v-presets)
 - [Demo arguments](../demos/action2v.md#demo-arguments)
 
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="action2v-presets"></a>
@@ -58,8 +56,6 @@ uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
 | Preset | Description |
 | --- | --- |
 | `action2v-waypoint-1-5-1b` | Waypoint 1.5 1B with image-established keyboard and mouse control. |
-
-</div>
 
 <hr>
 
@@ -76,6 +72,8 @@ uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
   minimum-VRAM guarantee and excludes non-PyTorch process memory.
 - **Model downloads:** The 3.72 GB BF16 Waypoint safetensors file and separate
   Overworld-Models/taehv1_5 checkpoint are cached on first run.
+
+<hr>
 
 ## Performance (Outdated)
 
@@ -120,6 +118,8 @@ execution, cache longevity, and scene coverage; it is not a qualitative
 gameplay or physical-accuracy score.
 
 [Complete validation record](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/VALIDATION.md)
+
+<hr>
 
 ## Citation
 

@@ -24,7 +24,6 @@ gap, and a tiny conditional decoder for fast reconstruction.
   <a href="https://github.com/OpenImagingLab/FlashVSR">FlashVSR official repository</a>.
 </figcaption>
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -41,9 +40,8 @@ uv run --no-sync flashdreams-run-v2 \
 - [Demo presets](#v2v-presets)
 - [Demo arguments](../demos/v2v.md#demo-arguments)
 
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="v2v-presets"></a>
@@ -55,8 +53,6 @@ uv run --no-sync flashdreams-run-v2 \
 | `v2v-flashvsr-v1.1-sparse-ratio-2.0` | Stable sparse-attention 2x video super-resolution. |
 | `v2v-flashvsr-v1.1-sparse-ratio-1.5` | Faster sparse-attention 2x video super-resolution. |
 | `v2v-flashvsr-v1.1-full-attn` | Dense full attention with multi-GPU context-parallel support. |
-
-</div>
 
 <hr>
 
@@ -81,6 +77,8 @@ Use when interfacing with `--post-processing` commandline argument:
 | `flashvsr-v1.1-sparse-1.5` | N/A |
 | `flashvsr-v1.1-full-attn` | N/A |
 
+<hr>
+
 ## Performance (Outdated)
 
 This historical benchmark compares per-chunk 2x upsampling time for FlashDreams
@@ -104,6 +102,8 @@ under matched settings.
 </figure>
 <script src="../_static/js/benchmark_chart.js"></script>
 
+<hr>
+
 ## Samples
 
 <div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
@@ -122,6 +122,8 @@ under matched settings.
     <a href="https://github.com/OpenImagingLab/FlashVSR/tree/main/examples/WanVSR/inputs">FlashVSR examples</a>.
   </figcaption>
 </div>
+
+<hr>
 
 ## Citation
 

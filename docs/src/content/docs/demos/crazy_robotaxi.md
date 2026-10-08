@@ -29,6 +29,8 @@ keyboard, gamepad, or steering wheel.
 
 <a id="apps-crazyrobotaxi-readme--controls"></a>
 
+<hr>
+
 ## Controls
 
 Open **CONTROLS** from the mode menu, then choose **KEYBOARD**, **GAMEPAD**, or
@@ -91,6 +93,8 @@ runtime concern.
 
 <a id="apps-crazyrobotaxi-readme--application-arguments"></a>
 
+<hr>
+
 ## Demo Arguments
 
 
@@ -121,6 +125,8 @@ runtime concern.
 | `--show-fps`, `--no-show-fps` | Show or hide generated-video FPS in the HUD. |
 
 Live-edit flags are described in [Optional live-edit abilities](#optional-live-edit-abilities).
+
+<hr>
 
 ## Options and user configuration
 
@@ -177,6 +183,8 @@ rain or snow items automatically enable weather editing.
 
 <a id="apps-crazyrobotaxi-readme--race-mode"></a>
 
+<hr>
+
 ## Race mode
 
 Bundled maps can define ordered race courses. Start with the included raceway
@@ -194,6 +202,8 @@ Race times are stored per map and course. Use `--race-times PATH` to choose a
 different leaderboard file.
 
 <a id="apps-crazyrobotaxi-readme--optional-live-edit-abilities"></a>
+
+<hr>
 
 ## Optional live-edit abilities
 
@@ -230,6 +240,8 @@ performance configuration stay enabled; pixel-only features such as coins,
 items, and unguided obstacles keep native DiT acceleration.
 
 <a id="apps-crazyrobotaxi-readme--authored-maps"></a>
+
+<hr>
 
 ## Authored maps
 

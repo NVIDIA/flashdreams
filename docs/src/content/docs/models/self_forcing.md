@@ -24,7 +24,6 @@ gap and enabling efficient streaming generation quality.
   <a href="https://self-forcing.github.io/">Self-Forcing project page</a>.
 </figcaption>
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -42,9 +41,8 @@ uv run --no-sync flashdreams-run-v2 \
 - [Demo presets](#t2v-presets)
 - [Demo arguments](../demos/t2v.md#demo-arguments)
 
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="t2v-presets"></a>
@@ -57,8 +55,6 @@ uv run --no-sync flashdreams-run-v2 \
 | `t2v-self-forcing-wan2.1-t2v-1.3b-taehv` | Official checkpoint with the faster TAEHV decoder. |
 | `t2v-self-forcing-wan2.1-t2v-1.3b-sink5-window7-rerope` | Long-rollout preset with static sink 5, rolling window 7, and KV-cache-relative RoPE. |
 
-</div>
-
 <hr>
 
 ## Developer Details
@@ -70,6 +66,8 @@ uv run --no-sync flashdreams-run-v2 \
 
 - **Minimum VRAM:** about 24 GB.
 - **PyTorch:** 2.9 or newer.
+
+<hr>
 
 ## Performance (Outdated)
 
@@ -96,6 +94,8 @@ under matched settings.
   </figcaption>
 </figure>
 <script src="../_static/js/benchmark_chart.js"></script>
+
+<hr>
 
 ## Citation
 

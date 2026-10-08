@@ -29,12 +29,16 @@ upscales a selected local or remote video and writes or streams the result.
 
 <a id="apps-v2v-readme--controls"></a>
 
+<hr>
+
 ## Controls
 
 None. V2V is uninteractive and stops after the configured source-video chunks
 have been processed.
 
 <a id="apps-v2v-readme--application-arguments"></a>
+
+<hr>
 
 ## Demo Arguments
 
@@ -55,6 +59,8 @@ uv run flashdreams-run-v2 DEMO_MODEL_SLUG \
 Use `--mode webrtc` or `--mode native-window` instead of `--output-path` to
 watch the run live.
 
+<hr>
+
 ## Demo media attribution
 
 [Big Buck Bunny](https://peach.blender.org/) is licensed under
@@ -64,6 +70,8 @@ video is not redistributed in this repository.
 
 Copyright 2008, Blender Foundation / www.bigbuckbunny.org. See
 `THIRD-PARTY-NOTICES` for the complete disclosure.
+
+<hr>
 
 ## Tests
 

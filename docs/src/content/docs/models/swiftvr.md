@@ -30,7 +30,6 @@ presets and the standalone `v2v-swiftvr` application.
   81-frame, 1280x640 Wan 2.2 sample on this site.
 </figcaption>
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -47,9 +46,8 @@ uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
 - [Demo presets](#v2v-presets)
 - [Demo arguments](../demos/v2v.md#demo-arguments)
 
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="v2v-presets"></a>
@@ -59,8 +57,6 @@ uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
 | Preset | Description |
 | --- | --- |
 | `v2v-swiftvr` | SwiftVR 2x streaming video restoration. |
-
-</div>
 
 <hr>
 
@@ -85,6 +81,8 @@ Use when interfacing with `--post-processing` commandline argument:
 | `swiftvr-2x` | Startup-friendly eager 2x restoration. |
 | `swiftvr-2x-compiled` | Compiled 2x restoration for long-running streams. |
 | `swiftvr-4x` | Eager 4x restoration. |
+
+<hr>
 
 ## Citation
 

@@ -34,6 +34,8 @@ sessions from an interactive prompt field.
 
 <a id="apps-t2v-readme--controls"></a>
 
+<hr>
+
 ## Controls
 
 An interactive WebRTC run shows a prompt field over the latest generated
@@ -42,6 +44,8 @@ the model. Reaching `--total-blocks` leaves the final frame and prompt UI
 active. Model adapters may add startup inputs such as a first-frame image.
 
 <a id="apps-t2v-readme--application-arguments"></a>
+
+<hr>
 
 ## Demo Arguments
 
@@ -73,6 +77,8 @@ To keep the model resident and submit prompts from a browser:
 uv run flashdreams-run-v2 DEMO_MODEL_SLUG \
   --mode webrtc --host 0.0.0.0 --port 8089
 ```
+
+<hr>
 
 ## Tests
 

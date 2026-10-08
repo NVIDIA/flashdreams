@@ -29,6 +29,8 @@ BEV minimap.
 
 <a id="apps-interactivedrive-readme--controls"></a>
 
+<hr>
+
 ## Controls
 
 <a id="apps-interactivedrive-readme--keyboard"></a>
@@ -93,6 +95,8 @@ input handling, and wheel-configuration support. Its world-model binding is
 supplied by an integration adapter.
 
 <a id="apps-interactivedrive-readme--application-arguments"></a>
+
+<hr>
 
 ## Demo Arguments
 
@@ -168,6 +172,8 @@ The downloaded default scene is
 
 <a id="apps-interactivedrive-readme--tests"></a>
 
+<hr>
+
 ## Tests
 
 ```bash
@@ -177,6 +183,8 @@ uv run --no-sync pytest apps/interactive_drive -m ci_cpu -v
 ```
 
 <a id="apps-interactivedrive-readme--logging"></a>
+
+<hr>
 
 ## Logging
 

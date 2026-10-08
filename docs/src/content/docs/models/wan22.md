@@ -30,7 +30,6 @@ in one rollout. FlashDreams exposes it through the
   bundled FastVideo Causal Wan 2.2 first frame.
 </figcaption>
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -50,9 +49,8 @@ uv run --no-sync flashdreams-run-v2 \
 - [Demo presets](#t2v-presets)
 - [Demo arguments](../demos/t2v.md#demo-arguments)
 
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="t2v-presets"></a>
@@ -62,8 +60,6 @@ uv run --no-sync flashdreams-run-v2 \
 | Preset | Description |
 | --- | --- |
 | `t2v-wan22-ti2v-5b` | Wan 2.2 TI2V-5B at 1280 x 640 with a required first frame and one generated block. |
-
-</div>
 
 <hr>
 
@@ -76,6 +72,8 @@ uv run --no-sync flashdreams-run-v2 \
 
 - **GPU:** CUDA-capable NVIDIA GPU.
 - **PyTorch:** 2.9 or newer.
+
+<hr>
 
 ## Citation
 

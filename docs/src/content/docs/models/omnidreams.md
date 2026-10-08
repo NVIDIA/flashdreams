@@ -28,7 +28,6 @@ runtime throughput.
   <a href="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/">OmniDreams project page</a>.
 </figcaption>
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -61,9 +60,8 @@ uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
 - [Demo presets](#interactive-drive-presets)
 - [Demo arguments](../demos/interactive_drive.md#demo-arguments)
 
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="crazy-robotaxi-presets"></a>
@@ -101,8 +99,6 @@ Fastest preset: `interactive-drive-omnidreams-fast-perf`.
 | `interactive-drive-omnidreams-perf` | Performance-tuned native acceleration. |
 | `interactive-drive-omnidreams-fast-perf` | Fastest preset; native FP8 LightVAE. |
 
-</div>
-
 <hr>
 
 ## Developer Details
@@ -116,6 +112,8 @@ Fastest preset: `interactive-drive-omnidreams-fast-perf`.
 - **PyTorch:** 2.11 or newer.
 - **Python:** 3.10 through 3.12.
 
+<hr>
+
 ## Performance (Outdated)
 
 Single-view latency on NVIDIA GB300 at `704 x 1280`:
@@ -128,6 +126,8 @@ Single-view latency on NVIDIA GB300 at `704 x 1280`:
 | KV-cache Update | 42 ms | 34 ms | 23 ms | 22 ms |
 | **Total** | **118 ms** | **102 ms** | **80 ms** | **78 ms** |
 | **Effective FPS** | **68** | **78** | **100** | **103** |
+
+<hr>
 
 ## Samples
 
@@ -151,6 +151,8 @@ Single-view latency on NVIDIA GB300 at `704 x 1280`:
     </figcaption>
   </div>
 </div>
+
+<hr>
 
 ## Citation
 

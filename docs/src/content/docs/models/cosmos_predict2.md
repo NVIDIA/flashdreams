@@ -32,7 +32,6 @@ algorithm.
   <a href="https://research.nvidia.com/labs/cosmos-lab/cosmos-predict2.5/">Cosmos-Predict2.5 project page</a>.
 </figcaption>
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -49,9 +48,8 @@ uv run --no-sync flashdreams-run-v2 \
 
 - [Demo presets](#t2v-presets)
 - [Demo arguments](../demos/t2v.md#demo-arguments)
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="t2v-presets"></a>
@@ -61,8 +59,6 @@ uv run --no-sync flashdreams-run-v2 \
 | Preset | Description |
 | --- | --- |
 | `t2v-cosmos2-t2v-2b-720p` | Cosmos-Predict2.5 2B T2V at 720p with prompt-only input. |
-</div>
-
 <hr>
 
 ## Developer Details
@@ -77,6 +73,8 @@ uv run --no-sync flashdreams-run-v2 \
 - **Model access:** Accept the NVIDIA Open Model License on the
   [Hugging Face model page](https://huggingface.co/nvidia/Cosmos-Predict2.5-2B)
   and authenticate with a token that can access the gated checkpoint.
+
+<hr>
 
 ## Samples
 
@@ -102,6 +100,8 @@ uv run --no-sync flashdreams-run-v2 \
     </figcaption>
   </div>
 </div>
+
+<hr>
 
 ## Citation
 

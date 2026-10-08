@@ -27,7 +27,6 @@ CausalWan2.2 is a [FastVideo](https://github.com/hao-ai-lab/FastVideo)-released
 
 This integration uses `flashdreams-run-v2`.
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -45,9 +44,8 @@ uv run --no-sync flashdreams-run-v2 \
 - [Demo presets](#t2v-presets)
 - [Demo arguments](../demos/t2v.md#demo-arguments)
 
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="t2v-presets"></a>
@@ -57,8 +55,6 @@ uv run --no-sync flashdreams-run-v2 \
 | Preset | Description |
 | --- | --- |
 | `t2v-fastvideo-causal-wan2.2-t2v-14b` | FastVideo CausalWan 2.2 14B MoE T2V with the Wan VAE decoder and eight denoising steps. |
-
-</div>
 
 <hr>
 
@@ -71,6 +67,8 @@ uv run --no-sync flashdreams-run-v2 \
 
 - **Minimum VRAM:** about 112 GB.
 - **PyTorch:** 2.9 or newer.
+
+<hr>
 
 ## Samples
 
@@ -94,6 +92,8 @@ uv run --no-sync flashdreams-run-v2 \
     </figcaption>
   </div>
 </div>
+
+<hr>
 
 ## Citation
 

@@ -23,7 +23,6 @@ interactive video generation.
   <a href="https://thu-ml.github.io/CausalForcing.github.io/">Causal-Forcing project page</a>.
 </figcaption>
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -41,9 +40,8 @@ uv run --no-sync flashdreams-run-v2 \
 - [Demo presets](#t2v-presets)
 - [Demo arguments](../demos/t2v.md#demo-arguments)
 
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="t2v-presets"></a>
@@ -54,8 +52,6 @@ uv run --no-sync flashdreams-run-v2 \
 | --- | --- |
 | `t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise` | Chunkwise Wan 2.1 1.3B T2V (`len_t=3`). |
 | `t2v-causal-forcing-wan2.1-t2v-1.3b-framewise` | Framewise Wan 2.1 1.3B T2V (`len_t=1`). |
-
-</div>
 
 <hr>
 
@@ -68,6 +64,8 @@ uv run --no-sync flashdreams-run-v2 \
 
 - **Minimum VRAM:** about 24 GB.
 - **PyTorch:** 2.9 or newer.
+
+<hr>
 
 ## Samples
 
@@ -93,6 +91,8 @@ uv run --no-sync flashdreams-run-v2 \
     </figcaption>
   </div>
 </div>
+
+<hr>
 
 ## Citation
 

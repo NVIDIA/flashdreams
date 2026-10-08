@@ -31,6 +31,8 @@ long-running generated view.
 
 <a id="apps-cam2v-readme--controls"></a>
 
+<hr>
+
 ## Controls
 
 | Keys | Action |
@@ -44,6 +46,8 @@ Losing browser focus clears held keys. Presentation pacing includes optional
 post-processing; model-only timing remains separate.
 
 <a id="apps-cam2v-readme--application-arguments"></a>
+
+<hr>
 
 ## Demo Arguments
 
@@ -69,6 +73,8 @@ post-processing; model-only timing remains separate.
 | `--postprocess-comparison-ui`, `--no-postprocess-comparison-ui` | Show synchronized original and post-processed panes. |
 | `--seed INT` | Override the diffusion seed. |
 
+<hr>
+
 ## Post-processing comparison
 
 With a postprocessor configured, `--postprocess-comparison-ui` shows the
@@ -83,6 +89,8 @@ uv run --no-sync flashdreams-run-v2 DEMO_MODEL_SLUG \
 The mode requires the UI and a frame-preserving postprocessor. It doubles the
 delivered video width and may increase encoding and transfer cost.
 
+<hr>
+
 ## Model-free demo
 
 Exercise the Cam2V UI without loading a model:
@@ -92,6 +100,8 @@ uv run --no-sync flashdreams-run-v2 cam2v-dummy --mode webrtc \
   --host 0.0.0.0 --port 8089 -- \
   --step-wait-seconds 0.9 --frames-per-chunk 12
 ```
+
+<hr>
 
 ## Tests
 

@@ -26,7 +26,6 @@ TI2V-5B backbone, 4-step distilled Euler).
   Generated with FlashDreams' native HY-WorldPlay Implementation.
 </figcaption>
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -42,9 +41,8 @@ uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay \
 - [Demo presets](#cam2v-presets)
 - [Demo arguments](../demos/cam2v.md#demo-arguments)
 
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="cam2v-presets"></a>
@@ -54,8 +52,6 @@ uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay \
 | Preset | Description |
 | --- | --- |
 | `cam2v-hy-worldplay` | HY-WorldPlay WAN-5B I2V with live camera-history adaptation. |
-
-</div>
 
 <hr>
 
@@ -67,6 +63,8 @@ uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay \
 </div>
 
 - **GPU:** A CUDA-capable NVIDIA GPU
+
+<hr>
 
 ## Performance (Outdated)
 
@@ -93,6 +91,8 @@ under matched settings.
 </figcaption>
 <script src="../_static/js/benchmark_chart.js"></script>
 
+
+<hr>
 
 ## Samples
 
@@ -125,6 +125,8 @@ under matched settings.
     </figcaption>
   </div>
 </div>
+
+<hr>
 
 ## Citation
 

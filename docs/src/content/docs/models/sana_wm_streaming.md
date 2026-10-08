@@ -24,7 +24,6 @@ release, exposed as a programmatic pipeline configuration.
   Generated via Flashdreams SANA-WM streaming demo using example assets via `--example-data` flag.
 </figcaption>
 
-<div class="transparent-section" markdown>
 ## Quick Start
 
 
@@ -40,9 +39,8 @@ uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
 - [Demo presets](#cam2v-presets)
 - [Demo arguments](../demos/cam2v.md#demo-arguments)
 
-</div>
+<hr>
 
-<div class="transparent-section" markdown>
 ## Demo Presets
 
 <a id="cam2v-presets"></a>
@@ -52,8 +50,6 @@ uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
 | Preset | Description |
 | --- | --- |
 | `cam2v-sana-wm-streaming` | Chunk-causal SANA-WM at 1280 x 704 with ten 24-frame blocks by default. |
-
-</div>
 
 <hr>
 
@@ -68,6 +64,8 @@ uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
   Hopper or newer GPUs (`sm_90+`), and FP4 is available on Blackwell
   (`sm_100+`). These upstream precision flags belong to
   `SANA-WM_streaming`.
+
+<hr>
 
 ## Performance (Outdated)
 
@@ -180,9 +178,13 @@ model authors.
  </figure>
 <script src="../_static/js/benchmark_chart.js"></script>
 
+<hr>
+
 ## Samples
 
 <img alt="SANA-WM bidirectional FlashDreams sample clip." src="../_static/model_clips/sana_wm/sana-wm-bidirectional.avif" />
+
+<hr>
 
 ## Citation
 

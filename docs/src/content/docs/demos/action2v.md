@@ -29,6 +29,8 @@ first-frame resolution, and action-vocabulary mapping.
 
 <a id="apps-action2v-readme--controls"></a>
 
+<hr>
+
 ## Controls
 
 Action2V preserves held keyboard and mouse-button state. Pointer motion and
@@ -40,6 +42,8 @@ vocabulary. Use `--reset-key` to choose the ASCII letter that resets the
 current session.
 
 <a id="apps-action2v-readme--application-arguments"></a>
+
+<hr>
 
 ## Demo Arguments
 
@@ -56,6 +60,8 @@ current session.
 | `--mouse-sensitivity SCALE` | Multiply pointer motion by a finite, non-negative scale. Default: `1.0`. |
 | `--reset-key CHAR` | Reset the current session when this ASCII letter is pressed. Default: `T`. |
 
+<hr>
+
 ## Model-free demo
 
 Use the packaged example image to exercise Action2V without loading a model:
@@ -64,6 +70,8 @@ Use the packaged example image to exercise Action2V without loading a model:
 uv run --package flashdreams-action2v flashdreams-run-v2 action2v-dummy \
   --mode webrtc -- --example-data
 ```
+
+<hr>
 
 ## Tests
 
