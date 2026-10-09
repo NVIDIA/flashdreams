@@ -19,11 +19,7 @@ from flashdreams.api_v2.loop import (
     UILoopRequests,
 )
 from flashdreams.api_v2.session import ISession
-from flashdreams.infra.profiler import (
-    IProfiler,
-    bind_inference_profiler,
-    unbind_inference_profiler,
-)
+from flashdreams.infra.profiler import IProfiler
 from flashdreams.runtime_v2.coordination import StepAgreement
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
@@ -140,10 +136,9 @@ def run_session(
     stop: threading.Event | None = None
     presentation_manager = None
     trace_log: _ChunkTraceLog | None = None
-    # Bound on this thread for the whole session, so input, presentation and
-    # cleanup report to the profiler the session gave its loops.
+    # Input, presentation and cleanup report to the profiler the session gave
+    # its loops.
     profiler = session._profiler
-    profiler_token = bind_inference_profiler(profiler)
 
     def cleanup(action: Callable[[], None]) -> None:
         """Keep releasing resources after a cleanup failure."""
@@ -165,6 +160,7 @@ def run_session(
             trace_chunk_lifecycle=trace_chunk_lifecycle,
             frames_per_second=session_desc.frames_per_second_for_step,
             maximum_frames_per_second=session_desc.frames_per_second_for_ui,
+            profiler=profiler,
         )
 
         def expire_if_due() -> bool:
@@ -398,7 +394,6 @@ def run_session(
             cleanup(agreement.close)
         if trace_log is not None:
             cleanup(lambda: _close_chunk_trace(trace_log))
-        unbind_inference_profiler(profiler_token)
 
     loop_failures = (
         None if session._failure_queue.empty() else session._failure_queue.get()
