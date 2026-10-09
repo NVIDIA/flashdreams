@@ -74,6 +74,102 @@ Run the application with `-- --help` to list all game options. Restarting a
 game rebuilds its simulation and autoregressive cache without reloading the
 model.
 
+## Headless driving tests
+
+The app registers `--mode robotaxi-debug` through FlashDreams' output-mode
+entry point. It runs the same simulation, rules, Ludus conditioning, and
+world model as the interactive demo, with no window or ImGui rendering.
+Select the map and game mode through the existing CLI arguments; race mode
+also requires an explicit course.
+
+From the repository root, run a three-second check of Raceway's starting
+straight:
+
+```bash
+uv run --package flashdreams-omnidreams python \
+  apps/crazy_robotaxi/tests/run_headless_scenario.py raceway_start \
+  --output-dir /tmp/robotaxi-raceway-start
+```
+
+Each run needs a fresh output directory and `ffmpeg`/`ffprobe` on `PATH`.
+The runner uses the real model, checks all videos' frame counts and telemetry
+alignment, then summarizes the physical observations. Other scenarios are
+`flat_acceleration` and `curb_impact`; they use the dedicated flat/curb test
+map under `tests/maps/`. Physics measurements are reported for inspection;
+the capture check does not assert that the vehicle handles correctly. `--slug` selects another model
+preset, `--config` selects application settings, and `--snapshot-every`
+controls PNG sampling. Assertions fail with a nonzero exit status and
+leave the capture available for inspection.
+
+For an arbitrary map and driving script, invoke the demo directly:
+
+```bash
+uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+  crazy-robotaxi-omnidreams-perf --mode robotaxi-debug \
+  --debug-output-dir /tmp/robotaxi-custom-test --debug-snapshot-every 15 -- \
+  --map apps/crazy_robotaxi/tests/maps/debug_flat.robotaxi.yaml \
+  --game-mode race --race-course debug-lap \
+  --drive-script apps/crazy_robotaxi/tests/scenarios/curb_impact.yaml --seed 42
+```
+
+`--drive-script` supplies commands directly to the simulation, bypassing
+keyboard input and its wall-clock sampling. A script contains only a
+non-empty `steps` list:
+
+```yaml
+steps:
+  - {frames: 60, throttle: 1}
+  - {frames: 18, throttle: 1, steer: -0.7, steer_is_direct: true}
+  - {frames: 42, throttle: 1}
+  - {frames: 60}
+```
+
+Every step sets its controls independently; omitted controls are neutral.
+`frames` is a positive integer at 30 frames/second. `throttle` and `brake`
+range from 0 to 1, and `steer` from -1 (right) to 1 (left). Boolean controls
+are `handbrake`, `reverse`, `stop`, and `steer_is_direct`. These are raw
+`DriverCommand` values with manual driving enabled. By default steering
+changes the steering angle over time; `steer_is_direct: true` sets a target
+angle, with the game's normal steering response rate.
+
+The script includes the initial pose as frame zero, as ordinary gameplay
+does. Its frame count sets the run duration, so omit `--total-blocks`.
+Scripted runs disable hidden prewarm blocks and use blocking presentation
+queues to preserve every frame. Models still generate full chunks: a short
+last chunk is padded with neutral controls internally, and its unused tail
+is excluded from every exported view and telemetry record. If the game ends
+or a runtime timeout interrupts the script, the manifest reports an
+incomplete capture.
+
+The output directory contains:
+
+- `generated.mp4` and `hdmap.mp4`: separate, synchronized videos at the model
+  resolution and 30 frames/second.
+- `physics.mp4`: an overhead view of the measured car pose, contact bounds,
+  inset native chassis, curb boxes, heading, and recent path. A curb-response
+  flag marks the game's proximity rebound. The model can miss a maneuver in
+  generated images; use this view and telemetry to inspect the simulation.
+- `frames/{generated,hdmap,physics}/*.png`: synchronized screenshots at
+  the requested interval, plus contact frames and the first/final frames. Use
+  `--debug-snapshot-every 1` to save every frame.
+- `telemetry.jsonl`: one record per exported frame, including the applied
+  command, simulation timestamp, game state, camera pose, vehicle state,
+  curb/actor responses, collider snapshots, and physical vehicle state **before ground alignment**.
+  `ground_error_m` measures that physical pose against the compiled road
+  mesh, so render alignment cannot conceal suspension bounce or falling
+  below the road.
+- `manifest.json`: requested/written frame counts, contact frames, view names, completion status,
+  dimensions, map/course, script, model preset, and seeds.
+- `inputs/`: copies of the authored map and resolved driving script.
+
+CPU regression checks for controls, final-chunk trimming, output alignment,
+and map compilation are runnable without model weights:
+
+```bash
+uv run pytest -m ci_cpu apps/crazy_robotaxi/tests/test_headless_debug.py \
+  apps/crazy_robotaxi/tests/test_application.py
+```
+
 ## Options and user configuration
 
 The mode menu has **CONTROLS** and **OPTIONS** buttons. The Options screen is

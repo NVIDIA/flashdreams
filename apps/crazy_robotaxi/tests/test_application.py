@@ -32,6 +32,7 @@ from crazy_robotaxi.live_edit.config import (
     LiveEditWeatherConfig,
 )
 from crazy_robotaxi.physics import TaxiPhysicsWorld
+from crazy_robotaxi.race import RaceGameSnapshot
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.session import (
     CrazyRobotaxiModelLoop,
@@ -47,6 +48,7 @@ from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import (
     CameraCalibration,
     DriverCommand,
+    PhysicsDebugFrame,
     SceneDefinition,
 )
 from torch import Tensor
@@ -1198,3 +1200,241 @@ def test_headless_loop_presents_video_channel_and_finishes() -> None:
     assert resets == ["hud"]
     presented[0] = ()
     assert loop.step(1, UserInputEvents([])) == []
+
+
+@pytest.mark.parametrize("game_mode", ["taxi", "race"])
+@pytest.mark.parametrize("terminal_frame", [None, 0, 2, 4, 5, 6, 7])
+def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    game_mode: str,
+    terminal_frame: int | None,
+) -> None:
+    import json
+
+    from crazy_robotaxi.debug import RobotaxiDebugWindow
+    from omnidreams_game_engine.types import VehicleState
+    from PIL import Image
+
+    from flashdreams.runtime_v2.application_runner import ApplicationRunner
+
+    script = tmp_path / "drive.yaml"
+    script.write_text(
+        "steps:\n  - {frames: 3, throttle: 0.5}\n  - {frames: 4, steer: -0.5}\n"
+    )
+    snapshot: TaxiGameSnapshot | RaceGameSnapshot = TaxiGameSnapshot(
+        phase="seeking_pickup",
+        target_xyz_m=(25, 0, 0),
+        distance_m=25,
+        relative_bearing_rad=0,
+        target_radius_m=5,
+        remaining_time_s=None,
+        score=0,
+    )
+    if game_mode == "race":
+        snapshot = RaceGameSnapshot(
+            map_id="test",
+            course_id="grand-prix",
+            session_state="racing",
+            target_kind="checkpoint",
+            target_element_id="finish",
+            target_xyz_m=(25, 0, 0),
+            gate_start_xyz_m=(25, -5, 0),
+            gate_end_xyz_m=(25, 5, 0),
+            checkpoint_markers=False,
+            distance_m=25,
+            relative_bearing_rad=0,
+            checkpoint_index=0,
+            checkpoint_count=1,
+            completed_laps=0,
+            lap_count=0,
+            elapsed_time_us=0,
+            best_time_us=None,
+        )
+    applied = []
+    closed = []
+    debug_enabled = []
+
+    def engine_step(commands):
+        start = len(applied)
+        applied.extend(commands)
+        count = len(commands)
+        vehicles = tuple(VehicleState(start + i, 0, 0, 0, i, 0) for i in range(count))
+        hdmap = torch.zeros(1, 1, count, 3, 4, 8)
+        for index in range(count):
+            hdmap[:, :, index] = (start + index) / 10 - 1
+        return SimpleNamespace(
+            metrics={},
+            game_frames=tuple(
+                replace(snapshot, session_state="awaiting_name")
+                if terminal_frame is not None and start + i >= terminal_frame
+                else snapshot
+                for i in range(count)
+            ),
+            trajectory=SimpleNamespace(
+                timestamps_us=np.arange(start, start + count) * 33333,
+                rig_poses_world=np.repeat(
+                    np.eye(4, dtype=np.float32)[None], count, axis=0
+                ),
+                vehicle_states=vehicles,
+                physx_timings=None,
+                physics_debug_frames=tuple(
+                    PhysicsDebugFrame(
+                        ego_position_m=np.asarray(
+                            [v.x_m, v.y_m, 0.8], dtype=np.float32
+                        ),
+                        ego_orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
+                        ego_dimensions_lwh=np.asarray([4.8, 2, 1.6], dtype=np.float32),
+                        actor_positions_m=np.empty((0, 3), dtype=np.float32),
+                        actor_orientations_xyzw=np.empty((0, 4), dtype=np.float32),
+                        actor_dimensions_lwh=np.empty((0, 3), dtype=np.float32),
+                        barrier_segments_xy_m=np.empty((0, 2, 2), dtype=np.float32),
+                        barrier_thicknesses_m=np.empty(0, dtype=np.float32),
+                        barrier_heights_m=np.empty(0, dtype=np.float32),
+                        vehicle_state=v,
+                        actor_collision=False,
+                        static_barrier_collision=False,
+                    )
+                    for v in vehicles
+                ),
+            ),
+            condition=SimpleNamespace(hdmap_bvtchw=hdmap, bev_tchw=None),
+        )
+
+    engine = SimpleNamespace(
+        current_game_frame=snapshot,
+        step=engine_step,
+        is_running=True,
+        simulation=SimpleNamespace(set_physx_debug_enabled=debug_enabled.append),
+        close=lambda: closed.append(True),
+    )
+    monkeypatch.setattr(
+        "crazy_robotaxi.session.build_taxi_engine", lambda **kwargs: engine
+    )
+    # Scripted driving must never sample a keyboard or wall-clock input window.
+    monkeypatch.setattr(
+        DriverInput, "apply", lambda *args: pytest.fail("keyboard path used")
+    )
+    monkeypatch.setattr(
+        DriverInput, "sample", lambda *args: pytest.fail("keyboard sampling used")
+    )
+    encoded = {}
+
+    class Encoder:
+        def __init__(self, path, **kwargs):
+            self.path = path
+            encoded[path.stem] = []
+
+        def write(self, frames):
+            encoded[self.path.stem].extend(frames.copy())
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("crazy_robotaxi.debug.Mp4Encoder", Encoder)
+    pipeline = SimpleNamespace(
+        device="cpu",
+        initialize_cache=lambda **kwargs: None,
+        get_num_output_frames=lambda index: 4,
+        generate=lambda **kwargs: -kwargs["input"],
+        finalize=lambda **kwargs: None,
+    )
+    defaults = replace(_STUB_DEFAULTS, width=8, height=4)
+    app = _application(
+        defaults=defaults,
+        pipeline_factory=lambda config, device: pipeline,
+        scene_factory=lambda request, raster: _scene(width=8, height=4),
+    )
+    window = RobotaxiDebugWindow(tmp_path / "capture", snapshot_every=2)
+    ApplicationRunner(app, window).run(
+        app.session_desc(),
+        [
+            "--device",
+            "cpu",
+            "--game-mode",
+            game_mode,
+            "--map",
+            str(_DEMO_RACE_MAP),
+            *(["--race-course", "grand-prix"] if game_mode == "race" else []),
+            "--drive-script",
+            str(script),
+            "--config",
+            str(tmp_path / "settings.yaml"),
+        ],
+        timeout_seconds=10,
+    )
+    records = [
+        json.loads(line)
+        for line in (window.directory / "telemetry.jsonl").read_text().splitlines()
+    ]
+    expected_frames = 7 if terminal_frame is None else min(7, terminal_frame + 1)
+    assert [record["frame"] for record in records] == list(range(expected_frames))
+    assert [record["physics_vehicle"]["x_m"] for record in records] == list(
+        range(expected_frames)
+    )
+    assert [record["command"]["throttle"] for record in records] == (
+        [0.5] * 3 + [0] * 4
+    )[:expected_frames]
+    assert [record["simulation_timestamp_us"] for record in records] == [
+        i * 33333 for i in range(expected_frames)
+    ]
+    assert len(applied) == ((expected_frames + 3) // 4) * 4
+    if expected_frames == 7:
+        assert applied[-1] == DriverCommand(manual_control=True)
+    assert debug_enabled and all(debug_enabled) and closed == [True]
+    assert (
+        len(encoded["generated"])
+        == len(encoded["hdmap"])
+        == len(encoded["physics"])
+        == expected_frames
+    )
+    assert [
+        record["physics_colliders"]["ego_position_m"][0] for record in records
+    ] == list(range(expected_frames))
+    for index in range(expected_frames):
+        assert np.all(encoded["generated"][index] >= encoded["hdmap"][index])
+        assert int(encoded["hdmap"][index][0, 0, 0]) == pytest.approx(
+            index * 12.75, abs=1
+        )
+    with Image.open(
+        window.directory / "frames/generated" / f"{expected_frames - 1:06d}.png"
+    ) as image:
+        assert image.size == (8, 4)
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert manifest["complete"] == (expected_frames == 7)
+    assert manifest["frames_written"] == expected_frames
+    if terminal_frame is not None and terminal_frame < 7:
+        assert records[-1]["game"]["session_state"] == "awaiting_name"
+    assert manifest["model_preset"] == _STUB_PIPELINE_CONFIG.name
+    assert (
+        window.directory / "inputs" / _DEMO_RACE_MAP.name
+    ).read_text() == _DEMO_RACE_MAP.read_text()
+    from crazy_robotaxi.driving_script import load_driving_script
+
+    captured_script = load_driving_script(window.directory / "inputs/drive.yaml")
+    assert captured_script.segments == load_driving_script(script).segments
+
+
+@pytest.mark.parametrize("missing", ["--map", "--game-mode", "--race-course"])
+def test_scripted_headless_startup_requires_complete_cli_selection(
+    tmp_path: Path,
+    missing: str,
+) -> None:
+    script = tmp_path / "drive.yaml"
+    script.write_text("steps: [{frames: 1}]")
+    arguments = [
+        "--device",
+        "cpu",
+        "--drive-script",
+        str(script),
+        "--game-mode",
+        "race",
+        "--map",
+        str(_DEMO_RACE_MAP),
+        "--race-course",
+        "grand-prix",
+    ]
+    index = arguments.index(missing)
+    del arguments[index : index + 2]
+    with pytest.raises(ValueError, match="--drive-script.*requires"):
+        _application().init(arguments)

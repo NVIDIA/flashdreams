@@ -9,9 +9,9 @@ import argparse
 import logging
 import tempfile
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from ludus_renderer import prepare_ludus
 from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
@@ -34,6 +34,8 @@ from crazy_robotaxi.controls import (
     default_controls_dir,
     load_controls_documents,
 )
+from crazy_robotaxi.debug import DEBUG_METADATA_KEY
+from crazy_robotaxi.driving_script import DrivingScript, load_driving_script
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameRaceCourseOption
 from crazy_robotaxi.high_scores import default_high_scores_path, default_race_times_path
 from crazy_robotaxi.live_edit.config import (
@@ -56,7 +58,11 @@ from crazy_robotaxi.ui import bev_display_extent
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.infra.config import derive_config
-from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
+from flashdreams.runtime_v2.session_desc import (
+    BackpressureMode,
+    PresentationMode,
+    SessionDesc,
+)
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _ROOT = Path(__file__).resolve().parent
@@ -174,6 +180,9 @@ class ApplicationConfig:
     no_ui: bool = False
     """Present raw model frames without the ImGui HUD (no graphics device)."""
 
+    driving_script: DrivingScript | None = None
+    """Frame-counted controls and paired headless observations, when requested."""
+
 
 PipelineFactory = Callable[[Any, str], Any]
 SceneFactory = Callable[[SceneRequest, Any], SceneDefinition]
@@ -256,6 +265,26 @@ class CrazyRobotaxiApplication(IApplication):
         initial_race_course_id: str | None = (
             args.race_course if arg_was_explicit(args, "race_course") else None
         )
+        driving_script = (
+            None
+            if args.drive_script is None
+            else load_driving_script(args.drive_script)
+        )
+        if driving_script is not None:
+            if initial_game_mode is None or initial_map_path is None:
+                raise ValueError(
+                    "--drive-script requires explicit --game-mode and --map"
+                )
+            if initial_game_mode == "race" and initial_race_course_id is None:
+                raise ValueError("--drive-script in race mode requires --race-course")
+            if settings.runtime.total_blocks is not None:
+                raise ValueError(
+                    "--drive-script sets its own duration; omit --total-blocks"
+                )
+            # A script starts at the authored spawn, with no hidden gameplay.
+            settings = replace(
+                settings, runtime=replace(settings.runtime, prewarm_blocks=0)
+            )
         if (
             settings.runtime.total_blocks is not None
             and settings.runtime.total_blocks <= 0
@@ -347,7 +376,8 @@ class CrazyRobotaxiApplication(IApplication):
             live_edit=live_edit,
             native_dit_disabled_for_live_edit=native_dit_disabled_for_live_edit,
             visual_flare_enabled=settings.game.effects.visual_flare,
-            no_ui=not args.ui,
+            no_ui=not args.ui or driving_script is not None,
+            driving_script=driving_script,
         )
         self._map_options = _discover_game_maps(map_path)
         scene_requests = [self._config.scene_request]
@@ -547,6 +577,8 @@ class CrazyRobotaxiApplication(IApplication):
         encoder = pipeline_config.encoder
         bev = config.renderer.bev
         bev_resolution = f"{bev.width}x{bev.height}" if bev.enabled else "disabled"
+        if config.driving_script is not None:
+            assert config.initial_map_path is not None
         _LOGGER.info(
             "Crazy Robotaxi model preset=%s resolution=%sx%s native_dit=%s "
             "native_backend=%s attention_backend=%s native_vae=%s "
@@ -573,9 +605,48 @@ class CrazyRobotaxiApplication(IApplication):
             config=config,
             session_desc=replace(
                 session_desc,
-                presentation_mode=PresentationMode.CONTINUOUS,
+                presentation_mode=(
+                    PresentationMode.ON_DEMAND
+                    if config.driving_script is not None
+                    else PresentationMode.CONTINUOUS
+                ),
+                backpressure_mode=(
+                    BackpressureMode.BLOCK
+                    if config.driving_script is not None
+                    else session_desc.backpressure_mode
+                ),
                 metadata={
                     **session_desc.metadata,
+                    **(
+                        {
+                            DEBUG_METADATA_KEY: {
+                                "map": str(config.initial_map_path),
+                                "game_mode": config.initial_game_mode,
+                                "race_course": config.initial_race_course_id,
+                                "script": str(config.driving_script.path),
+                                "frame_count": config.driving_script.frame_count,
+                                "model_preset": config.model_preset_name,
+                                "model_seed": pipeline_config.diffusion_model.seed,
+                                "game_seed": config.game.seed,
+                                "map_source": cast(
+                                    Path, config.initial_map_path
+                                ).read_text(encoding="utf-8"),
+                                "script_steps": [
+                                    {
+                                        "frames": count,
+                                        **{
+                                            name: value
+                                            for name, value in asdict(command).items()
+                                            if name != "manual_control"
+                                        },
+                                    }
+                                    for count, command in config.driving_script.segments
+                                ],
+                            }
+                        }
+                        if config.driving_script is not None
+                        else {}
+                    ),
                     **(
                         {
                             _TRACE_METADATA_KEY: True,
@@ -692,6 +763,11 @@ def _parser(
     parser.add_argument("--display-width", type=int)
     parser.add_argument("--display-height", type=int)
     parser.add_argument("--force-map-recompile", action="store_true")
+    parser.add_argument(
+        "--drive-script",
+        type=Path,
+        help="YAML simulation-frame controls for robotaxi-debug; requires --game-mode and --map, and --race-course in race mode.",
+    )
     parser.add_argument(
         "--ui",
         action=argparse.BooleanOptionalAction,

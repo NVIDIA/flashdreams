@@ -231,6 +231,9 @@ class TaxiHudFrame:
     cache_finalize_returned_ns: int | None = None
     """Chunk-lifecycle correlation fields for input diagnosis."""
 
+    debug_record: dict[str, Any] | None = None
+    """Scripted-run observation aligned with this generated frame."""
+
 
 @dataclass(frozen=True, slots=True)
 class _BindingCapture:
