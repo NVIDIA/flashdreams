@@ -5,6 +5,8 @@
 
 from abc import ABC
 
+from flashdreams.runtime_v2.selected_file import FileSelectionRequest
+
 from .input_source import InputSource
 from .output_sink import OutputSink
 
@@ -44,5 +46,18 @@ class IClientWindow(InputSource, OutputSink, ABC):
 
         Args:
             new_window_size: Requested ``(width, height)`` in pixels.
+        """
+        pass
+
+    # Optional to implement
+    def request_selected_files(self, request: FileSelectionRequest) -> None:
+        """Request to open a file selector local to the client this window drives.
+
+        The result arrives later through
+        :meth:`InputSource.get_user_input_events` as
+        :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`.
+
+        Args:
+            request: Selector request queued by the UI loop.
         """
         pass

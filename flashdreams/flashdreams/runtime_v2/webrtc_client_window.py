@@ -10,10 +10,21 @@ from dataclasses import replace
 from numpy import uint64
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.runtime_v2.file_selection_gate import (
+    FileSelectionGate,
+    QueuedFileSelection,
+)
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    SelectedFilesStatus,
+)
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import UserInputEvent
+from flashdreams.runtime_v2.user_input_event import (
+    SelectedFilesUserInputEvent,
+    UserInputEvent,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
@@ -32,7 +43,8 @@ class WebRTCClientWindow(IClientWindow):
 
     Disconnecting releases only that browser's peer connection. The server and
     current session stay available for a refreshed or replacement client until
-    the application is explicitly stopped.
+    the application is explicitly stopped. Leftover and in-flight file picks
+    complete as unavailable; a replacement viewer does not inherit them.
     """
 
     def __init__(
@@ -55,6 +67,7 @@ class WebRTCClientWindow(IClientWindow):
         self._input_events: deque[UserInputEvent] = deque()
         self._hide_cursor = False
         self._lock_cursor_to_window = False
+        self._file_gate = FileSelectionGate()
         self._input_lock = threading.Lock()
         # Offset from the server's stable clock to the current session's clock.
         self._session_event_offset_us = uint64(0)
@@ -67,10 +80,23 @@ class WebRTCClientWindow(IClientWindow):
         def handle_input(event: UserInputEvent) -> None:
             """Buffer one backend event for the ``InputSource`` protocol."""
             # TODO: do we really need to buffer all events? Some mouse moves may be superseded by later ones.
+            nxt = None
             with self._input_lock:
+                if isinstance(event, SelectedFilesUserInputEvent):
+                    claimed, nxt = self._file_gate.complete(
+                        event.request_id, event._generation
+                    )
+                    if not claimed:
+                        return
                 self._input_events.append(event)
+            if nxt is not None:
+                self._start_file_selection(nxt)
 
         self.server.register_input_callback(handle_input)
+        self.server.register_file_selection_current_callback(self._file_gate.is_current)
+        self.server.register_file_selection_invalidate_callback(
+            self._invalidate_file_selections
+        )
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor in the browser window."""
@@ -99,6 +125,40 @@ class WebRTCClientWindow(IClientWindow):
             TimeoutError: The active video track cannot be reset in time.
         """
         self.server.request_new_window_size(new_window_size)
+
+    def request_selected_files(self, request: FileSelectionRequest) -> None:
+        """Ask the connected browser to open a file selector."""
+        started = self._file_gate.submit(QueuedFileSelection.from_request(request))
+        if started is not None:
+            self._start_file_selection(started)
+
+    def _invalidate_file_selections(self, deliver_unavailable: bool) -> None:
+        """Finish this client generation; optionally report leftovers as unavailable."""
+        leftover = self._file_gate.drain()
+        if not deliver_unavailable or not leftover:
+            return
+        timestamp = self.server.event_timestamp_us()
+        with self._input_lock:
+            for item in leftover:
+                self._input_events.append(
+                    SelectedFilesUserInputEvent(
+                        timestamp=timestamp,
+                        request_id=item.request_id,
+                        status=SelectedFilesStatus.UNAVAILABLE,
+                        _generation=item.generation,
+                    )
+                )
+
+    def _start_file_selection(self, pending: QueuedFileSelection) -> None:
+        """Arm the WebRTC server for one file-selector request."""
+        self.server.request_selected_files(
+            pending.request_id,
+            initial_path=pending.initial_path,
+            accept=pending.accept,
+            max_bytes=pending.max_bytes,
+            multiple=pending.multiple,
+            generation=pending.generation,
+        )
 
     def open(self, session_desc: SessionDesc) -> None:
         """Implement ``OutputSink.open`` by configuring WebRTC output.
@@ -151,4 +211,5 @@ class WebRTCClientWindow(IClientWindow):
 
     def close(self) -> None:
         """Implement ``OutputSink.close`` by releasing WebRTC resources."""
+        self._invalidate_file_selections(False)
         self.server.close()

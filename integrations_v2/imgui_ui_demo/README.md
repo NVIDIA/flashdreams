@@ -8,6 +8,13 @@ SPDX-License-Identifier: Apache-2.0
 Small ImGui applications for the FlashDreams v2 loop runtime:
 
 - `imgui-ui-text-input` renders an editable text field over model output.
+- `imgui-ui-file-picker` opens the client file selector and shows the chosen
+  name and size. Each Open control calls `file_selector` every UI tick with
+  a stable `request_id`; the returned event carries the file bytes. Extra
+  clicks on the same control while a picker is open are ignored;
+  **Open A then B** queues both selectors one at a time. Closing the native
+  window or dropping the WebRTC tab completes leftover and in-flight picks
+  as unavailable.
 - `imgui-ui-query-string` sets background from a `?(r,g,b)` browser URL.
 - `imgui-ui-window-size` resizes native window or UI render target without
   resetting session.
@@ -22,6 +29,19 @@ uv sync --package flashdreams-imgui-ui-demo --inexact
 Run the text-input application:
 ```bash
 uv run --no-sync flashdreams-run-v2 imgui-ui-text-input --mode native-window
+```
+
+Run the file-picker application. Native Linux needs `zenity` or `kdialog`
+(the desktop portal picker). Windows and macOS use Tk. WebRTC shows a
+confirmation dialog in the viewer (the picker must open from a browser click).
+The demo asks for `.bin` / `.raw` at the per-file ceiling
+(`MAX_SELECTED_FILE_BYTES`). Controls are **Open file (A)**, **Open file (B)**, **Open A then B**, and **Open files**
+(more than one file). Failed picks show in red with the
+`SelectedFilesStatus` name and why.
+```bash
+uv run --no-sync flashdreams-run-v2 imgui-ui-file-picker --mode native-window
+uv run --no-sync flashdreams-run-v2 imgui-ui-file-picker --mode webrtc \
+  --host 127.0.0.1 --port 8080
 ```
 
 Run the query-string application:

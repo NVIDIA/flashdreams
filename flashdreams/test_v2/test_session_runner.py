@@ -35,6 +35,7 @@ from flashdreams.runtime_v2.presentation_manager import (
     PresentationManager,
     _PresentationClock,
 )
+from flashdreams.runtime_v2.selected_file import FileSelectionRequest
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -663,6 +664,7 @@ class RecordingClientWindow(IClientWindow):
         self.session_desc: SessionDesc | None = None
         self.results: list[StepResult] = []
         self.cursor_requests: list[tuple[str, bool]] = []
+        self.file_selection_requests: list[FileSelectionRequest] = []
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Record one cursor visibility request."""
@@ -673,6 +675,11 @@ class RecordingClientWindow(IClientWindow):
         """Record one cursor capture request."""
         self._log.record("window.request_lock_cursor_to_window")
         self.cursor_requests.append(("lock", lock_cursor_to_window))
+
+    def request_selected_files(self, request: FileSelectionRequest) -> None:
+        """Record one file-selector request."""
+        self._log.record("window.request_selected_files")
+        self.file_selection_requests.append(request)
 
     def get_user_input_events(self) -> UserInputEvents:
         self._log.record("window.get_user_input_events")
@@ -1368,6 +1375,38 @@ def test_run_session_returns_a_ui_requested_replacement_after_cleanup() -> None:
     assert "session.step(0)" not in log.calls
     assert log.calls[-1] == "session.close"
     assert "window.close" not in log.calls
+
+
+def test_run_session_forwards_file_selection_requests_to_the_window() -> None:
+    log = CallLog()
+
+    class RequestingSession(FakeSession):
+        def init(self) -> None:
+            super().init()
+
+            def open_selector(_: object) -> None:
+                self.ui_loop.file_selector(
+                    "open-1",
+                    "/tmp",
+                    open=True,
+                    accept=(".png",),
+                    max_file_bytes=1024,
+                )
+
+            invoke_async(self.ui_loop, open_selector)
+
+    window = RecordingClientWindow(log)
+    run_session(RequestingSession(_session_desc(), log), window, steps=1)
+
+    assert window.file_selection_requests == [
+        FileSelectionRequest(
+            request_id="open-1",
+            initial_path="/tmp",
+            accept=(".png",),
+            max_bytes=1024,
+        )
+    ]
+    assert "window.request_selected_files" in log.calls
 
 
 def test_timeout_wins_over_a_ui_requested_replacement() -> None:

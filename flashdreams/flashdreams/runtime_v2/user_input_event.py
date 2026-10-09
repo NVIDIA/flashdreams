@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Literal
 
 from flashdreams.api_v2.user_input_event import UserInputEvent
+from flashdreams.runtime_v2.selected_file import SelectedFile, SelectedFilesStatus
 
 
 class KeyboardInputState(Enum):
@@ -228,6 +229,42 @@ class XRControllerUserInputEvent(UserInputEvent):
     """Optional controller position in client XR space."""
     orientation: tuple[float, float, float, float] | None = None
     """Optional controller quaternion in client XR space."""
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class SelectedFilesUserInputEvent(UserInputEvent):
+    """Result of one file-selector request.
+
+    Applications receive it from :meth:`IUILoop.file_selector`.
+    ``OK`` is the only status with files; every other status has empty ``files``.
+    """
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "selected_files"
+
+    request_id: str
+    """``request_id`` of the control that asked for this result."""
+
+    status: SelectedFilesStatus
+    """Why this request completed. ``OK`` is the only value with files."""
+
+    files: tuple[SelectedFile, ...] = ()
+    """Chosen files. Empty unless ``status`` is ``OK``."""
+
+    _generation: int = 0
+    """Window generation that admitted this request. Applications ignore it."""
+
+    def __post_init__(self) -> None:
+        """Reject an ``ok`` event without files, or files on a failed pick."""
+        has_files = bool(self.files)
+        if self.status is SelectedFilesStatus.OK:
+            if not has_files:
+                raise ValueError("ok selected-files events must include files.")
+            return
+        if has_files:
+            raise ValueError("failed selected-files events must not include files.")
 
 
 @dataclass(frozen=True, slots=True, eq=False)

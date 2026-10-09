@@ -5,22 +5,29 @@
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, final
 
 import torch
 from torch import Tensor
 
 from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    normalize_selected_file_accept,
+)
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
+    SelectedFilesUserInputEvent,
     UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -30,6 +37,8 @@ if TYPE_CHECKING:
     from flashdreams.runtime_v2.session_desc import SessionDesc
 
 StateT = TypeVar("StateT")
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class _ModelStepControl(Protocol):
@@ -90,6 +99,9 @@ class UILoopRequests:
 
     new_window_size: tuple[int, int] | None = None
     """Requested downstream window size, or ``None`` to leave it unchanged."""
+
+    file_selections: list[FileSelectionRequest] = field(default_factory=list)
+    """File-selector requests to apply, in the order they were queued."""
 
 
 class ILoop(ABC, Generic[StateT]):
@@ -524,6 +536,100 @@ class IUILoop(ILoop[StateT], ABC):
             raise ValueError("new_window_size dimensions must be > 0.")
         self.get_or_create_ui_loop_requests().new_window_size = new_window_size
 
+    @final
+    def file_selector(
+        self,
+        request_id: str,
+        initial_path: str | None = None,
+        *,
+        open: bool = False,
+        accept: Sequence[str] = (),
+        max_file_bytes: int | None = None,
+        multiple: bool = False,
+    ) -> SelectedFilesUserInputEvent | None:
+        """Drive one client file-selector control and return this tick's result.
+
+        Call every UI tick for each control. Pass ``open=True`` only when
+        that control was activated this tick. ``request_id`` is which
+        control this is: reuse it so extra clicks do not stack pickers;
+        use a different id for a different control.
+
+        Args:
+            request_id: Stable id for this control. Echoed on the matching event.
+            initial_path: Directory hint for the selector; ``None`` uses the
+                current user's home directory.
+            open: Whether to start a selector this tick.
+            accept: Filename suffixes such as ``.png``. Empty allows any type.
+            max_file_bytes: Maximum size of each file in bytes, or ``None`` for
+                the ceiling. Larger values clamp to
+                :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BYTES`.
+            multiple: Whether the selector may return more than one file. The
+                whole set is also capped by
+                :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BATCH_BYTES`.
+
+        Returns:
+            This tick's selected-files event for ``request_id``, or ``None``.
+            Read ``status``; use ``files`` only when the pick succeeded.
+
+        Raises:
+            TypeError: ``request_id`` or ``initial_path`` is not a string, or
+                ``open`` / ``accept`` / ``max_file_bytes`` / ``multiple`` has
+                the wrong type.
+            ValueError: ``request_id`` is empty, ``initial_path`` is empty, or
+                ``accept`` / ``max_file_bytes`` is invalid.
+        """
+        if not isinstance(request_id, str):
+            raise TypeError("request_id must be a string.")
+        if not request_id:
+            raise ValueError("request_id must be a non-empty string.")
+        if not isinstance(open, bool):
+            raise TypeError("open must be a bool.")
+        if open:
+            if initial_path is None:
+                resolved_initial_path = str(Path.home())
+            else:
+                if not isinstance(initial_path, str):
+                    raise TypeError("initial_path must be a string.")
+                if not initial_path:
+                    raise ValueError("initial_path must be a non-empty string.")
+                resolved_initial_path = initial_path
+            suffixes = normalize_selected_file_accept(accept)
+            if max_file_bytes is not None:
+                if isinstance(max_file_bytes, bool) or not isinstance(
+                    max_file_bytes, int
+                ):
+                    raise TypeError("max_file_bytes must be an integer.")
+                if max_file_bytes <= 0:
+                    raise ValueError("max_file_bytes must be > 0.")
+            if not isinstance(multiple, bool):
+                raise TypeError("multiple must be a bool.")
+            requests = self.get_or_create_ui_loop_requests()
+            if any(
+                selection.request_id == request_id
+                for selection in requests.file_selections
+            ):
+                _LOGGER.warning(
+                    "Ignoring duplicate file-selection request id %r.",
+                    request_id,
+                )
+            else:
+                requests.file_selections.append(
+                    FileSelectionRequest(
+                        request_id=request_id,
+                        initial_path=resolved_initial_path,
+                        accept=suffixes,
+                        max_bytes=max_file_bytes,
+                        multiple=multiple,
+                    )
+                )
+        for event in self.user_events.get_events():
+            if (
+                isinstance(event, SelectedFilesUserInputEvent)
+                and event.request_id == request_id
+            ):
+                return event
+        return None
+
     def get_or_create_ui_loop_requests(self) -> UILoopRequests:
         if self._ui_loop_requests is None:
             self._ui_loop_requests = UILoopRequests()
@@ -619,6 +725,7 @@ def invoke_async(loop: ILoop[StateT], operation: Callable[[StateT], None]) -> No
 
 
 __all__ = [
+    "FileSelectionRequest",
     "ILoop",
     "IModelLoop",
     "IUILoop",
