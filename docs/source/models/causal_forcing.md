@@ -37,8 +37,10 @@ uv run --no-sync flashdreams-run-v2 \
   --prompt "A cat surfing" --total-blocks 7
 ```
 
-- [Demo presets](#t2v-presets)
-- [Demo arguments](../demos/t2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#t2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/t2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -58,7 +60,7 @@ uv run --no-sync flashdreams-run-v2 \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/causal_forcing">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/causal_forcing">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/causal_forcing/config.py">Pipeline configurations</a>
 </div>
 
@@ -69,21 +71,15 @@ uv run --no-sync flashdreams-run-v2 \
 
 ## Samples
 
-<div class="model-video-grid zoomable">
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
+<div class="model-media-grid zoomable">
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.avif" alt="" />
     <figcaption class="tiny-figcaption">
       prompt: "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle."
     </figcaption>
   </div>
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/causal_forcing/causal-forcing-wan2.1-i2v-1.3b-framewise.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/causal_forcing/causal-forcing-wan2.1-i2v-1.3b-framewise.avif" alt="" />
     <figcaption class="tiny-figcaption">
       prompt: "A cinematic closeup and detailed portrait of a reindeer standing in a snowy forest at sunset. The lighting is gorgeous and soft, with a golden backlight creating a warm and dreamy effect. Soft bokeh and lens flares add a magical touch, enhancing the cinematic quality of the image. The reindeer has a gentle expression, its fur glistening in the fading light. The background features a serene snowy landscape with tall trees silhouetted against the orange and pink hues of the setting sun. The color grade is rich and magical, capturing the essence of a winter wonderland at twilight. A close-up shot from a slightly elevated angle."
       <br/>

@@ -5,99 +5,138 @@ title: 'Create a model'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-A model is a standalone package under `integrations_v2/<model>/`. It owns model
-architecture, checkpoint mapping, pipeline behavior, stable configs, and
-model-specific tests. It does not copy reusable demo behavior.
+A model integration is a standalone workspace package under
+`integrations_v2/<model>/`. It owns model code, checkpoint translation,
+pipeline configs, and model-specific tests. It does not copy reusable demo,
+UI, or transport behavior.
 
-## 1. Choose the closest implementation
+## 1. Scope before implementing
 
-Before writing code, record:
+Record the facts that determine the integration:
 
-- the nearest recipe or existing integration;
-- checkpoint location, format, envelope, dtype, and access requirements;
+- closest existing recipe or integration;
+- checkpoint source, format, dtype, license, and access requirements;
 - native spatial and temporal shape;
-- scheduler, denoising steps, guidance, and cache policy;
-- model-specific conditioning, attention, memory, or decoder changes;
-- the upstream commit and inputs used for parity.
+- scheduler, denoising steps, guidance, and random-seed behavior;
+- streaming or one-shot execution, chunk length, window, and sink policy;
+- model-specific conditioning, attention, memory, or decoder deltas;
+- upstream revision, inputs, and command used for parity.
 
-Reuse `flashdreams.core`, `flashdreams.infra`, and `flashdreams.recipes`.
-Model-specific branches stay in the integration package rather than shared
-framework code.
+Reuse `flashdreams.core`, `flashdreams.infra`, and `flashdreams.recipes`. If the
+model is a variant of an existing backbone, implement only the delta. Keep
+model-specific branches out of shared framework layers.
 
 ## 2. Scaffold the package
 
 ```text
-
 integrations_v2/<model>/
   __init__.py
-  config.py
+  config.py                 # public pipeline literals
   impl/
     __init__.py
-    checkpoint.py        # when keys or envelopes need translation
-    ...                  # model-specific implementation only
+    checkpoint.py           # only when keys or envelopes need translation
+    ...                     # model-specific implementation
+  apps/                     # added when binding a reusable demo
+    <demo>/adapter.py
   tests/
   pyproject.toml
-  README.md               # one-line link to the canonical model page
-
+  README.md
 ```
 
 Use a distribution name such as `flashdreams-<model>` and depend on
-`flashdreams`. Add only the nearest reusable app package when the adapter is
-added later. Do not add a demo entry point while the model is still being
-validated independently.
+`flashdreams`. Add a reusable app dependency only when adding its adapter. Do
+not make `flashdreams` import the integration; dependency direction is
+framework to recipe to integration.
 
-## 3. Implement only the model delta
+## 3. Compose a stable pipeline
 
-Start from the closest recipe and replace only the encoder, transformer,
-scheduler, decoder, checkpoint transform, or pipeline behavior that differs.
-Keep public config literals in `config.py`; keep their implementation classes
-under `impl/`.
+Start from the closest recipe and replace only the components that differ:
 
-Use the checkpoint helpers under `flashdreams.core.checkpoint`. A transform
-should unwrap known envelopes, remove known prefixes, apply ordered renames,
-and leave tensor values unchanged. Before loading on a GPU, compare transformed
-checkpoint keys and shapes with `network.state_dict()` on CPU or meta tensors.
-Missing, unexpected, and shape-mismatched keys should all be explained.
+- a one-shot context encoder on the transformer;
+- a per-step `StreamingEncoder` on the pipeline;
+- transformer or network implementation;
+- scheduler and exact denoising schedule;
+- `StreamingDecoder`;
+- checkpoint path and state-dict transform;
+- a pipeline subclass only when cache initialization needs a genuinely
+  different public signature.
 
-When exposing the model through a demo, follow
-[Demo configuration](../../demo_api/guides/configuration.md) for the pipeline
-definition.
+Export one module-level config literal per supported variant and a name-keyed
+mapping:
 
-## 4. Test the model boundary
+```python
+from flashdreams.infra.pipeline import StreamInferencePipelineConfig
+
+PIPELINE_MY_MODEL = StreamInferencePipelineConfig(
+    name="my-model",
+    encoder=...,
+    diffusion_model=...,
+    decoder=...,
+)
+
+MY_MODEL_CONFIGS = {
+    config.name: config
+    for config in (PIPELINE_MY_MODEL,)
+}
+```
+
+Use `derive_config` for small variants. Keep model-defining values explicit:
+checkpoint, scheduler, steps, chunk and cache sizes, guidance, precision,
+compile, CUDA graphs, and attention backend.
+
+## 4. Prove checkpoint compatibility on CPU
+
+A checkpoint transform should unwrap only known envelopes, remove known
+prefixes, apply ordered key renames, and leave tensor values unchanged. Before
+loading a GPU model, compare the transformed checkpoint with
+`network.state_dict()` using CPU or meta tensors:
+
+- no missing model keys;
+- no unexpected checkpoint keys;
+- identical shape for every matching key;
+- representative real-key spot checks for every rename family.
+
+Prefer checkpoint metadata or safetensors headers when full weights are too
+large. If switching checkpoint sources, compare the transformed tensors from
+both sources before claiming equivalence. A successful import is not enough;
+unexplained missing or extra keys are integration failures.
+
+## 5. Test the model boundary
+
+Put model tests in `integrations_v2/<model>/tests/`. Every pytest test must have
+exactly one of `ci_cpu`, `ci_gpu`, or `manual`.
 
 Keep these checks CPU-safe when possible:
 
 - package imports and metadata;
-- config construction and variant independence;
-- checkpoint key transforms using representative real key strings;
-- component shape and cache/reset behavior with small tensors;
-- adapter-free pipeline behavior against a stand-in.
+- config names, component types, and derived-variant independence;
+- checkpoint key and shape bijection;
+- small-tensor component shapes and cache/reset behavior;
+- adapter-free pipeline flow with a stand-in;
+- application adapter flow with the reusable app's testing helpers.
 
-Put real checkpoint loading, generation, parity, and performance checks behind
-`ci_gpu` or `manual` as appropriate. Every pytest test requires a `ci_cpu`,
-`ci_gpu`, or `manual` marker.
+Use `ci_gpu` or `manual` for real checkpoints, generation, parity, quality, and
+performance. Validate at least one step beyond initial cache fill for streaming
+models, because rolling-window bugs often appear only after the boundary.
 
-## 5. Bind it only after the model is stable
+## 6. Bind and document after the model works
 
-A model package can exist without a public application slug. When the config
-and model tests are ready, follow
-[Integrate a model with a demo](../../demo_api/guides/integrate_model.md)
-to add `apps/<demo>/adapter.py`. The adapter owns presentation defaults and
-registration; the model implementation does not import the demo.
+A model package can exist without a public application slug. Once its config
+and model tests are stable, follow
+[Integrate a model with a demo](../../demo_api/guides/integrate_model.md) to add
+`integrations_v2/<model>/apps/<demo>/adapter.py` and a
+`flashdreams.applications_v2` entry point.
 
-## 6. Document and verify
-
-Add or update `docs/source/models/<model>.md` with requirements,
-installation, supported demo bindings, and canonical commands. Keep detailed
-implementation notes in the repository package page.
+Add or update `docs/source/models/<model>.md` with requirements, installation,
+supported application slugs, canonical commands, and validated limitations.
+Keep implementation and parity details in the package README or tests rather
+than duplicating the public model page.
 
 ```bash
-
 uv sync --package flashdreams-<model> --extra dev --inexact
 uv run --no-sync pytest integrations_v2/<model>/tests -m ci_cpu
 uv run --group lint pre-commit run -a
-
 ```
 
-Do not download checkpoints or run GPU generation as part of the default CPU
-workflow.
+Default CPU verification must not download large checkpoints or start GPU
+generation.

@@ -5,35 +5,32 @@ title: 'Integrate a model with a demo'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-A demo integration is the thin adapter between a model config under
+A demo integration is a thin adapter between a model config under
 `integrations_v2/<model>/` and a reusable application under `apps/<demo>/`.
-It supplies model-specific defaults and registers a zero-argument
-`IApplication` factory.
+The adapter supplies model-specific defaults and registers a zero-argument
+`IApplication` factory. It does not duplicate either side.
 
-## 1. Reuse the demo package
+## 1. Choose the existing interaction
 
-Choose the existing demo whose interaction matches the model: T2V, Cam2V,
-Action2V, V2V, Interactive Drive, or Crazy Robotaxi. Create a new demo only when
-none of these owns the required input, UI, or presentation behavior.
+Pick the app whose inputs and presentation match the model: T2V, Cam2V,
+Action2V, V2V, Interactive Drive, or Crazy Robotaxi. Create a new app only when
+none of them owns the required interaction or UI.
 
-Add the demo package as a dependency of the integration. The app remains
-model-independent; only the adapter imports both sides.
+Add that app package to the integration's dependencies. The app remains
+model-independent; only the adapter imports both the app and model config.
 
 ## 2. Add the adapter
 
 ```text
-
 integrations_v2/<model>/apps/<demo>/
   __init__.py
   adapter.py
-  README.md              # launch-only details
-
+  README.md              # installation and launch details only
 ```
 
-For the shared T2V application, the adapter shape is:
+A T2V adapter can be this small:
 
 ```python
-
 from flashdreams.api_v2.application import IApplication
 from t2v import T2VApplication, T2VApplicationDefaults
 
@@ -50,60 +47,54 @@ MY_MODEL_T2V_DEFAULTS = T2VApplicationDefaults(
 
 def create_app() -> IApplication:
     return T2VApplication(defaults=MY_MODEL_T2V_DEFAULTS)
-
 ```
 
-Subclass the reusable application only when the model needs a real integration
-hook that the app exposes. The factory takes no arguments, returns an
-uninitialized application, and must not load checkpoints or initialize CUDA.
+Subclass the reusable application only when it exposes a hook the model really
+needs, such as a different cache initializer or compile override. The factory
+must not load weights or initialize CUDA.
 
-## 3. Register the factory
-
-In the integration's `pyproject.toml`:
+## 3. Register a stable slug
 
 ```toml
-
 [project.entry-points."flashdreams.applications_v2"]
 "t2v-my-model" = "my_model.apps.t2v.adapter:create_app"
-
 ```
 
-Use `<demo>-<model>` for the default slug. Add a descriptive suffix and matching
-`create_app_<suffix>` only for another supported config. Do not add
-`flashdreams.runner_configs`, `runner.py`, or a model-specific copy of the demo.
+Use a readable `<demo>-<model-or-config>` slug. Register each supported variant
+explicitly with its own factory. Do not add `flashdreams.runner_configs`, a
+`runner.py`, or a model-specific copy of the app solely for v2 discovery.
 
 ## 4. Test the seam on CPU
 
-Inject a stand-in pipeline config into the application and verify:
+Put adapter tests in `integrations_v2/<model>/tests/`, not under the reusable
+app. Inject a stand-in config and verify:
 
-- the adapter declares native width, height, frame rate, layout, and rollout
-  length correctly;
-- the factory is importable and returns `IApplication` without loading a model;
-- the demo drives initialize/generate/finalize in order;
-- reset, finish, close, and argument validation work;
-- the registered entry-point slug resolves.
+- factory construction performs no model load;
+- defaults report the correct size, rate, layout, and rollout length;
+- initialize, generate, and finalize run in order;
+- argument validation, reset, finish, and close work;
+- every entry-point slug resolves to `IApplication`.
 
-Put these tests in `integrations_v2/<model>/tests/`, not under the demo package.
-Use the shared demo's testing helpers when available; `t2v.testing` provides a
-stand-in pipeline and end-to-end checks for T2V adapters.
+Use the app's shared testing helpers when available. For example, `t2v.testing`
+provides a stand-in pipeline and end-to-end adapter checks.
 
 ## 5. Install and inspect
 
 ```bash
-
 uv sync --package flashdreams-<model> --extra dev --inexact
+uv run --no-sync pytest integrations_v2/<model>/tests -m ci_cpu
 uv run --no-sync flashdreams-run-v2 --help
 uv run --no-sync flashdreams-run-v2 <demo>-<model> -- --help
-
 ```
 
-Runtime arguments precede `--`; demo arguments follow it. A real launch then
-uses the same slug with `--mode mp4`, `webrtc`, or `native-window` as supported.
+A real launch uses the same slug with `--mode mp4`, `webrtc`, or
+`native-window`. Runtime options precede `--`; application options follow it.
 
-## 6. Document the binding
+## 6. Document once
 
-Add the command to the model page and link to the reusable demo page for shared
-controls. Keep the adapter README limited to installation and launch details;
-do not duplicate the demo's behavior or the model's implementation guide.
+Put installation, supported bindings, and canonical commands on the model page.
+Link to the demo page for shared controls. Keep the adapter README limited to
+package-specific installation and launch details.
 
-See [Application slugs](application_slugs.md) for discovery details.
+See [Application slugs](application_slugs.md) for discovery details and
+[Demo configuration](configuration.md) for ownership of overrides.

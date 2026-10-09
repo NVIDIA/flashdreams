@@ -37,8 +37,10 @@ uv run --no-sync flashdreams-run-v2 \
   --output-path artifacts/flashvsr.mp4 --timeout unbound -- --video-path input.mp4
 ```
 
-- [Demo presets](#v2v-presets)
-- [Demo arguments](../demos/v2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#v2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/v2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -59,7 +61,7 @@ uv run --no-sync flashdreams-run-v2 \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/flashvsr">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/flashvsr/config.py">Pipeline configurations</a>
 </div>
 
@@ -107,11 +109,8 @@ under matched settings.
 
 ## Samples
 
-<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/flashvsr/flashvsr-v1.1-sparse-ratio-2.0.avif" alt="" />
   <figcaption class="tiny-figcaption">
     FlashVSR 2x output (1280x768) from <code>flashvsr-v1.1-sparse-ratio-2.0</code>;
     low-resolution input (672x384) inset at bottom-left.

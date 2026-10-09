@@ -3,26 +3,24 @@ title: 'Demo configuration'
 ---
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
-
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-FlashDreams configuration uses strongly typed Python `dataclass` objects. A
-demo selects a named, module-level pipeline definition from
-`integrations_v2/<model>/config.py`, then derives a private copy for any
-supported application overrides. This keeps model architecture separate from
-UI, prompt, output-path, and serving policy.
+FlashDreams keeps model configuration separate from application and runtime
+configuration. This separation lets one model serve several demos and lets one
+demo run several models without either layer importing the other.
 
-This guide covers the complete Demo API configuration workflow. For the public
-application lifecycle, see the [Demo Application API reference](../api_reference/application.md).
+| Configuration | Owner | Examples |
+| --- | --- | --- |
+| Pipeline architecture | `integrations_v2/<model>/config.py` | checkpoint, scheduler, cache, encoder, decoder |
+| Application defaults and arguments | app plus model adapter | prompt, block count, native size, device |
+| Runtime and presentation | `flashdreams-run-v2` | output mode, host, port, output path, step limit |
 
-## 1. Start from the closest pipeline
+## Define stable pipeline configs
 
-Prefer an existing recipe or integration config. Use one explicit baseline
-literal when the architecture differs materially, and use `derive_config` for
-variants that change only a few fields:
+Export one named, module-level config for each supported model variant. Derive
+small variants from a baseline instead of mutating it:
 
 ```python
-
 from typing import cast
 
 from flashdreams.infra.config import derive_config
@@ -47,166 +45,60 @@ PIPELINE_MY_MODEL_FAST = cast(
     ),
 )
 
-```
-
-`derive_config` deep-copies the supplied instance, applies nested dictionary
-patches, and raises `KeyError` for an unknown field. It does not accept a config
-class. Never mutate a shared baseline in place.
-
-## 2. Understand the component configs
-
-Configurable inference components (such as the encoder, transformer, scheduler,
-and decoder) have corresponding configuration dataclasses. Their interfaces live
-under `flashdreams.infra`; concrete reusable implementations live under
-`flashdreams.recipes` or in an integration package.
-As outlined in the
-[stream inference pipeline guide](../../inferencing_api/guides/stream_inference_pipeline.md), the main
-entry point for defining an integration is the
-`~flashdreams.infra.pipeline.StreamInferencePipelineConfig`.
-
-These config objects are modular and nestable.
-A typical pipeline config defines the architecture by composing other config dataclasses:
-
-```python
-
-from flashdreams.infra.diffusion.model import DiffusionModelConfig
-from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-from flashdreams.infra.pipeline import StreamInferencePipelineConfig
-
-# Define your own configs for the encoder, transformer, and decoder
-MyStreamingEncoderConfig = ...
-MyTransformerConfig = ...
-MyStreamingDecoderConfig = ...
-
-# Compose them into a pipeline config
-pipeline_config = StreamInferencePipelineConfig(
-    name="customized-method-name",
-    encoder=MyStreamingEncoderConfig(),
-    diffusion_model=DiffusionModelConfig(
-        transformer=MyTransformerConfig(),
-        scheduler=FlowMatchSchedulerConfig(),
-    ),
-    decoder=MyStreamingDecoderConfig(),
-)
-
-```
-
-## 3. Create a component config when needed
-
-If you are interested in creating a brand new model component, you will need to create a corresponding config with the associated parameters you want to expose.
-
-Let's say you want to create a new one-shot context encoder called `MyEncoder`.
-You can create an `Encoder` subclass and a corresponding `MyEncoderConfig`
-whose `_target` field points to that class. Pipeline `encoder` slots instead
-require a `~flashdreams.infra.encoder.StreamingEncoder` and its
-per-rollout cache contract.
-
-```python
-
-from dataclasses import dataclass, field
-from flashdreams.infra.encoder.base import EncoderConfig, Encoder
-
-@dataclass(kw_only=True)
-class MyEncoderConfig(EncoderConfig):
-    """My custom encoder config."""
-
-    # Point to the class that will be instantiated by this config
-    _target: type["MyEncoder"] = field(default_factory=lambda: MyEncoder)
-
-    # Expose your configurable parameters
-    embedding_dim: int = 512
-    num_layers: int = 6
-
-class MyEncoder(Encoder):
-    """My custom encoder model.
-
-    Args:
-        config: Configuration to instantiate the encoder.
-    """
-
-    # Enable type checking
-    config: MyEncoderConfig
-
-    def __init__(self, config: MyEncoderConfig) -> None:
-        super().__init__(config)
-
-        # Build your layers using self.config.embedding_dim, etc.
-        ...
-
-    def forward(self, input):
-        ...
-
-```
-
-## 4. Preserve model-defining fields
-
-Review every inherited field, especially:
-
-- checkpoint path and state-dict transform;
-- temporal chunk length and native frame dimensions;
-- scheduler and exact denoising timesteps;
-- guidance and random seed;
-- cache window, sink tokens, and image-latent stamping;
-- precision, compilation, CUDA graphs, and attention backend.
-
-A short config is useful only when its inherited behavior is intentional. Copy
-fields explicitly when omission should fail loudly during review.
-
-## 5. Export stable names
-
-Give each public literal an uppercase name and a unique config `name`. When a
-package provides several configs, export a lookup mapping:
-
-```python
-
 MY_MODEL_CONFIGS = {
     config.name: config
     for config in (PIPELINE_MY_MODEL, PIPELINE_MY_MODEL_FAST)
 }
-
 ```
 
-The demo adapter imports these literals directly. Do not add a global runner
-registry or a second builder solely to avoid one config literal.
+`derive_config` deep-copies the baseline, applies nested patches, and raises
+`KeyError` for an unknown field. Always give a derived public variant its own
+`name`; never mutate a shared literal in place.
 
-## 6. Apply demo overrides to a copy
+## Put components in the correct slots
 
-A model config does not automatically become a public command line. A
-`flashdreams.api_v2.IApplication` chooses the arguments it supports, validates
-them in `init`, and derives a private config copy:
+A `StreamInferencePipelineConfig` composes three model-side stages:
+
+- `encoder`: optional `StreamingEncoder` for per-step control, such as a camera
+  trajectory, HD map, or input video chunk;
+- `diffusion_model`: transformer plus scheduler;
+- `decoder`: optional `StreamingDecoder` from clean latent to output.
+
+A one-shot text or image context encoder belongs on the transformer's
+`context_encoder`, not in the pipeline's per-step `encoder` slot. See the
+[stream inference pipeline guide](../../inferencing_api/guides/stream_inference_pipeline.md)
+for the lifecycle and cache boundaries.
+
+## Apply application overrides to a copy
+
+An application exposes only overrides it can validate. Parse them in
+`IApplication.init`, then derive a private pipeline config before calling
+`setup()`:
 
 ```python
-
 pipeline_config = derive_config(
-    MY_BASE_PIPELINE_CONFIG,
+    PIPELINE_MY_MODEL,
     diffusion_model={"seed": args.seed},
 )
-
+pipeline = pipeline_config.setup().to(args.device).eval()
 ```
 
-Only expose overrides that the application can validate and support. Runtime
-arguments precede `--`; application arguments follow it. Inspect an
-installed application's arguments with:
+Keep output paths, browser settings, and presentation modes out of the model
+config. They are runtime concerns. Keep prompts and UI policy out of shared
+recipes. They are application concerns.
 
-```bash
+## Review and test the boundary
 
-uv run flashdreams-run-v2 <demo>-<model> -- --help
+Before loading weights, verify on CPU that:
 
-```
-
-## 7. Test before loading weights
-
-Add `ci_cpu` tests that check:
-
-- every exported config has the expected unique name and component types;
+- public config names are unique and stable;
 - derived variants leave the baseline unchanged;
+- component types and model-defining fields are correct;
 - unknown override paths fail;
-- checkpoint transforms produce the expected representative keys;
-- `setup()` can be structurally inspected without downloading a checkpoint,
-  when the component supports CPU or meta construction.
+- checkpoint key transforms handle representative real keys;
+- each adapter factory returns an uninitialized application.
 
-Use an explicitly opted-in GPU or manual test for real weights and a short
-rollout. Continue with [Create a model](../../inferencing_api/guides/create_model.md)
-for package and checkpoint responsibilities, or use the
-[CLI Reference](../../cli.md) to launch
-and inspect an installed application.
+Use `ci_gpu` or `manual` checks for checkpoint downloads, real generation,
+parity, and performance. Continue with [Create a model](../../inferencing_api/guides/create_model.md)
+for model-package responsibilities or [Integrate a model with a demo](integrate_model.md)
+for the application binding.

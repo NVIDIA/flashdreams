@@ -7,49 +7,51 @@ title: 'Create a demo'
 
 A demo is a reusable, model-independent `flashdreams.api_v2` application under
 `apps/<demo>/`. It owns interaction, session lifecycle, input handling, UI, and
-presentation policy. It does not own checkpoints or import a model integration.
+presentation policy. It must not import a model integration or own a
+checkpoint.
 
-Before adding one, check the existing [demo gallery](../../../demos/index.md). If T2V,
-Cam2V, Action2V, or V2V already matches the interaction, add a
-[model adapter](integrate_model.md) instead.
+First check the [demo gallery](../../../demos/index.md). If T2V, Cam2V,
+Action2V, V2V, Interactive Drive, or Crazy Robotaxi already owns the required
+interaction, add a [model adapter](integrate_model.md) instead of another app.
 
-## 1. Create the package
+## Package layout
 
 ```text
-
 apps/<demo>/
   <demo>/
     __init__.py
     application.py
+    defaults.py           # optional adapter-supplied defaults
     session.py
-    ui.py                 # only when custom composition or controls are needed
+    ui.py                 # only for custom composition or controls
   tests/
   pyproject.toml
-  README.md               # one-line link to the canonical docs page
-
+  README.md
 ```
 
-The package depends on `flashdreams`, never on `integrations_v2`. Add optional
-`local-window` or `serving` extras only when the demo directly needs them. The
-root workspace already includes `apps/*`.
+Depend on `flashdreams`, never on `integrations_v2`. Add the `serving` or
+`local-window` extra only when the app directly imports that optional stack.
+The root workspace already discovers `apps/*` packages.
 
-## 2. Implement the api_v2 lifecycle
+## Implement the lifecycle
 
-Implement these responsibilities in order:
+The runtime calls the API in this order:
 
-1. `IApplication.init` parses arguments after `--` and initializes state shared
-   by sessions.
-2. `IApplication.session_desc` cheaply describes native output before `init`.
-3. `IApplication.create_session` validates the requested description and
+1. `IApplication.session_desc()` describes native output without loading the
+   model.
+2. `IApplication.init(args)` parses arguments after `--` and initializes state
+   shared by sessions.
+3. `IApplication.create_session(desc)` validates the requested description and
    returns an uninitialized `ISession`.
-4. `ISession.init` creates per-run state and registers one `IModelLoop`.
-5. `IModelLoop.step` returns `list[StepResult]`; `is_finished` ends finite runs,
-   and `reset` clears run-owned state.
-6. Register an `IUILoop` only when the default model-output blit is insufficient.
+4. `ISession.init()` creates per-run state and registers exactly one
+   `IModelLoop`; a custom `IUILoop` is optional.
+5. `IModelLoop.step(index, events)` returns `list[StepResult]`.
+6. `is_finished`, `reset`, and `close` manage the run lifecycle.
 
-A minimal session registration looks like:
+A minimal session registration is:
 
 ```python
+from flashdreams.api_v2.session import ISession
 
 class DemoSession(ISession):
     def init(self) -> None:
@@ -58,60 +60,39 @@ class DemoSession(ISession):
     @property
     def session_desc(self) -> SessionDesc:
         return self._session_desc
-
 ```
 
-Keep expensive shared objects on the application. Keep caches, counters, and
-other rollout state on the session's model-loop state. The UI and model loops
-run on different threads; use `invoke_async` instead of mutating the other
-loop's state directly.
+If the session does not register a UI loop, the runtime presents model output
+with its default blit loop. Model and UI loops run on separate threads and own
+their state; use `flashdreams.api_v2.loop.invoke_async` for cross-loop changes.
 
-See the [Demo Application API reference](../api_reference/application.md) for method contracts and
-`apps/t2v/` for the reference reusable application.
+## Expose a narrow adapter seam
 
-## 3. Define integration hooks
-
-Expose a small immutable defaults object or constructor arguments for the facts
-a model adapter supplies, such as:
+Put model-independent facts in the app and accept model-owned facts through a
+small immutable defaults object or constructor arguments. Typical adapter
+inputs are:
 
 - pipeline config or model factory;
 - native width, height, frame rate, and tensor layout;
-- rollout length and default device;
+- default rollout length and device;
 - model-specific input resolver callbacks.
 
-Do not hard-code a concrete integration or checkpoint. The adapter layer will
-supply these values.
+Keep expensive shared objects, such as the loaded pipeline, on the application.
+Keep caches, counters, and resettable rollout state on the session's model-loop
+state.
 
-## 4. Test with a stand-in model
+## Test without a real model
 
-Tests live in `apps/<demo>/tests/` and must not import `integrations_v2`.
-Exercise the app with a fake pipeline or state object and cover:
-
-- argument parsing and validation;
-- session-description validation;
-- loop registration, step shape, reset, finish, and close behavior;
-- scripted input for interactive demos;
-- the full runtime path when a CPU stand-in makes that practical.
-
-Mark the module `pytest.mark.ci_cpu`. Put real checkpoints and model-specific
-behavior in the integration's tests instead.
-
-## 5. Document the demo
-
-Add `docs/source/demos/<demo>.md` with its purpose, controls, runtime
-modes, and placeholder launch shape. Add it to `demos/.nav.yml` and link the
-package README to that canonical page. A demo becomes publicly launchable only
-when a model adapter registers an application slug.
-
-After the model binding is complete, follow
-[Offline Program Packager](../../tools/offline_program_packager.md) to build a
-distributable folder that does not require Python, `uv`, or network access.
-
-## Verify
+Tests live in `apps/<demo>/tests/` and must not import `integrations_v2`. Use a
+stand-in pipeline to cover argument validation, session-description checks,
+loop registration, step output, reset, finish, close, and scripted input. Mark
+pure Python tests `ci_cpu`; put real-model behavior in the integration's tests.
 
 ```bash
-
-uv sync --package flashdreams-<demo> --extra dev --inexact
+uv sync --package flashdreams-<demo> --extra dev --no-default-groups --inexact
 uv run --no-sync pytest apps/<demo>/tests -m ci_cpu
-
 ```
+
+Add `docs/source/demos/<demo>.md`, update `demos/.nav.yml`, and keep the package
+README focused on development. The demo becomes publicly runnable when a model
+adapter registers an application slug.

@@ -20,7 +20,13 @@ extra_javascript = [
 [project.theme]
 logo = "images/horizontal-light.svg"
 favicon = "favicon.svg"
-features = ["content.action.edit", "navigation.indexes", "navigation.footer"]
+features = [
+    "content.action.edit",
+    "navigation.indexes",
+    "navigation.footer",
+    "navigation.tabs",
+    "navigation.tabs.sticky",
+]
 
 [[project.theme.palette]]
 scheme = "default"

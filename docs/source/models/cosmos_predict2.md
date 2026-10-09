@@ -21,11 +21,8 @@ reasoning vision language model - as its text encoder. The model is shipped in
 through a curated 200M-clip pre-training corpus, model merging, and a new RL
 algorithm.
 
-<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-    <source src="https://images.nvidia.com/aem-dam/Solutions/cosmos/cosmos-predict.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/cosmos_predict2/cosmos-predict2-teaser.avif" alt="" />
 </div>
 <figcaption class="tiny-figcaption">
   Teaser video source:
@@ -46,8 +43,10 @@ uv run --no-sync flashdreams-run-v2 \
   --prompt "A robotic arm welding in an industrial workshop"
 ```
 
-- [Demo presets](#t2v-presets)
-- [Demo arguments](../demos/t2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#t2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/t2v.md#demo-arguments">Demo Arguments</a>
+</div>
 <hr>
 
 ## Demo Presets
@@ -64,7 +63,7 @@ uv run --no-sync flashdreams-run-v2 \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/cosmos_predict2">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/cosmos_predict2">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/cosmos_predict2/config.py">Pipeline configurations</a>
 </div>
 
@@ -78,21 +77,15 @@ uv run --no-sync flashdreams-run-v2 \
 
 ## Samples
 
-<div class="model-video-grid zoomable">
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/cosmos_predict2/cosmos2-t2v-2b-720p.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
+<div class="model-media-grid zoomable">
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/cosmos_predict2/cosmos2-t2v-2b-720p.avif" alt="" />
     <figcaption class="tiny-figcaption">
       prompt: "A high-definition video captures the precision of robotic welding in an industrial setting. The first frame showcases a robotic arm, equipped with a welding torch, positioned over a large metal structure. The welding process is in full swing, with bright sparks and intense light illuminating the scene, creating a vivid display of blue and white hues. A significant amount of smoke billows around the welding area, partially obscuring the view but emphasizing the heat and activity. The background reveals parts of the workshop environment, including a ventilation system and various pieces of machinery, indicating a busy and functional industrial workspace. As the video progresses, the robotic arm maintains its steady position, continuing the welding process and moving to its left. The welding torch consistently emits sparks and light, and the smoke continues to rise, diffusing slightly as it moves upward. The metal surface beneath the torch shows ongoing signs of heating and melting. The scene retains its industrial ambiance, with the welding sparks and smoke dominating the visual field, underscoring the ongoing nature of the welding operation."
     </figcaption>
   </div>
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/cosmos_predict2/cosmos2-i2v-2b-720p.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/cosmos_predict2/cosmos2-i2v-2b-720p.avif" alt="" />
     <figcaption class="tiny-figcaption">
       prompt: "A high-definition video captures the precision of robotic welding in an industrial setting. The first frame showcases a robotic arm, equipped with a welding torch, positioned over a large metal structure. The welding process is in full swing, with bright sparks and intense light illuminating the scene, creating a vivid display of blue and white hues. A significant amount of smoke billows around the welding area, partially obscuring the view but emphasizing the heat and activity. The background reveals parts of the workshop environment, including a ventilation system and various pieces of machinery, indicating a busy and functional industrial workspace. As the video progresses, the robotic arm maintains its steady position, continuing the welding process and moving to its left. The welding torch consistently emits sparks and light, and the smoke continues to rise, diffusing slightly as it moves upward. The metal surface beneath the torch shows ongoing signs of heating and melting. The scene retains its industrial ambiance, with the welding sparks and smoke dominating the visual field, underscoring the ongoing nature of the welding operation."
       <br/>
