@@ -208,6 +208,15 @@ class ILoop(ABC, Generic[StateT]):
     ) -> _LoopRunResult:
         """Prepare one step or return a lifecycle request to the caller."""
         self._run_message_batch()
+        return self._incorporate_user_events(events, generation)
+
+    @final
+    def _incorporate_user_events(
+        self,
+        events: UserInputEvents,
+        generation: int,
+    ) -> _LoopRunResult:
+        """Add newly available user events to the prepared run."""
         self._pending_user_events.extend(events.get_events())
         transition = _parse_lifecycle_events(self._pending_user_events)
         if transition is not None:
@@ -374,9 +383,6 @@ class IModelLoop(ILoop[StateT], ABC):
                 events, generation = event_buffer.read(reader_id)
                 if step_control is not None:
                     events, generation = step_control.inputs(events, generation)
-                if generation != unpublished_generation:
-                    unpublished_step_elapsed_s = 0.0
-                    unpublished_generation = generation
                 result: list[StepResult] | None = None
                 step_completed = False
                 try:
@@ -398,6 +404,29 @@ class IModelLoop(ILoop[StateT], ABC):
                             break
                     elif stopping:
                         break
+                    # Every rank finishes preparation before entering the fresh-input broadcast.
+                    events, generation = event_buffer.read(reader_id)
+                    if step_control is not None:
+                        events, generation = step_control.inputs(events, generation)
+                    try:
+                        run = self._incorporate_user_events(events, generation)
+                    except BaseException:
+                        if step_control is not None:
+                            try:
+                                step_control.ready(stopping=True, failed=True)
+                            except BaseException:
+                                # A departed peer must not replace the original failure.
+                                pass
+                        raise
+                    stopping = run.step_index is None or self._shutdown_event.is_set()
+                    if step_control is not None:
+                        if not step_control.ready(stopping=stopping):
+                            break
+                    elif stopping:
+                        break
+                    if generation != unpublished_generation:
+                        unpublished_step_elapsed_s = 0.0
+                        unpublished_generation = generation
                     # Admission commits every rank to this step. A later UI stop is
                     # handled at the next boundary, never by skipping a collective.
                     assert run.step_index is not None
