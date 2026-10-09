@@ -3,7 +3,7 @@
 //
 // Generic benchmark chart renderer.
 // Required container attributes:
-// - data-benchmark-md-url: markdown table path (served under docs static)
+// - data-benchmark-json-url: JSON data path (served under docs static)
 // - data-benchmark-series: "key:Label:#RRGGBB;key2:Label2:#RRGGBB"
 
 function addSvgNode(parent, tag, attrs = {}, text = "") {
@@ -39,52 +39,24 @@ function parseSeriesSpec(seriesSpec) {
   });
 }
 
-function parseBenchmarkMarkdown(markdownText, series) {
-  const lines = markdownText
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const tableLines = lines.filter((line) => line.startsWith("|"));
-  if (tableLines.length < 3) {
-    throw new Error("Benchmark markdown table is missing or malformed.");
-  }
-
-  const parseRow = (line) =>
-    line
-      .split("|")
-      .map((cell) => cell.trim())
-      .filter((cell) => cell.length > 0);
-
-  const header = parseRow(tableLines[0]).map((h) => h.toLowerCase());
-  if (header.length === 0) {
-    throw new Error("Benchmark markdown header is empty.");
-  }
-  const groupIdx = 0;
-
-  const seriesIndices = series.map((s) => {
-    const idx = header.indexOf(s.key);
-    if (idx < 0) {
-      throw new Error(`Header missing required series column "${s.key}".`);
-    }
-    return idx;
-  });
-
-  return tableLines.slice(2).map((line) => {
-    const row = parseRow(line);
-    const parsed = { device: row[groupIdx] };
-    series.forEach((s, i) => {
-      parsed[s.key] = Number(row[seriesIndices[i]]);
-    });
-    return parsed;
-  });
-}
-
-async function loadBenchmarkData(mdUrl, series) {
-  const response = await fetch(mdUrl, { cache: "no-store" });
+async function loadBenchmarkData(jsonUrl, series) {
+  const response = await fetch(jsonUrl, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`Failed to load benchmark markdown: ${response.status}`);
+    throw new Error(`Failed to load benchmark JSON: ${response.status}`);
   }
-  return parseBenchmarkMarkdown(await response.text(), series);
+  const rows = await response.json();
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error("Benchmark JSON must contain a non-empty array.");
+  }
+  rows.forEach((row) => {
+    if (!row.device) throw new Error("Benchmark row is missing device.");
+    series.forEach((entry) => {
+      if (!Number.isFinite(Number(row[entry.key]))) {
+        throw new Error(`Benchmark row is missing numeric series "${entry.key}".`);
+      }
+    });
+  });
+  return rows;
 }
 
 function renderBenchmarkChart(container, benchmarkData, series) {
@@ -234,13 +206,13 @@ function renderBenchmarkChart(container, benchmarkData, series) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  document.querySelectorAll("[data-benchmark-md-url][data-benchmark-series]").forEach(
+  document.querySelectorAll("[data-benchmark-json-url][data-benchmark-series]").forEach(
     (container) => {
-      const mdUrl = container.dataset.benchmarkMdUrl;
+      const jsonUrl = container.dataset.benchmarkJsonUrl;
       const seriesSpec = container.dataset.benchmarkSeries;
       try {
         const series = parseSeriesSpec(seriesSpec);
-        loadBenchmarkData(mdUrl, series)
+        loadBenchmarkData(jsonUrl, series)
           .then((data) => renderBenchmarkChart(container, data, series))
           .catch((error) => {
             container.textContent = `Failed to load benchmark chart data: ${error.message}`;

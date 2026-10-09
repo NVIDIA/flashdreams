@@ -10,34 +10,36 @@
       
       
       
-        <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/community/">
+        <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/guides/stream_inference_pipeline/">
       
       
-        <link rel="prev" href="../troubleshooting/">
+        <link rel="prev" href="../create_model/">
       
+      
+        <link rel="next" href="../latency_tuning/">
       
       
         
       
       
-      <link rel="icon" href="../favicon.svg">
+      <link rel="icon" href="../../../../favicon.svg">
       <meta name="generator" content="zensical-0.0.67">
     
     
       
-        <title>Community - FlashDreams</title>
+        <title>Inference pipeline overview - FlashDreams</title>
       
     
     
       
         
       
-      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ae390e2.min.css">
+      <link rel="stylesheet" href="../../../../assets/stylesheets/modern/main.4ae390e2.min.css">
       
         
           
         
-        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.96d1a7e4.min.css">
+        <link rel="stylesheet" href="../../../../assets/stylesheets/modern/palette.96d1a7e4.min.css">
       
       
 
@@ -56,11 +58,11 @@
       
     
     
-      <link rel="stylesheet" href="../stylesheets/custom.css">
+      <link rel="stylesheet" href="../../../../stylesheets/custom.css">
     
       <link rel="stylesheet" href="https://unpkg.com/katex@0/dist/katex.min.css">
     
-    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    <script>__md_scope=new URL("../../../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
     
       
 
@@ -85,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#contribute" class="md-skip">
+        <a href="#examples" class="md-skip">
           Skip to content
         </a>
       
@@ -101,9 +103,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="./.." title="FlashDreams" class="md-header__button md-logo" aria-label="FlashDreams" data-md-component="logo">
+    <a href="../../../.." title="FlashDreams" class="md-header__button md-logo" aria-label="FlashDreams" data-md-component="logo">
       
-  <img src="../images/horizontal-light.svg" alt="FlashDreams">
+  <img src="../../../../images/horizontal-light.svg" alt="FlashDreams">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
@@ -120,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Community
+              Inference pipeline overview
             
           </span>
         </div>
@@ -209,9 +211,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="./.." title="FlashDreams" class="md-nav__button md-logo" aria-label="FlashDreams" data-md-component="logo">
+    <a href="../../../.." title="FlashDreams" class="md-nav__button md-logo" aria-label="FlashDreams" data-md-component="logo">
       
-  <img src="../images/horizontal-light.svg" alt="FlashDreams">
+  <img src="../../../../images/horizontal-light.svg" alt="FlashDreams">
 
     </a>
     FlashDreams
@@ -238,7 +240,7 @@
   
   
     <li class="md-nav__item">
-      <a href="./.." class="md-nav__link">
+      <a href="../../../.." class="md-nav__link">
         
   
   
@@ -282,7 +284,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../quickstart/" class="md-nav__link ">
+            <a href="../../../../quickstart/" class="md-nav__link ">
               
   
   
@@ -357,7 +359,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../models/" class="md-nav__link ">
+            <a href="../../../../models/" class="md-nav__link ">
               
   
   
@@ -400,7 +402,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/omnidreams/" class="md-nav__link">
+      <a href="../../../../models/omnidreams/" class="md-nav__link">
         
   
   
@@ -427,7 +429,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/self_forcing/" class="md-nav__link">
+      <a href="../../../../models/self_forcing/" class="md-nav__link">
         
   
   
@@ -454,7 +456,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/causal_forcing/" class="md-nav__link">
+      <a href="../../../../models/causal_forcing/" class="md-nav__link">
         
   
   
@@ -481,7 +483,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/causal_wan22/" class="md-nav__link">
+      <a href="../../../../models/causal_wan22/" class="md-nav__link">
         
   
   
@@ -508,7 +510,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/lingbot_world/" class="md-nav__link">
+      <a href="../../../../models/lingbot_world/" class="md-nav__link">
         
   
   
@@ -535,7 +537,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/waypoint/" class="md-nav__link">
+      <a href="../../../../models/waypoint/" class="md-nav__link">
         
   
   
@@ -562,7 +564,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/hy_worldplay/" class="md-nav__link">
+      <a href="../../../../models/hy_worldplay/" class="md-nav__link">
         
   
   
@@ -589,7 +591,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/sana_wm_streaming/" class="md-nav__link">
+      <a href="../../../../models/sana_wm_streaming/" class="md-nav__link">
         
   
   
@@ -616,7 +618,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/wan21/" class="md-nav__link">
+      <a href="../../../../models/wan21/" class="md-nav__link">
         
   
   
@@ -643,7 +645,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/wan22/" class="md-nav__link">
+      <a href="../../../../models/wan22/" class="md-nav__link">
         
   
   
@@ -670,7 +672,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/cosmos_predict2/" class="md-nav__link">
+      <a href="../../../../models/cosmos_predict2/" class="md-nav__link">
         
   
   
@@ -697,7 +699,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/flashvsr/" class="md-nav__link">
+      <a href="../../../../models/flashvsr/" class="md-nav__link">
         
   
   
@@ -724,7 +726,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/swiftvr/" class="md-nav__link">
+      <a href="../../../../models/swiftvr/" class="md-nav__link">
         
   
   
@@ -789,7 +791,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../demos/" class="md-nav__link ">
+            <a href="../../../../demos/" class="md-nav__link ">
               
   
   
@@ -832,7 +834,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demos/crazy_robotaxi/" class="md-nav__link">
+      <a href="../../../../demos/crazy_robotaxi/" class="md-nav__link">
         
   
   
@@ -859,7 +861,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demos/interactive_drive/" class="md-nav__link">
+      <a href="../../../../demos/interactive_drive/" class="md-nav__link">
         
   
   
@@ -886,7 +888,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demos/action2v/" class="md-nav__link">
+      <a href="../../../../demos/action2v/" class="md-nav__link">
         
   
   
@@ -913,7 +915,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demos/cam2v/" class="md-nav__link">
+      <a href="../../../../demos/cam2v/" class="md-nav__link">
         
   
   
@@ -940,7 +942,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demos/t2v/" class="md-nav__link">
+      <a href="../../../../demos/t2v/" class="md-nav__link">
         
   
   
@@ -967,7 +969,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demos/v2v/" class="md-nav__link">
+      <a href="../../../../demos/v2v/" class="md-nav__link">
         
   
   
@@ -999,6 +1001,8 @@
       
   
   
+    
+  
   
   
     
@@ -1022,15 +1026,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../documentation/" class="md-nav__link ">
+            <a href="../../../" class="md-nav__link ">
               
   
   
@@ -1054,7 +1058,7 @@
           </div>
         
         
-          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
             <label class="md-nav__title" for="__nav_5">
               <span class="md-nav__icon md-icon"></span>
               
@@ -1073,7 +1077,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/cli/" class="md-nav__link">
+      <a href="../../../cli/" class="md-nav__link">
         
   
   
@@ -1122,7 +1126,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../documentation/demo_api/" class="md-nav__link ">
+            <a href="../../../demo_api/" class="md-nav__link ">
               
   
   
@@ -1225,7 +1229,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/guides/create_demo/" class="md-nav__link">
+      <a href="../../../demo_api/guides/create_demo/" class="md-nav__link">
         
   
   
@@ -1252,7 +1256,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/guides/integrate_model/" class="md-nav__link">
+      <a href="../../../demo_api/guides/integrate_model/" class="md-nav__link">
         
   
   
@@ -1279,7 +1283,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/guides/configuration/" class="md-nav__link">
+      <a href="../../../demo_api/guides/configuration/" class="md-nav__link">
         
   
   
@@ -1306,7 +1310,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/guides/application_slugs/" class="md-nav__link">
+      <a href="../../../demo_api/guides/application_slugs/" class="md-nav__link">
         
   
   
@@ -1333,7 +1337,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/guides/interactive_serving/" class="md-nav__link">
+      <a href="../../../demo_api/guides/interactive_serving/" class="md-nav__link">
         
   
   
@@ -1360,7 +1364,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/guides/local_benchmarks/" class="md-nav__link">
+      <a href="../../../demo_api/guides/local_benchmarks/" class="md-nav__link">
         
   
   
@@ -1446,7 +1450,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/api_reference/application/" class="md-nav__link">
+      <a href="../../../demo_api/api_reference/application/" class="md-nav__link">
         
   
   
@@ -1488,6 +1492,8 @@
                   
   
   
+    
+  
   
   
     
@@ -1505,15 +1511,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../documentation/inferencing_api/" class="md-nav__link ">
+            <a href="../../" class="md-nav__link ">
               
   
   
@@ -1537,7 +1543,7 @@
           </div>
         
         
-          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="false">
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="true">
             <label class="md-nav__title" for="__nav_5_4">
               <span class="md-nav__icon md-icon"></span>
               
@@ -1553,8 +1559,10 @@
                   
   
   
+    
   
   
+  
     
     
       
@@ -1570,11 +1578,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4_2" checked>
         
           
           <label class="md-nav__link" for="__nav_5_4_2" id="__nav_5_4_2_label" tabindex="0">
@@ -1595,7 +1603,7 @@
           </label>
         
         
-          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_4_2_label" aria-expanded="false">
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_4_2_label" aria-expanded="true">
             <label class="md-nav__title" for="__nav_5_4_2">
               <span class="md-nav__icon md-icon"></span>
               
@@ -1612,7 +1620,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/guides/create_model/" class="md-nav__link">
+      <a href="../create_model/" class="md-nav__link">
         
   
   
@@ -1636,10 +1644,34 @@
                   
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/guides/stream_inference_pipeline/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Stream inference pipeline
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1654,6 +1686,36 @@
   
 
       </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Examples
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1666,7 +1728,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/guides/latency_tuning/" class="md-nav__link">
+      <a href="../latency_tuning/" class="md-nav__link">
         
   
   
@@ -1693,7 +1755,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/guides/accelerated/" class="md-nav__link">
+      <a href="../accelerated/" class="md-nav__link">
         
   
   
@@ -1783,7 +1845,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/api_reference/runtime/" class="md-nav__link">
+      <a href="../../api_reference/runtime/" class="md-nav__link">
         
   
   
@@ -1810,7 +1872,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/api_reference/pipeline/" class="md-nav__link">
+      <a href="../../api_reference/pipeline/" class="md-nav__link">
         
   
   
@@ -1837,7 +1899,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/api_reference/core/" class="md-nav__link">
+      <a href="../../api_reference/core/" class="md-nav__link">
         
   
   
@@ -1904,7 +1966,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../documentation/tools/" class="md-nav__link ">
+            <a href="../../../tools/" class="md-nav__link ">
               
   
   
@@ -1947,7 +2009,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/tools/offline_program_packager/" class="md-nav__link">
+      <a href="../../../tools/offline_program_packager/" class="md-nav__link">
         
   
   
@@ -1974,7 +2036,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/tools/build_website/" class="md-nav__link">
+      <a href="../../../tools/build_website/" class="md-nav__link">
         
   
   
@@ -2010,7 +2072,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../troubleshooting/" class="md-nav__link">
+      <a href="../../../../troubleshooting/" class="md-nav__link">
         
   
   
@@ -2042,8 +2104,6 @@
       
   
   
-    
-  
   
   
     
@@ -2057,15 +2117,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="././" class="md-nav__link md-nav__link--active">
+            <a href="../../../../community/" class="md-nav__link ">
               
   
   
@@ -2126,129 +2186,13 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#contribute" class="md-nav__link">
+  <a href="#examples" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Contribute
+        Examples
       </span>
     </span>
   </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#bugs-and-feature-requests" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Bugs and feature requests
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#discord" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Discord
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#security" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Security
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#before-opening-an-issue" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Before opening an issue
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#common-questions" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Common questions
-      </span>
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Common questions">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#what-hardware-do-i-need" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        What hardware do I need?
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#why-are-integrations-not-on-pypi" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Why are integrations not on PyPI?
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#which-python-api-should-i-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Which Python API should I use?
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-add-a-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        How do I add a model?
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#can-i-use-flashdreams-commercially" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Can I use FlashDreams commercially?
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -2268,7 +2212,7 @@
                   
 
   
-    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/community/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/documentation/inferencing_api/guides/stream_inference_pipeline.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
     </a>
@@ -2276,55 +2220,131 @@
   
 
 
-  <h1 id="__skip">Community</h1>
+  <h1 id="__skip">Stream inference pipeline</h1>
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-<p>Use the issue tracker for work that needs a record. Use Discord for informal
-questions and conversation. Do not report security problems in public.</p>
-<h3 id="contribute"><a href="https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md">Contribute</a></h3>
-<p>Development workflow, testing requirements, and contribution policy.</p>
-<h3 id="bugs-and-feature-requests"><a href="https://github.com/NVIDIA/flashdreams/issues">Bugs and feature requests</a></h3>
-<p>Search existing issues, then open one with the command, expected result,
-actual result, stack trace, and environment.</p>
-<h3 id="discord"><a href="https://discord.gg/cMt2mHm4aN">Discord</a></h3>
-<p>Ask open-ended questions and share results in <code>#flashdreams</code> on the
-NVIDIA Omniverse server.</p>
-<h3 id="security"><a href="https://github.com/NVIDIA/flashdreams/blob/main/SECURITY.md">Security</a></h3>
-<p>Follow the private disclosure process. Never file a public issue for a
-vulnerability.</p>
-<h2 id="before-opening-an-issue">Before opening an issue</h2>
-<p>Check <a href="../troubleshooting/">Troubleshooting</a>, the
-<a href="../models/">model page</a>, and existing issues first. Reduce the
-problem to the shortest command you can. Include:</p>
-<ul>
-<li>what you ran and what you expected;</li>
-<li>the full error text, not a screenshot;</li>
-<li>FlashDreams, Python, CUDA, and GPU versions; and</li>
-<li>anything you already tried.</li>
-</ul>
-<h2 id="common-questions">Common questions</h2>
-<h3 id="what-hardware-do-i-need">What hardware do I need?</h3>
-<p>FlashDreams needs a recent NVIDIA GPU. Memory requirements depend on the
-model, so check its <a href="../models/">model page</a> before installing it.</p>
-<h3 id="why-are-integrations-not-on-pypi">Why are integrations not on PyPI?</h3>
-<p>Only the core <code>flashdreams</code> package is published to PyPI. Clone the
-repository and install an integration as a workspace package. For example:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-wan21<span class="w"> </span>--extra<span class="w"> </span>dev
+<p>This page outlines the major computation flow in the FlashDreams inference pipeline.
+It outlines the core concepts and APIs for building custom model integrations,
+or modifying existing ones.</p>
+<p>This is the low-level model pipeline used behind an <code>api_v2</code> model loop. See
+the <a href="../../../demo_api/api_reference/application/">Demo Application API reference</a>
+for the public application contracts above it.</p>
+<p><img alt="FlashDreams autoregressive inference pipeline overview." src="../../../../_static/diagrams/flashdreams-inference-pipeline-overview.jpg" /></p>
+<p>The key entry point for the inference pipeline is the
+<code>~flashdreams.infra.pipeline.StreamInferencePipeline</code> class, which defines the
+autoregressive generation loop shown in the figure. The persistent state is held in
+<code>~flashdreams.infra.pipeline.StreamInferencePipelineCache</code> as a cache object,
+which is shared within the pipeline and updated in each autoregressive step.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">StreamInferencePipeline</span><span class="p">,</span>
+    <span class="n">StreamInferencePipelineCache</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">pipeline</span><span class="p">:</span> <span class="n">StreamInferencePipeline</span> <span class="o">=</span> <span class="o">...</span>
+
+<span class="c1"># Initialize component caches with already-prepared rollout context.</span>
+<span class="n">cache</span><span class="p">:</span> <span class="n">StreamInferencePipelineCache</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">initialize_cache</span><span class="p">(</span>
+    <span class="n">transformer_context</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;text_embeddings&quot;</span><span class="p">:</span> <span class="n">text_embeddings</span><span class="p">},</span>
+    <span class="n">encoder_context</span><span class="o">=</span><span class="p">{},</span>
+    <span class="n">decoder_context</span><span class="o">=</span><span class="p">{},</span>
+<span class="p">)</span>
+
+<span class="c1"># Autoregressive generation loop</span>
+<span class="k">for</span> <span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">control</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">controls</span><span class="p">):</span>
+    <span class="n">current_output</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">cache</span><span class="p">,</span> <span class="nb">input</span><span class="o">=</span><span class="n">control</span><span class="p">)</span>
+    <span class="k">yield</span> <span class="n">current_output</span>
+    <span class="n">pipeline</span><span class="o">.</span><span class="n">finalize</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">cache</span><span class="p">)</span>
 </code></pre></div>
-<h3 id="which-python-api-should-i-use">Which Python API should I use?</h3>
-<p>Use <code>flashdreams.api_v2</code>; the
-<a href="../documentation/demo_api/">Demo API reference</a> maps its
-application, session, and loop contracts.</p>
-<h3 id="how-do-i-add-a-model">How do I add a model?</h3>
-<p>Start with
-<a href="../documentation/inferencing_api/guides/create_model/">Create a model</a>, then
-<a href="../documentation/demo_api/guides/integrate_model/">integrate it with a demo</a>.</p>
-<h3 id="can-i-use-flashdreams-commercially">Can I use FlashDreams commercially?</h3>
-<p>The Apache 2.0 license permits commercial use. Model weights and datasets may
-have separate licenses.</p>
+<p>The code snippet above shows the generic execution loop. The initial call
+<code>~flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache</code>
+forwards the three context dictionaries to the transformer, encoder, and decoder
+cache initializers. Recipe-specific subclasses can expose higher-level arguments;
+for example, <code>WanInferencePipeline.initialize_cache</code> accepts raw text and an
+optional first frame and prepares the transformer context internally. Then, for each autoregressive step,
+<code>~flashdreams.infra.pipeline.StreamInferencePipeline.generate</code> is called to produce the current output chunk,
+followed by <code>~flashdreams.infra.pipeline.StreamInferencePipeline.finalize</code>. This split exists because
+<code>~flashdreams.infra.pipeline.StreamInferencePipeline.finalize</code> typically handles additional KV
+cache updates that are not in the hot path, which can be offloaded to a background thread in many
+cases to hide latency.</p>
+<p>Inside <code>~flashdreams.infra.pipeline.StreamInferencePipeline.generate</code>, the pipeline encodes the
+per-step control input, runs the diffusion model's denoising loop, and decodes the latent chunk into
+the final output. The following snippet illustrates this internal flow:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># class StreamInferencePipeline</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">cache</span><span class="p">,</span> <span class="nb">input</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="c1"># 1. Convert per-step control into model conditioning</span>
+    <span class="k">if</span> <span class="nb">input</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">input</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="p">(</span>
+            <span class="nb">input</span><span class="o">=</span><span class="nb">input</span><span class="p">,</span>
+            <span class="n">autoregressive_index</span><span class="o">=</span><span class="n">autoregressive_index</span><span class="p">,</span>
+            <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="o">.</span><span class="n">encoder_cache</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="c1"># 2. Run scheduler loop + DiT flow prediction</span>
+    <span class="n">clean_latent</span><span class="p">,</span> <span class="n">final_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span>
+        <span class="n">autoregressive_index</span><span class="o">=</span><span class="n">autoregressive_index</span><span class="p">,</span>
+        <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="o">.</span><span class="n">transformer_cache</span><span class="p">,</span>
+        <span class="nb">input</span><span class="o">=</span><span class="nb">input</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">cache</span><span class="o">.</span><span class="n">final_state</span> <span class="o">=</span> <span class="n">final_state</span>
+
+    <span class="c1"># 3. Convert latent chunk to output chunk</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">clean_latent</span>
+
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="p">(</span>
+        <span class="nb">input</span><span class="o">=</span><span class="n">clean_latent</span><span class="p">,</span>
+        <span class="n">autoregressive_index</span><span class="o">=</span><span class="n">autoregressive_index</span><span class="p">,</span>
+        <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="o">.</span><span class="n">decoder_cache</span><span class="p">,</span>
+    <span class="p">)</span>
+</code></pre></div>
+<p>In FlashDreams, these components are composed using a configuration system. This allows building
+customized pipelines by supplying different configurations for the encoder, diffusion model, and decoder.
+A typical <code>~flashdreams.infra.pipeline.StreamInferencePipelineConfig</code> is instantiated as follows:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">DiffusionModelConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler.fm</span><span class="w"> </span><span class="kn">import</span> <span class="n">FlowMatchSchedulerConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamInferencePipelineConfig</span>
+
+<span class="c1"># Supply configs for the encoder, transformer, and decoder.</span>
+<span class="n">MyStreamingEncoderConfig</span> <span class="o">=</span> <span class="o">...</span>
+<span class="n">MyTransformerConfig</span> <span class="o">=</span> <span class="o">...</span>
+<span class="n">MyStreamingDecoderConfig</span> <span class="o">=</span> <span class="o">...</span>
+
+<span class="c1"># create a pipeline config</span>
+<span class="n">pipeline_config</span> <span class="o">=</span> <span class="n">StreamInferencePipelineConfig</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;customized-method-name&quot;</span><span class="p">,</span>
+    <span class="n">encoder</span><span class="o">=</span><span class="n">MyStreamingEncoderConfig</span><span class="p">(),</span>
+    <span class="n">diffusion_model</span><span class="o">=</span><span class="n">DiffusionModelConfig</span><span class="p">(</span>
+        <span class="n">transformer</span><span class="o">=</span><span class="n">MyTransformerConfig</span><span class="p">(),</span>
+        <span class="n">scheduler</span><span class="o">=</span><span class="n">FlowMatchSchedulerConfig</span><span class="p">(),</span>
+    <span class="p">),</span>
+    <span class="n">decoder</span><span class="o">=</span><span class="n">MyStreamingDecoderConfig</span><span class="p">(),</span>
+<span class="p">)</span>
+
+<span class="c1"># then a pipeline can be simply instantiated as follows:</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">pipeline_config</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+</code></pre></div>
+<p>More details are in
+<a href="../../../demo_api/guides/configuration/">Demo configuration</a>.</p>
+<h2 id="examples">Examples</h2>
+<p>Samples on how existing models use this structure:</p>
+<ul>
+<li><a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/omnidreams/config.py">NVIDIA OmniDreams config</a>:
+  An I2V video model with a VAE-based causal encoder for HDMap control.</li>
+<li><a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/lingbot/config.py">LingBot-World config</a>:
+  A camera-controlled I2V model that uses the per-step camera encoder.</li>
+<li><a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/self_forcing/config.py">Self-Forcing config</a>:
+  A pure T2V model that sets <code>encoder=None</code>, so each rollout starts from noise.</li>
+<li><a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan21/config.py">Wan2.1 config</a>:
+  Treats a bidirectional video model as a single-rollout autoregressive model.</li>
+</ul>
+<p>To add an implementation, follow <a href="../create_model/">Create a model</a>. To make it
+selectable by a demo, continue with
+<a href="../../../demo_api/guides/configuration/">Demo configuration</a>.</p>
 
 
 
@@ -2359,7 +2379,7 @@ have separate licenses.</p>
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../troubleshooting/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Troubleshooting">
+          <a href="../create_model/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Create a model">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
@@ -2369,11 +2389,27 @@ have separate licenses.</p>
                 Previous
               </span>
               <div class="md-ellipsis">
-                Troubleshooting
+                Create a model
               </div>
             </div>
           </a>
         
+        
+          
+          <a href="../latency_tuning/" class="md-footer__link md-footer__link--next" aria-label="Next: Latency tuning">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Latency tuning
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
         
       </nav>
     
@@ -2402,12 +2438,12 @@ have separate licenses.</p>
       
         
         
-      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.action.edit","navigation.indexes","navigation.footer"],"redirect":null,"search":"../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+      <script id="__config" type="application/json">{"annotate":null,"base":"../../../..","features":["content.action.edit","navigation.indexes","navigation.footer"],"redirect":null,"search":"../../../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
     
     
-      <script src="../assets/javascripts/bundle.67a597eb.min.js"></script>
+      <script src="../../../../assets/javascripts/bundle.67a597eb.min.js"></script>
       
-        <script src="../javascripts/katex.js"></script>
+        <script src="../../../../javascripts/katex.js"></script>
       
         <script src="https://unpkg.com/katex@0/dist/katex.min.js"></script>
       

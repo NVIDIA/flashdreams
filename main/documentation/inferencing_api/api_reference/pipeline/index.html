@@ -1,0 +1,6711 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Inference and serving for interactive video and world models">
+      
+      
+      
+        <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/api_reference/pipeline/">
+      
+      
+        <link rel="prev" href="../runtime/">
+      
+      
+        <link rel="next" href="../core/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../../favicon.svg">
+      <meta name="generator" content="zensical-0.0.67">
+    
+    
+      
+        <title>Pipeline API Reference - FlashDreams</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../../../assets/stylesheets/modern/main.4ae390e2.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../../../assets/stylesheets/modern/palette.96d1a7e4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../../stylesheets/custom.css">
+    
+      <link rel="stylesheet" href="https://unpkg.com/katex@0/dist/katex.min.css">
+    
+    <script>__md_scope=new URL("../../../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#config" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../../.." title="FlashDreams" class="md-header__button md-logo" aria-label="FlashDreams" data-md-component="logo">
+      
+  <img src="../../../../images/horizontal-light.svg" alt="FlashDreams">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            FlashDreams
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Pipeline API Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="none" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="none" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/NVIDIA/flashdreams" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    NVIDIA/flashdreams
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../../.." title="FlashDreams" class="md-nav__button md-logo" aria-label="FlashDreams" data-md-component="logo">
+      
+  <img src="../../../../images/horizontal-light.svg" alt="FlashDreams">
+
+    </a>
+    FlashDreams
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/NVIDIA/flashdreams" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    NVIDIA/flashdreams
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FlashDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../../quickstart/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Quickstart
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../../models/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Models
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Models
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/omnidreams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  NVIDIA OmniDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/self_forcing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Self-Forcing
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/causal_forcing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Causal-Forcing
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/causal_wan22/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Causal Wan 2.2
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/lingbot_world/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  LingBot-World
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/waypoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Waypoint 1.5
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/hy_worldplay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  HY-Worldplay
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/sana_wm_streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  SANA-WM
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/wan21/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Wan 2.1
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/wan22/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Wan 2.2
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos_predict2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos-Predict 2.5
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/flashvsr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FlashVSR
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/swiftvr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  SwiftVR
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../../demos/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Demos
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Demos
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/crazy_robotaxi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Crazy Robotaxi
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/interactive_drive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interactive Drive
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/action2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Action2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/cam2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cam2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/t2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  T2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/v2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  V2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Documentation
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Documentation
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  CLI Reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../demo_api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Demo API
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Demo API
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3_2" id="__nav_5_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Guides
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_3_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Guides
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/create_demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Create a demo
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/integrate_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Integrate a model with a demo
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Demo configuration
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/application_slugs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Application slugs and dispatch
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/interactive_serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interactive serving
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/local_benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Local benchmarks
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3_3" id="__nav_5_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API Reference
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_3_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  API Reference
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/api_reference/application/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Application API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Inferencing API
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_5_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Inferencing API
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4_2" id="__nav_5_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Guides
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_4_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_4_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Guides
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/create_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Create a model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/stream_inference_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Stream inference pipeline
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/latency_tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Latency tuning
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/accelerated/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Accelerated building blocks
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5_4_3" id="__nav_5_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API Reference
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_4_3_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_5_4_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  API Reference
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Inference Runtime API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipeline API
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipeline API
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#config" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Config
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Config">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#printableconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>PrintableConfig</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#instantiateconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InstantiateConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InstantiateConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>setup</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#derive_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>derive_config</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Pipeline
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#streaminferencepipelineconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamInferencePipelineConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamInferencePipelineConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>name</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diffusion_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>diffusion_model</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>decoder</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>encoder</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enable_sync_and_profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>enable_sync_and_profile</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streaminferencepipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamInferencePipeline</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamInferencePipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#initialize_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>initialize_cache</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="initialize_cache">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>generate</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="generate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finalize" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>finalize</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="finalize">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streaminferencepipelinecache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamInferencePipelineCache</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamInferencePipelineCache">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transformer_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>transformer_cache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#encoder_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>encoder_cache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decoder_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>decoder_cache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#final_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>final_state</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#autoregressive_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>autoregressive_index</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event_profiler" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>event_profiler</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#diffusion-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Diffusion model
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Diffusion model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#diffusionmodelconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>DiffusionModelConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DiffusionModelConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transformer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>transformer</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scheduler" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>scheduler</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#seed" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>seed</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#context_noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>context_noise</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#noise_in_unpatchified_shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>noise_in_unpatchified_shape</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="noise_in_unpatchified_shape">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diffusionmodel" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>DiffusionModel</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DiffusionModel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#finalstate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FinalState</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FinalState">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#clean_latent" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>clean_latent</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#autoregressive_index_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>autoregressive_index</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>cache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>input</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rng" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>rng</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generate_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>generate</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="generate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finalize_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>finalize</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#transformer_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Transformer
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Transformer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transformerconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>TransformerConfig</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transformer_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>Transformer</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Transformer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#latent_shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>latent_shape</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#predict_flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>predict_flow</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="predict_flow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finalize_kv_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>finalize_kv_cache</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="finalize_kv_cache">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#initialize_autoregressive_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>initialize_autoregressive_cache</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="initialize_autoregressive_cache">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#initial_noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>initial_noise</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="initial_noise">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#postprocess_clean_latent" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>postprocess_clean_latent</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="postprocess_clean_latent">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#patchify_and_maybe_split_cp" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>patchify_and_maybe_split_cp</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#unpatchify_and_maybe_gather_cp" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>unpatchify_and_maybe_gather_cp</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transformerautoregressivecache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>TransformerAutoregressiveCache</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="TransformerAutoregressiveCache">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>start</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="start">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finalize_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>finalize</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="finalize">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#schedulers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Schedulers
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Schedulers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scheduler_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>Scheduler</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Scheduler">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sample" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>sample</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sample">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add_noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>add_noise</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schedulerconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>SchedulerConfig</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flowpredictor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FlowPredictor</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flowmatchschedulerconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FlowMatchSchedulerConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FlowMatchSchedulerConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#num_inference_steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>num_inference_steps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shift" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>shift</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#denoising_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>denoising_timesteps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#warp_denoising_step" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>warp_denoising_step</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#num_train_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>num_train_timesteps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sigma_max" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>sigma_max</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sigma_min" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>sigma_min</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extra_one_step" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>extra_one_step</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timestep_dtype" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>timestep_dtype</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enable_tqdm" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>enable_tqdm</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flowmatchscheduler" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FlowMatchScheduler</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FlowMatchScheduler">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sample_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>sample</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add_noise_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>add_noise</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flowmatcheulerdiscreteschedulerconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FlowMatchEulerDiscreteSchedulerConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FlowMatchEulerDiscreteSchedulerConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#num_inference_steps_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>num_inference_steps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shift_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>shift</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#num_train_timesteps_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>num_train_timesteps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>fixed_timesteps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enable_tqdm_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>enable_tqdm</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flowmatchunipcschedulerconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FlowMatchUniPCSchedulerConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FlowMatchUniPCSchedulerConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#num_inference_steps_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>num_inference_steps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shift_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>shift</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#num_train_timesteps_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>num_train_timesteps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#solver_order" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>solver_order</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use_kerras_sigma" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>use_kerras_sigma</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enable_tqdm_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>enable_tqdm</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flowmatchunipcscheduler" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FlowMatchUniPCScheduler</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FlowMatchUniPCScheduler">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sample_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>sample</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add_noise_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>add_noise</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#encoder_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Encoder
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Encoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#encoderconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>EncoderConfig</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#encoder_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>Encoder</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streamingencoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamingEncoder</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamingEncoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#initialize_autoregressive_cache_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>initialize_autoregressive_cache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streamingvideoencoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamingVideoEncoder</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamingVideoEncoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#spatial_compression_ratio" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>spatial_compression_ratio</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#temporal_compression_ratio" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>temporal_compression_ratio</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_output_temporal_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>get_output_temporal_size</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="get_output_temporal_size">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_14" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_input_temporal_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>get_input_temporal_size</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="get_input_temporal_size">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_15" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streamingencodercache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamingEncoderCache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nullencoderconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>NullEncoderConfig</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nullencoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>NullEncoder</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="NullEncoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#forward" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>forward</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decoder_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Decoder
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#decoderconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>DecoderConfig</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streamingdecoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamingDecoder</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamingDecoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#initialize_autoregressive_cache_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>initialize_autoregressive_cache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streamingvideodecoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamingVideoDecoder</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamingVideoDecoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#spatial_compression_ratio_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>spatial_compression_ratio</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#temporal_compression_ratio_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>temporal_compression_ratio</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_output_temporal_size_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>get_output_temporal_size</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="get_output_temporal_size">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_16" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_input_temporal_size_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>get_input_temporal_size</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="get_input_temporal_size">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_17" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streamingdecodercache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamingDecoderCache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Core API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../tools/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Tooling
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_5" id="__nav_5_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Tooling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/offline_program_packager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Offline Program Packager
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/build_website/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Build Website
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Troubleshooting
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../../community/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Community
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#config" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Config
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Config">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#printableconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>PrintableConfig</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#instantiateconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InstantiateConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InstantiateConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>setup</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#derive_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>derive_config</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Pipeline
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#streaminferencepipelineconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamInferencePipelineConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamInferencePipelineConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>name</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diffusion_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>diffusion_model</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>decoder</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>encoder</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enable_sync_and_profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>enable_sync_and_profile</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streaminferencepipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamInferencePipeline</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamInferencePipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#initialize_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>initialize_cache</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="initialize_cache">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>generate</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="generate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finalize" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>finalize</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="finalize">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streaminferencepipelinecache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamInferencePipelineCache</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamInferencePipelineCache">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transformer_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>transformer_cache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#encoder_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>encoder_cache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decoder_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>decoder_cache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#final_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>final_state</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#autoregressive_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>autoregressive_index</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event_profiler" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>event_profiler</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#diffusion-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Diffusion model
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Diffusion model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#diffusionmodelconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>DiffusionModelConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DiffusionModelConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transformer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>transformer</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scheduler" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>scheduler</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#seed" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>seed</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#context_noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>context_noise</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#noise_in_unpatchified_shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>noise_in_unpatchified_shape</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="noise_in_unpatchified_shape">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diffusionmodel" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>DiffusionModel</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DiffusionModel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#finalstate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FinalState</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FinalState">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#clean_latent" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>clean_latent</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#autoregressive_index_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>autoregressive_index</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>cache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>input</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rng" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>rng</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generate_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>generate</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="generate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finalize_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>finalize</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#transformer_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Transformer
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Transformer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transformerconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>TransformerConfig</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transformer_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>Transformer</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Transformer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#latent_shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>latent_shape</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#predict_flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>predict_flow</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="predict_flow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finalize_kv_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>finalize_kv_cache</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="finalize_kv_cache">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#initialize_autoregressive_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>initialize_autoregressive_cache</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="initialize_autoregressive_cache">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#initial_noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>initial_noise</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="initial_noise">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#postprocess_clean_latent" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>postprocess_clean_latent</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="postprocess_clean_latent">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#patchify_and_maybe_split_cp" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>patchify_and_maybe_split_cp</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#unpatchify_and_maybe_gather_cp" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>unpatchify_and_maybe_gather_cp</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transformerautoregressivecache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>TransformerAutoregressiveCache</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="TransformerAutoregressiveCache">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>start</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="start">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finalize_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>finalize</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="finalize">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#schedulers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Schedulers
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Schedulers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scheduler_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>Scheduler</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Scheduler">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sample" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>sample</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sample">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add_noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>add_noise</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schedulerconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>SchedulerConfig</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flowpredictor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FlowPredictor</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flowmatchschedulerconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FlowMatchSchedulerConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FlowMatchSchedulerConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#num_inference_steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>num_inference_steps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shift" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>shift</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#denoising_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>denoising_timesteps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#warp_denoising_step" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>warp_denoising_step</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#num_train_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>num_train_timesteps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sigma_max" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>sigma_max</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sigma_min" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>sigma_min</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extra_one_step" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>extra_one_step</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timestep_dtype" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>timestep_dtype</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enable_tqdm" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>enable_tqdm</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flowmatchscheduler" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FlowMatchScheduler</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FlowMatchScheduler">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sample_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>sample</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add_noise_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>add_noise</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flowmatcheulerdiscreteschedulerconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FlowMatchEulerDiscreteSchedulerConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FlowMatchEulerDiscreteSchedulerConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#num_inference_steps_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>num_inference_steps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shift_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>shift</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#num_train_timesteps_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>num_train_timesteps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_timesteps" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>fixed_timesteps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enable_tqdm_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>enable_tqdm</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flowmatchunipcschedulerconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FlowMatchUniPCSchedulerConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FlowMatchUniPCSchedulerConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#num_inference_steps_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>num_inference_steps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shift_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>shift</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#num_train_timesteps_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>num_train_timesteps</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#solver_order" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>solver_order</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use_kerras_sigma" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>use_kerras_sigma</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enable_tqdm_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>enable_tqdm</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flowmatchunipcscheduler" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FlowMatchUniPCScheduler</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FlowMatchUniPCScheduler">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sample_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>sample</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add_noise_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>add_noise</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#encoder_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Encoder
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Encoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#encoderconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>EncoderConfig</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#encoder_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>Encoder</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streamingencoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamingEncoder</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamingEncoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#initialize_autoregressive_cache_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>initialize_autoregressive_cache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streamingvideoencoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamingVideoEncoder</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamingVideoEncoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#spatial_compression_ratio" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>spatial_compression_ratio</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#temporal_compression_ratio" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>temporal_compression_ratio</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_output_temporal_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>get_output_temporal_size</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="get_output_temporal_size">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_14" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_input_temporal_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>get_input_temporal_size</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="get_input_temporal_size">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_15" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streamingencodercache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamingEncoderCache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nullencoderconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>NullEncoderConfig</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nullencoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>NullEncoder</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="NullEncoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#forward" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>forward</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decoder_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Decoder
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#decoderconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>DecoderConfig</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streamingdecoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamingDecoder</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamingDecoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#initialize_autoregressive_cache_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>initialize_autoregressive_cache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streamingvideodecoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamingVideoDecoder</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StreamingVideoDecoder">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#spatial_compression_ratio_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>spatial_compression_ratio</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#temporal_compression_ratio_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>temporal_compression_ratio</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_output_temporal_size_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>get_output_temporal_size</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="get_output_temporal_size">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_16" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_input_temporal_size_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>get_input_temporal_size</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="get_input_temporal_size">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_17" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ``
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streamingdecodercache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StreamingDecoderCache</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+  
+    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/documentation/inferencing_api/api_reference/pipeline.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+  <h1 id="__skip">Pipeline API</h1>
+
+<!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
+
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+<p>The <code>flashdreams.infra</code> package defines the swappable abstractions that
+every integration plugs into: a config system, an encoder / diffusion-model /
+decoder triple, and the streaming inference pipeline that drives them.</p>
+<p>See the <a href="../../">Inferencing API overview</a> for public runtime boundaries.</p>
+<h2 id="config">Config</h2>
+<p>Infra component configs are mutable <code>InstantiateConfig</code> dataclasses
+built via <code>config.setup()</code>. <code>PrintableConfig</code> provides readable
+configuration dumps, while <code>derive_config</code> deep-copies an existing
+config before applying nested overrides.</p>
+<p><a id="flashdreams.infra.config.PrintableConfig"></a></p>
+<h3 id="printableconfig"><code>PrintableConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class PrintableConfig
+</code></pre></div>
+<p>Bases: <code>object</code></p>
+<p>Config base class providing a multi-line <code>__str__</code> for human-readable dumps.</p>
+<p><a id="flashdreams.infra.config.InstantiateConfig"></a></p>
+<h3 id="instantiateconfig"><code>InstantiateConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class InstantiateConfig ( _target : type )
+</code></pre></div>
+<p>Bases: <code>PrintableConfig</code></p>
+<p>Config carrying a <code>_target</code> class plus its kwargs, instantiable via <code>setup</code>.</p>
+<p><a id="flashdreams.infra.config.InstantiateConfig.setup"></a></p>
+<h4 id="setup"><code>setup</code></h4>
+<div class="highlight"><pre><span></span><code>setup ( ** kwargs : Any ) → Any
+</code></pre></div>
+<p>Instantiate the configured object.</p>
+<p><a id="flashdreams.infra.config.derive_config"></a></p>
+<h3 id="derive_config"><code>derive_config</code></h3>
+<div class="highlight"><pre><span></span><code>derive_config ( base_config : T , ** changes : Any ) → T
+</code></pre></div>
+<p>Deep-copy a base config and apply nested keyword overrides.</p>
+<p>Nested <code>dict</code> values walk into both dataclass attributes and nested
+dicts; leaf values overwrite directly. Raises <code>KeyError</code> on unknown
+paths.</p>
+<p>Example:</p>
+<div class="highlight"><pre><span></span><code>new_config = derive_config(
+    base_config,
+    tokenizer=WanVAEInterfaceConfig(checkpoint_path=...),
+    dit=dict(len_t=3, checkpoint_path=...),
+)
+</code></pre></div>
+<h2 id="pipeline">Pipeline</h2>
+<p>The pipeline composes the model-side streaming inference stages. It
+autoregressively generates one chunk at a time by running an optional encoder,
+the diffusion model, and an optional decoder, with per-session caches for the
+configured streaming components. Call <code>finalize()</code> after <code>generate()</code> to
+advance the diffusion model's autoregressive cache.</p>
+<p><a id="flashdreams.infra.pipeline.StreamInferencePipelineConfig"></a></p>
+<h3 id="streaminferencepipelineconfig"><code>StreamInferencePipelineConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class StreamInferencePipelineConfig ( * , _target: type[StreamInferencePipeline] = &lt;factory&gt; , name: str , diffusion_model: ~flashdreams.infra.diffusion.model.base.DiffusionModelConfig , decoder: ~flashdreams.infra.decoder.base.DecoderConfig | None = None , encoder: ~flashdreams.infra.encoder.base.EncoderConfig | None = None )
+</code></pre></div>
+<p>Bases: <code>InstantiateConfig</code></p>
+<p>Config for the streaming inference pipeline.</p>
+<p>Set <code>encoder=None</code> when the pipeline has no per-AR-step control input
+(pure T2V). Set <code>decoder=None</code> to return the clean latent directly
+(training, latent-space evaluation, or pipelines that own decoding).</p>
+<p><a id="flashdreams.infra.pipeline.StreamInferencePipelineConfig.name"></a></p>
+<h4 id="name"><code>name</code></h4>
+<div class="highlight"><pre><span></span><code>name : str
+</code></pre></div>
+<p>Stable slug for this pipeline variant; the primary key of
+<code>&lt;NAME&gt;_CONFIGS</code>. Runners mirror it as <code>runner_name</code> so
+<code>flashdreams-run &lt;slug&gt;</code> resolves to this pipeline.
+<a id="flashdreams.infra.pipeline.StreamInferencePipelineConfig.diffusion_model"></a></p>
+<h4 id="diffusion_model"><code>diffusion_model</code></h4>
+<div class="highlight"><pre><span></span><code>diffusion_model : DiffusionModelConfig
+</code></pre></div>
+<p>Transformer + scheduler config.
+<a id="flashdreams.infra.pipeline.StreamInferencePipelineConfig.decoder"></a></p>
+<h4 id="decoder"><code>decoder</code></h4>
+<div class="highlight"><pre><span></span><code>decoder : DecoderConfig | None = None
+</code></pre></div>
+<p>Optional output <code>StreamingDecoder</code> with a per-rollout cache,
+called as <code>decoder(input, autoregressive_index, cache)</code>. Use
+<code>None</code> to return the clean latent unchanged.
+<a id="flashdreams.infra.pipeline.StreamInferencePipelineConfig.encoder"></a></p>
+<h4 id="encoder"><code>encoder</code></h4>
+<div class="highlight"><pre><span></span><code>encoder : EncoderConfig | None = None
+</code></pre></div>
+<p>Optional per-AR-step input encoder. Must be a
+<code>StreamingEncoder</code>; one-shot encoders go on
+<code>transformer.context_encoder</code> instead.
+<a id="flashdreams.infra.pipeline.StreamInferencePipelineConfig.enable_sync_and_profile"></a></p>
+<h4 id="enable_sync_and_profile"><code>enable_sync_and_profile</code></h4>
+<div class="highlight"><pre><span></span><code>property enable_sync_and_profile : bool
+</code></pre></div>
+<p>Whether to record synchronized per-stage CUDA timings.</p>
+<p>Enabled process-wide with <code>FLASHDREAMS_SYNC_AND_PROFILE=1</code></p>
+<p><a id="flashdreams.infra.pipeline.StreamInferencePipeline"></a></p>
+<h3 id="streaminferencepipeline"><code>StreamInferencePipeline</code></h3>
+<div class="highlight"><pre><span></span><code>class StreamInferencePipeline ( config : StreamInferencePipelineConfig )
+</code></pre></div>
+<p>Bases: <code>Module</code>, <code>Generic</code>[<code>StreamingEncoderCacheT</code>, <code>TransformerCacheT</code>, <code>StreamingDecoderCacheT</code>]</p>
+<p>End-to-end streaming inference pipeline.</p>
+<p>Generic over the encoder, transformer, and decoder cache types. The
+encoder’s input/output types are forwarded as <code>Any</code> so the
+transformer’s <code>predict_flow</code> / <code>postprocess_clean_latent</code> overrides
+own the typing on the <code>input</code> argument they receive.</p>
+<p>Examples</p>
+<p>cache = pipeline.initialize_cache(transformer_context={…})
+output = pipeline.generate(0, cache, input=…)
+pipeline.finalize(0, cache)
+output = pipeline.generate(1, cache, input=…)
+pipeline.finalize(1, cache) # optional for the last rollout</p>
+<p><a id="flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache"></a></p>
+<h4 id="initialize_cache"><code>initialize_cache</code></h4>
+<div class="highlight"><pre><span></span><code>initialize_cache ( transformer_context : dict [ str , Any ] | None = None , encoder_context : dict [ str , Any ] | None = None , decoder_context : dict [ str , Any ] | None = None ) → StreamInferencePipelineCache [ StreamingEncoderCacheT , TransformerCacheT , StreamingDecoderCacheT ]
+</code></pre></div>
+<p>Build a fresh per-rollout cache.</p>
+<p>Each <code>*_context</code> dict is forwarded as keyword arguments to the
+corresponding component’s <code>initialize_autoregressive_cache</code>.</p>
+<h5 id="_1">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>transformer_context</strong> – Per-rollout state for the transformer
+  (e.g. <code>{"text_embeddings": ..., "image_embeddings": ...}</code>).</li>
+<li><strong>encoder_context</strong> – Per-rollout state for the encoder. Ignored
+  when there is no encoder.</li>
+<li><strong>decoder_context</strong> – Per-rollout state for the decoder. Ignored
+  when there is no decoder.
+<a id="flashdreams.infra.pipeline.StreamInferencePipeline.generate"></a></li>
+</ul>
+<h4 id="generate"><code>generate</code></h4>
+<div class="highlight"><pre><span></span><code>generate ( autoregressive_index : int , cache : StreamInferencePipelineCache [ StreamingEncoderCacheT , TransformerCacheT , StreamingDecoderCacheT ] , input : Any = None ) → Tensor
+</code></pre></div>
+<p>Generate one chunk for this AR step.</p>
+<h5 id="_2">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>autoregressive_index</strong> – Must be <code>cache.autoregressive_index + 1</code>,
+  or <code>0</code> for the first call after <code>initialize_cache</code>.</li>
+<li><strong>cache</strong> – Per-rollout cache from <code>initialize_cache</code>.</li>
+<li><strong>input</strong> – Raw input fed to the encoder. Required when an encoder
+  is configured, must be <code>None</code> otherwise. Use
+  <code>NullEncoderConfig</code> to pass an already-encoded tensor
+  straight through.
+<a id="flashdreams.infra.pipeline.StreamInferencePipeline.finalize"></a></li>
+</ul>
+<h4 id="finalize"><code>finalize</code></h4>
+<div class="highlight"><pre><span></span><code>finalize ( autoregressive_index : int , cache : StreamInferencePipelineCache [ StreamingEncoderCacheT , TransformerCacheT , StreamingDecoderCacheT ] ) → dict [ str , float ] | None
+</code></pre></div>
+<p>Advance the diffusion AR cache for the next AR step.</p>
+<h5 id="_3">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>autoregressive_index</strong> – Must match the index passed to the most
+  recent <code>generate</code> (asserted).</li>
+<li><strong>cache</strong> – Same cache used by <code>generate</code>. Consumes
+  <code>cache.final_state</code>.</li>
+</ul>
+<p><a id="flashdreams.infra.pipeline.StreamInferencePipelineCache"></a></p>
+<h3 id="streaminferencepipelinecache"><code>StreamInferencePipelineCache</code></h3>
+<div class="highlight"><pre><span></span><code>class StreamInferencePipelineCache ( * , transformer_cache : TransformerCacheT , encoder_cache : StreamingEncoderCacheT | None = None , decoder_cache : StreamingDecoderCacheT | None = None , final_state : FinalState [ TransformerCacheT ] | None = None , autoregressive_index : int | None = None , event_profiler : EventProfiler | None = None )
+</code></pre></div>
+<p>Bases: <code>Generic</code>[<code>StreamingEncoderCacheT</code>, <code>TransformerCacheT</code>, <code>StreamingDecoderCacheT</code>]</p>
+<p>Per-rollout cache held by the pipeline.</p>
+<p><a id="flashdreams.infra.pipeline.StreamInferencePipelineCache.transformer_cache"></a></p>
+<h4 id="transformer_cache"><code>transformer_cache</code></h4>
+<div class="highlight"><pre><span></span><code>transformer_cache : TransformerCacheT
+</code></pre></div>
+<p>Long-lived transformer AR cache (always present).
+<a id="flashdreams.infra.pipeline.StreamInferencePipelineCache.encoder_cache"></a></p>
+<h4 id="encoder_cache"><code>encoder_cache</code></h4>
+<div class="highlight"><pre><span></span><code>encoder_cache : StreamingEncoderCacheT | None = None
+</code></pre></div>
+<p>Encoder AR cache; <code>None</code> iff the pipeline has no encoder.
+<a id="flashdreams.infra.pipeline.StreamInferencePipelineCache.decoder_cache"></a></p>
+<h4 id="decoder_cache"><code>decoder_cache</code></h4>
+<div class="highlight"><pre><span></span><code>decoder_cache : StreamingDecoderCacheT | None = None
+</code></pre></div>
+<p>Decoder AR cache; <code>None</code> iff the pipeline has no decoder.
+<a id="flashdreams.infra.pipeline.StreamInferencePipelineCache.final_state"></a></p>
+<h4 id="final_state"><code>final_state</code></h4>
+<div class="highlight"><pre><span></span><code>final_state : FinalState [ TransformerCacheT ] | None = None
+</code></pre></div>
+<p>Diffusion-model state from the most recent <code>generate</code>, consumed
+by <code>finalize</code>.
+<a id="flashdreams.infra.pipeline.StreamInferencePipelineCache.autoregressive_index"></a></p>
+<h4 id="autoregressive_index"><code>autoregressive_index</code></h4>
+<div class="highlight"><pre><span></span><code>autoregressive_index : int | None = None
+</code></pre></div>
+<p>AR step index of the most recent <code>generate</code>.
+<a id="flashdreams.infra.pipeline.StreamInferencePipelineCache.event_profiler"></a></p>
+<h4 id="event_profiler"><code>event_profiler</code></h4>
+<div class="highlight"><pre><span></span><code>event_profiler : EventProfiler | None = None
+</code></pre></div>
+<p>Per-step profiler, populated only when profiling is on.</p>
+<h2 id="diffusion-model">Diffusion model</h2>
+<p>Combines a transformer backbone with a denoising scheduler. The denoising
+iteration is hidden inside
+<code>~flashdreams.infra.diffusion.model.DiffusionModel.generate</code>, which
+returns the clean latent and the final state needed by <code>finalize()</code> to
+advance the autoregressive cache.</p>
+<p><a id="flashdreams.infra.diffusion.model.DiffusionModelConfig"></a></p>
+<h3 id="diffusionmodelconfig"><code>DiffusionModelConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class DiffusionModelConfig ( * , _target: type[DiffusionModel] = &lt;factory&gt; , transformer: ~flashdreams.infra.diffusion.transformer.base.TransformerConfig , scheduler: ~flashdreams.infra.diffusion.scheduler.base.SchedulerConfig , seed: int | None = None , context_noise: int = 0 , noise_in_unpatchified_shape: bool = False )
+</code></pre></div>
+<p>Bases: <code>InstantiateConfig</code></p>
+<p>Config for the autoregressive diffusion model.</p>
+<p><a id="flashdreams.infra.diffusion.model.DiffusionModelConfig.transformer"></a></p>
+<h4 id="transformer"><code>transformer</code></h4>
+<div class="highlight"><pre><span></span><code>transformer : TransformerConfig
+</code></pre></div>
+<p>Flow-prediction network config.
+<a id="flashdreams.infra.diffusion.model.DiffusionModelConfig.scheduler"></a></p>
+<h4 id="scheduler"><code>scheduler</code></h4>
+<div class="highlight"><pre><span></span><code>scheduler : SchedulerConfig
+</code></pre></div>
+<p>Denoising-loop config.
+<a id="flashdreams.infra.diffusion.model.DiffusionModelConfig.seed"></a></p>
+<h4 id="seed"><code>seed</code></h4>
+<div class="highlight"><pre><span></span><code>seed : int | None = None
+</code></pre></div>
+<p>RNG seed for initial-noise draws and scheduler sampling.
+<code>None</code> uses the global RNG.
+<a id="flashdreams.infra.diffusion.model.DiffusionModelConfig.context_noise"></a></p>
+<h4 id="context_noise"><code>context_noise</code></h4>
+<div class="highlight"><pre><span></span><code>context_noise : int = 0
+</code></pre></div>
+<p>Timestep used by <code>finalize</code> for the AR cache-update forward.
+<code>0</code> skips <code>add_noise</code>.
+<a id="flashdreams.infra.diffusion.model.DiffusionModelConfig.noise_in_unpatchified_shape"></a></p>
+<h4 id="noise_in_unpatchified_shape"><code>noise_in_unpatchified_shape</code></h4>
+<div class="highlight"><pre><span></span><code>noise_in_unpatchified_shape : bool = False
+</code></pre></div>
+<p>draw the initial noise in the unpatchified shape, then
+patchify. Slower than the default patchified path; useful when matching
+another implementation’s RNG sequence.</p>
+<h5 id="_4">``</h5>
+<div class="highlight"><pre><span></span><code>Type :
+</code></pre></div>
+<p>Debug-only</p>
+<p><a id="flashdreams.infra.diffusion.model.DiffusionModel"></a></p>
+<h3 id="diffusionmodel"><code>DiffusionModel</code></h3>
+<div class="highlight"><pre><span></span><code>class DiffusionModel ( config : DiffusionModelConfig )
+</code></pre></div>
+<p>Bases: <code>Module</code>, <code>Generic</code>[<code>TransformerCacheT</code>]</p>
+<p>Autoregressive diffusion model (scheduler + transformer).</p>
+<p>Generic over the transformer’s AR cache type so user-facing typing on
+<code>cache</code> is preserved end-to-end.</p>
+<p>Examples</p>
+<p>model = config.setup().to(“cuda”)
+cache = model.transformer.initialize_autoregressive_cache(…)
+clean, final_state = model.generate(autoregressive_index=0, cache=cache)
+model.finalize(final_state)</p>
+<p><a id="flashdreams.infra.diffusion.model.DiffusionModel.FinalState"></a></p>
+<h4 id="finalstate"><code>FinalState</code></h4>
+<div class="highlight"><pre><span></span><code>class FinalState ( * , clean_latent : Tensor , autoregressive_index : int , cache : _FinalStateCacheT , input : Any | None = None )
+</code></pre></div>
+<p>Bases: <code>Generic</code>[<code>_FinalStateCacheT</code>]</p>
+<p>State passed from <code>generate</code> to <code>finalize</code>.</p>
+<p><a id="flashdreams.infra.diffusion.model.DiffusionModel.FinalState.clean_latent"></a></p>
+<h5 id="clean_latent"><code>clean_latent</code></h5>
+<div class="highlight"><pre><span></span><code>clean_latent : Tensor
+</code></pre></div>
+<p>Patchified clean latent at the end of denoising.
+<a id="flashdreams.infra.diffusion.model.DiffusionModel.FinalState.autoregressive_index"></a></p>
+<h5 id="autoregressive_index_1"><code>autoregressive_index</code></h5>
+<div class="highlight"><pre><span></span><code>autoregressive_index : int
+</code></pre></div>
+<p>AR step this state was produced at.
+<a id="flashdreams.infra.diffusion.model.DiffusionModel.FinalState.cache"></a></p>
+<h5 id="cache"><code>cache</code></h5>
+<div class="highlight"><pre><span></span><code>cache : _FinalStateCacheT
+</code></pre></div>
+<p>Long-lived AR cache used during generation.
+<a id="flashdreams.infra.diffusion.model.DiffusionModel.FinalState.input"></a></p>
+<h5 id="input"><code>input</code></h5>
+<div class="highlight"><pre><span></span><code>input : Any = None
+</code></pre></div>
+<p>Patchified per-AR-step encoder output, or <code>None</code>.
+<a id="flashdreams.infra.diffusion.model.DiffusionModel.rng"></a></p>
+<h4 id="rng"><code>rng</code></h4>
+<div class="highlight"><pre><span></span><code>property rng : Generator | None
+</code></pre></div>
+<p>Per-model generator, lazily built on the current device.</p>
+<p>Returns <code>None</code> when <code>config.seed</code> is <code>None</code>. Rebuilt the first
+time the model’s device changes after a <code>.to(...)</code>. A device move
+resets the RNG stream — fine for “construct on CPU, <code>.to(gpu)</code>
+once” but mid-rollout device hops lose RNG state.
+<a id="flashdreams.infra.diffusion.model.DiffusionModel.generate"></a></p>
+<h4 id="generate_1"><code>generate</code></h4>
+<div class="highlight"><pre><span></span><code>generate ( autoregressive_index : int , cache : TransformerCacheT , input : Any | None = None ) → tuple [ Tensor , DiffusionModel.FinalState [ TransformerCacheT ] ]
+</code></pre></div>
+<p>Run the denoising loop for one AR step.</p>
+<h5 id="_5">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>autoregressive_index</strong> – AR step index.</li>
+<li><strong>cache</strong> – Long-lived AR cache, mutated in place.</li>
+<li><strong>input</strong> – Optional per-AR-step encoder output. Patchified here and
+  forwarded to <code>predict_flow</code> / <code>postprocess_clean_latent</code>,
+  then stashed on the returned <code>FinalState</code> for <code>finalize</code>.
+<a id="flashdreams.infra.diffusion.model.DiffusionModel.finalize"></a></li>
+</ul>
+<h4 id="finalize_1"><code>finalize</code></h4>
+<div class="highlight"><pre><span></span><code>finalize ( final_state : FinalState [ TransformerCacheT ] ) → None
+</code></pre></div>
+<p>Advance the AR cache using the clean latent from <code>generate</code>.</p>
+<p>Re-noises the clean latent to <code>config.context_noise</code> and runs the
+transformer’s <code>finalize_kv_cache</code> (one forward for vanilla
+transformers, multiple for dual-network DiTs).</p>
+<p><code>context_noise == 0</code> skips <code>add_noise</code> (sigma=0 is identity) and
+feeds the clean latent directly. This also dodges the requirement
+for schedulers to support a <code>t=0</code> lookup (UniPC’s inference
+schedule has no <code>t=0</code> entry).</p>
+<h2 id="transformer_1">Transformer</h2>
+<p><a id="flashdreams.infra.diffusion.transformer.TransformerConfig"></a></p>
+<h3 id="transformerconfig"><code>TransformerConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class TransformerConfig ( * , _target: type[Transformer] = &lt;factory&gt; )
+</code></pre></div>
+<p>Bases: <code>InstantiateConfig</code></p>
+<p>Category base for every flow-prediction transformer config.</p>
+<p><a id="flashdreams.infra.diffusion.transformer.Transformer"></a></p>
+<h3 id="transformer_2"><code>Transformer</code></h3>
+<div class="highlight"><pre><span></span><code>class Transformer ( config : TransformerConfig )
+</code></pre></div>
+<p>Bases: <code>Module</code>, <code>ABC</code>, <code>Generic</code>[<code>TransformerCacheT</code>]</p>
+<p>Flow-prediction transformer, generic over its AR cache subclass.</p>
+<p>Subclasses implement <code>predict_flow</code> and the patchify hooks. AR
+transformers also subclass <code>TransformerAutoregressiveCache</code> and
+override <code>initialize_autoregressive_cache</code>.</p>
+<p>Example:</p>
+<div class="highlight"><pre><span></span><code>class MyTransformer(Transformer[MyCache]):
+    def predict_flow(self, noisy_latent, timestep, cache, input=None):
+        ...
+
+    def initialize_autoregressive_cache(self, **context) -&gt; MyCache:
+        ...
+</code></pre></div>
+<p><a id="flashdreams.infra.diffusion.transformer.Transformer.latent_shape"></a></p>
+<h4 id="latent_shape"><code>latent_shape</code></h4>
+<div class="highlight"><pre><span></span><code>abstract property latent_shape : tuple [ int , ... ]
+</code></pre></div>
+<p>Shape of the input/output latent tensor for this rank.</p>
+<p>Includes batch dims. May depend on hierarchical context-parallel
+group sizes (V/T/HW), so subclasses typically derive this from
+<code>self.cp_groups</code> rather than from static config alone.
+<a id="flashdreams.infra.diffusion.transformer.Transformer.predict_flow"></a></p>
+<h4 id="predict_flow"><code>predict_flow</code></h4>
+<div class="highlight"><pre><span></span><code>abstract predict_flow ( noisy_latent : Tensor , timestep : Tensor , cache : TransformerCacheT , input : Any | None = None ) → Tensor
+</code></pre></div>
+<p>Predict the flow at <code>timestep</code>.</p>
+<h5 id="_6">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>noisy_latent</strong> – Patchified noisy latent for this denoising step.</li>
+<li><strong>timestep</strong> – Scalar timestep tensor.</li>
+<li><strong>cache</strong> – Per-rollout AR cache.</li>
+<li><strong>input</strong> – Patchified encoder output for this AR step, or <code>None</code>
+  when the pipeline has no encoder. Subclasses should narrow
+  the type to their encoder’s output type.
+<a id="flashdreams.infra.diffusion.transformer.Transformer.finalize_kv_cache"></a></li>
+</ul>
+<h4 id="finalize_kv_cache"><code>finalize_kv_cache</code></h4>
+<div class="highlight"><pre><span></span><code>finalize_kv_cache ( noisy_latent : Tensor , timestep : Tensor , cache : TransformerCacheT , input : Any | None = None ) → None
+</code></pre></div>
+<p>Advance the AR cache so it is ready for the next AR step.</p>
+<p>Called by <code>DiffusionModel.finalize</code> after the denoising loop; the
+flow is discarded — only the cache side effect matters. Default
+runs a single <code>predict_flow</code> forward. Override for transformers
+with multiple parallel networks that must stay in lock-step.</p>
+<h5 id="_7">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>noisy_latent</strong> – Patchified latent at the AR-step’s context noise
+  (or the clean latent when <code>context_noise == 0</code>).</li>
+<li><strong>timestep</strong> – 0-d context-noise timestep tensor.</li>
+<li><strong>cache</strong> – Per-rollout AR cache.</li>
+<li><strong>input</strong> – Same patchified encoder output passed to <code>predict_flow</code>.
+<a id="flashdreams.infra.diffusion.transformer.Transformer.initialize_autoregressive_cache"></a></li>
+</ul>
+<h4 id="initialize_autoregressive_cache"><code>initialize_autoregressive_cache</code></h4>
+<div class="highlight"><pre><span></span><code>initialize_autoregressive_cache ( ** context : Any ) → TransformerCacheT
+</code></pre></div>
+<p>Build a fresh AR cache for a new rollout.</p>
+<p>Default returns an empty cache, correct for non-AR transformers.
+Subclasses with custom cache types must override this and may
+declare typed per-rollout context (e.g. <code>text_embeddings</code>).</p>
+<h5 id="_8">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<p><strong>context</strong> – Per-rollout state forwarded as keyword arguments.
+<a id="flashdreams.infra.diffusion.transformer.Transformer.initial_noise"></a></p>
+<h4 id="initial_noise"><code>initial_noise</code></h4>
+<div class="highlight"><pre><span></span><code>initial_noise ( * , latent_shape : tuple [ int , ... ] , rng : Generator | None , cache : TransformerCacheT , input : Any | None = None ) → Tensor
+</code></pre></div>
+<p>Draw the starting latent for one denoising loop.</p>
+<p>Default is Gaussian noise in <code>latent_shape</code>. Model integrations can
+override this to seed from encoder outputs, pin I2V frames, or attach
+per-step state to the cache while still using <code>DiffusionModel</code>.</p>
+<h5 id="_9">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>latent_shape</strong> – Shape requested by the diffusion model.</li>
+<li><strong>rng</strong> – Per-model generator on <code>self.device</code>, or <code>None</code>.</li>
+<li><strong>cache</strong> – Per-rollout AR cache.</li>
+<li><strong>input</strong> – Same patchified encoder output passed to <code>predict_flow</code>.
+<a id="flashdreams.infra.diffusion.transformer.Transformer.postprocess_clean_latent"></a></li>
+</ul>
+<h4 id="postprocess_clean_latent"><code>postprocess_clean_latent</code></h4>
+<div class="highlight"><pre><span></span><code>postprocess_clean_latent ( clean_latent : Tensor , cache : TransformerCacheT , input : Any | None = None ) → Tensor
+</code></pre></div>
+<p>Optional postprocessing hook for the predicted clean latent.</p>
+<p>Default is identity. Override to clamp or re-inject regions whose
+clean value is known a priori (e.g. I2V first-frame pinning).
+Called at the end of <code>DiffusionModel.generate</code>.</p>
+<h5 id="_10">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>clean_latent</strong> – Patchified <code>x0</code> from the denoising loop.</li>
+<li><strong>cache</strong> – Per-rollout AR cache.</li>
+<li><strong>input</strong> – Same patchified encoder output passed to <code>predict_flow</code>.
+<a id="flashdreams.infra.diffusion.transformer.Transformer.patchify_and_maybe_split_cp"></a></li>
+</ul>
+<h4 id="patchify_and_maybe_split_cp"><code>patchify_and_maybe_split_cp</code></h4>
+<div class="highlight"><pre><span></span><code>abstract patchify_and_maybe_split_cp ( x : Any ) → Any
+</code></pre></div>
+<p>Patchify and (optionally) CP-split a noisy latent or encoder payload.</p>
+<p>Tensors patchify and split. Structured payloads (e.g. an image-control
+struct with <code>latent</code> + <code>mask</code>) patchify each tensor field and
+return the same struct type. Implement as identity when neither
+token packing nor CP sharding applies. Output preserves the input
+Python type — only shapes change.
+<a id="flashdreams.infra.diffusion.transformer.Transformer.unpatchify_and_maybe_gather_cp"></a></p>
+<h4 id="unpatchify_and_maybe_gather_cp"><code>unpatchify_and_maybe_gather_cp</code></h4>
+<div class="highlight"><pre><span></span><code>abstract unpatchify_and_maybe_gather_cp ( x : Tensor ) → Tensor
+</code></pre></div>
+<p>Inverse of <code>patchify_and_maybe_split_cp</code> for the network output.</p>
+<p><a id="flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache"></a></p>
+<h3 id="transformerautoregressivecache"><code>TransformerAutoregressiveCache</code></h3>
+<div class="highlight"><pre><span></span><code>class TransformerAutoregressiveCache
+</code></pre></div>
+<p>Bases: <code>object</code></p>
+<p>Cache that persists across an AR rollout.</p>
+<p>Empty by default; safe to instantiate directly for non-AR transformers
+(default <code>start</code> / <code>finalize</code> are no-ops). Subclass and add fields
+plus AR bookkeeping for real per-rollout state.</p>
+<p>Example:</p>
+<div class="highlight"><pre><span></span><code>cache.start(autoregressive_index)
+# one or more denoising steps...
+cache.finalize(autoregressive_index)
+</code></pre></div>
+<p><a id="flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache.start"></a></p>
+<h4 id="start"><code>start</code></h4>
+<div class="highlight"><pre><span></span><code>start ( autoregressive_index : int ) → None
+</code></pre></div>
+<p>Mark the start of an AR step. Default is a no-op.</p>
+<h5 id="_11">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<p><strong>autoregressive_index</strong> – Index of the AR step being started.
+<a id="flashdreams.infra.diffusion.transformer.TransformerAutoregressiveCache.finalize"></a></p>
+<h4 id="finalize_2"><code>finalize</code></h4>
+<div class="highlight"><pre><span></span><code>finalize ( autoregressive_index : int ) → None
+</code></pre></div>
+<p>Finalize bookkeeping after use at this AR step. Default is a no-op.</p>
+<h5 id="_12">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<p><strong>autoregressive_index</strong> – Index of the AR step just finalized.</p>
+<h2 id="schedulers">Schedulers</h2>
+<p>A scheduler owns the entire denoising loop. It is shape-agnostic: every
+internal op is a broadcast against per-step scalar sigmas, so the same
+scheduler works for any latent layout.</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.Scheduler"></a></p>
+<h3 id="scheduler_1"><code>Scheduler</code></h3>
+<div class="highlight"><pre><span></span><code>class Scheduler ( config : SchedulerConfig )
+</code></pre></div>
+<p>Bases: <code>Module</code>, <code>ABC</code></p>
+<p>Denoising scheduler.</p>
+<p>Owns the entire denoising loop. Callers see only <code>noise → clean</code>;
+the loop shape (renoise / multistep / plain ODE) is private.</p>
+<p>Concrete configs inherit <code>SchedulerConfig</code> and declare their own
+<code>num_inference_steps</code> / <code>shift</code> fields (the base holds no
+shared dataclass fields).</p>
+<p>Examples</p>
+<p>scheduler = config.setup()
+clean = scheduler.sample(initial_noise=noise, predict_flow=predictor)
+noisy = scheduler.add_noise(clean_input=clean, timestep=t)</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.Scheduler.sample"></a></p>
+<h4 id="sample"><code>sample</code></h4>
+<div class="highlight"><pre><span></span><code>abstract sample ( initial_noise : Tensor , predict_flow : FlowPredictor , rng : Generator | None = None ) → Tensor
+</code></pre></div>
+<p>Run the full denoising loop and return the clean latent.</p>
+<p>Schedulers are shape-agnostic: every internal op broadcasts against
+per-step scalar sigmas. In practice <code>initial_noise</code> is a video
+latent <code>[B, C, T, H, W]</code>, conventionally treated as a sample at
+<code>sigma=1</code>.</p>
+<h5 id="_13">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>initial_noise</strong> – Gaussian noise on the caller’s device/dtype.</li>
+<li><strong>predict_flow</strong> – Per-step closure invoked
+  <code>num_inference_steps</code> times.</li>
+<li><strong>rng</strong> – Generator on the same device. Used by self-forcing renoise
+  loops; pure ODE solvers ignore it.
+<a id="flashdreams.infra.diffusion.scheduler.Scheduler.add_noise"></a></li>
+</ul>
+<h4 id="add_noise"><code>add_noise</code></h4>
+<div class="highlight"><pre><span></span><code>abstract add_noise ( clean_input : Tensor , timestep : Tensor , rng : Generator | None = None ) → Tensor
+</code></pre></div>
+<p>Apply the forward corruption <code>x_t = (1 - sigma(t)) * x_0 + sigma(t) * eps</code>.</p>
+<p>Timestep value semantics are scheduler-specific: all schedulers snap
+to the nearest entry of their inference schedule.</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.SchedulerConfig"></a></p>
+<h3 id="schedulerconfig"><code>SchedulerConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class SchedulerConfig ( * , _target: type[Scheduler] = &lt;factory&gt; )
+</code></pre></div>
+<p>Bases: <code>InstantiateConfig</code></p>
+<p>Category base for every denoising-scheduler config.</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.FlowPredictor"></a></p>
+<h3 id="flowpredictor"><code>FlowPredictor</code></h3>
+<div class="highlight"><pre><span></span><code>class FlowPredictor ( * args , ** kwargs )
+</code></pre></div>
+<p>Bases: <code>Protocol</code></p>
+<p>Closure <code>(noisy_latent, timestep) -&gt; predicted_flow</code>.</p>
+<p>Built by <code>DiffusionModel.generate</code> by binding the per-AR-step <code>cache</code>
+/ <code>input</code> to the transformer’s <code>predict_flow</code>. A scheduler invokes
+it once per denoising iteration. The scheduler decides the timestep
+dtype (UniPC uses int64, flow-match uses float).</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig"></a></p>
+<h3 id="flowmatchschedulerconfig"><code>FlowMatchSchedulerConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class FlowMatchSchedulerConfig ( * , _target: type[FlowMatchScheduler] = &lt;factory&gt; , num_inference_steps: int = 4 , shift: float = 8.0 , denoising_timesteps: list[int] = &lt;factory&gt; , warp_denoising_step: bool = True , num_train_timesteps: int = 1000 , sigma_max: float = 1.0 , sigma_min: float = 0.0 , extra_one_step: bool = True , timestep_dtype: ~torch.dtype = torch.float32 , enable_tqdm: bool = False )
+</code></pre></div>
+<p>Bases: <code>SchedulerConfig</code></p>
+<p>Config for the flow-matching scheduler.</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_inference_steps"></a></p>
+<h4 id="num_inference_steps"><code>num_inference_steps</code></h4>
+<div class="highlight"><pre><span></span><code>num_inference_steps : int = 4
+</code></pre></div>
+<p>Must equal <code>len(denoising_timesteps)</code>.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.shift"></a></p>
+<h4 id="shift"><code>shift</code></h4>
+<div class="highlight"><pre><span></span><code>shift : float = 8.0
+</code></pre></div>
+<p>Schedule warp factor.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.denoising_timesteps"></a></p>
+<h4 id="denoising_timesteps"><code>denoising_timesteps</code></h4>
+<div class="highlight"><pre><span></span><code>denoising_timesteps : list [ int ]
+</code></pre></div>
+<p>Per-step diffusion timesteps in <code>[0, num_train_timesteps]</code>.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.warp_denoising_step"></a></p>
+<h4 id="warp_denoising_step"><code>warp_denoising_step</code></h4>
+<div class="highlight"><pre><span></span><code>warp_denoising_step : bool = True
+</code></pre></div>
+<p>Map <code>denoising_timesteps</code> through the warped sigma schedule.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.num_train_timesteps"></a></p>
+<h4 id="num_train_timesteps"><code>num_train_timesteps</code></h4>
+<div class="highlight"><pre><span></span><code>num_train_timesteps : int = 1000
+</code></pre></div>
+<p>Length of the training sigma table.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_max"></a></p>
+<h4 id="sigma_max"><code>sigma_max</code></h4>
+<div class="highlight"><pre><span></span><code>sigma_max : float = 1.0
+</code></pre></div>
+<p>Top of the linspace before warping; <code>1.0</code> matches DiffSynth, upstream
+Wan / Lingbot ships <code>0.999</code>.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.sigma_min"></a></p>
+<h4 id="sigma_min"><code>sigma_min</code></h4>
+<div class="highlight"><pre><span></span><code>sigma_min : float = 0.0
+</code></pre></div>
+<p>Bottom of the linspace before warping. Reserved for upstream parity;
+only <code>0.0</code> is exercised.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.extra_one_step"></a></p>
+<h4 id="extra_one_step"><code>extra_one_step</code></h4>
+<div class="highlight"><pre><span></span><code>extra_one_step : bool = True
+</code></pre></div>
+<p>If <code>True</code>, build the schedule from
+<code>linspace(sigma_max, sigma_min, N+1)[:-1]</code> (matches DiffSynth /
+upstream Wan); <code>False</code> uses <code>N</code> points and is kept for non-Wan
+recipes.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.timestep_dtype"></a></p>
+<h4 id="timestep_dtype"><code>timestep_dtype</code></h4>
+<div class="highlight"><pre><span></span><code>timestep_dtype : dtype = torch.float32
+</code></pre></div>
+<p>Dtype of <code>denoising_step_list</code>. Set to an integer dtype (e.g.
+<code>torch.int64</code>) when the network’s time embedding is sensitive to the
+fractional part of the warped timestep — upstream Wan stores
+<code>scheduler.timesteps</code> as <code>int64</code> and lets the embedding upcast to
+<code>float64</code> internally.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchSchedulerConfig.enable_tqdm"></a></p>
+<h4 id="enable_tqdm"><code>enable_tqdm</code></h4>
+<div class="highlight"><pre><span></span><code>enable_tqdm : bool = False
+</code></pre></div>
+<p>Whether to enable tqdm progress bar.</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.FlowMatchScheduler"></a></p>
+<h3 id="flowmatchscheduler"><code>FlowMatchScheduler</code></h3>
+<div class="highlight"><pre><span></span><code>class FlowMatchScheduler ( config : FlowMatchSchedulerConfig )
+</code></pre></div>
+<p>Bases: <code>Scheduler</code></p>
+<p>Flow-matching scheduler with self-forcing renoise (DiffSynth-style).</p>
+<p>Each iteration converts the predicted flow to an <code>x0</code> estimate, then
+re-noises at the same sigma to feed the next iteration. The final
+<code>x0</code> is returned:</p>
+<div class="highlight"><pre><span></span><code>x_t = initial_noise
+for t in denoising_step_list:
+    v = predict_flow(x_t, t)
+    x0 = x_t - sigma(t) * v
+    x_t = (1 - sigma(t)) * x0 + sigma(t) * eps
+return x0
+</code></pre></div>
+<p>Example:</p>
+<div class="highlight"><pre><span></span><code>scheduler = FlowMatchSchedulerConfig(
+    num_inference_steps=4,
+    shift=8.0,
+    denoising_timesteps=[1000, 750, 500, 250],
+).setup().to(&quot;cuda&quot;)
+clean = scheduler.sample(initial_noise=noise, predict_flow=fn)
+</code></pre></div>
+<p>Schedule buffers are pinned to fp32 even after <code>module.to(bf16)</code>;
+integer timesteps like 1000 would otherwise round to 1024.</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.FlowMatchScheduler.sample"></a></p>
+<h4 id="sample_1"><code>sample</code></h4>
+<div class="highlight"><pre><span></span><code>sample ( initial_noise : Tensor , predict_flow : FlowPredictor , rng : Generator | None = None ) → Tensor
+</code></pre></div>
+<p>Run the self-forcing flow-match denoising loop.</p>
+<p>Iteration 0 trusts <code>initial_noise</code> as the <code>sigma=1</code> sample;
+later iterations re-noise the previous <code>x0</code> estimate to the new
+sigma before the network forward. Schedule arithmetic auto-promotes
+to fp32; the result is cast back to <code>initial_noise.dtype</code>.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchScheduler.add_noise"></a></p>
+<h4 id="add_noise_1"><code>add_noise</code></h4>
+<div class="highlight"><pre><span></span><code>add_noise ( clean_input : Tensor , timestep : Tensor , rng : Generator | None = None ) → Tensor
+</code></pre></div>
+<p>Apply the forward corruption at an arbitrary timestep.</p>
+<p>Snaps <code>timestep</code> to the nearest entry of the warped training table
+and uses it as sigma in the standard lerp.</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.FlowMatchEulerDiscreteSchedulerConfig"></a></p>
+<h3 id="flowmatcheulerdiscreteschedulerconfig"><code>FlowMatchEulerDiscreteSchedulerConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class FlowMatchEulerDiscreteSchedulerConfig ( * , _target: type[FlowMatchEulerDiscreteScheduler] = &lt;factory&gt; , num_inference_steps: int = 4 , shift: float = 5.0 , num_train_timesteps: int = 1000 , fixed_timesteps: tuple[float , ...] | None = None , enable_tqdm: bool = False )
+</code></pre></div>
+<p>Bases: <code>SchedulerConfig</code></p>
+<p>Config for the flow-matching Euler-discrete scheduler.</p>
+<p>Defaults match diffusers’ <code>FlowMatchEulerDiscreteScheduler</code>
+with <code>num_train_timesteps=1000</code> and the standard
+<code>linspace + shift</code> warp. Set <code>fixed_timesteps</code> to a length
+<code>num_inference_steps + 1</code> tuple (terminal value typically <code>0.0</code>)
+to pin an externally-derived distilled schedule.</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.FlowMatchEulerDiscreteSchedulerConfig.num_inference_steps"></a></p>
+<h4 id="num_inference_steps_1"><code>num_inference_steps</code></h4>
+<div class="highlight"><pre><span></span><code>num_inference_steps : int = 4
+</code></pre></div>
+<p>Number of Euler steps. Matches the distilled WAN-5B 4-step path
+out of the box; bump to 30-50 for non-distilled checkpoints.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchEulerDiscreteSchedulerConfig.shift"></a></p>
+<h4 id="shift_1"><code>shift</code></h4>
+<div class="highlight"><pre><span></span><code>shift : float = 5.0
+</code></pre></div>
+<p>Schedule warp factor applied to the linspaced sigma grid. Ignored
+when <code>fixed_timesteps</code> is set.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchEulerDiscreteSchedulerConfig.num_train_timesteps"></a></p>
+<h4 id="num_train_timesteps_1"><code>num_train_timesteps</code></h4>
+<div class="highlight"><pre><span></span><code>num_train_timesteps : int = 1000
+</code></pre></div>
+<p>Length of the training sigma table. Used to convert between
+integer timesteps and <code>[0, 1]</code> sigmas (<code>sigma = timestep / N</code>).
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchEulerDiscreteSchedulerConfig.fixed_timesteps"></a></p>
+<h4 id="fixed_timesteps"><code>fixed_timesteps</code></h4>
+<div class="highlight"><pre><span></span><code>fixed_timesteps : tuple [ float , ... ] | None = None
+</code></pre></div>
+<p>Override the derived schedule with a precomputed list of
+timesteps. When set, must have length <code>num_inference_steps + 1</code>;
+the trailing entry is typically <code>0.0</code> so the last Euler step
+lands on the clean latent. <code>None</code> (default) derives the schedule
+from <code>num_inference_steps</code> + <code>shift</code> via the standard
+flow-matching linspace + warp.</p>
+<p>The HY-WorldPlay distilled WAN-5B path pins this to
+<code>(1000.0, 960.0, 888.8889, 727.2728, 0.0)</code>.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchEulerDiscreteSchedulerConfig.enable_tqdm"></a></p>
+<h4 id="enable_tqdm_1"><code>enable_tqdm</code></h4>
+<div class="highlight"><pre><span></span><code>enable_tqdm : bool = False
+</code></pre></div>
+<p>Whether to enable the tqdm progress bar inside <code>sample()</code>.</p>
+<p>Euler-discrete flow-matching scheduler.</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig"></a></p>
+<h3 id="flowmatchunipcschedulerconfig"><code>FlowMatchUniPCSchedulerConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class FlowMatchUniPCSchedulerConfig ( * , _target: type[FlowMatchUniPCScheduler] = &lt;factory&gt; , num_inference_steps: int = 50 , shift: float = 5.0 , num_train_timesteps: int = 1000 , solver_order: int = 2 , use_kerras_sigma: bool = False , enable_tqdm: bool = False )
+</code></pre></div>
+<p>Bases: <code>SchedulerConfig</code></p>
+<p>Config for the flow-matching UniPC scheduler.</p>
+<p>Defaults match the official Wan 2.1 inference integration (UniPC, BH2,
+order 2, shift 5.0). Override <code>shift</code> per checkpoint as recommended
+upstream (e.g. 3.0 for Wan 2.1 14B I2V 480P).</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_inference_steps"></a></p>
+<h4 id="num_inference_steps_2"><code>num_inference_steps</code></h4>
+<div class="highlight"><pre><span></span><code>num_inference_steps : int = 50
+</code></pre></div>
+<p>Number of UniPC denoising steps.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.shift"></a></p>
+<h4 id="shift_2"><code>shift</code></h4>
+<div class="highlight"><pre><span></span><code>shift : float = 5.0
+</code></pre></div>
+<p>Schedule warp factor.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.num_train_timesteps"></a></p>
+<h4 id="num_train_timesteps_2"><code>num_train_timesteps</code></h4>
+<div class="highlight"><pre><span></span><code>num_train_timesteps : int = 1000
+</code></pre></div>
+<p>Length of the training sigma table.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.solver_order"></a></p>
+<h4 id="solver_order"><code>solver_order</code></h4>
+<div class="highlight"><pre><span></span><code>solver_order : int = 2
+</code></pre></div>
+<p>UniPC solver order; only 2 is supported.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.use_kerras_sigma"></a></p>
+<h4 id="use_kerras_sigma"><code>use_kerras_sigma</code></h4>
+<div class="highlight"><pre><span></span><code>use_kerras_sigma : bool = False
+</code></pre></div>
+<p>Whether to use the exact sigma used in edm sampler.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCSchedulerConfig.enable_tqdm"></a></p>
+<h4 id="enable_tqdm_2"><code>enable_tqdm</code></h4>
+<div class="highlight"><pre><span></span><code>enable_tqdm : bool = False
+</code></pre></div>
+<p>Whether to enable tqdm progress bar.</p>
+<p><a id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler"></a></p>
+<h3 id="flowmatchunipcscheduler"><code>FlowMatchUniPCScheduler</code></h3>
+<div class="highlight"><pre><span></span><code>class FlowMatchUniPCScheduler ( config : FlowMatchUniPCSchedulerConfig )
+</code></pre></div>
+<p>Bases: <code>Scheduler</code></p>
+<p>Order-2 UniPC predictor-corrector for flow-matching.</p>
+<p>Specialized + pre-baked variant of the upstream Wan 2.1 UniPC solver.
+Schedule buffers (sigmas + per-step coefficients) stay fp32 regardless
+of <code>module.to(dtype)</code>.</p>
+<p>Example:</p>
+<div class="highlight"><pre><span></span><code>scheduler = FlowMatchUniPCSchedulerConfig(
+    num_inference_steps=50,
+    shift=5.0,
+).setup().to(&quot;cuda&quot;)
+clean = scheduler.sample(initial_noise=noise, predict_flow=fn)
+</code></pre></div>
+<p><a id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler.sample"></a></p>
+<h4 id="sample_2"><code>sample</code></h4>
+<div class="highlight"><pre><span></span><code>sample ( initial_noise : Tensor , predict_flow : FlowPredictor , rng : Generator | None = None ) → Tensor
+</code></pre></div>
+<p>Run the order-2 UniPC predictor-corrector denoising loop.</p>
+<p>Each iteration: network → flow → <code>x0</code> → corrector (skipped at
+step 0) → predictor. All per-step coefficients are pre-baked at
+construction; the loop is pure tensor ops. Internal arithmetic is
+fp32; the result is cast back to <code>initial_noise.dtype</code>. <code>rng</code>
+is unused (deterministic ODE) but accepted for interface conformance.
+<a id="flashdreams.infra.diffusion.scheduler.FlowMatchUniPCScheduler.add_noise"></a></p>
+<h4 id="add_noise_2"><code>add_noise</code></h4>
+<div class="highlight"><pre><span></span><code>add_noise ( clean_input : Tensor , timestep : Tensor , rng : Generator | None = None ) → Tensor
+</code></pre></div>
+<p>Apply the forward corruption at an arbitrary timestep.</p>
+<p>Snaps <code>timestep</code> to the nearest entry of the inference schedule
+on-device (no Python sync) and uses the matching sigma in the lerp.</p>
+<h2 id="encoder_1">Encoder</h2>
+<p>Encoders turn raw conditioning (text prompts, reference images, per-AR-step
+control inputs, …) into latent tensors. Two flavours:</p>
+<ul>
+<li><code>Encoder</code> is stateless and one-shot. <code>forward(self, input)</code>.
+  Used as <code>transformer.context_encoder</code> for text / CLIP-image / identity.</li>
+<li><code>StreamingEncoder</code> is stateful and per-AR-step. <code>forward(self,
+  input, autoregressive_index, cache)</code> with an
+  <code>StreamingEncoderCache</code>. Used as <code>pipeline.encoder</code> for
+  per-step control (HDMap, camera trajectory, I2V first-frame VAE).</li>
+<li><code>StreamingVideoEncoder</code> extends <code>StreamingEncoder</code> with
+  the contracts a streaming pixel-video encoder always needs: spatial /
+  temporal compression ratios plus AR-step-aware temporal size mappers
+  between pixel and latent space.</li>
+</ul>
+<p><a id="flashdreams.infra.encoder.EncoderConfig"></a></p>
+<h3 id="encoderconfig"><code>EncoderConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class EncoderConfig ( * , _target: type[Encoder] = &lt;factory&gt; )
+</code></pre></div>
+<p>Bases: <code>InstantiateConfig</code></p>
+<p>Category base for every encoder config (stateless or streaming).</p>
+<p><a id="flashdreams.infra.encoder.Encoder"></a></p>
+<h3 id="encoder_2"><code>Encoder</code></h3>
+<div class="highlight"><pre><span></span><code>class Encoder ( config : EncoderConfig )
+</code></pre></div>
+<p>Bases: <code>ABC</code>, <code>Module</code></p>
+<p>Stateless encoder.</p>
+<p><code>forward</code> is not pinned by the base. Encoders used as a
+<code>context_encoder</code> (one-shot, called once inside
+<code>Transformer.initialize_autoregressive_cache()</code>) must match the
+slim call shape <code>forward(self, input)</code>.</p>
+<p>For per-AR-step encoders that need a per-rollout cache, inherit
+from <code>StreamingEncoder</code> instead.</p>
+<p><a id="flashdreams.infra.encoder.StreamingEncoder"></a></p>
+<h3 id="streamingencoder"><code>StreamingEncoder</code></h3>
+<div class="highlight"><pre><span></span><code>class StreamingEncoder ( config : EncoderConfig )
+</code></pre></div>
+<p>Bases: <code>ABC</code>, <code>Module</code>, <code>Generic</code>[<code>StreamingEncoderCacheT</code>]</p>
+<p>Streaming encoder, generic over the per-rollout cache type.</p>
+<p><code>forward</code> is not pinned by the base. Streaming encoders called by
+<code>StreamInferencePipeline</code> must match its call shape:
+<code>forward(self, input, autoregressive_index=0, cache=None)</code>.</p>
+<p><a id="flashdreams.infra.encoder.StreamingEncoder.initialize_autoregressive_cache"></a></p>
+<h4 id="initialize_autoregressive_cache_1"><code>initialize_autoregressive_cache</code></h4>
+<div class="highlight"><pre><span></span><code>abstract initialize_autoregressive_cache ( ** context : Any ) → StreamingEncoderCacheT
+</code></pre></div>
+<p>Build a fresh per-rollout cache.</p>
+<p>Override to return the encoder’s concrete cache type.</p>
+<p><a id="flashdreams.infra.encoder.StreamingVideoEncoder"></a></p>
+<h3 id="streamingvideoencoder"><code>StreamingVideoEncoder</code></h3>
+<div class="highlight"><pre><span></span><code>class StreamingVideoEncoder ( config : EncoderConfig )
+</code></pre></div>
+<p>Bases: <code>StreamingEncoder</code>[<code>StreamingEncoderCacheT</code>]</p>
+<p>Streaming pixel-video encoder.</p>
+<p>Pins down the contracts that every streaming pixel→latent video
+encoder satisfies in addition to <code>StreamingEncoder</code>:</p>
+<ul>
+<li>Spatial and temporal compression ratios between the pixel and
+  latent grids (constants of the architecture).</li>
+<li>AR-step-aware temporal size mappers, so a pipeline can size its
+  inputs and outputs without knowing the encoder’s concrete
+  temporal cache topology (causal first-frame padding, sliding
+  windows, etc.).</li>
+</ul>
+<p>Spatial scaling is trivially <code>side // spatial_compression_ratio</code>
+in either direction; the AR-step-asymmetric piece is the temporal
+size, which gets its own mapper. Typically AR 0 takes
+<code>1 + (T_lat - 1) * r</code> pixel frames to produce <code>T_lat</code> latent
+frames because of causal first-frame padding, while AR ≥ 1 takes
+<code>T_lat * r</code> pixel frames.</p>
+<p><a id="flashdreams.infra.encoder.StreamingVideoEncoder.spatial_compression_ratio"></a></p>
+<h4 id="spatial_compression_ratio"><code>spatial_compression_ratio</code></h4>
+<div class="highlight"><pre><span></span><code>abstract property spatial_compression_ratio : int
+</code></pre></div>
+<p>Pixel side ÷ latent side. Constant across AR steps.
+<a id="flashdreams.infra.encoder.StreamingVideoEncoder.temporal_compression_ratio"></a></p>
+<h4 id="temporal_compression_ratio"><code>temporal_compression_ratio</code></h4>
+<div class="highlight"><pre><span></span><code>abstract property temporal_compression_ratio : int
+</code></pre></div>
+<p>Pixel frames ÷ latent frames in steady state (AR ≥ 1).</p>
+<p>AR 0 typically takes one extra (un-grouped) pixel frame to
+produce its first latent frame because of causal first-frame
+padding; that asymmetry lives inside
+<code>get_output_temporal_size()</code> /
+<code>get_input_temporal_size()</code>.
+<a id="flashdreams.infra.encoder.StreamingVideoEncoder.get_output_temporal_size"></a></p>
+<h4 id="get_output_temporal_size"><code>get_output_temporal_size</code></h4>
+<div class="highlight"><pre><span></span><code>abstract get_output_temporal_size ( autoregressive_index : int , input_temporal_size : int ) → int
+</code></pre></div>
+<p>Latent frame count produced from <code>input_temporal_size</code> pixel frames.</p>
+<h5 id="_14">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>autoregressive_index</strong> – AR step index (0-based).</li>
+<li><strong>input_temporal_size</strong> – Number of pixel frames fed at this step.
+<a id="flashdreams.infra.encoder.StreamingVideoEncoder.get_input_temporal_size"></a></li>
+</ul>
+<h4 id="get_input_temporal_size"><code>get_input_temporal_size</code></h4>
+<div class="highlight"><pre><span></span><code>abstract get_input_temporal_size ( autoregressive_index : int , output_temporal_size : int ) → int
+</code></pre></div>
+<p>Pixel frame count needed to produce <code>output_temporal_size</code> latents.</p>
+<p>Inverse of <code>get_output_temporal_size()</code>. Implementations
+should assert <code>output_temporal_size</code> is achievable at this AR
+step (i.e. the corresponding pixel count comes out as a
+positive integer).</p>
+<h5 id="_15">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>autoregressive_index</strong> – AR step index (0-based).</li>
+<li><strong>output_temporal_size</strong> – Desired number of latent frames.</li>
+</ul>
+<p><a id="flashdreams.infra.encoder.StreamingEncoderCache"></a></p>
+<h3 id="streamingencodercache"><code>StreamingEncoderCache</code></h3>
+<div class="highlight"><pre><span></span><code>class StreamingEncoderCache
+</code></pre></div>
+<p>Bases: <code>object</code></p>
+<p>Per-rollout cache for <code>StreamingEncoder</code>.</p>
+<p>Empty by default; subclass to add fields (e.g. last-frame latent,
+cross-step accumulators).</p>
+<p><a id="flashdreams.infra.encoder.NullEncoderConfig"></a></p>
+<h3 id="nullencoderconfig"><code>NullEncoderConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class NullEncoderConfig ( * , _target: type[NullEncoder] = &lt;factory&gt; )
+</code></pre></div>
+<p>Bases: <code>EncoderConfig</code></p>
+<p>Config for the identity encoder.</p>
+<p><a id="flashdreams.infra.encoder.NullEncoder"></a></p>
+<h3 id="nullencoder"><code>NullEncoder</code></h3>
+<div class="highlight"><pre><span></span><code>class NullEncoder ( config : EncoderConfig )
+</code></pre></div>
+<p>Bases: <code>Encoder</code></p>
+<p>Identity encoder: returns its input unchanged.</p>
+<p>Wire as the transformer’s <code>context_encoder</code> slot to pass already-
+encoded tensors straight to the diffusion model.</p>
+<p>Example:</p>
+<div class="highlight"><pre><span></span><code>config = TransformerConfig(
+    context_encoder=NullEncoderConfig(),
+    ...,
+)
+</code></pre></div>
+<p><a id="flashdreams.infra.encoder.NullEncoder.forward"></a></p>
+<h4 id="forward"><code>forward</code></h4>
+<div class="highlight"><pre><span></span><code>forward ( input : Any ) → Any
+</code></pre></div>
+<p>Return <code>input</code> unchanged.</p>
+<h2 id="decoder_1">Decoder</h2>
+<p>Decoders turn the latents emitted by the diffusion model back into pixel
+frames. Single base class with two specialisations:</p>
+<ul>
+<li><code>StreamingDecoder</code> is stateful. <code>forward(self, input,
+  autoregressive_index, cache)</code> with a <code>StreamingDecoderCache</code>.
+  Use for chunk-by-chunk streaming decoders (e.g. WAN VAE that maintains
+  a temporal cache across AR steps); stateless decoders just return an
+  empty <code>StreamingDecoderCache</code> from
+  <code>StreamingDecoder.initialize_autoregressive_cache</code> and ignore
+  <code>autoregressive_index</code> / <code>cache</code> in <code>forward</code>.</li>
+<li><code>StreamingVideoDecoder</code> extends <code>StreamingDecoder</code> with
+  the contracts a streaming pixel-video decoder always needs: spatial /
+  temporal compression ratios plus AR-step-aware temporal size mappers
+  between latent and pixel space.</li>
+</ul>
+<p><a id="flashdreams.infra.decoder.DecoderConfig"></a></p>
+<h3 id="decoderconfig"><code>DecoderConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class DecoderConfig ( * , _target: type[StreamingDecoder] = &lt;factory&gt; )
+</code></pre></div>
+<p>Bases: <code>InstantiateConfig</code></p>
+<p>Category base for every decoder config.</p>
+<p><a id="flashdreams.infra.decoder.StreamingDecoder"></a></p>
+<h3 id="streamingdecoder"><code>StreamingDecoder</code></h3>
+<div class="highlight"><pre><span></span><code>class StreamingDecoder ( config : DecoderConfig )
+</code></pre></div>
+<p>Bases: <code>ABC</code>, <code>Module</code>, <code>Generic</code>[<code>StreamingDecoderCacheT</code>]</p>
+<p>Streaming decoder, generic over the per-rollout cache type.</p>
+<p><code>forward</code> is not pinned by the base. Streaming decoders called by
+<code>StreamInferencePipeline</code> must match its call shape:
+<code>forward(self, input, autoregressive_index=0, cache=None)</code>.</p>
+<p><a id="flashdreams.infra.decoder.StreamingDecoder.initialize_autoregressive_cache"></a></p>
+<h4 id="initialize_autoregressive_cache_2"><code>initialize_autoregressive_cache</code></h4>
+<div class="highlight"><pre><span></span><code>abstract initialize_autoregressive_cache ( ** context : Any ) → StreamingDecoderCacheT
+</code></pre></div>
+<p>Build a fresh per-rollout cache.</p>
+<p>Override to return the decoder’s concrete cache type.</p>
+<p><a id="flashdreams.infra.decoder.StreamingVideoDecoder"></a></p>
+<h3 id="streamingvideodecoder"><code>StreamingVideoDecoder</code></h3>
+<div class="highlight"><pre><span></span><code>class StreamingVideoDecoder ( config : DecoderConfig )
+</code></pre></div>
+<p>Bases: <code>StreamingDecoder</code>[<code>StreamingDecoderCacheT</code>]</p>
+<p>Streaming pixel-video decoder.</p>
+<p>Pins down the contracts that every streaming latent→pixel video
+decoder satisfies in addition to <code>StreamingDecoder</code>:</p>
+<ul>
+<li>Spatial and temporal compression ratios between the latent and
+  pixel grids (constants of the architecture).</li>
+<li>AR-step-aware temporal size mappers, so a pipeline can size its
+  inputs and outputs without knowing the decoder’s concrete
+  temporal cache topology (causal first-frame padding, sliding
+  windows, etc.).</li>
+</ul>
+<p>Spatial scaling is trivially <code>side * spatial_compression_ratio</code>
+in either direction; the AR-step-asymmetric piece is the temporal
+size, which gets its own mapper. Typically AR 0 produces fewer
+pixel frames per latent frame than AR ≥ 1 because of causal
+first-frame padding.</p>
+<p><a id="flashdreams.infra.decoder.StreamingVideoDecoder.spatial_compression_ratio"></a></p>
+<h4 id="spatial_compression_ratio_1"><code>spatial_compression_ratio</code></h4>
+<div class="highlight"><pre><span></span><code>abstract property spatial_compression_ratio : int
+</code></pre></div>
+<p>Pixel side ÷ latent side. Constant across AR steps.
+<a id="flashdreams.infra.decoder.StreamingVideoDecoder.temporal_compression_ratio"></a></p>
+<h4 id="temporal_compression_ratio_1"><code>temporal_compression_ratio</code></h4>
+<div class="highlight"><pre><span></span><code>abstract property temporal_compression_ratio : int
+</code></pre></div>
+<p>Pixel frames ÷ latent frames in steady state (AR ≥ 1).</p>
+<p>AR 0 typically yields fewer pixel frames per latent frame
+because of causal first-frame padding; that asymmetry lives
+inside <code>get_output_temporal_size()</code> /
+<code>get_input_temporal_size()</code>.
+<a id="flashdreams.infra.decoder.StreamingVideoDecoder.get_output_temporal_size"></a></p>
+<h4 id="get_output_temporal_size_1"><code>get_output_temporal_size</code></h4>
+<div class="highlight"><pre><span></span><code>abstract get_output_temporal_size ( autoregressive_index : int , input_temporal_size : int ) → int
+</code></pre></div>
+<p>Pixel frame count produced by <code>input_temporal_size</code> latent frames.</p>
+<h5 id="_16">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>autoregressive_index</strong> – AR step index (0-based).</li>
+<li><strong>input_temporal_size</strong> – Number of latent frames fed at this step.
+<a id="flashdreams.infra.decoder.StreamingVideoDecoder.get_input_temporal_size"></a></li>
+</ul>
+<h4 id="get_input_temporal_size_1"><code>get_input_temporal_size</code></h4>
+<div class="highlight"><pre><span></span><code>abstract get_input_temporal_size ( autoregressive_index : int , output_temporal_size : int ) → int
+</code></pre></div>
+<p>Latent frame count needed to produce <code>output_temporal_size</code> pixels.</p>
+<p>Inverse of <code>get_output_temporal_size()</code>. Implementations
+should assert <code>output_temporal_size</code> is achievable at this AR
+step (i.e. divisible by the right ratio after subtracting any
+causal padding).</p>
+<h5 id="_17">``</h5>
+<div class="highlight"><pre><span></span><code>Parameters :
+</code></pre></div>
+<ul>
+<li><strong>autoregressive_index</strong> – AR step index (0-based).</li>
+<li><strong>output_temporal_size</strong> – Desired number of pixel frames.</li>
+</ul>
+<p><a id="flashdreams.infra.decoder.StreamingDecoderCache"></a></p>
+<h3 id="streamingdecodercache"><code>StreamingDecoderCache</code></h3>
+<div class="highlight"><pre><span></span><code>class StreamingDecoderCache
+</code></pre></div>
+<p>Bases: <code>object</code></p>
+<p>Per-rollout cache for <code>StreamingDecoder</code>.</p>
+<p>Empty by default; subclass to add fields (e.g. temporal feature
+buffers carried across AR steps).</p>
+
+
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../runtime/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Inference Runtime API">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Inference Runtime API
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../core/" class="md-footer__link md-footer__link--next" aria-label="Next: Core API">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Core API
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../../../..","features":["content.action.edit","navigation.indexes","navigation.footer"],"redirect":null,"search":"../../../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../../../assets/javascripts/bundle.67a597eb.min.js"></script>
+      
+        <script src="../../../../javascripts/katex.js"></script>
+      
+        <script src="https://unpkg.com/katex@0/dist/katex.min.js"></script>
+      
+        <script src="https://unpkg.com/katex@0/dist/contrib/auto-render.min.js"></script>
+      
+    
+  </body>
+</html>

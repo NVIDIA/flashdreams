@@ -10,34 +10,36 @@
       
       
       
-        <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/community/">
+        <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/guides/create_model/">
       
       
-        <link rel="prev" href="../troubleshooting/">
+        <link rel="prev" href="../../">
       
+      
+        <link rel="next" href="../stream_inference_pipeline/">
       
       
         
       
       
-      <link rel="icon" href="../favicon.svg">
+      <link rel="icon" href="../../../../favicon.svg">
       <meta name="generator" content="zensical-0.0.67">
     
     
       
-        <title>Community - FlashDreams</title>
+        <title>Create a model - FlashDreams</title>
       
     
     
       
         
       
-      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ae390e2.min.css">
+      <link rel="stylesheet" href="../../../../assets/stylesheets/modern/main.4ae390e2.min.css">
       
         
           
         
-        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.96d1a7e4.min.css">
+        <link rel="stylesheet" href="../../../../assets/stylesheets/modern/palette.96d1a7e4.min.css">
       
       
 
@@ -56,11 +58,11 @@
       
     
     
-      <link rel="stylesheet" href="../stylesheets/custom.css">
+      <link rel="stylesheet" href="../../../../stylesheets/custom.css">
     
       <link rel="stylesheet" href="https://unpkg.com/katex@0/dist/katex.min.css">
     
-    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    <script>__md_scope=new URL("../../../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
     
       
 
@@ -85,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#contribute" class="md-skip">
+        <a href="#1-choose-the-closest-implementation" class="md-skip">
           Skip to content
         </a>
       
@@ -101,9 +103,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="./.." title="FlashDreams" class="md-header__button md-logo" aria-label="FlashDreams" data-md-component="logo">
+    <a href="../../../.." title="FlashDreams" class="md-header__button md-logo" aria-label="FlashDreams" data-md-component="logo">
       
-  <img src="../images/horizontal-light.svg" alt="FlashDreams">
+  <img src="../../../../images/horizontal-light.svg" alt="FlashDreams">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
@@ -120,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Community
+              Create a model
             
           </span>
         </div>
@@ -209,9 +211,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="./.." title="FlashDreams" class="md-nav__button md-logo" aria-label="FlashDreams" data-md-component="logo">
+    <a href="../../../.." title="FlashDreams" class="md-nav__button md-logo" aria-label="FlashDreams" data-md-component="logo">
       
-  <img src="../images/horizontal-light.svg" alt="FlashDreams">
+  <img src="../../../../images/horizontal-light.svg" alt="FlashDreams">
 
     </a>
     FlashDreams
@@ -238,7 +240,7 @@
   
   
     <li class="md-nav__item">
-      <a href="./.." class="md-nav__link">
+      <a href="../../../.." class="md-nav__link">
         
   
   
@@ -282,7 +284,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../quickstart/" class="md-nav__link ">
+            <a href="../../../../quickstart/" class="md-nav__link ">
               
   
   
@@ -357,7 +359,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../models/" class="md-nav__link ">
+            <a href="../../../../models/" class="md-nav__link ">
               
   
   
@@ -400,7 +402,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/omnidreams/" class="md-nav__link">
+      <a href="../../../../models/omnidreams/" class="md-nav__link">
         
   
   
@@ -427,7 +429,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/self_forcing/" class="md-nav__link">
+      <a href="../../../../models/self_forcing/" class="md-nav__link">
         
   
   
@@ -454,7 +456,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/causal_forcing/" class="md-nav__link">
+      <a href="../../../../models/causal_forcing/" class="md-nav__link">
         
   
   
@@ -481,7 +483,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/causal_wan22/" class="md-nav__link">
+      <a href="../../../../models/causal_wan22/" class="md-nav__link">
         
   
   
@@ -508,7 +510,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/lingbot_world/" class="md-nav__link">
+      <a href="../../../../models/lingbot_world/" class="md-nav__link">
         
   
   
@@ -535,7 +537,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/waypoint/" class="md-nav__link">
+      <a href="../../../../models/waypoint/" class="md-nav__link">
         
   
   
@@ -562,7 +564,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/hy_worldplay/" class="md-nav__link">
+      <a href="../../../../models/hy_worldplay/" class="md-nav__link">
         
   
   
@@ -589,7 +591,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/sana_wm_streaming/" class="md-nav__link">
+      <a href="../../../../models/sana_wm_streaming/" class="md-nav__link">
         
   
   
@@ -616,7 +618,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/wan21/" class="md-nav__link">
+      <a href="../../../../models/wan21/" class="md-nav__link">
         
   
   
@@ -643,7 +645,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/wan22/" class="md-nav__link">
+      <a href="../../../../models/wan22/" class="md-nav__link">
         
   
   
@@ -670,7 +672,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/cosmos_predict2/" class="md-nav__link">
+      <a href="../../../../models/cosmos_predict2/" class="md-nav__link">
         
   
   
@@ -697,7 +699,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/flashvsr/" class="md-nav__link">
+      <a href="../../../../models/flashvsr/" class="md-nav__link">
         
   
   
@@ -724,7 +726,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/swiftvr/" class="md-nav__link">
+      <a href="../../../../models/swiftvr/" class="md-nav__link">
         
   
   
@@ -789,7 +791,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../demos/" class="md-nav__link ">
+            <a href="../../../../demos/" class="md-nav__link ">
               
   
   
@@ -832,7 +834,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demos/crazy_robotaxi/" class="md-nav__link">
+      <a href="../../../../demos/crazy_robotaxi/" class="md-nav__link">
         
   
   
@@ -859,7 +861,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demos/interactive_drive/" class="md-nav__link">
+      <a href="../../../../demos/interactive_drive/" class="md-nav__link">
         
   
   
@@ -886,7 +888,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demos/action2v/" class="md-nav__link">
+      <a href="../../../../demos/action2v/" class="md-nav__link">
         
   
   
@@ -913,7 +915,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demos/cam2v/" class="md-nav__link">
+      <a href="../../../../demos/cam2v/" class="md-nav__link">
         
   
   
@@ -940,7 +942,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demos/t2v/" class="md-nav__link">
+      <a href="../../../../demos/t2v/" class="md-nav__link">
         
   
   
@@ -967,7 +969,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demos/v2v/" class="md-nav__link">
+      <a href="../../../../demos/v2v/" class="md-nav__link">
         
   
   
@@ -999,6 +1001,8 @@
       
   
   
+    
+  
   
   
     
@@ -1022,15 +1026,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../documentation/" class="md-nav__link ">
+            <a href="../../../" class="md-nav__link ">
               
   
   
@@ -1054,7 +1058,7 @@
           </div>
         
         
-          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
             <label class="md-nav__title" for="__nav_5">
               <span class="md-nav__icon md-icon"></span>
               
@@ -1073,7 +1077,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/cli/" class="md-nav__link">
+      <a href="../../../cli/" class="md-nav__link">
         
   
   
@@ -1122,7 +1126,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../documentation/demo_api/" class="md-nav__link ">
+            <a href="../../../demo_api/" class="md-nav__link ">
               
   
   
@@ -1225,7 +1229,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/guides/create_demo/" class="md-nav__link">
+      <a href="../../../demo_api/guides/create_demo/" class="md-nav__link">
         
   
   
@@ -1252,7 +1256,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/guides/integrate_model/" class="md-nav__link">
+      <a href="../../../demo_api/guides/integrate_model/" class="md-nav__link">
         
   
   
@@ -1279,7 +1283,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/guides/configuration/" class="md-nav__link">
+      <a href="../../../demo_api/guides/configuration/" class="md-nav__link">
         
   
   
@@ -1306,7 +1310,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/guides/application_slugs/" class="md-nav__link">
+      <a href="../../../demo_api/guides/application_slugs/" class="md-nav__link">
         
   
   
@@ -1333,7 +1337,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/guides/interactive_serving/" class="md-nav__link">
+      <a href="../../../demo_api/guides/interactive_serving/" class="md-nav__link">
         
   
   
@@ -1360,7 +1364,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/guides/local_benchmarks/" class="md-nav__link">
+      <a href="../../../demo_api/guides/local_benchmarks/" class="md-nav__link">
         
   
   
@@ -1446,7 +1450,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/demo_api/api_reference/application/" class="md-nav__link">
+      <a href="../../../demo_api/api_reference/application/" class="md-nav__link">
         
   
   
@@ -1488,6 +1492,8 @@
                   
   
   
+    
+  
   
   
     
@@ -1505,15 +1511,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../documentation/inferencing_api/" class="md-nav__link ">
+            <a href="../../" class="md-nav__link ">
               
   
   
@@ -1537,7 +1543,7 @@
           </div>
         
         
-          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="false">
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="true">
             <label class="md-nav__title" for="__nav_5_4">
               <span class="md-nav__icon md-icon"></span>
               
@@ -1553,8 +1559,10 @@
                   
   
   
+    
   
   
+  
     
     
       
@@ -1570,11 +1578,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4_2" checked>
         
           
           <label class="md-nav__link" for="__nav_5_4_2" id="__nav_5_4_2_label" tabindex="0">
@@ -1595,7 +1603,7 @@
           </label>
         
         
-          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_4_2_label" aria-expanded="false">
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_4_2_label" aria-expanded="true">
             <label class="md-nav__title" for="__nav_5_4_2">
               <span class="md-nav__icon md-icon"></span>
               
@@ -1609,10 +1617,34 @@
                   
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/guides/create_model/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Create a model
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1627,6 +1659,91 @@
   
 
       </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-choose-the-closest-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. Choose the closest implementation
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-scaffold-the-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. Scaffold the package
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-implement-only-the-model-delta" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. Implement only the model delta
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-test-the-model-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. Test the model boundary
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-bind-it-only-after-the-model-is-stable" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. Bind it only after the model is stable
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-document-and-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6. Document and verify
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1639,7 +1756,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/guides/stream_inference_pipeline/" class="md-nav__link">
+      <a href="../stream_inference_pipeline/" class="md-nav__link">
         
   
   
@@ -1666,7 +1783,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/guides/latency_tuning/" class="md-nav__link">
+      <a href="../latency_tuning/" class="md-nav__link">
         
   
   
@@ -1693,7 +1810,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/guides/accelerated/" class="md-nav__link">
+      <a href="../accelerated/" class="md-nav__link">
         
   
   
@@ -1783,7 +1900,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/api_reference/runtime/" class="md-nav__link">
+      <a href="../../api_reference/runtime/" class="md-nav__link">
         
   
   
@@ -1810,7 +1927,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/api_reference/pipeline/" class="md-nav__link">
+      <a href="../../api_reference/pipeline/" class="md-nav__link">
         
   
   
@@ -1837,7 +1954,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/inferencing_api/api_reference/core/" class="md-nav__link">
+      <a href="../../api_reference/core/" class="md-nav__link">
         
   
   
@@ -1904,7 +2021,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../documentation/tools/" class="md-nav__link ">
+            <a href="../../../tools/" class="md-nav__link ">
               
   
   
@@ -1947,7 +2064,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/tools/offline_program_packager/" class="md-nav__link">
+      <a href="../../../tools/offline_program_packager/" class="md-nav__link">
         
   
   
@@ -1974,7 +2091,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../documentation/tools/build_website/" class="md-nav__link">
+      <a href="../../../tools/build_website/" class="md-nav__link">
         
   
   
@@ -2010,7 +2127,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../troubleshooting/" class="md-nav__link">
+      <a href="../../../../troubleshooting/" class="md-nav__link">
         
   
   
@@ -2042,8 +2159,6 @@
       
   
   
-    
-  
   
   
     
@@ -2057,15 +2172,15 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="././" class="md-nav__link md-nav__link--active">
+            <a href="../../../../community/" class="md-nav__link ">
               
   
   
@@ -2126,10 +2241,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#contribute" class="md-nav__link">
+  <a href="#1-choose-the-closest-implementation" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Contribute
+        1. Choose the closest implementation
       </span>
     </span>
   </a>
@@ -2137,10 +2252,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#bugs-and-feature-requests" class="md-nav__link">
+  <a href="#2-scaffold-the-package" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Bugs and feature requests
+        2. Scaffold the package
       </span>
     </span>
   </a>
@@ -2148,10 +2263,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#discord" class="md-nav__link">
+  <a href="#3-implement-only-the-model-delta" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Discord
+        3. Implement only the model delta
       </span>
     </span>
   </a>
@@ -2159,10 +2274,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#security" class="md-nav__link">
+  <a href="#4-test-the-model-boundary" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Security
+        4. Test the model boundary
       </span>
     </span>
   </a>
@@ -2170,10 +2285,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#before-opening-an-issue" class="md-nav__link">
+  <a href="#5-bind-it-only-after-the-model-is-stable" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Before opening an issue
+        5. Bind it only after the model is stable
       </span>
     </span>
   </a>
@@ -2181,74 +2296,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#common-questions" class="md-nav__link">
+  <a href="#6-document-and-verify" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Common questions
+        6. Document and verify
       </span>
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Common questions">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#what-hardware-do-i-need" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        What hardware do I need?
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#why-are-integrations-not-on-pypi" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Why are integrations not on PyPI?
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#which-python-api-should-i-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Which Python API should I use?
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-add-a-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        How do I add a model?
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#can-i-use-flashdreams-commercially" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Can I use FlashDreams commercially?
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -2268,7 +2322,7 @@
                   
 
   
-    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/community/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/documentation/inferencing_api/guides/create_model.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
     </a>
@@ -2276,55 +2330,84 @@
   
 
 
-  <h1 id="__skip">Community</h1>
+  <h1 id="__skip">Create a model</h1>
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
-
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-<p>Use the issue tracker for work that needs a record. Use Discord for informal
-questions and conversation. Do not report security problems in public.</p>
-<h3 id="contribute"><a href="https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md">Contribute</a></h3>
-<p>Development workflow, testing requirements, and contribution policy.</p>
-<h3 id="bugs-and-feature-requests"><a href="https://github.com/NVIDIA/flashdreams/issues">Bugs and feature requests</a></h3>
-<p>Search existing issues, then open one with the command, expected result,
-actual result, stack trace, and environment.</p>
-<h3 id="discord"><a href="https://discord.gg/cMt2mHm4aN">Discord</a></h3>
-<p>Ask open-ended questions and share results in <code>#flashdreams</code> on the
-NVIDIA Omniverse server.</p>
-<h3 id="security"><a href="https://github.com/NVIDIA/flashdreams/blob/main/SECURITY.md">Security</a></h3>
-<p>Follow the private disclosure process. Never file a public issue for a
-vulnerability.</p>
-<h2 id="before-opening-an-issue">Before opening an issue</h2>
-<p>Check <a href="../troubleshooting/">Troubleshooting</a>, the
-<a href="../models/">model page</a>, and existing issues first. Reduce the
-problem to the shortest command you can. Include:</p>
+<p>A model is a standalone package under <code>integrations_v2/&lt;model&gt;/</code>. It owns model
+architecture, checkpoint mapping, pipeline behavior, stable configs, and
+model-specific tests. It does not copy reusable demo behavior.</p>
+<h2 id="1-choose-the-closest-implementation">1. Choose the closest implementation</h2>
+<p>Before writing code, record:</p>
 <ul>
-<li>what you ran and what you expected;</li>
-<li>the full error text, not a screenshot;</li>
-<li>FlashDreams, Python, CUDA, and GPU versions; and</li>
-<li>anything you already tried.</li>
+<li>the nearest recipe or existing integration;</li>
+<li>checkpoint location, format, envelope, dtype, and access requirements;</li>
+<li>native spatial and temporal shape;</li>
+<li>scheduler, denoising steps, guidance, and cache policy;</li>
+<li>model-specific conditioning, attention, memory, or decoder changes;</li>
+<li>the upstream commit and inputs used for parity.</li>
 </ul>
-<h2 id="common-questions">Common questions</h2>
-<h3 id="what-hardware-do-i-need">What hardware do I need?</h3>
-<p>FlashDreams needs a recent NVIDIA GPU. Memory requirements depend on the
-model, so check its <a href="../models/">model page</a> before installing it.</p>
-<h3 id="why-are-integrations-not-on-pypi">Why are integrations not on PyPI?</h3>
-<p>Only the core <code>flashdreams</code> package is published to PyPI. Clone the
-repository and install an integration as a workspace package. For example:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-wan21<span class="w"> </span>--extra<span class="w"> </span>dev
+<p>Reuse <code>flashdreams.core</code>, <code>flashdreams.infra</code>, and <code>flashdreams.recipes</code>.
+Model-specific branches stay in the integration package rather than shared
+framework code.</p>
+<h2 id="2-scaffold-the-package">2. Scaffold the package</h2>
+<div class="highlight"><pre><span></span><code>integrations_v2/&lt;model&gt;/
+  __init__.py
+  config.py
+  impl/
+    __init__.py
+    checkpoint.py        # when keys or envelopes need translation
+    ...                  # model-specific implementation only
+  tests/
+  pyproject.toml
+  README.md               # one-line link to the canonical model page
 </code></pre></div>
-<h3 id="which-python-api-should-i-use">Which Python API should I use?</h3>
-<p>Use <code>flashdreams.api_v2</code>; the
-<a href="../documentation/demo_api/">Demo API reference</a> maps its
-application, session, and loop contracts.</p>
-<h3 id="how-do-i-add-a-model">How do I add a model?</h3>
-<p>Start with
-<a href="../documentation/inferencing_api/guides/create_model/">Create a model</a>, then
-<a href="../documentation/demo_api/guides/integrate_model/">integrate it with a demo</a>.</p>
-<h3 id="can-i-use-flashdreams-commercially">Can I use FlashDreams commercially?</h3>
-<p>The Apache 2.0 license permits commercial use. Model weights and datasets may
-have separate licenses.</p>
+<p>Use a distribution name such as <code>flashdreams-&lt;model&gt;</code> and depend on
+<code>flashdreams</code>. Add only the nearest reusable app package when the adapter is
+added later. Do not add a demo entry point while the model is still being
+validated independently.</p>
+<h2 id="3-implement-only-the-model-delta">3. Implement only the model delta</h2>
+<p>Start from the closest recipe and replace only the encoder, transformer,
+scheduler, decoder, checkpoint transform, or pipeline behavior that differs.
+Keep public config literals in <code>config.py</code>; keep their implementation classes
+under <code>impl/</code>.</p>
+<p>Use the checkpoint helpers under <code>flashdreams.core.checkpoint</code>. A transform
+should unwrap known envelopes, remove known prefixes, apply ordered renames,
+and leave tensor values unchanged. Before loading on a GPU, compare transformed
+checkpoint keys and shapes with <code>network.state_dict()</code> on CPU or meta tensors.
+Missing, unexpected, and shape-mismatched keys should all be explained.</p>
+<p>When exposing the model through a demo, follow
+<a href="../../../demo_api/guides/configuration/">Demo configuration</a> for the pipeline
+definition.</p>
+<h2 id="4-test-the-model-boundary">4. Test the model boundary</h2>
+<p>Keep these checks CPU-safe when possible:</p>
+<ul>
+<li>package imports and metadata;</li>
+<li>config construction and variant independence;</li>
+<li>checkpoint key transforms using representative real key strings;</li>
+<li>component shape and cache/reset behavior with small tensors;</li>
+<li>adapter-free pipeline behavior against a stand-in.</li>
+</ul>
+<p>Put real checkpoint loading, generation, parity, and performance checks behind
+<code>ci_gpu</code> or <code>manual</code> as appropriate. Every pytest test requires a <code>ci_cpu</code>,
+<code>ci_gpu</code>, or <code>manual</code> marker.</p>
+<h2 id="5-bind-it-only-after-the-model-is-stable">5. Bind it only after the model is stable</h2>
+<p>A model package can exist without a public application slug. When the config
+and model tests are ready, follow
+<a href="../../../demo_api/guides/integrate_model/">Integrate a model with a demo</a>
+to add <code>apps/&lt;demo&gt;/adapter.py</code>. The adapter owns presentation defaults and
+registration; the model implementation does not import the demo.</p>
+<h2 id="6-document-and-verify">6. Document and verify</h2>
+<p>Add or update <code>docs/source/models/&lt;model&gt;.md</code> with requirements,
+installation, supported demo bindings, and canonical commands. Keep detailed
+implementation notes in the repository package page.</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-&lt;model&gt;<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--inexact
+uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>pytest<span class="w"> </span>integrations_v2/&lt;model&gt;/tests<span class="w"> </span>-m<span class="w"> </span>ci_cpu
+uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>lint<span class="w"> </span>pre-commit<span class="w"> </span>run<span class="w"> </span>-a
+</code></pre></div>
+<p>Do not download checkpoints or run GPU generation as part of the default CPU
+workflow.</p>
 
 
 
@@ -2359,7 +2442,7 @@ have separate licenses.</p>
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../troubleshooting/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Troubleshooting">
+          <a href="../../" class="md-footer__link md-footer__link--prev" aria-label="Previous: Inferencing API Overview">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
@@ -2369,11 +2452,27 @@ have separate licenses.</p>
                 Previous
               </span>
               <div class="md-ellipsis">
-                Troubleshooting
+                Inferencing API Overview
               </div>
             </div>
           </a>
         
+        
+          
+          <a href="../stream_inference_pipeline/" class="md-footer__link md-footer__link--next" aria-label="Next: Stream inference pipeline">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Stream inference pipeline
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
         
       </nav>
     
@@ -2402,12 +2501,12 @@ have separate licenses.</p>
       
         
         
-      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.action.edit","navigation.indexes","navigation.footer"],"redirect":null,"search":"../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+      <script id="__config" type="application/json">{"annotate":null,"base":"../../../..","features":["content.action.edit","navigation.indexes","navigation.footer"],"redirect":null,"search":"../../../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
     
     
-      <script src="../assets/javascripts/bundle.67a597eb.min.js"></script>
+      <script src="../../../../assets/javascripts/bundle.67a597eb.min.js"></script>
       
-        <script src="../javascripts/katex.js"></script>
+        <script src="../../../../javascripts/katex.js"></script>
       
         <script src="https://unpkg.com/katex@0/dist/katex.min.js"></script>
       

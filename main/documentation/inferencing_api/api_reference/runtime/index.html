@@ -1,0 +1,4134 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Inference and serving for interactive video and world models">
+      
+      
+      
+        <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/api_reference/runtime/">
+      
+      
+        <link rel="prev" href="../../guides/accelerated/">
+      
+      
+        <link rel="next" href="../pipeline/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../../favicon.svg">
+      <meta name="generator" content="zensical-0.0.67">
+    
+    
+      
+        <title>Experimental Inference Runtime API Reference - FlashDreams</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../../../assets/stylesheets/modern/main.4ae390e2.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../../../assets/stylesheets/modern/palette.96d1a7e4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../../stylesheets/custom.css">
+    
+      <link rel="stylesheet" href="https://unpkg.com/katex@0/dist/katex.min.css">
+    
+    <script>__md_scope=new URL("../../../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#minimal-direct-use" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../../.." title="FlashDreams" class="md-header__button md-logo" aria-label="FlashDreams" data-md-component="logo">
+      
+  <img src="../../../../images/horizontal-light.svg" alt="FlashDreams">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            FlashDreams
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Experimental Inference Runtime API Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="none" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="none" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/NVIDIA/flashdreams" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    NVIDIA/flashdreams
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../../.." title="FlashDreams" class="md-nav__button md-logo" aria-label="FlashDreams" data-md-component="logo">
+      
+  <img src="../../../../images/horizontal-light.svg" alt="FlashDreams">
+
+    </a>
+    FlashDreams
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/NVIDIA/flashdreams" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    NVIDIA/flashdreams
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FlashDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../../quickstart/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Quickstart
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../../models/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Models
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Models
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/omnidreams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  NVIDIA OmniDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/self_forcing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Self-Forcing
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/causal_forcing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Causal-Forcing
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/causal_wan22/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Causal Wan 2.2
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/lingbot_world/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  LingBot-World
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/waypoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Waypoint 1.5
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/hy_worldplay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  HY-Worldplay
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/sana_wm_streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  SANA-WM
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/wan21/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Wan 2.1
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/wan22/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Wan 2.2
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos_predict2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos-Predict 2.5
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/flashvsr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FlashVSR
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/swiftvr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  SwiftVR
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../../demos/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Demos
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Demos
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/crazy_robotaxi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Crazy Robotaxi
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/interactive_drive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interactive Drive
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/action2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Action2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/cam2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cam2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/t2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  T2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/v2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  V2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Documentation
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Documentation
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  CLI Reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../demo_api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Demo API
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Demo API
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3_2" id="__nav_5_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Guides
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_3_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Guides
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/create_demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Create a demo
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/integrate_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Integrate a model with a demo
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Demo configuration
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/application_slugs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Application slugs and dispatch
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/interactive_serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interactive serving
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/local_benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Local benchmarks
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3_3" id="__nav_5_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API Reference
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_3_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  API Reference
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/api_reference/application/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Application API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Inferencing API
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_5_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Inferencing API
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4_2" id="__nav_5_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Guides
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_4_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_4_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Guides
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/create_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Create a model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/stream_inference_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Stream inference pipeline
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/latency_tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Latency tuning
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/accelerated/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Accelerated building blocks
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5_4_3" id="__nav_5_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API Reference
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_4_3_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_5_4_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  API Reference
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Inference Runtime API
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Inference Runtime API
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#minimal-direct-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Minimal direct use
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        API Reference
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="API Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#runtime-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Runtime lifecycle
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inferenceconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InferenceConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InferenceConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#model_id" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>model_id</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preset_id" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>preset_id</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checkpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>checkpoint</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>backend</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#device" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>device</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#precision" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>precision</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compile" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>compile</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cuda_graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>cuda_graph</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#attention_backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>attention_backend</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache_policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>cache_policy</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#seed" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>seed</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtime_options" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>runtime_options</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resource_hints" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>resource_hints</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modeladapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ModelAdapter</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ModelAdapter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#model_id_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>model_id</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inference_input_schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>inference_input_schema</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#canonical_input_schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>canonical_input_schema</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default_input_mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>default_input_mapping</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validate_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>validate_config</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create_runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>create_runtime</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inferenceruntime" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InferenceRuntime</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InferenceRuntime">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start_session" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>start_session</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#close" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>close</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inferencesession" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InferenceSession</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InferenceSession">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#next_step_request" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>next_step_request</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>step</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>reset</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#close_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>close</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inputs-and-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Inputs and results
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inferenceinput" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InferenceInput</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InferenceInput">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#for_phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>for_phase</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inferenceinputschema" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InferenceInputSchema</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InferenceInputSchema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#global_conditioning_fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>global_conditioning_fields</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step_fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>step_fields</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields_for" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>fields_for</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required_fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>required_fields</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optional_fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>optional_fields</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#field_for" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>field_for</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#missing_global_conditioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>missing_global_conditioning</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#missing_step" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>missing_step</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#require_global_conditioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>require_global_conditioning</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#require_step" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>require_step</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#steprequest" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StepRequest</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stepresult" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StepResult</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StepResult">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#from_video_chunk" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>from_video_chunk</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#video_chunk" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>video_chunk</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lazy_rgb_frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>lazy_rgb_frames</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#video_hwc_uint8" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>video_hwc_uint8</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Input mapping
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#canonicalinputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>CanonicalInputs</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inputmapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InputMapping</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InputMapping">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>validate</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#map_global_conditioning_inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>map_global_conditioning_inputs</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#map_step_inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>map_step_inputs</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inputmappingschema" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InputMappingSchema</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InputMappingSchema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#produces_for" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>produces_for</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can_produce" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>can_produce</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipeline API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Core API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../tools/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Tooling
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_5" id="__nav_5_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Tooling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/offline_program_packager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Offline Program Packager
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/build_website/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Build Website
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Troubleshooting
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../../community/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Community
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#minimal-direct-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Minimal direct use
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        API Reference
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="API Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#runtime-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Runtime lifecycle
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inferenceconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InferenceConfig</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InferenceConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#model_id" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>model_id</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preset_id" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>preset_id</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checkpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>checkpoint</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>backend</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#device" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>device</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#precision" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>precision</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compile" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>compile</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cuda_graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>cuda_graph</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#attention_backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>attention_backend</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache_policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>cache_policy</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#seed" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>seed</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtime_options" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>runtime_options</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resource_hints" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>resource_hints</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modeladapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ModelAdapter</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ModelAdapter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#model_id_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>model_id</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inference_input_schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>inference_input_schema</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#canonical_input_schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>canonical_input_schema</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default_input_mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>default_input_mapping</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validate_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>validate_config</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create_runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>create_runtime</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inferenceruntime" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InferenceRuntime</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InferenceRuntime">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start_session" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>start_session</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#close" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>close</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inferencesession" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InferenceSession</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InferenceSession">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#next_step_request" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>next_step_request</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>step</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>reset</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#close_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>close</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inputs-and-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Inputs and results
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inferenceinput" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InferenceInput</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InferenceInput">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#for_phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>for_phase</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inferenceinputschema" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InferenceInputSchema</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InferenceInputSchema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#global_conditioning_fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>global_conditioning_fields</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step_fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>step_fields</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields_for" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>fields_for</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required_fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>required_fields</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optional_fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>optional_fields</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#field_for" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>field_for</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#missing_global_conditioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>missing_global_conditioning</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#missing_step" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>missing_step</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#require_global_conditioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>require_global_conditioning</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#require_step" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>require_step</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#steprequest" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StepRequest</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stepresult" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>StepResult</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StepResult">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#from_video_chunk" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>from_video_chunk</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#video_chunk" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>video_chunk</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lazy_rgb_frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>lazy_rgb_frames</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#video_hwc_uint8" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>video_hwc_uint8</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Input mapping
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#canonicalinputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>CanonicalInputs</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inputmapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InputMapping</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InputMapping">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>validate</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#map_global_conditioning_inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>map_global_conditioning_inputs</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#map_step_inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>map_step_inputs</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inputmappingschema" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>InputMappingSchema</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InputMappingSchema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#produces_for" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>produces_for</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can_produce" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>can_produce</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+  
+    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/documentation/inferencing_api/api_reference/runtime.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+  <h1 id="__skip">Inference Runtime API</h1>
+
+<!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
+
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+<p><code>flashdreams.runtime</code> is the experimental inference API. Its lifecycle is
+<code>ModelAdapter</code> → reusable <code>InferenceRuntime</code> → isolated
+<code>InferenceSession</code>. See the <a href="../../../demo_api/">Demo API overview</a> for
+the application layer above it, or the
+<a href="../../">Inferencing API overview</a> for the surrounding model-side guides
+and references.</p>
+<h2 id="minimal-direct-use">Minimal direct use</h2>
+<p>Integrations provide the adapter and its model-specific input schema.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.runtime</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">InferenceConfig</span><span class="p">,</span>
+    <span class="n">InferenceInput</span><span class="p">,</span>
+    <span class="n">ModelAdapter</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">run_one_step</span><span class="p">(</span><span class="n">adapter</span><span class="p">:</span> <span class="n">ModelAdapter</span><span class="p">,</span> <span class="n">global_conditioning</span><span class="p">,</span> <span class="n">step</span><span class="p">):</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="n">InferenceConfig</span><span class="p">(</span><span class="n">model_id</span><span class="o">=</span><span class="n">adapter</span><span class="o">.</span><span class="n">model_id</span><span class="p">)</span>
+    <span class="n">adapter</span><span class="o">.</span><span class="n">validate_config</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+    <span class="n">runtime</span> <span class="o">=</span> <span class="n">adapter</span><span class="o">.</span><span class="n">create_runtime</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">initial_input</span> <span class="o">=</span> <span class="n">InferenceInput</span><span class="p">(</span><span class="n">global_conditioning</span><span class="o">=</span><span class="n">global_conditioning</span><span class="p">)</span>
+        <span class="n">session</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">start_session</span><span class="p">(</span><span class="n">initial_input</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">request</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">next_step_request</span><span class="p">()</span>
+            <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">request</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">session</span><span class="o">.</span><span class="n">step</span><span class="p">(</span><span class="n">InferenceInput</span><span class="p">(</span><span class="n">step</span><span class="o">=</span><span class="n">step</span><span class="p">))</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">session</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">runtime</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</code></pre></div>
+<p>Close sessions and runtimes even after errors. Session calls are sequential;
+the caller owns concurrency unless an integration says otherwise.</p>
+<h2 id="api-reference">API Reference</h2>
+<h3 id="runtime-lifecycle">Runtime lifecycle</h3>
+<p><a id="flashdreams.runtime.InferenceConfig"></a></p>
+<h3 id="inferenceconfig"><code>InferenceConfig</code></h3>
+<div class="highlight"><pre><span></span><code>class InferenceConfig ( * , model_id: str , preset_id: str | None = None , checkpoint: str | ~pathlib.Path | None = None , backend: ~typing.Literal[&#39;local&#39; , &#39;local-distributed&#39; , &#39;external&#39; , &#39;hosted&#39;] = &#39;local&#39; , device: str | None = None , precision: ~typing.Literal[&#39;auto&#39; , &#39;fp32&#39; , &#39;fp16&#39; , &#39;bf16&#39;] = &#39;auto&#39; , compile: bool | None = None , cuda_graph: bool | None = None , attention_backend: str | None = None , cache_policy: str | None = None , seed: int | None = None , runtime_options: ~collections.abc.Mapping[str , ~typing.Any] = &lt;factory&gt; , resource_hints: ~collections.abc.Mapping[str , ~typing.Any] = &lt;factory&gt; )
+</code></pre></div>
+<p>Bases: <code>object</code></p>
+<p>Runtime settings that affect model execution.</p>
+<p>Prompts, user controls, browser settings, output paths, and benchmark
+directories intentionally live outside this object. The typed optimization
+fields cover common cross-backend knobs; open-ended adapter-specific choices
+can use <code>runtime_options</code>.</p>
+<p><a id="flashdreams.runtime.InferenceConfig.model_id"></a></p>
+<h4 id="model_id"><code>model_id</code></h4>
+<div class="highlight"><pre><span></span><code>model_id : str
+</code></pre></div>
+<p>Stable identity for the model adapter or runtime integration.
+<a id="flashdreams.runtime.InferenceConfig.preset_id"></a></p>
+<h4 id="preset_id"><code>preset_id</code></h4>
+<div class="highlight"><pre><span></span><code>preset_id : str | None
+</code></pre></div>
+<p>Optional preset identity under <code>model_id</code>.
+<a id="flashdreams.runtime.InferenceConfig.checkpoint"></a></p>
+<h4 id="checkpoint"><code>checkpoint</code></h4>
+<div class="highlight"><pre><span></span><code>checkpoint : str | Path | None
+</code></pre></div>
+<p>Optional checkpoint or model-asset selector understood by the adapter.
+<a id="flashdreams.runtime.InferenceConfig.backend"></a></p>
+<h4 id="backend"><code>backend</code></h4>
+<div class="highlight"><pre><span></span><code>backend : Literal [ &#39;local&#39; , &#39;local-distributed&#39; , &#39;external&#39; , &#39;hosted&#39; ]
+</code></pre></div>
+<p>Execution placement and backend family for inference compute.
+<a id="flashdreams.runtime.InferenceConfig.device"></a></p>
+<h4 id="device"><code>device</code></h4>
+<div class="highlight"><pre><span></span><code>device : str | None
+</code></pre></div>
+<p>Optional device selector such as <code>cuda</code> or <code>cuda:0</code>; <code>None</code> leaves placement to the adapter/backend.
+<a id="flashdreams.runtime.InferenceConfig.precision"></a></p>
+<h4 id="precision"><code>precision</code></h4>
+<div class="highlight"><pre><span></span><code>precision : Literal [ &#39;auto&#39; , &#39;fp32&#39; , &#39;fp16&#39; , &#39;bf16&#39; ]
+</code></pre></div>
+<p>Preferred compute precision.
+<a id="flashdreams.runtime.InferenceConfig.compile"></a></p>
+<h4 id="compile"><code>compile</code></h4>
+<div class="highlight"><pre><span></span><code>compile : bool | None
+</code></pre></div>
+<p>Optional - Whether model compilation is requested or disabled. None means left to the adapter to decide.
+<a id="flashdreams.runtime.InferenceConfig.cuda_graph"></a></p>
+<h4 id="cuda_graph"><code>cuda_graph</code></h4>
+<div class="highlight"><pre><span></span><code>cuda_graph : bool | None
+</code></pre></div>
+<p>Optional - Whether CUDA graph capture is requested or disabled. None means left to the adapter to decide.
+<a id="flashdreams.runtime.InferenceConfig.attention_backend"></a></p>
+<h4 id="attention_backend"><code>attention_backend</code></h4>
+<div class="highlight"><pre><span></span><code>attention_backend : str | None
+</code></pre></div>
+<p>Optional attention implementation selector; <code>None</code> leaves the choice to the adapter.
+<a id="flashdreams.runtime.InferenceConfig.cache_policy"></a></p>
+<h4 id="cache_policy"><code>cache_policy</code></h4>
+<div class="highlight"><pre><span></span><code>cache_policy : str | None
+</code></pre></div>
+<p>Optional cache policy selector; <code>None</code> leaves the choice to the adapter.
+<a id="flashdreams.runtime.InferenceConfig.seed"></a></p>
+<h4 id="seed"><code>seed</code></h4>
+<div class="highlight"><pre><span></span><code>seed : int | None
+</code></pre></div>
+<p>Optional seed used when resolving deterministic demo/runtime behavior.
+<a id="flashdreams.runtime.InferenceConfig.runtime_options"></a></p>
+<h4 id="runtime_options"><code>runtime_options</code></h4>
+<div class="highlight"><pre><span></span><code>runtime_options : Mapping [ str , Any ]
+</code></pre></div>
+<p>Adapter/backend-specific runtime options.
+<a id="flashdreams.runtime.InferenceConfig.resource_hints"></a></p>
+<h4 id="resource_hints"><code>resource_hints</code></h4>
+<div class="highlight"><pre><span></span><code>resource_hints : Mapping [ str , Any ]
+</code></pre></div>
+<p>Resource hints for launchers, schedulers, or hosted backends.</p>
+<p><a id="flashdreams.runtime.ModelAdapter"></a></p>
+<h3 id="modeladapter"><code>ModelAdapter</code></h3>
+<div class="highlight"><pre><span></span><code>class ModelAdapter ( * args , ** kwargs )
+</code></pre></div>
+<p>Bases: <code>Protocol</code></p>
+<p>Model-specific boundary that declares defaults and creates runtimes.</p>
+<p>Adapters declare model-facing input requirements, the canonical modalities
+their default mapping consumes, and an optional default mapping between the
+two. Runtime, application, or benchmark code may override that mapping while
+preserving the same <code>CanonicalInputs</code> to <code>InferenceInput</code> boundary.</p>
+<p><a id="flashdreams.runtime.ModelAdapter.model_id"></a></p>
+<h4 id="model_id_1"><code>model_id</code></h4>
+<div class="highlight"><pre><span></span><code>property model_id : str
+</code></pre></div>
+<p>Stable identity for the model adapter or runtime integration.
+<a id="flashdreams.runtime.ModelAdapter.inference_input_schema"></a></p>
+<h4 id="inference_input_schema"><code>inference_input_schema</code></h4>
+<div class="highlight"><pre><span></span><code>property inference_input_schema : InferenceInputSchema
+</code></pre></div>
+<p>Model-facing global conditioning and per-step input requirements.
+<a id="flashdreams.runtime.ModelAdapter.canonical_input_schema"></a></p>
+<h4 id="canonical_input_schema"><code>canonical_input_schema</code></h4>
+<div class="highlight"><pre><span></span><code>property canonical_input_schema : CanonicalInputSchema | None
+</code></pre></div>
+<p>Canonical modalities the adapter’s default mapping consumes.
+<a id="flashdreams.runtime.ModelAdapter.default_input_mapping"></a></p>
+<h4 id="default_input_mapping"><code>default_input_mapping</code></h4>
+<div class="highlight"><pre><span></span><code>default_input_mapping ( ) → InputMapping | None
+</code></pre></div>
+<p>Return the model-provided default canonical-to-model mapping.
+<a id="flashdreams.runtime.ModelAdapter.validate_config"></a></p>
+<h4 id="validate_config"><code>validate_config</code></h4>
+<div class="highlight"><pre><span></span><code>validate_config ( config : InferenceConfig ) → None
+</code></pre></div>
+<p>Fail early for unsupported runtime settings.
+<a id="flashdreams.runtime.ModelAdapter.create_runtime"></a></p>
+<h4 id="create_runtime"><code>create_runtime</code></h4>
+<div class="highlight"><pre><span></span><code>create_runtime ( config : InferenceConfig ) → InferenceRuntime
+</code></pre></div>
+<p>Initialize and return the heavyweight runtime.</p>
+<p><a id="flashdreams.runtime.InferenceRuntime"></a></p>
+<h3 id="inferenceruntime"><code>InferenceRuntime</code></h3>
+<div class="highlight"><pre><span></span><code>class InferenceRuntime ( * args , ** kwargs )
+</code></pre></div>
+<p>Bases: <code>Protocol</code></p>
+<p>Heavyweight reusable runtime created from <code>InferenceConfig</code>.</p>
+<p><a id="flashdreams.runtime.InferenceRuntime.start_session"></a></p>
+<h4 id="start_session"><code>start_session</code></h4>
+<div class="highlight"><pre><span></span><code>start_session ( inputs : InferenceInput ) → InferenceSession
+</code></pre></div>
+<p>Create an isolated session from global conditioning inputs.
+<a id="flashdreams.runtime.InferenceRuntime.close"></a></p>
+<h4 id="close"><code>close</code></h4>
+<div class="highlight"><pre><span></span><code>close ( ) → None
+</code></pre></div>
+<p>Release model/backend resources.</p>
+<p><a id="flashdreams.runtime.InferenceSession"></a></p>
+<h3 id="inferencesession"><code>InferenceSession</code></h3>
+<div class="highlight"><pre><span></span><code>class InferenceSession ( * args , ** kwargs )
+</code></pre></div>
+<p>Bases: <code>Protocol</code></p>
+<p>One rollout or stream with isolated model/cache state.</p>
+<p><a id="flashdreams.runtime.InferenceSession.next_step_request"></a></p>
+<h4 id="next_step_request"><code>next_step_request</code></h4>
+<div class="highlight"><pre><span></span><code>next_step_request ( ) → StepRequest | None
+</code></pre></div>
+<p>Return the next step’s runtime request, or <code>None</code> when complete.
+<a id="flashdreams.runtime.InferenceSession.step"></a></p>
+<h4 id="step"><code>step</code></h4>
+<div class="highlight"><pre><span></span><code>step ( inputs : InferenceInput ) → StepResult
+</code></pre></div>
+<p>Run one sequential inference step.
+<a id="flashdreams.runtime.InferenceSession.reset"></a></p>
+<h4 id="reset"><code>reset</code></h4>
+<div class="highlight"><pre><span></span><code>reset ( inputs : InferenceInput | None = None ) → None
+</code></pre></div>
+<p>Reset this session’s rollout state when the backend supports it.
+<a id="flashdreams.runtime.InferenceSession.close"></a></p>
+<h4 id="close_1"><code>close</code></h4>
+<div class="highlight"><pre><span></span><code>close ( ) → None
+</code></pre></div>
+<p>Release per-session resources.</p>
+<h3 id="inputs-and-results">Inputs and results</h3>
+<p><a id="flashdreams.runtime.InferenceInput"></a></p>
+<h3 id="inferenceinput"><code>InferenceInput</code></h3>
+<div class="highlight"><pre><span></span><code>class InferenceInput ( * , global_conditioning: ~collections.abc.Mapping[str , ~typing.Any] = &lt;factory&gt; , step: ~collections.abc.Mapping[str , ~typing.Any] = &lt;factory&gt; , metadata: ~collections.abc.Mapping[str , ~typing.Any] = &lt;factory&gt; )
+</code></pre></div>
+<p>Bases: <code>object</code></p>
+<p>Encoded inputs for one <code>InferenceSession</code> call.</p>
+<p>Two conditioning slots:</p>
+<ul>
+<li><code>global_conditioning</code>: values that condition the whole rollout, such as
+  the conditioning frame or prompt. Session start/reset establishes this
+  state; a step call may carry a non-empty payload to request an update when
+  the model supports it.</li>
+<li><code>step</code>: values needed to generate the next chunk or frame.</li>
+</ul>
+<p><a id="flashdreams.runtime.InferenceInput.for_phase"></a></p>
+<h4 id="for_phase"><code>for_phase</code></h4>
+<div class="highlight"><pre><span></span><code>for_phase ( phase : Literal [ &#39;global_conditioning&#39; , &#39;step&#39; ] ) → Mapping [ str , Any ]
+</code></pre></div>
+<p>Return the payload mapping for <code>phase</code>.</p>
+<p><a id="flashdreams.runtime.InferenceInputSchema"></a></p>
+<h3 id="inferenceinputschema"><code>InferenceInputSchema</code></h3>
+<div class="highlight"><pre><span></span><code>class InferenceInputSchema ( * , global_conditioning_fields : tuple [ InputField , ... ] = () , step_fields : tuple [ InputField , ... ] = () , description : str = &#39;&#39; )
+</code></pre></div>
+<p>Bases: <code>object</code></p>
+<p>Minimal metadata for global conditioning and per-step inputs.</p>
+<p><a id="flashdreams.runtime.InferenceInputSchema.global_conditioning_fields"></a></p>
+<h4 id="global_conditioning_fields"><code>global_conditioning_fields</code></h4>
+<div class="highlight"><pre><span></span><code>global_conditioning_fields : tuple [ InputField , ... ]
+</code></pre></div>
+<p>Model inputs carried in the global conditioning slot.
+<a id="flashdreams.runtime.InferenceInputSchema.step_fields"></a></p>
+<h4 id="step_fields"><code>step_fields</code></h4>
+<div class="highlight"><pre><span></span><code>step_fields : tuple [ InputField , ... ]
+</code></pre></div>
+<p>Model inputs required for one session step.
+<a id="flashdreams.runtime.InferenceInputSchema.fields_for"></a></p>
+<h4 id="fields_for"><code>fields_for</code></h4>
+<div class="highlight"><pre><span></span><code>fields_for ( phase : Literal [ &#39;global_conditioning&#39; , &#39;step&#39; ] ) → tuple [ InputField , ... ]
+</code></pre></div>
+<p>Return every declared field for <code>phase</code>.
+<a id="flashdreams.runtime.InferenceInputSchema.required_fields"></a></p>
+<h4 id="required_fields"><code>required_fields</code></h4>
+<div class="highlight"><pre><span></span><code>required_fields ( phase : Literal [ &#39;global_conditioning&#39; , &#39;step&#39; ] | None = None ) → tuple [ tuple [ Literal [ &#39;global_conditioning&#39; , &#39;step&#39; ] , InputField ] , ... ]
+</code></pre></div>
+<p>Return required fields as <code>(phase, field)</code>, optionally filtered.
+<a id="flashdreams.runtime.InferenceInputSchema.optional_fields"></a></p>
+<h4 id="optional_fields"><code>optional_fields</code></h4>
+<div class="highlight"><pre><span></span><code>optional_fields ( phase : Literal [ &#39;global_conditioning&#39; , &#39;step&#39; ] | None = None ) → tuple [ tuple [ Literal [ &#39;global_conditioning&#39; , &#39;step&#39; ] , InputField ] , ... ]
+</code></pre></div>
+<p>Return optional fields as <code>(phase, field)</code>, optionally filtered.
+<a id="flashdreams.runtime.InferenceInputSchema.field_for"></a></p>
+<h4 id="field_for"><code>field_for</code></h4>
+<div class="highlight"><pre><span></span><code>field_for ( * , name : str , phase : Literal [ &#39;global_conditioning&#39; , &#39;step&#39; ] ) → InputField | None
+</code></pre></div>
+<p>Return one declared field, if present.
+<a id="flashdreams.runtime.InferenceInputSchema.missing_global_conditioning"></a></p>
+<h4 id="missing_global_conditioning"><code>missing_global_conditioning</code></h4>
+<div class="highlight"><pre><span></span><code>missing_global_conditioning ( inputs : InferenceInput ) → tuple [ str , ... ]
+</code></pre></div>
+<p>Return required global conditioning fields absent from <code>inputs</code>.
+<a id="flashdreams.runtime.InferenceInputSchema.missing_step"></a></p>
+<h4 id="missing_step"><code>missing_step</code></h4>
+<div class="highlight"><pre><span></span><code>missing_step ( inputs : InferenceInput ) → tuple [ str , ... ]
+</code></pre></div>
+<p>Return required per-step fields absent from <code>inputs</code>.
+<a id="flashdreams.runtime.InferenceInputSchema.require_global_conditioning"></a></p>
+<h4 id="require_global_conditioning"><code>require_global_conditioning</code></h4>
+<div class="highlight"><pre><span></span><code>require_global_conditioning ( inputs : InferenceInput ) → None
+</code></pre></div>
+<p>Raise if required global conditioning fields are absent.
+<a id="flashdreams.runtime.InferenceInputSchema.require_step"></a></p>
+<h4 id="require_step"><code>require_step</code></h4>
+<div class="highlight"><pre><span></span><code>require_step ( inputs : InferenceInput ) → None
+</code></pre></div>
+<p>Raise if required per-step fields are absent.</p>
+<p><a id="flashdreams.runtime.StepRequest"></a></p>
+<h3 id="steprequest"><code>StepRequest</code></h3>
+<div class="highlight"><pre><span></span><code>class StepRequest ( * , step_index: int , inference_input_schema: ~flashdreams.runtime.inputs.InferenceInputSchema | None = None , user_input_window: ~flashdreams.infra.time.TimeWindow | None = None , metadata: ~collections.abc.Mapping[str , ~typing.Any] = &lt;factory&gt; )
+</code></pre></div>
+<p>Bases: <code>object</code></p>
+<p>Per-step runtime request emitted by an inference session.</p>
+<p>This is not a schema declaration. <code>user_input_window</code> lets a runner drain
+or slice timestamped user events for the current step before invoking the
+selected <code>InputMapping</code>.</p>
+<p><a id="flashdreams.runtime.StepResult"></a></p>
+<h3 id="stepresult"><code>StepResult</code></h3>
+<div class="highlight"><pre><span></span><code>class StepResult ( * , step_index: int , output: ~typing.Any | None = None , frame_count: int = 0 , layout: ~typing.Literal[&#39;tchw&#39; , &#39;btchw&#39; , &#39;bcthw&#39; , &#39;bvtchw&#39;] | None = None , output_window: ~flashdreams.infra.time.TimeWindow | None = None , metadata: ~collections.abc.Mapping[str , ~typing.Any] = &lt;factory&gt; , metrics: ~collections.abc.Mapping[str , float | int] = &lt;factory&gt; )
+</code></pre></div>
+<p>Bases: <code>object</code></p>
+<p>Generated output and metadata returned by one inference step.</p>
+<p>Video results use <code>from_video_chunk()</code>, which records a required tensor
+layout and derives the frame count once. Non-video results may use the
+regular constructor without a layout.</p>
+<p><a id="flashdreams.runtime.StepResult.from_video_chunk"></a></p>
+<h4 id="from_video_chunk"><code>from_video_chunk</code></h4>
+<div class="highlight"><pre><span></span><code>classmethod from_video_chunk ( * , step_index : int , video_chunk : Tensor , layout : Literal [ &#39;tchw&#39; , &#39;btchw&#39; , &#39;bcthw&#39; , &#39;bvtchw&#39; ] , output_window : TimeWindow | None = None , metadata : Mapping [ str , Any ] | None = None , metrics : Mapping [ str , float | int ] | None = None ) → StepResult
+</code></pre></div>
+<p>Build one layout-aware generated-video result.
+<a id="flashdreams.runtime.StepResult.video_chunk"></a></p>
+<h4 id="video_chunk"><code>video_chunk</code></h4>
+<div class="highlight"><pre><span></span><code>property video_chunk : Tensor
+</code></pre></div>
+<p>Return the video tensor or fail if this is not a video result.
+<a id="flashdreams.runtime.StepResult.lazy_rgb_frames"></a></p>
+<h4 id="lazy_rgb_frames"><code>lazy_rgb_frames</code></h4>
+<div class="highlight"><pre><span></span><code>lazy_rgb_frames ( * , batch_index : int = 0 , view_index : int = 0 , record_cuda_event : bool = True ) → list [ LazyCudaFrame ]
+</code></pre></div>
+<p>Expose this video result as lazy per-frame RGB handles.
+<a id="flashdreams.runtime.StepResult.video_hwc_uint8"></a></p>
+<h4 id="video_hwc_uint8"><code>video_hwc_uint8</code></h4>
+<div class="highlight"><pre><span></span><code>video_hwc_uint8 ( * , batch_index : int = 0 , view_index : int = 0 ) → Tensor
+</code></pre></div>
+<p>Return this video result as uint8 <code>[T,H,W,C]</code> on its device.</p>
+<h3 id="input-mapping">Input mapping</h3>
+<p><a id="flashdreams.runtime.CanonicalInputs"></a></p>
+<h3 id="canonicalinputs"><code>CanonicalInputs</code></h3>
+<div class="highlight"><pre><span></span><code>class CanonicalInputs ( * , values: ~collections.abc.Mapping[str , ~typing.Any] = &lt;factory&gt; , metadata: ~collections.abc.Mapping[str , ~typing.Any] = &lt;factory&gt; )
+</code></pre></div>
+<p>Bases: <code>object</code></p>
+<p>Canonicalized user input for one step, keyed by modality name.</p>
+<p>Values are level-triggered and normally present every step: a key held down
+emits no events but still means full throttle. Global conditioning does not
+appear here; it is application-owned and reaches <code>InferenceInput</code>
+directly.</p>
+<p><a id="flashdreams.runtime.InputMapping"></a></p>
+<h3 id="inputmapping"><code>InputMapping</code></h3>
+<div class="highlight"><pre><span></span><code>class InputMapping ( * args , ** kwargs )
+</code></pre></div>
+<p>Bases: <code>Protocol</code></p>
+<p>Convert user-facing inputs into model-facing inputs.</p>
+<p>A mapping may be supplied by the model adapter as a default or by an
+application/runtime override. Step mappings usually receive a timestamped
+event window selected by the runner for the current model step or chunk.</p>
+<p><a id="flashdreams.runtime.InputMapping.validate"></a></p>
+<h4 id="validate"><code>validate</code></h4>
+<div class="highlight"><pre><span></span><code>validate ( * , canonical_schema : CanonicalInputSchema | None = None , inference_input_schema : InferenceInputSchema | None = None ) → None
+</code></pre></div>
+<p>Fail early for obvious app, event-source, and model mismatches.
+<a id="flashdreams.runtime.InputMapping.map_global_conditioning_inputs"></a></p>
+<h4 id="map_global_conditioning_inputs"><code>map_global_conditioning_inputs</code></h4>
+<div class="highlight"><pre><span></span><code>map_global_conditioning_inputs ( * , canonical_inputs : CanonicalInputs , inference_input : InferenceInput ) → InferenceInput
+</code></pre></div>
+<p>Build global conditioning inputs for session start or reset.
+<a id="flashdreams.runtime.InputMapping.map_step_inputs"></a></p>
+<h4 id="map_step_inputs"><code>map_step_inputs</code></h4>
+<div class="highlight"><pre><span></span><code>map_step_inputs ( * , canonical_inputs : CanonicalInputs , inference_input : InferenceInput , request : StepRequest ) → InferenceInput
+</code></pre></div>
+<p>Build model inputs for one session step from the current input window.</p>
+<p><a id="flashdreams.runtime.InputMappingSchema"></a></p>
+<h3 id="inputmappingschema"><code>InputMappingSchema</code></h3>
+<div class="highlight"><pre><span></span><code>class InputMappingSchema ( * , name: str = &#39;input-mapping&#39; , consumes: tuple[~flashdreams.runtime.inputs.CanonicalModality , ...] = () , produces_global_conditioning: tuple[~flashdreams.runtime.inputs.InputField , ...] = () , produces_step: tuple[~flashdreams.runtime.inputs.InputField , ...] = () , metadata: ~collections.abc.Mapping[str , ~typing.Any] = &lt;factory&gt; )
+</code></pre></div>
+<p>Bases: <code>object</code></p>
+<p>Declarative compatibility surface for one mapping.</p>
+<p><code>InputMapping.validate</code> fails a run late and opaquely: it raises, but it
+cannot answer which optional model inputs a source would enable, or which
+missing user capability is responsible for an unreachable model input. This
+schema makes those questions answerable before runtime initialization.</p>
+<p><a id="flashdreams.runtime.InputMappingSchema.produces_for"></a></p>
+<h4 id="produces_for"><code>produces_for</code></h4>
+<div class="highlight"><pre><span></span><code>produces_for ( phase : Literal [ &#39;global_conditioning&#39; , &#39;step&#39; ] ) → tuple [ InputField , ... ]
+</code></pre></div>
+<p>Return the fields this mapping produces for <code>phase</code>.
+<a id="flashdreams.runtime.InputMappingSchema.can_produce"></a></p>
+<h4 id="can_produce"><code>can_produce</code></h4>
+<div class="highlight"><pre><span></span><code>can_produce ( phase : Literal [ &#39;global_conditioning&#39; , &#39;step&#39; ] , required : InputField ) → bool
+</code></pre></div>
+<p>Return whether this mapping can produce <code>required</code> in <code>phase</code>.</p>
+
+
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../../guides/accelerated/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Accelerated building blocks">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Accelerated building blocks
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../pipeline/" class="md-footer__link md-footer__link--next" aria-label="Next: Pipeline API">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Pipeline API
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../../../..","features":["content.action.edit","navigation.indexes","navigation.footer"],"redirect":null,"search":"../../../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../../../assets/javascripts/bundle.67a597eb.min.js"></script>
+      
+        <script src="../../../../javascripts/katex.js"></script>
+      
+        <script src="https://unpkg.com/katex@0/dist/katex.min.js"></script>
+      
+        <script src="https://unpkg.com/katex@0/dist/contrib/auto-render.min.js"></script>
+      
+    
+  </body>
+</html>
