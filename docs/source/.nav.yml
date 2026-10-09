@@ -23,6 +23,7 @@ nav:
               - Create a model: documentation/inferencing_api/guides/create_model.md
               - Stream inference pipeline: documentation/inferencing_api/guides/stream_inference_pipeline.md
               - Latency tuning: documentation/inferencing_api/guides/latency_tuning.md
+              - Profiling with Nsight Systems: documentation/inferencing_api/guides/nvtx_profiling.md
               - Accelerated building blocks: documentation/inferencing_api/guides/accelerated.md
           - API Reference:
               - Inference Runtime API: documentation/inferencing_api/api_reference/runtime.md
