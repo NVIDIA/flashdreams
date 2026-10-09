@@ -398,6 +398,7 @@ def _launcher_source(
         f"""\
         # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
         # SPDX-License-Identifier: Apache-2.0
+        import argparse
         import importlib.machinery
         import importlib.util
         import os
@@ -406,6 +407,20 @@ def _launcher_source(
         import zipfile
         from pathlib import Path
 
+        def filesystem_path(path):
+            if os.name != "nt":
+                return path
+            prefix = os.sep * 2 + "?" + os.sep
+            absolute = str(path)
+            if absolute.startswith(prefix):
+                return path
+            if absolute.startswith(os.sep * 2):
+                absolute = "UNC" + os.sep + absolute[2:]
+            return Path(prefix + absolute)
+
+        parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+        parser.add_argument("--unpack-dir")
+        unpack_options, remaining_arguments = parser.parse_known_args(sys.argv[1:])
         bundle_root = (
             Path(sys.executable).resolve().parent
             if getattr(sys, "frozen", False)
@@ -414,35 +429,36 @@ def _launcher_source(
         if getattr(sys, "frozen", False):
             os.chdir(bundle_root)
         seed_cache_root = bundle_root / "cache"
-        seed_cache_root.mkdir(parents=True, exist_ok=True)
         cache_root = seed_cache_root
         cache_seed_id = {cache_seed_id!r}
         if getattr(sys, "frozen", False):
+            unpack_dir = unpack_options.unpack_dir
             configured_cache_root = os.environ.get({_RUNTIME_CACHE_ROOT_ENV!r})
-            if configured_cache_root:
+            if unpack_dir:
+                unpack_root = Path(unpack_dir).expanduser()
+                if not unpack_root.is_absolute():
+                    raise RuntimeError(
+                        "--unpack-dir must be an absolute path."
+                    )
+                cache_root = unpack_root / {slug!r} / "cache"
+            elif configured_cache_root:
                 cache_root = Path(configured_cache_root).expanduser()
                 if not cache_root.is_absolute():
                     raise RuntimeError(
                         f"{_RUNTIME_CACHE_ROOT_ENV} must be an absolute path."
                     )
-            elif os.name == "nt":
-                local_app_data = os.environ.get("LOCALAPPDATA")
-                if not local_app_data:
+            else:
+                profile = os.environ.get("USERPROFILE") if os.name == "nt" else None
+                if os.name == "nt" and not profile:
                     raise RuntimeError(
-                        "LOCALAPPDATA is required unless "
-                        f"{_RUNTIME_CACHE_ROOT_ENV} is set."
+                        "USERPROFILE is required unless --unpack-dir is set."
                     )
                 cache_root = (
-                    Path(local_app_data)
-                    / "FlashDreams"
+                    Path(profile or Path.home())
+                    / "flashdreams"
+                    / "unpacked"
                     / {slug!r}
                     / "cache"
-                )
-            else:
-                cache_root = (
-                    Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-                    / "flashdreams"
-                    / {slug!r}
                 )
 
             cache_root = cache_root.resolve()
@@ -461,6 +477,8 @@ def _launcher_source(
                         "The runtime cache cannot contain, or be contained by, "
                         "the bundled cache."
                     )
+                cache_root = filesystem_path(cache_root)
+                seed_cache_root = filesystem_path(seed_cache_root)
                 marker = cache_root / {_RUNTIME_CACHE_SEED_MARKER!r}
                 if cache_seed_id is not None and (
                     not marker.is_file()
@@ -542,7 +560,7 @@ def _launcher_source(
 
         from flashdreams.runtime_v2.cli import entrypoint, split_arguments
 
-        runtime_arguments, application_arguments = split_arguments(sys.argv[1:])
+        runtime_arguments, application_arguments = split_arguments(remaining_arguments)
         application_arguments = {embedded_application_arguments!r} + application_arguments
         entrypoint([
             {slug!r},
@@ -601,9 +619,12 @@ def _bundle_readme_source(slug: str) -> str:
         The application and both runtime/application argument sets are embedded in
         the executable. Extra command-line arguments are appended to that configuration.
 
-        The packaged `cache/` is copied once to a writable per-user cache. Set
-        `{_RUNTIME_CACHE_ROOT_ENV}` to an absolute writable path to override it.
-        The packaged cache remains the offline seed.
+        The packaged `cache/` is copied into
+        `%USERPROFILE%\\flashdreams\\unpacked\\{slug}\\cache` on Windows.
+        Pass `--unpack-dir C:\\path\\to\\directory` to put it under
+        `C:\\path\\to\\directory\\{slug}\\cache` instead. The unpack
+        directory must be absolute. `{_RUNTIME_CACHE_ROOT_ENV}` still sets
+        the exact cache directory when `--unpack-dir` is absent.
 
         ## Expected processes during runtime
 
@@ -647,6 +668,11 @@ def _pyinstaller_command(
     """Prepare and return the PyInstaller command for an application package."""
     module_root = application_module.partition(".")[0]
     slangpy_shaders = _module_search_path("slangpy") / "slangpy" / "shaders"
+    imgui_fonts = (
+        _module_search_path("imgui_bundle") / "imgui_bundle" / "assets" / "fonts"
+    )
+    if not (imgui_fonts / "DroidSans.ttf").is_file():
+        raise PackageError(f"Cannot locate imgui font {imgui_fonts / 'DroidSans.ttf'}.")
     metadata_distributions = _metadata_distributions(application_module)
     local_modules = {module_root}
     local_modules.update(_local_dependency_modules(metadata_distributions))
@@ -695,6 +721,8 @@ def _pyinstaller_command(
         "slangpy",
         "--add-data",
         f"{slangpy_shaders}{os.pathsep}shaders",
+        "--add-data",
+        f"{imgui_fonts}{os.pathsep}imgui_bundle/assets/fonts",
         "--collect-submodules",
         "transformers",
         "--hidden-import",

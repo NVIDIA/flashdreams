@@ -38,8 +38,8 @@ and prepared kernels. When a onefile bundle would exceed 1,700 files, the
 packager stores the largest cache directories in `cache-extras.zip`. The
 launcher extracts that archive into the writable runtime cache on first launch;
 subsequent launches reuse it. Preload may also produce sibling `artifacts/`
-assets. Set `FLASHDREAMS_RUNTIME_CACHE_DIR` to a path outside the bundle if
-overriding the default per-user cache.
+assets. Pass `--unpack-dir` to the packaged executable to change where its
+cache is extracted.
 PyInstaller extracts the embedded runtime files to a temporary directory on
 each launch, which adds startup time.
 
@@ -110,16 +110,21 @@ so relative application paths resolve beside the executable.
 ## Runtime cache behavior
 
 The packaged `cache/` directory remains read-only. On first launch of the executable,
-the launcher copies it into a writable per-user cache:
+the launcher copies it into a writable runtime cache:
 
-- Windows: `%LOCALAPPDATA%\FlashDreams\<application-slug>\cache`
-- Linux: `$XDG_CACHE_HOME/flashdreams/<application-slug>`, or
-  `~/.cache/flashdreams/<application-slug>` when `XDG_CACHE_HOME` is unset
+- Windows: `%USERPROFILE%\flashdreams\unpacked\<application-slug>\cache`
+- Linux: `~/flashdreams/unpacked/<application-slug>/cache`
 
-Set `FLASHDREAMS_RUNTIME_CACHE_DIR` if a custom cache location is desired.
+Pass `--unpack-dir PATH` to the packaged executable to use
+`PATH/<application-slug>/cache` instead. `PATH` must be absolute. For example,
+`interactive-drive-omnidreams-fast-perf.exe --unpack-dir D:\FlashDreamsData`.
+`FLASHDREAMS_RUNTIME_CACHE_DIR` remains available to set the exact cache
+directory; the command-line option takes precedence. PyInstaller's onefile
+runtime files still extract to the OS temp directory on every launch, before
+the application can process `--unpack-dir`. On Windows, cache paths use the
+extended-length path prefix so deep Hugging Face snapshots can be copied.
 
 Keep the executable with its sibling `cache/`, any `cache-extras.zip`, and any
-`artifacts/` assets. Set `FLASHDREAMS_RUNTIME_CACHE_DIR` to move the writable
-cache.
+`artifacts/` assets. Pass `--unpack-dir` to move the writable cache.
 
 Destination machine still needs a compatible NVIDIA driver to run the packaged application.
