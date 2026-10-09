@@ -10,15 +10,18 @@ The primary FlashDreams source is licensed under the Apache License,
 Version 2.0 — see LICENSE at the repository root. Per-file SPDX
 identifiers and the REUSE 3.3 manifest at REUSE.toml are the
 machine-readable counterparts of the information below. Full license
-texts for every SPDX identifier referenced in this file are reproduced
-verbatim under LICENSES/.
+texts for the OSS source redistributions listed below are reproduced
+under LICENSES/; runtime dependency license texts remain available
+from the upstream URLs listed below. A package/project license does not
+by itself enumerate the terms of its bundled native libraries or tools.
 
 Most dependencies are consumed unmodified at runtime through Python's
 import system (i.e. dynamic linking via the interpreter); their source
-is not redistributed in this repository. The licenses named below are
-SPDX identifiers; the full text of each license is available from the
-upstream project's URL. Source-level redistributions (third-party source
-code physically present in this repository) are disclosed in the
+is not redistributed in this repository. Licenses are identified by SPDX
+identifier where available, or by their upstream agreement name. Model
+weights and example assets downloaded separately retain their own terms;
+FlashDreams's Apache-2.0 license does not replace those terms. Source-level
+redistributions (third-party source code physically present in this repository) are disclosed in the
 "Source-level redistributions" section at the end of this file.
 
 ================================================================================
@@ -28,6 +31,7 @@ Direct runtime dependencies
 boto3                  Apache-2.0   https://github.com/boto/boto3
 botocore               Apache-2.0   https://github.com/boto/botocore
 einops                 MIT          https://github.com/arogozhnikov/einops
+filelock               MIT          https://github.com/tox-dev/filelock
 ftfy                   Apache-2.0   https://github.com/rspeer/python-ftfy
 huggingface-hub        Apache-2.0   https://github.com/huggingface/huggingface_hub
 imgui-bundle           MIT          https://github.com/pthom/imgui_bundle
@@ -35,14 +39,16 @@ loguru                 MIT          https://github.com/Delgan/loguru
 numpy                  BSD-3-Clause https://github.com/numpy/numpy
 nvidia-ml-py           BSD-3-Clause https://pypi.org/project/nvidia-ml-py/
 psutil                 BSD-3-Clause https://github.com/giampaolo/psutil
+pyyaml                 MIT          https://github.com/yaml/pyyaml
 safetensors            Apache-2.0   https://github.com/huggingface/safetensors
 slangpy                Apache-2.0   https://github.com/shader-slang/slangpy
 torch                  BSD-3-Clause https://pytorch.org
 torchvision            BSD-3-Clause https://github.com/pytorch/vision
-tqdm                   MIT, MPL-2.0 https://github.com/tqdm/tqdm
+tqdm                   MIT AND MPL-2.0  https://github.com/tqdm/tqdm
 transformers           Apache-2.0   https://github.com/huggingface/transformers
 transformer-engine     Apache-2.0   https://github.com/NVIDIA/TransformerEngine
 triton-windows         MIT          https://github.com/woct0rdho/triton-windows
+tyro                   MIT          https://github.com/brentyi/tyro
 urllib3                MIT          https://github.com/urllib3/urllib3
 
 ================================================================================
@@ -55,9 +61,26 @@ Wan 2.1 / Wan 2.2      Apache-2.0   https://github.com/Wan-Video/Wan2.1
     and are not redistributed in this repository.
 
 ================================================================================
+Optional application: apps/crazy_robotaxi
+================================================================================
+
+ruamel-yaml            MIT          https://sourceforge.net/projects/ruamel-yaml
+
+================================================================================
+Optional applications: apps/interactive_drive and apps/omnidreams_game_engine
+================================================================================
+
+Pillow                 MIT-CMU      https://github.com/python-pillow/Pillow
+pyarrow                Apache-2.0   https://github.com/apache/arrow
+
+================================================================================
 Optional application: apps/v2v
 ================================================================================
 
+imageio-ffmpeg         BSD-2-Clause https://github.com/imageio/imageio-ffmpeg
+    BSD-2-Clause covers the Python wrapper. Bundled FFmpeg executables
+    carry additional FFmpeg and codec terms, including GPL-enabled builds;
+    preserve the licenses of the actual installed or redistributed artifact.
 Big Buck Bunny         CC-BY-3.0    https://peach.blender.org/about/
     (c) copyright 2008, Blender Foundation / www.bigbuckbunny.org
 
@@ -71,7 +94,33 @@ Big Buck Bunny         CC-BY-3.0    https://peach.blender.org/about/
 Optional integration: integrations_v2/flashvsr
 ================================================================================
 
+FlashVSR              Apache-2.0   https://github.com/OpenImagingLab/FlashVSR
+    The integration uses the OpenImagingLab implementation and downloads
+    JunhaoZhuang/FlashVSR-v1.1 checkpoints and a prompt tensor separately.
+    The checkpoint model card declares Apache-2.0:
+    https://huggingface.co/JunhaoZhuang/FlashVSR-v1.1/blob/27561b186ded3402d7c975f4fd722e2885b6135f/README.md
+    Source attribution and the parity-test source pin are recorded below.
+
 ninja                  Apache-2.0   https://github.com/ninja-build/ninja
+    The Python distribution wrapper and bundled Ninja executable can carry
+    separate Apache/BSD terms; retain the selected artifact's licenses.
+
+================================================================================
+Optional integration: integrations_v2/hy_worldplay
+================================================================================
+
+HY-WorldPlay          Tencent HY-WorldPlay Community License Agreement
+    https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/License.txt
+    The WAN-5B distilled checkpoint is downloaded separately. Its model
+    card identifies the custom agreement, including territory restrictions,
+    additional commercial terms and use/distribution conditions:
+    https://huggingface.co/tencent/HY-WorldPlay/blob/f4c29235647707b571479a69b569e4166f9f5bf8/README.md
+    Adapted pose and memory source is included in this repository under
+    the Tencent agreements described in Source-level redistributions below.
+    The PRoPE helpers retain their separate MIT grant.
+
+diffusers              Apache-2.0   https://github.com/huggingface/diffusers
+scipy                  BSD-3-Clause https://github.com/scipy/scipy
 
 ================================================================================
 Optional integration: integrations_v2/omnidreams
@@ -83,18 +132,21 @@ opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
 grpcio, grpcio-tools   Apache-2.0   https://github.com/grpc/grpc
 shapely                BSD-3-Clause https://github.com/shapely/shapely
 ludus-renderer         Apache-2.0   (NVIDIA, internal distribution)
-cmake                  BSD-3-Clause https://github.com/Kitware/CMake
+cmake                  Apache-2.0   https://github.com/scikit-build/cmake-python-distributions
+    Python distribution wrapper; bundled CMake uses BSD-3-Clause:
+    https://github.com/Kitware/CMake
+imageio                BSD-2-Clause https://github.com/imageio/imageio
+nvidia-cudnn-cu13      LicenseRef-NvidiaProprietary
+                                    https://developer.nvidia.com/cudnn
+nvidia-nvcomp-cu12     LicenseRef-NvidiaProprietary
+                                    https://github.com/NVIDIA/nvcomp
+pandas                 BSD-3-Clause https://github.com/pandas-dev/pandas
+PyNvVideoCodec         MIT          https://developer.nvidia.com/pynvvideocodec
+setuptools             MIT          https://github.com/pypa/setuptools
 NVIDIA PhysX 5.9.0     BSD-3-Clause https://github.com/NVIDIA-Omniverse/PhysX
     ``ludus-renderer`` downloads the pinned PhysX source archive at first use,
     verifies its SHA-256, and builds it into a platform-local cache. The source
     and resulting native module are not redistributed in this repository.
-
-Files in
-    integrations_v2/omnidreams/impl/conditioning/world_scenario/
-    (camera_base.py, ftheta.py, pinhole.py)
-were originally authored as part of the NVIDIA Cosmos-Drive-Dreams project
-(https://github.com/nv-tlabs/Cosmos-Drive-Dreams) and are redistributed and
-modified under the same Apache-2.0 license.
 
 NVIDIA OmniDreams single-view native builds use script-managed, pinned source
 downloads under integrations_v2/omnidreams/impl/omnidreams_singleview/3rdparty/.
@@ -136,10 +188,30 @@ this repository.
 Optional integration: integrations_v2/lingbot
 ================================================================================
 
-aiohttp                Apache-2.0   https://github.com/aio-libs/aiohttp
+LingBot-World v1      Apache-2.0   https://github.com/Robbyant/lingbot-world
+    The v1 fast checkpoint model card also declares Apache-2.0:
+    https://huggingface.co/robbyant/lingbot-world-fast/blob/b7a1db2da9bd3ba675ee01c228f41db0309b981e/README.md
+LingBot-World v2      CC-BY-NC-SA-4.0
+    https://github.com/Robbyant/lingbot-world-v2/blob/1895d300d8ac936401689b26389f51cbd36530eb/LICENSE.txt
+    The v2 14B and 1.3B causal-fast checkpoints declare the same terms:
+    https://huggingface.co/robbyant/lingbot-world-v2-14b-causal-fast/blob/5c33dd40b213598c418fd25bff30fdbd23fd38a7/README.md
+    https://huggingface.co/robbyant/lingbot-world-v2-1.3b-causal-fast/blob/7e36a5f919f86cb4255cc9bfc30adb44963fbde1/README.md
+    Checkpoints are downloaded separately. The example-data path also
+    downloads from the v2 repository, including when using v1 presets;
+    its applicable provenance/grant must be checked separately. The v2
+    public terms require noncommercial use, attribution and share-alike
+    for shared adaptations. They do not establish commercial-use rights.
+
+aiohttp                Apache-2.0 AND MIT  https://github.com/aio-libs/aiohttp
 aiortc                 BSD-3-Clause https://github.com/aiortc/aiortc
 multidict              Apache-2.0   https://github.com/aio-libs/multidict
 opencv-python-headless Apache-2.0   https://github.com/opencv/opencv-python
+
+================================================================================
+Optional integration: integrations_v2/sana_wm
+================================================================================
+
+sentencepiece          Apache-2.0   https://github.com/google/sentencepiece
 
 ================================================================================
 Source-level redistributions
@@ -154,18 +226,25 @@ HPG-2011 NVIDIA CUDA Rasterizer port
 --------------------------------------------------------------------------------
 
 Path:    integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/
-License: BSD-3-Clause (see LICENSES/BSD-3-Clause.txt)
+License: BSD-3-Clause (see LICENSES/BSD-3-Clause.txt), with the
+         file-specific exceptions listed below.
          Copyright (c) 2009-2026, NVIDIA Corporation. All rights reserved.
 
 The cudaraster subtree is a port of NVIDIA Research's HPG-2011 CUDA
 Rasterizer (Laine & Karras). It is NVIDIA-authored and is redistributed
 under the 3-clause BSD license carried in
-ludus_renderer/_cpp/cudaraster/LICENSE. The tile-level rasterization
+integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/LICENSE,
+with the following file-specific terms:
+  CudaRasterKernels.cu: Apache-2.0 (local integration code).
+  cudaraster_fw_stub.cpp: Apache-2.0 AND BSD-3-Clause (Apache port additions
+  and retained BSD framework portions). Original BSD notices are preserved.
+
+The tile-level rasterization
 pipeline (triangle setup, bin / coarse / fine raster) is upstream code;
 the host wrapper, viewport / multi-image plumbing, and deterministic
 tiebreaker are local modifications. See
-ludus_renderer/_cpp/cudaraster/PORT_NOTES.md for the full list of
-deviations.
+integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/PORT_NOTES.md
+for the full list of deviations.
 
 --------------------------------------------------------------------------------
 LodePNG
@@ -178,9 +257,115 @@ License:  Zlib (see LICENSES/Zlib.txt)
 Upstream: https://lodev.org/lodepng/
 
 LodePNG is a PNG codec implementation embedded by the upstream
-cudaraster framework. It is the only non-NVIDIA source physically
-redistributed in this repository. The inline notice in lodepng.h
+cudaraster framework. The inline notice in lodepng.h
 preserves the upstream copyright notice as required by the Zlib
 license; LICENSES/Zlib.txt reproduces the license text in full.
+
+--------------------------------------------------------------------------------
+Cosmos-Drive-Dreams camera helpers
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/omnidreams/impl/conditioning/world_scenario/
+          camera_base.py, ftheta.py, pinhole.py
+License:  Apache-2.0 (see LICENSES/Apache-2.0.txt)
+          Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+          Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Upstream: https://github.com/nv-tlabs/Cosmos-Drive-Dreams
+
+Modified for FlashDreams; the per-file modification and copyright notices
+are retained. The reviewed upstream comparison is revision
+915f79f2e34b5420c654ca9851e466c823409459, under
+cosmos-drive-dreams-toolkits/utils/camera/ (base.py, ftheta.py, pinhole.py).
+This comparison pin is not asserted to be the original-copy revision.
+
+--------------------------------------------------------------------------------
+SwiftVR adapted source
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/swiftvr/impl/
+          attention.py, pipeline.py, encoder/__init__.py,
+          decoder/__init__.py, decoder/network.py,
+          transformer/__init__.py, transformer/network.py
+License:  Apache-2.0 (see LICENSES/Apache-2.0.txt)
+          Copyright (c) 2026 SwiftVR Authors.
+          Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Upstream: https://github.com/H-oliday/SwiftVR/tree/5ca168cef6ca7200f135fdfea85e5e13d12c5b53
+
+These seven files adapt SwiftVR's encoder, transformer, decoder and streaming
+pipeline to FlashDreams. Their upstream copyrights, Apache license identifiers
+and NVIDIA modification notices remain in the files. Model weights are
+obtained separately and are not included by this source attribution.
+
+--------------------------------------------------------------------------------
+LingBot-World v1 camera helpers
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/lingbot/impl/encoder/utils.py
+License:  Apache-2.0 (see LICENSES/Apache-2.0.txt)
+Upstream: https://github.com/Robbyant/lingbot-world/blob/a43bec7f8091c83e9b30b16b912f6fc906236fa6/wan/utils/cam_utils.py
+
+Camera interpolation, SE(3), intrinsic and Plücker-ray helpers are adapted
+for FlashDreams. This is a reviewed comparison revision, not an assertion
+of the original-copy revision. The v2 model terms above do not replace
+this v1 source grant.
+
+--------------------------------------------------------------------------------
+FlashVSR decoder helpers
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/flashvsr/impl/decoder/network.py
+License:  Apache-2.0 (see LICENSES/Apache-2.0.txt)
+Upstream: https://github.com/OpenImagingLab/FlashVSR/blob/b527c6f285fb30df530f5febc8b45764a789c961/examples/WanVSR/utils/TCDecoder.py
+
+The decoder adapts TCDecoder helpers, including IdentityConv2d and decoder
+deepening. The comparison revision above is the upstream pin used by
+integrations_v2/flashvsr/tests/parity_check/run.sh. FlashDreams modifies
+these helpers for its decoder/cache interfaces.
+
+--------------------------------------------------------------------------------
+HY-WorldPlay pose and memory helpers
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/hy_worldplay/impl/{_pose.py,_memory.py}
+License:  Apache-2.0 NVIDIA modifications; Tencent upstream portions:
+          LicenseRef-Tencent-HunyuanVideo-1.5-Community AND
+          LicenseRef-Tencent-HY-WorldPlay-Community
+          Copyright (c) 2025 Tencent. All Rights Reserved.
+          Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Upstream: https://github.com/Tencent-Hunyuan/HY-WorldPlay/tree/1588e1336e842b03b0a7860c654ebd7c46bb065e
+
+_pose.py adapts pose parsing/action labels from hyvideo/generate.py and
+camera trajectories from hyvideo/generate_custom_trajectory.py.
+_memory.py adapts FOV helpers from hyvideo/utils/retrieval_context.py and
+memory selection from wan/models/utils.py. NVIDIA modified these routines
+for FlashDreams interfaces, types and device handling. The revision above
+is a source-comparison pin.
+
+The generate.py and retrieval_context.py notices specify the Tencent
+HunyuanVideo-1.5 Community License Agreement. The trajectory and memory
+selection sources use the repository's Tencent HY-WorldPlay Community
+License Agreement. The complete agreements, including acceptable-use
+policies, are in:
+  LICENSES/LicenseRef-Tencent-HunyuanVideo-1.5-Community.txt
+  LICENSES/LicenseRef-Tencent-HY-WorldPlay-Community.txt
+They exclude the EU, UK and South Korea and impose use/distribution and
+additional commercial conditions. Apache-2.0 applies to NVIDIA's
+modifications and does not replace those terms. Required Tencent notices
+are retained in NOTICE and integrations_v2/hy_worldplay/NOTICE. The
+independently packaged integration bundles the root terms in _licenses.txt.
+
+--------------------------------------------------------------------------------
+PRoPE projective positional-encoding helpers
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/hy_worldplay/impl/_prope.py
+License:  MIT upstream portions; Apache-2.0 NVIDIA modifications
+          (see LICENSES/MIT.txt and LICENSES/Apache-2.0.txt).
+          Copyright (c) Authors of "PRoPE: Projective Positional Encoding for Multiview Transformers"
+Upstream: https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/hyvideo/prope/camera_rope.py
+
+Modified for FlashDreams Q/K/V and cached attention interfaces. The full
+upstream MIT notice is retained in the file. The comparison revision is
+not asserted to be the original-copy revision.
 
 ================================================================================

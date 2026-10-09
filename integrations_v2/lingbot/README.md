@@ -18,6 +18,16 @@ Its public model variants are `StreamInferencePipelineConfig` literals in
 - `PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_PERF`
 - `PIPELINE_LINGBOT_WORLD_V2_1P3B_CAUSAL_FAST_PERF_TAEHV`
 
+## Model licenses
+
+The v1 fast checkpoint is Apache-2.0. The v2 14B and 1.3B causal-fast
+checkpoints use [CC BY-NC-SA 4.0](https://github.com/Robbyant/lingbot-world-v2/blob/1895d300d8ac936401689b26389f51cbd36530eb/LICENSE.txt),
+with noncommercial and share-alike conditions. Checkpoints download separately;
+FlashDreams's Apache license does not grant commercial rights to v2 models.
+`--example-data` selects the v2 example repository even with v1 presets;
+check the selected assets' applicable terms. See
+[THIRD-PARTY-NOTICES](../../THIRD-PARTY-NOTICES) for provenance and model cards.
+
 ## Install
 
 ```bash

@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2025 Tencent. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0 AND LicenseRef-Tencent-HunyuanVideo-1.5-Community AND LicenseRef-Tencent-HY-WorldPlay-Community
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
+# NVIDIA modifications are licensed under the Apache License, Version 2.0 (the "License");
+# Use of those modifications is subject to that License.
 # You may obtain a copy of the License at
 #
 # http://www.apache.org/licenses/LICENSE-2.0
@@ -12,6 +13,34 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Modified by NVIDIA for FlashDreams: pose parsing, camera trajectories and
+# action conditioning. Upstream portions retain their Tencent terms:
+# - Pose parsing/action labels: hyvideo/generate.py, under the Tencent
+#   HunyuanVideo-1.5 Community License Agreement.
+# - Camera trajectories: hyvideo/generate_custom_trajectory.py, under the
+#   Tencent HY-WorldPlay Community License Agreement.
+# Upstream: https://github.com/Tencent-Hunyuan/HY-WorldPlay
+# Source comparison: 1588e1336e842b03b0a7860c654ebd7c46bb065e.
+# Full Tencent terms: repository-root LICENSES/; packaged as _licenses.txt
+# alongside NOTICE under .dist-info/licenses/ in wheels.
+#
+# Original upstream notice for the HunyuanVideo-1.5 portions:
+# Licensed under the TENCENT HUNYUAN COMMUNITY LICENSE AGREEMENT (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5/blob/main/LICENSE
+#
+# Unless and only to the extent required by applicable law, the Tencent Hunyuan works and any
+# output and results therefrom are provided "AS IS" without any express or implied warranties of
+# any kind including any warranties of title, merchantability, noninfringement, course of dealing,
+# usage of trade, or fitness for a particular purpose. You are solely responsible for determining the
+# appropriateness of using, reproducing, modifying, performing, displaying or distributing any of
+# the Tencent Hunyuan works or outputs and assume any and all risks associated with your or a
+# third party's use or distribution of any of the Tencent Hunyuan works or outputs and your exercise
+# of rights and permissions under this agreement.
+# See the License for the specific language governing permissions and limitations under the License.
 
 """Pose-string parser for the HY-WorldPlay action / camera conditioner.
 

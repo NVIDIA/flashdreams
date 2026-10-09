@@ -14,7 +14,7 @@
 # limitations under the License.
 
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=83.0.0,<84", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -22,18 +22,11 @@ name = "flashdreams-hy-worldplay"
 version = "0.1.0"
 description = "HY-WorldPlay Cam2V integration for FlashDreams v2."
 readme = "README.md"
+license = "Apache-2.0 AND MIT AND LicenseRef-Tencent-HunyuanVideo-1.5-Community AND LicenseRef-Tencent-HY-WorldPlay-Community"
+license-files = ["_licenses.txt", "NOTICE"]
 requires-python = ">=3.10"
-# The upstream HY-WorldPlay model code (``hyvideo/`` and ``wan/``) lives in
-# https://github.com/Tencent-Hunyuan/HY-WorldPlay and is *not* on PyPI.
-# The recipe wrapper here only provides the FlashDreams-side model and app;
-# the upstream tree is provisioned separately and,
-# for in-tree slugs, must be installed separately into the venv:
-#
-#     uv pip install --no-build-isolation -e <path-to-HY-WorldPlay>
-#
-# We therefore deliberately do NOT list HY-WorldPlay as a dependency here
-# (its ``requirements.txt`` pulls heavyweight, version-pinned scientific
-# stacks that would conflict with flashdreams' resolved env).
+# This package includes the adapted source in impl/; license-files carries
+# its upstream terms and notices. Model checkpoints are downloaded separately.
 dependencies = [
     "flashdreams",
     "flashdreams-cam2v",

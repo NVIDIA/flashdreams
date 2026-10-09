@@ -143,3 +143,6 @@ _output/
 _vk_compare/
 
 imgui.ini
+
+# Generated from the canonical root LICENSES during integration builds.
+/integrations_v2/hy_worldplay/_licenses.txt
