@@ -282,12 +282,14 @@ class ILoop(ABC, Generic[StateT]):
                 raise TypeError("Message operations must return None.")
 
     def _pace(self, last_run_started: float | None) -> float:
-        if self.frequency == 0 or last_run_started is None:
-            return time.monotonic()
-        earliest_start = last_run_started + 1.0 / self.frequency
+        # Recorded every step, so a short pace reads as no wait rather than
+        # a missing range.
         with self.profiler.range("model.pace"):
+            if self.frequency == 0 or last_run_started is None:
+                return time.monotonic()
+            earliest_start = last_run_started + 1.0 / self.frequency
             self._shutdown_event.wait(max(0.0, earliest_start - time.monotonic()))
-        return time.monotonic()
+            return time.monotonic()
 
     def _empty_message_queue(self) -> None:
         while True:

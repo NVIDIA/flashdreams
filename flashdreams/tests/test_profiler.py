@@ -52,6 +52,7 @@ from flashdreams.infra.profiler import (
 )
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
+from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -904,6 +905,87 @@ def test_a_one_step_session_writes_its_last_latency_and_frame_rate(
         if sample["step_index"] is None
     }
     assert {"input.latency_s", "present.frame_fps"} <= end
+
+
+def test_the_presenter_reports_to_the_profiler_it_was_configured_with() -> None:
+    """A profiler bound elsewhere, such as by an application, must not take over
+    the system's presentation events."""
+    manager = PresentationManager(device=torch.device("cpu"))
+    configured, stray = _CallCounter(), _CallCounter()
+    manager.configure(
+        backpressure_mode=BackpressureMode.BLOCK,
+        stop=threading.Event(),
+        put_timeout=0.01,
+        profiler=configured,
+    )
+    manager.publish(
+        0,
+        [
+            StepResult(
+                step_index=0,
+                output=torch.zeros((1, 3, 1, 1, 1)),
+                frame_count=1,
+                output_layout=VideoTensorLayout.bcthw,
+            )
+        ],
+    )
+
+    with set_flashdreams_inference_profiler(stray):
+        assert manager.advance(0, now=1.0)[0]
+
+    assert configured.calls == {"step_presented": 1}
+    assert stray.calls == {}
+
+
+def test_the_model_loop_records_its_pace_every_step() -> None:
+    """With no rate to hold the pace takes no time, but the range is still there,
+    so its absence never has to be explained."""
+    recording = _RecordingProfiler()
+    loop = _BufferingLoop(recording, {1, 2, 3})
+
+    loop.run(steps=3)
+
+    assert recording.events.count("enter:model.pace") == 3
+
+
+def test_the_application_runner_resets_the_profiler_it_created(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An application that binds its own profiler while creating a session must
+    not receive the runner's per-session reset."""
+    red_screen = pytest.importorskip("red_screen")
+    from flashdreams.runtime_v2 import application_runner
+
+    created, stray = _CallCounter(), _CallCounter()
+    monkeypatch.setattr(application_runner, "create_profiler", lambda: created)
+    app = red_screen.create_app()
+    create_session = app.create_session
+
+    tokens = []
+
+    def create_session_and_bind_another(desc: SessionDesc) -> object:
+        tokens.append(bind_inference_profiler(stray))  # left bound by the app
+        return create_session(desc)
+
+    monkeypatch.setattr(app, "create_session", create_session_and_bind_another)
+    try:
+        application_runner.ApplicationRunner(app, _KeyWindow()).run(
+            SessionDesc(
+                output_layout=VideoTensorLayout.bcthw,
+                presentation_mode=PresentationMode.ON_DEMAND,
+                frames_per_second_for_ui=60,
+                frames_per_second_for_step=30,
+                video_width=2,
+                video_height=2,
+            ),
+            steps=1,
+        )
+    finally:
+        for token in reversed(tokens):  # keep it out of later tests
+            unbind_inference_profiler(token)
+
+    assert created.calls.get("reset_counts", 0) >= 1
+    assert "reset_counts" not in stray.calls
 
 
 class _BufferingLoop(IModelLoop[None]):

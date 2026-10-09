@@ -15,7 +15,6 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.infra.profiler import (
     create_profiler,
-    get_inference_profiler,
     set_flashdreams_inference_profiler,
 )
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
@@ -143,9 +142,10 @@ class ApplicationRunner:
             if self._application_flags.skip_preload_validation:
                 return
             # Every session this application creates profiles the same way.
+            profiler = create_profiler()
             with (
                 preparation_guard,
-                set_flashdreams_inference_profiler(create_profiler()),
+                set_flashdreams_inference_profiler(profiler),
             ):
                 next_session_desc: SessionDesc | None = session_desc
                 while next_session_desc is not None:
@@ -158,9 +158,12 @@ class ApplicationRunner:
                     ):
                         break
                     session = self._application.create_session(next_session_desc)
+                    # The session runs with the system profiler unless it set
+                    # its own, whatever else the application left bound.
+                    session.__dict__.setdefault("_profiler", profiler)
                     parallel = session.parallel_context
                     # Rates describe one session, not the run's whole sequence.
-                    get_inference_profiler().reset_counts()
+                    profiler.reset_counts()
                     session_run_started = True
                     remaining_seconds = (
                         None

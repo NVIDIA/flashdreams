@@ -58,8 +58,9 @@ class ISession(ABC):
     def _profiler(self) -> IProfiler:
         """Return the profiler this session's loops run with.
 
-        Taken from the application, which sets it before creating sessions.
-        Assign before :meth:`init` to run with a different one.
+        The application runner gives it the system profiler; outside one it is
+        taken from the context. Assign before :meth:`init` to run with a
+        different one.
         """
         return get_inference_profiler()
 
