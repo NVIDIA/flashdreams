@@ -86,8 +86,9 @@ fix the underlying file.
 
 Every first-party source file starts with a concise two-line SPDX header.
 The `reuse-lint` "Inline SPDX headers on first-party source files" step
-requires non-empty `SPDX-FileCopyrightText` and `SPDX-License-Identifier`
-tags in the first 20 lines.
+checks for `SPDX-License-Identifier` in the first 20 lines. It does not
+check `SPDX-FileCopyrightText` or require a non-empty tag value; the
+separate REUSE job validates repository-wide copyright and license coverage.
 
 **Python / shell / TOML / YAML** (`#` line comments):
 
