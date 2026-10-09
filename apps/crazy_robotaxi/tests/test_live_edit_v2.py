@@ -293,6 +293,59 @@ def test_pixel_live_edit_keeps_native_dit_compatible(config: LiveEditConfig) -> 
     assert not config.requires_python_dit
 
 
+@pytest.mark.parametrize("corrector_mode", ["fused", "unfused"])
+def test_drift_corrector_rejects_layerwise_offload(corrector_mode: str) -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(
+            enabled=True,
+            corrector_checkpoint=Path("corrector.pt"),
+            corrector_mode=corrector_mode,
+        )
+    )
+    pipeline = SimpleNamespace(
+        diffusion_model=SimpleNamespace(
+            transformer=SimpleNamespace(
+                config=SimpleNamespace(enable_layerwise_offload=True)
+            )
+        )
+    )
+
+    with pytest.raises(
+        RuntimeError, match="drift correction is not compatible with layer-wise"
+    ):
+        ability.attach_v2(
+            pipeline,
+            object(),
+            "base prompt",
+            seconds_per_chunk=8.0 / 30.0,
+        )
+
+
+def test_text_edit_lora_rejects_layerwise_offload_before_construction() -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(
+            enabled=True,
+            lora_checkpoint=Path("edit-lora.pt"),
+            corrector_mode="off",
+        )
+    )
+    pipeline = SimpleNamespace(
+        diffusion_model=SimpleNamespace(
+            transformer=SimpleNamespace(
+                config=SimpleNamespace(enable_layerwise_offload=True)
+            )
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="text-edit LoRA is not compatible"):
+        ability.attach_v2(
+            pipeline,
+            object(),
+            "base prompt",
+            seconds_per_chunk=8.0 / 30.0,
+        )
+
+
 def test_nitro_boosts_and_expires_on_game_time() -> None:
     config = LiveEditItemsConfig(
         enabled=True,
