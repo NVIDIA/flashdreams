@@ -102,7 +102,8 @@ class RecordingUI:
 
 
 @pytest.mark.parametrize("count", range(1, 12))
-def test_grid_keeps_camera_and_lidar_identity_focus_and_aspect(count):
+@pytest.mark.parametrize("selection", [{}, {"visible_count": 1}])
+def test_grid_keeps_camera_and_lidar_identity_focus_and_aspect(count, selection):
     cameras = tuple(
         CameraView(str(i), f"Camera {i}", caption=f"Caption {i}") for i in range(count)
     )
@@ -112,8 +113,8 @@ def test_grid_keeps_camera_and_lidar_identity_focus_and_aspect(count):
         prompt="",
         scene_options=(),
         cameras=cameras,
-        visible_count=count,
         auxiliary_views=(AuxiliaryView("lidar", "LiDAR", "Generated"),),
+        **selection,
     )
     loop = MultiviewUILoop(renderer=Mock())
     loop.state = state
@@ -123,7 +124,9 @@ def test_grid_keeps_camera_and_lidar_identity_focus_and_aspect(count):
     ui = RecordingUI()
     loop.step_ui(ui, 0, UserInputEvents([]))
     assert ui.panels == 0
-    assert len(ui.images) == count + 1
+    shown = selection.get("visible_count", count)
+    assert state.visible_count == shown
+    assert list(ui.images) == [f"stream-{i}" for i in (*range(shown), count)]
     rects = [r for name, r in ui.rectangles.items() if name.startswith("Stream##")]
     for i, a in enumerate(rects):
         for b in rects[i + 1 :]:
@@ -133,19 +136,55 @@ def test_grid_keeps_camera_and_lidar_identity_focus_and_aspect(count):
                 or a[1] + a[3] <= b[1]
                 or b[1] + b[3] <= a[1]
             )
-    for i, view in enumerate((*cameras, *state.auxiliary_views)):
-        assert torch.equal(ui.images[f"stream-{view.name}"], frames[i].permute(1, 2, 0))
-        w, h = ui.image_sizes[f"stream-{view.name}"]
+    for i in (*range(shown), count):
+        assert torch.equal(ui.images[f"stream-{i}"], frames[i].permute(1, 2, 0))
+        w, h = ui.image_sizes[f"stream-{i}"]
         assert w / h == pytest.approx(32 / 18)
     state.visible_count = 1
     reduced = RecordingUI()
     loop.step_ui(reduced, 1, UserInputEvents([]))
-    assert list(reduced.images) == ["stream-0", "stream-lidar"]
-    assert torch.equal(reduced.images["stream-lidar"], frames[count].permute(1, 2, 0))
+    assert list(reduced.images) == ["stream-0", f"stream-{count}"]
+    assert torch.equal(
+        reduced.images[f"stream-{count}"], frames[count].permute(1, 2, 0)
+    )
     state.focus_channel = count
     ui = RecordingUI()
     loop.step_ui(ui, 1, UserInputEvents([]))
-    assert list(ui.images) == ["stream-lidar"]
+    assert list(ui.images) == [f"stream-{count}"]
     ui.clicked.add("Return to grid")
     loop.step_ui(ui, 2, UserInputEvents([]))
     assert state.focus_channel == -1
+
+
+@pytest.mark.parametrize("names", [("front",), ("lidar", "lidar")])
+def test_duplicate_sensor_names_keep_distinct_panels_and_textures(names):
+    state = MultiviewUIState(
+        model_loop=Mock(),
+        title="Sensors",
+        prompt="",
+        scene_options=(),
+        cameras=(CameraView("front", "Front camera"),),
+        auxiliary_views=tuple(AuxiliaryView(name, name) for name in names),
+        visible_count=1,
+    )
+    loop = MultiviewUILoop(renderer=Mock())
+    loop.state = state
+    loop.get_ui_loop_size = lambda: (1920, 1080)
+    frames = [
+        torch.full((3, 18, 32), i, dtype=torch.uint8) for i in range(1 + len(names))
+    ]
+    loop.presented_model_frame = lambda i: frames[i]
+    ui = RecordingUI()
+    loop.step_ui(ui, 0, UserInputEvents([]))
+    assert ui.panels == 0
+    assert len([name for name in ui.rectangles if name.startswith("Stream##")]) == len(
+        frames
+    )
+    assert len(ui.images) == len(frames)
+    for channel, frame in enumerate(frames):
+        assert torch.equal(ui.images[f"stream-{channel}"], frame.permute(1, 2, 0))
+        state.focus_channel = channel
+        focused = RecordingUI()
+        loop.step_ui(focused, 1, UserInputEvents([]))
+        assert list(focused.images) == [f"stream-{channel}"]
+        assert torch.equal(focused.images[f"stream-{channel}"], frame.permute(1, 2, 0))

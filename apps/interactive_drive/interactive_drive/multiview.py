@@ -49,14 +49,18 @@ class MultiviewUIState(InteractiveDriveUIState):
 
     cameras: tuple[CameraView, ...] = ()
     """Camera metadata in model-channel order."""
-    visible_count: int = 7
-    """Number of cameras shown in grid mode."""
+    visible_count: int = 0
+    """Number of cameras shown in grid mode; zero initializes to the full rig."""
     focus_channel: int = -1
     """Single channel to enlarge, or -1 for the grid layout."""
     auxiliary_views: tuple[AuxiliaryView, ...] = ()
     """Additional synchronized streams, shown in the same grid or individually focused."""
     preview: bool = False
     """Identify synthetic output explicitly in the HUD."""
+
+    def __post_init__(self) -> None:
+        if self.visible_count == 0:
+            self.visible_count = len(self.cameras)
 
 
 def visible_channels(cameras: tuple[CameraView, ...], count: int) -> tuple[int, ...]:
@@ -149,7 +153,7 @@ class MultiviewUILoop(InteractiveDriveUILoop):
             view = metadata[channel]
             row, column = divmod(cell, layout.columns)
             w, h = area_width / layout.columns, height / layout.rows
-            self._panel(imgui, f"Stream##{view.name}", column * w, row * h, w, h, flags)
+            self._panel(imgui, f"Stream##{channel}", column * w, row * h, w, h, flags)
             try:
                 imgui.text(view.label)
                 if imgui.is_item_hovered():
@@ -158,7 +162,7 @@ class MultiviewUILoop(InteractiveDriveUILoop):
                 self._draw_stream(
                     imgui,
                     channel,
-                    f"stream-{view.name}",
+                    f"stream-{channel}",
                     "Waiting for sensor stream...",
                     reserve_caption=caption,
                 )
