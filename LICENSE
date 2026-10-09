@@ -30,11 +30,10 @@ and each file's license notice:
 Nested license files, relative to this repository root:
   integrations_v2/omnidreams/impl/ludus-renderer/LICENSE
   integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/LICENSE
-  integrations_v2/hy_worldplay/LICENSES/
   integrations_v2/hy_worldplay/NOTICE
 The renderer retains its own Apache license file because it is packaged
 independently. Its bundled-source exceptions remain separately licensed.
-HY-WorldPlay also retains license/notice copies for its separate package.
+HY-WorldPlay builds bundle the applicable root license texts with its NOTICE.
 
 Per-file SPDX identifiers and REUSE.toml describe source licensing.
 LICENSES/ contains Apache-2.0, BSD-3-Clause, MIT, Zlib and the two Tencent

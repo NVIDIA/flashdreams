@@ -23,7 +23,7 @@ version = "0.1.0"
 description = "HY-WorldPlay Cam2V integration for FlashDreams v2."
 readme = "README.md"
 license = "Apache-2.0 AND MIT AND LicenseRef-Tencent-HunyuanVideo-1.5-Community AND LicenseRef-Tencent-HY-WorldPlay-Community"
-license-files = ["LICENSES/*.txt", "NOTICE"]
+license-files = ["_licenses.txt", "NOTICE"]
 requires-python = ">=3.10"
 # This package includes the adapted source in impl/; license-files carries
 # its upstream terms and notices. Model checkpoints are downloaded separately.

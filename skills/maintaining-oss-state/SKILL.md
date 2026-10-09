@@ -29,9 +29,7 @@ gates catch what.
 - **`LICENSE` has a multi-license preamble** explaining that the bulk
   of the repo is Apache-2.0 and that two subtrees
   (cudaraster → BSD-3-Clause, LodePNG → Zlib) carry different OSI
-  licenses, with file-specific port exceptions recorded in THIRD-PARTY-NOTICES.
-  The project copyright immediately precedes the full Apache-2.0 text;
-  descriptive text stays before that copyright. CI verifies the
+  licenses, then reproduces the full Apache-2.0 text. CI verifies the
   canonical Apache-2.0 sentinel strings are present; the structural
   cross-references in the preamble are not lint-checked (these files
   change rarely — see the change-log review path instead).
@@ -126,10 +124,9 @@ Rules:
   NVIDIA line — keep both. See `CONTRIBUTING.md:200-235`.
 - The Cosmos-Drive-Dreams files
   (`integrations_v2/omnidreams/impl/conditioning/world_scenario/{camera_base,ftheta,pinhole}.py`)
-  preserve the original 2025 NVIDIA copyright alongside the 2026 NVIDIA
-  modification copyright and a prominent per-file modification notice.
-  Preserve authentic upstream attribution when adapting Apache-2.0 source;
-  do not substitute an inferred contributor name.
+  carry two `SPDX-FileCopyrightText` lines (NVIDIA + Cosmos-Drive-Dreams
+  contributors). Mirror that pattern when redistributing other modified
+  upstream Apache-2.0 source.
 
 ### What's exempt (handled by `REUSE.toml`)
 
@@ -176,26 +173,6 @@ under that subtree, then the lodepng `override` overrides the cudaraster
 block for the lodepng leaf. Order the annotations so specific paths come
 *after* general ones.
 
-Cudaraster has two local exceptions: `CudaRasterKernels.cu` is Apache-2.0;
-`cudaraster_fw_stub.cpp` retains BSD framework portions and Apache port
-additions (`Apache-2.0 AND BSD-3-Clause`). Keep their exact-path overrides
-and inline terms aligned; do not replace the historical BSD banner.
-
-The PRoPE port in `integrations_v2/hy_worldplay/impl/_prope.py` retains
-its complete upstream MIT notice alongside Apache-2.0 NVIDIA modifications.
-Keep both terms and `LICENSES/MIT.txt`; a repository-level license does not
-replace an upstream file's explicit grant.
-
-The adapted HY-WorldPlay `_pose.py` and `_memory.py` each combine
-Apache-2.0 NVIDIA modifications with `LicenseRef-Tencent-HunyuanVideo-1.5-Community`
-and `LicenseRef-Tencent-HY-WorldPlay-Community` upstream portions. Preserve
-their scoped headers, exact-file REUSE overrides, both full agreements and
-required Tencent notices. The integration's `license-files` includes copies
-of all four source licenses and its NOTICE for standalone wheel/sdist builds;
-keep those copies aligned with the root texts. These restrictive community
-terms are not permissive open-source approval, and cannot be replaced with
-Apache solely because another file or upstream subtree uses Apache.
-
 ## 4. `NOTICE` vs `THIRD-PARTY-NOTICES` — what goes where
 
 Two distinct files. Mixing them up is the most common OSS-state mistake.
@@ -211,30 +188,22 @@ Shape:
 NVIDIA FlashDreams
 Copyright (c) <YEAR> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-This product is licensed under the Apache License, Version 2.0;
-the full license text is reproduced in LICENSE at the repository root
-and in LICENSES/Apache-2.0.txt.
+This product is licensed under the Apache License, Version 2.0; the
+full license text is reproduced in LICENSE at the repository root and
+in LICENSES/Apache-2.0.txt.
 
-Source-level license exceptions are summarized below; full texts are
-reproduced under LICENSES/. Per-file grants and attributions are detailed
-in THIRD-PARTY-NOTICES:
+Two subtrees physically vendored into this repository carry
+different OSI-approved licenses; full texts are reproduced under
+LICENSES/:
 
   - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/
-        BSD-3-Clause  (see LICENSES/BSD-3-Clause.txt), except
-        CudaRasterKernels.cu (Apache-2.0) and cudaraster_fw_stub.cpp
-        (Apache-2.0 AND BSD-3-Clause; both portions retain their terms).
+        BSD-3-Clause  (see LICENSES/BSD-3-Clause.txt)
   - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/
     cudaraster/framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp}
         Zlib          (see LICENSES/Zlib.txt)
-  - integrations_v2/hy_worldplay/impl/_prope.py
-        MIT upstream portions and Apache-2.0 NVIDIA modifications
-        (see LICENSES/MIT.txt and the original notice in the source file).
-
-Modified Cosmos-Drive-Dreams camera helpers and SwiftVR adaptations retain
-their Apache-2.0 terms and upstream copyrights.
 
 Third-party software attributions, source-level redistribution
-disclosures, and dependency project licenses are
+disclosures, and the full per-dependency license inventory are
 documented in THIRD-PARTY-NOTICES at the repository root.
 ```
 
@@ -292,10 +261,9 @@ Rules:
 - **Column 1 = exact PyPI / upstream name.** Match
   `flashdreams/pyproject.toml`'s `dependencies =` spelling
   (e.g., `opencv-python-headless`, not `opencv`).
-- **Column 2 = SPDX identifier** (from <https://spdx.org/licenses/>). Preserve
-  the upstream license expression: use `AND` for cumulative terms (for
-  example `MIT AND MPL-2.0` for tqdm), and `OR` only for a documented
-  choice of licenses. Package labels do not enumerate bundled native terms.
+- **Column 2 = SPDX identifier** (from <https://spdx.org/licenses/>). For
+  dual-licensed packages use comma-separated SPDX IDs in alphabetical
+  order, e.g., `MIT, MPL-2.0` for tqdm.
 - **Column 3 = upstream source URL**, not the PyPI page.
 - **Only direct deps go in the top table.** Transitives stay out unless
   they're material enough to flag separately under "Optional
@@ -308,12 +276,6 @@ Rules:
   Path (absolute from repo root), License (SPDX + pointer to
   `LICENSES/<SPDX>.txt`), Upstream URL, and a paragraph explaining what
   was modified vs. what's upstream code.
-
-Model checkpoints and example assets also belong in the integration's
-notice inventory, even when downloaded separately. Track their source
-and license independently of Python dependencies and NVIDIA source.
-LingBot v2's noncommercial terms and HY-WorldPlay's custom agreements
-require a use/rights decision; passing REUSE lint does not establish it.
 
 ## 5. Adding or upgrading a runtime dependency
 
@@ -533,10 +495,9 @@ Triggers: every PR, every push to `main`, and every merge-queue group
 
 ## 11. Common pitfalls
 
-- **Copying the `LICENSE` preamble into `LICENSES/Apache-2.0.txt`.**
-  Keep the canonical Apache body unchanged in both files. `LICENSE` also
-  has project disclosures and a copyright line; the REUSE license text
-  must remain reusable without that preamble.
+- **Editing `LICENSE` without mirroring into `LICENSES/Apache-2.0.txt`**
+  — the collateral step compares them byte-for-byte. If you fix a typo
+  in one, fix it in both.
 - **Adding a new direct dep and forgetting `THIRD-PARTY-NOTICES`**.
   The lint won't catch this (the file is free-form prose). Add the
   attribution row in the same commit that touches `pyproject.toml` /
@@ -642,9 +603,8 @@ weak-copyleft):**
 1. Read the failed step name.
 2. `REUSE 3.3 compliance` → run `pipx run reuse lint` locally; add
    inline SPDX or extend `REUSE.toml`.
-3. `LICENSE carries canonical Apache-2.0 text` → compare the license
-   body with `LICENSES/Apache-2.0.txt`; preserve the project preamble and
-   copyright placement in `LICENSE`.
+3. `LICENSE / LICENSES/Apache-2.0.txt are byte-identical` →
+   `diff LICENSE LICENSES/Apache-2.0.txt`, restore parity.
 4. `Required OSRB collateral present` → recreate the missing file
    from history (`git log -- <file>` to find the original commit).
 5. `CONTRIBUTING.md references the DCO` → restore the DCO section
@@ -659,7 +619,7 @@ weak-copyleft):**
 
 | Question | File / pointer |
 |---|---|
-| What's the canonical Apache-2.0 text? | `LICENSES/Apache-2.0.txt`; also reproduced after the project disclosures in `LICENSE`. |
+| What's the canonical Apache-2.0 text? | `LICENSE` (= `LICENSES/Apache-2.0.txt`) |
 | What deps does FlashDreams ship? | `THIRD-PARTY-NOTICES` "Direct runtime dependencies" + `flashdreams/pyproject.toml` |
 | What does a SPDX header look like? | `CONTRIBUTING.md:215-232` |
 | Where do I declare a config / asset file's license? | `REUSE.toml` |

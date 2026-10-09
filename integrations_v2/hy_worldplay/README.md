@@ -23,7 +23,8 @@ NVIDIA source and modifications use Apache-2.0. The adapted pose and memory
 helpers in `impl/_pose.py` and `impl/_memory.py` also retain the Tencent
 HunyuanVideo-1.5 and HY-WorldPlay community terms; PRoPE helpers in
 `impl/_prope.py` retain MIT terms. See [NOTICE](NOTICE) for source attribution
-and [LICENSES](LICENSES/) for the full agreements, included in this package.
+and the repository-root [LICENSES](../../LICENSES/) for the full agreements.
+Standalone wheels and source archives include these terms in `_licenses.txt`.
 
 The separately downloaded checkpoint uses the
 [Tencent HY-WorldPlay Community License Agreement](https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/License.txt).

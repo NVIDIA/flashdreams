@@ -352,7 +352,7 @@ They exclude the EU, UK and South Korea and impose use/distribution and
 additional commercial conditions. Apache-2.0 applies to NVIDIA's
 modifications and does not replace those terms. Required Tencent notices
 are retained in NOTICE and integrations_v2/hy_worldplay/NOTICE. The
-independently packaged integration includes its own copies of the terms.
+independently packaged integration bundles the root terms in _licenses.txt.
 
 --------------------------------------------------------------------------------
 PRoPE projective positional-encoding helpers

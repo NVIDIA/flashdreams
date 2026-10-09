@@ -22,8 +22,8 @@
 #   Community License Agreement.
 # Upstream: https://github.com/Tencent-Hunyuan/HY-WorldPlay
 # Source comparison: 1588e1336e842b03b0a7860c654ebd7c46bb065e.
-# Full Tencent terms and required notices accompany this package in
-# LICENSES/ and NOTICE (under .dist-info/licenses/ in wheels).
+# Full Tencent terms: repository-root LICENSES/; packaged as _licenses.txt
+# alongside NOTICE under .dist-info/licenses/ in wheels.
 #
 # Original upstream notice for the HunyuanVideo-1.5 portions:
 # Licensed under the TENCENT HUNYUAN COMMUNITY LICENSE AGREEMENT (the "License");
