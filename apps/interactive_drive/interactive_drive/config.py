@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig
+from interactive_drive.math3d import normalize_camera_name
 
 ViewMode = Literal["rgb", "model_rgb", "physx"]
 ComputeDeviceName = Literal["automatic", "cuda", "vulkan"]
@@ -117,10 +119,37 @@ class BevConfig:
 
 
 @dataclass(frozen=True)
+class PresentationLayout:
+    """How the rig's cameras fill one presented frame.
+
+    The session's video size and the tiling are both read off this, so the two
+    cannot disagree about how big a frame is or where a camera lands in it.
+    """
+
+    columns: int
+    rows: int
+    view_index: int | None
+    """The one camera to present, or ``None`` to tile the whole rig."""
+
+    @property
+    def cells(self) -> int:
+        return self.columns * self.rows
+
+
+@dataclass(frozen=True)
 class AppConfig:
     scene_path: Path
+    sample_path: Path | None = None
+    """A recording of the same drive, for a loader that reads one."""
+    start_frame: int = 0
+    """Frame of that recording the drive opens on."""
+    physics: bool = True
+    """Simulate colliders, for a scene whose geometry the host can read."""
+    reverse: bool = True
+    """Offer a reverse gear, for a model trained on a car that can back up."""
     game_mode: bool = False
-    camera_name: str = "camera_front_wide_120fov"
+    camera_names: tuple[str, ...] = ("camera_front_wide_120fov",)
+    present_camera: str | None = None
     variant: str = "default"
     prompt_override: str | None = None
     chunk: ChunkConfig = ChunkConfig()
@@ -176,3 +205,25 @@ class AppConfig:
         )
         if self.visual_flare_enabled is None:
             object.__setattr__(self, "visual_flare_enabled", self.game_mode)
+        if self.present_camera is not None:
+            self.camera_index(self.present_camera)
+
+    @property
+    def presentation(self) -> PresentationLayout:
+        """One named camera alone, or the rig tiled as close to square as it goes."""
+        if self.present_camera is not None:
+            return PresentationLayout(1, 1, self.camera_index(self.present_camera))
+        columns = math.ceil(math.sqrt(len(self.camera_names)))
+        return PresentationLayout(
+            columns, math.ceil(len(self.camera_names) / columns), None
+        )
+
+    def camera_index(self, camera_name: str) -> int:
+        """Where ``camera_name`` sits in the rig, however the caller spelled it."""
+        wanted = normalize_camera_name(camera_name)
+        for index, name in enumerate(self.camera_names):
+            if normalize_camera_name(name) == wanted:
+                return index
+        raise ValueError(
+            f"Camera {camera_name!r} is not in the rig {list(self.camera_names)}."
+        )

@@ -365,3 +365,35 @@ if __name__ == "__main__":
     for tokenizer_choice in tokenizer_choices:
         for detokenizer_choice in detokenizer_choices:
             test_tokenizer(tokenizer_choice, detokenizer_choice)
+
+
+@pytest.mark.ci_gpu
+def test_wan_vae_decoder_compiled_streaming_matches_eager() -> None:
+    """Same latent, decoded in 3-latent chunks with the cache carried across them,
+    once eager and once compiled (what the Self-Forcing and Causal Forcing presets
+    run): the compiled, channels-last path must match the eager one."""
+    torch.manual_seed(0)
+    z = torch.randn(
+        9, 16, 60, 104, device="cuda", dtype=torch.bfloat16
+    )  # [T, C, H, W], 832x480 output
+
+    def stream(use_compile: bool) -> torch.Tensor:
+        decoder = (
+            WanVAEDecoderConfig(use_compile=use_compile, use_cuda_graph=False)
+            .setup()
+            .cuda()
+        )
+        cache = decoder.initialize_autoregressive_cache()
+        chunks = [
+            decoder(z[i : i + 3], autoregressive_index=i // 3, cache=cache)
+            for i in range(0, z.shape[0], 3)
+        ]
+        return torch.cat(chunks).float()
+
+    eager, compiled = stream(False), stream(True)
+    assert compiled.shape == eager.shape
+    assert torch.isfinite(compiled).all()
+    psnr_db = 10 * torch.log10(
+        4.0 / ((eager - compiled) ** 2).mean()
+    )  # outputs lie in [-1, 1]
+    assert psnr_db > 45, f"compiled decoder deviates from eager: {psnr_db:.1f} dB"

@@ -1,0 +1,5 @@
+[
+  {"device": "H100", "lightx2v": 740, "official": 1950, "flashdreams": 629},
+  {"device": "GB200", "lightx2v": 717, "official": 1113, "flashdreams": 449},
+  {"device": "GB300", "lightx2v": 602, "official": 1032, "flashdreams": 394}
+]

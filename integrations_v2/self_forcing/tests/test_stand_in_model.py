@@ -65,6 +65,7 @@ def test_compilation_can_be_turned_off_for_a_run(
 
     transformer = app.pipeline_config.diffusion_model.transformer
     assert transformer.compile_network is False
+    assert app.pipeline_config.decoder.use_compile is False
 
 
 @pytest.mark.skipif(

@@ -142,15 +142,21 @@ class WorldVehicleBBoxTrack:
 
 @dataclass(frozen=True)
 class SceneBundle:
+    """One scene's camera rig, ego start state and map geometry.
+
+    ``cameras`` is ordered, and that order is the rig order a world model
+    conditions on, so it belongs to the scene rather than to presentation.
+    """
+
     scene_path: Path
     scene_id: str
     metadata: dict[str, Any]
-    selected_camera: CameraCalibration
+    cameras: tuple[CameraCalibration, ...]
     initial_rig_to_world: FloatArray
     initial_timestamp_us: int
     initial_yaw_rad: float
     initial_speed_mps: float
-    initial_rgb: UInt8Array
+    initial_rgbs: tuple[UInt8Array, ...]
     prompt: str
     line_layers: tuple[WorldLineSegments, ...]
     triangle_layers: tuple[WorldTriangleList, ...]
@@ -162,6 +168,15 @@ class SceneBundle:
     # mesh, in which case ground-snap no-ops.
     ground_mesh_vertices: FloatArray | None = None
     ground_mesh_faces: Int32Array | None = None
+
+    def __post_init__(self) -> None:
+        if not self.cameras:
+            raise ValueError("A scene needs at least one camera.")
+        if len(self.initial_rgbs) != len(self.cameras):
+            raise ValueError(
+                "A scene needs one initial frame per camera; received "
+                f"{len(self.initial_rgbs)} for {len(self.cameras)} cameras."
+            )
 
 
 @dataclass(frozen=True)
@@ -332,12 +347,20 @@ class TrajectoryChunk:
 
 @dataclass
 class PresentedFrame:
+    """One moment of the drive, across every camera in the rig.
+
+    The rig's cameras live on the image fields, in scene order, while the
+    timestamp, the minimap and the collider snapshot describe the moment itself
+    and stay single. A chunk therefore holds one of these per frame however many
+    cameras there are.
+    """
+
     timestamp_us: int
-    rgb_host_uint8: Any
+    view_rgb_host_uint8: tuple[Any, ...]
     depth_host_f32: FloatArray | None
     rgb_native: Any | None = None
     depth_native: Any | None = None
-    model_rgb_host_uint8: Any | None = None
+    view_model_rgb_host_uint8: tuple[Any, ...] = ()
     # Top-down BEV minimap rendered with a synthetic overhead camera (see
     # :class:`BevConfig`). ``None`` when BEV is disabled or the world-model
     # first chunk replays the debug HDMap override.
@@ -349,6 +372,20 @@ class PresentedFrame:
     """Lazy Ludus CUDA debug raster, materialized only by host presenters."""
 
     status_message: str | None = None
+
+    @property
+    def views(self) -> int:
+        return len(self.view_rgb_host_uint8)
+
+    @property
+    def rgb_host_uint8(self) -> Any:
+        return self.view_rgb_host_uint8[0]
+
+    @property
+    def model_rgb_host_uint8(self) -> Any | None:
+        if not self.view_model_rgb_host_uint8:
+            return None
+        return self.view_model_rgb_host_uint8[0]
 
 
 @dataclass(frozen=True)

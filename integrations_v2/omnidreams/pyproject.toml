@@ -95,9 +95,6 @@ dev = [
 ]
 
 [project.scripts]
-# Batch evaluation helper for Hugging Face scene discovery, bounded staging,
-# FlashDreams generation, and DrivingGen adapter setup.
-omnidreams-eval = "omnidreams.impl.eval.cli:main"
 omnidreams-prepare = "omnidreams.impl.tools.prepare:main"
 
 [project.entry-points."flashdreams.applications_v2"]
@@ -129,7 +126,6 @@ packages = [
     "omnidreams.impl.conditioning",
     "omnidreams.impl.conditioning.world_scenario",
     "omnidreams.impl.encoder",
-    "omnidreams.impl.eval",
     "omnidreams.impl.grpc",
     "omnidreams.impl.grpc.protos",
     "omnidreams.impl.native",

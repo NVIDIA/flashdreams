@@ -156,9 +156,14 @@ class CUDAGraphWrapper:
 
     @staticmethod
     def _make_slot(value: Any) -> Any:
-        """Static buffer for a tensor; pass-through value for non-tensors."""
+        """Static buffer for a tensor; pass-through value for non-tensors.
+
+        ``empty_like`` already preserves ``value``'s memory format (dense
+        channels-last included); a bare ``.contiguous()`` on top of that
+        would silently force it back to the default row-major layout.
+        """
         if isinstance(value, torch.Tensor):
-            return torch.empty_like(value).contiguous()
+            return torch.empty_like(value, memory_format=torch.preserve_format)
         return value
 
     def _stage(
