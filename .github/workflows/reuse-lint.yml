@@ -96,12 +96,16 @@ jobs:
           excludes='^integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/'
           excludes+='|^integrations_v2/omnidreams/impl/grpc/protos/.*_pb2'
           missing_files=()
+          long_header_files=()
           while IFS= read -r f; do
             if printf '%s\n' "$f" | grep -qE "$excludes"; then
               continue
             fi
             if ! head -n 20 "$f" | grep -q "SPDX-License-Identifier"; then
               missing_files+=("$f")
+            fi
+            if head -n 20 "$f" | grep -qE '^[[:space:]]*(#|//|/\*|\*)[[:space:]]*Licensed under the Apache License'; then
+              long_header_files+=("$f")
             fi
           done < <(git ls-files \
                      '*.py' '*.pyx' '*.pyi' \
@@ -110,6 +114,9 @@ jobs:
                      '*.cu' '*.cuh' '*.inl' \
                      '*.sh' '*.proto' \
                      'Dockerfile' '*/Dockerfile' '**/Dockerfile' '*.dockerfile')
+          for f in "${long_header_files[@]}"; do
+            echo "::error file=$f,line=1,title=Long SPDX header::Keep all SPDX copyright and license tags; remove the following Apache boilerplate."
+          done
           if [ "${#missing_files[@]}" -gt 0 ]; then
             # Print the list to the raw log so it shows in the step output,
             # then emit GitHub annotations so the offending files appear in
@@ -133,6 +140,9 @@ jobs:
             done
             # REUSE-IgnoreEnd
             echo "::error title=Missing SPDX headers::${#missing_files[@]} source file(s) missing inline SPDX header"
+            exit 1
+          fi
+          if [ "${#long_header_files[@]}" -gt 0 ]; then
             exit 1
           fi
           echo "OK: every tracked source file carries an inline SPDX-License-Identifier"
