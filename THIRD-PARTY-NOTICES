@@ -115,15 +115,21 @@ HY-WorldPlay          Tencent HY-WorldPlay Community License Agreement
     card identifies the custom agreement, including territory restrictions,
     additional commercial terms and use/distribution conditions:
     https://huggingface.co/tencent/HY-WorldPlay/blob/f4c29235647707b571479a69b569e4166f9f5bf8/README.md
-    Upstream source also has file-specific MIT, Apache-2.0 and Tencent
-    community notices. Pose and memory helper provenance requires review
-    against upstream files referring to HunyuanVideo-1.5's separate
-    community agreement; Apache-only coverage is not established for
-    those portions. The confirmed MIT PRoPE adaptation is recorded below.
-    Affected local files: integrations_v2/hy_worldplay/impl/{_pose.py,_memory.py}.
-    Compare upstream hyvideo/generate.py and hyvideo/utils/retrieval_context.py
-    at the revision above. Their headers reference this separate agreement:
+    Upstream source has file-specific MIT, Apache-2.0 and Tencent notices.
+    License discrepancy: integrations_v2/hy_worldplay/impl/{_pose.py,_memory.py}
+    currently declare Apache-2.0. The corresponding upstream pose/FOV files
+    carry Tencent community notices that predate the FlashDreams port:
+    https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/hyvideo/generate.py
+    https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/hyvideo/utils/retrieval_context.py
+    Memory selection also ports wan/models/utils.py. The revision above
+    is a comparison pin, not a confirmed original-copy revision.
+    The pose/FOV headers refer to this separate agreement:
     https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5/blob/60783e704160023913bee78f0b47036d393d4dfa/LICENSE
+    These local declarations remain unresolved; changing a header alone
+    does not establish an Apache grant for upstream material. Confirm the
+    original source and applicable rights, then align file notices, license
+    texts and REUSE metadata. This disclosure is not license clearance.
+    The confirmed MIT PRoPE adaptation is recorded below.
 
 diffusers              Apache-2.0   https://github.com/huggingface/diffusers
 scipy                  BSD-3-Clause https://github.com/scipy/scipy

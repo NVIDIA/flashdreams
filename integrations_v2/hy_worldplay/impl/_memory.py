@@ -12,6 +12,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Upstream provenance: this implementation ports memory selection from
+# wan/models/utils.py and FOV helpers from hyvideo/utils/retrieval_context.py
+# in Tencent-Hunyuan/HY-WorldPlay; comparison revision
+# 1588e1336e842b03b0a7860c654ebd7c46bb065e. The FOV source carries a Tencent
+# HunyuanVideo-1.5 community notice, not an Apache-2.0 grant.
+# The existing Apache declaration above does not establish rights to
+# upstream portions. Reconcile the original source and applicable grant
+# before treating this file's license metadata as complete. See the
+# HY-WorldPlay entry in THIRD-PARTY-NOTICES.
 
 """HY-WorldPlay memory frame-index selection for autoregressive denoising.
 
