@@ -35,6 +35,16 @@ class WebRTCClientWindow(IClientWindow):
     the application is explicitly stopped.
     """
 
+    @property
+    def input_timestamp_origin_ns(self) -> int | None:
+        """Return the current session's monotonic input timestamp origin."""
+        server_origin_ns = self.server.input_timestamp_origin_ns
+        if server_origin_ns is None:
+            return None
+        with self._input_lock:
+            session_event_offset_us = int(self._session_event_offset_us)
+        return server_origin_ns + session_event_offset_us * 1_000
+
     def __init__(
         self,
         *,
@@ -66,7 +76,8 @@ class WebRTCClientWindow(IClientWindow):
 
         def handle_input(event: UserInputEvent) -> None:
             """Buffer one backend event for the ``InputSource`` protocol."""
-            # TODO: do we really need to buffer all events? Some mouse moves may be superseded by later ones.
+            # TODO: do we need to buffer every event? Later mouse moves may
+            # supersede earlier ones.
             with self._input_lock:
                 self._input_events.append(event)
 

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from flashdreams.runtime_v2 import client_window_factory
-from flashdreams.runtime_v2.cli import _parser
+from flashdreams.runtime_v2.cli import _parser, _validate_profile_path
 from flashdreams.runtime_v2.client_window_factory import (
     CLIENT_WINDOW_ENTRY_POINT_GROUP,
     ClientWindowMode,
@@ -121,6 +121,28 @@ def test_a_native_window_mode_is_lazy_and_keeps_its_title() -> None:
 
     assert isinstance(window, NativeWindowClientWindow)
     assert window.title == "World model"
+
+
+@pytest.mark.parametrize("other_flag", ["--stats-path", "--output-path"])
+def test_profile_path_stays_distinct_from_run_outputs(
+    tmp_path: Path,
+    other_flag: str,
+) -> None:
+    shared = tmp_path / "run-artifact"
+    arguments = [
+        "demo",
+        "--mode",
+        "mp4",
+        "--output-path",
+        str(tmp_path / "output.mp4"),
+        "--profile-path",
+        str(shared),
+        other_flag,
+        str(shared),
+    ]
+
+    with pytest.raises(ValueError, match="distinct output path"):
+        _validate_profile_path(_parser().parse_args(arguments))
 
 
 def test_an_installed_mode_owns_its_flashdreams_run_v2_arguments(

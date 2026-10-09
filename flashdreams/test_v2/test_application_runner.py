@@ -3,6 +3,7 @@
 
 """CPU tests for the v2 application runner."""
 
+import json
 import logging
 from collections.abc import Sequence
 from dataclasses import replace
@@ -19,6 +20,7 @@ from flashdreams.api_v2.session import ISession
 from flashdreams.core.distributed.parallel import ParallelContext
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
+from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
@@ -380,11 +382,12 @@ def test_application_runner_passes_remaining_steps_into_the_next_session(
         window: IClientWindow | None,
         *,
         metrics_output_sink: MetricsOutputSink | None = None,
+        profiler: RuntimeProfiler | None = None,
         steps: int | None = None,
         timeout_seconds: float | None = None,
         completed_steps: list[int] | None = None,
     ) -> SessionDesc | None:
-        del session, window, metrics_output_sink, timeout_seconds
+        del session, window, metrics_output_sink, profiler, timeout_seconds
         seen.append(steps)
         if completed_steps is not None:
             completed_steps.append(3 if steps == 7 else 0)
@@ -416,11 +419,12 @@ def test_application_runner_skips_replacement_when_no_steps_remain(
         window: IClientWindow | None,
         *,
         metrics_output_sink: MetricsOutputSink | None = None,
+        profiler: RuntimeProfiler | None = None,
         steps: int | None = None,
         timeout_seconds: float | None = None,
         completed_steps: list[int] | None = None,
     ) -> SessionDesc | None:
-        del session, window, metrics_output_sink, timeout_seconds
+        del session, window, metrics_output_sink, profiler, timeout_seconds
         seen.append(steps)
         if completed_steps is not None:
             completed_steps.append(0 if steps is None else steps)
@@ -460,11 +464,12 @@ def test_replacement_result_remains_authoritative_after_deadline(
         window: IClientWindow | None,
         *,
         metrics_output_sink: MetricsOutputSink | None = None,
+        profiler: RuntimeProfiler | None = None,
         steps: int | None = None,
         timeout_seconds: float | None = None,
         completed_steps: list[int] | None = None,
     ) -> SessionDesc | None:
-        del session, window, metrics_output_sink, steps, completed_steps
+        del session, window, metrics_output_sink, profiler, steps, completed_steps
         remaining_seconds.append(timeout_seconds)
         return next(results)
 
@@ -574,6 +579,21 @@ def test_application_runner_replaces_a_session_before_closing_the_window() -> No
     assert application.requested_session_descs[1] is session_desc
     assert calls.count("application.init([])") == 1
     assert calls.count("application.close") == 1
+
+
+def test_application_runner_profiles_each_replacement_session(tmp_path) -> None:
+    calls: list[str] = []
+    profile_path = tmp_path / "runtime.jsonl"
+
+    ApplicationRunner(
+        _Application(calls, replace_first_session=True),
+        _SecondSessionClosingWindow(calls),
+        profiler=RuntimeProfiler(profile_path),
+    ).run(_session_desc())
+
+    records = [json.loads(line) for line in profile_path.read_text().splitlines()]
+    assert sum(record["phase"] == "session_started" for record in records) == 2
+    assert sum(record["phase"] == "profile_summary" for record in records) == 4
 
 
 def test_application_runner_closes_a_preserved_window_if_replacement_fails() -> None:

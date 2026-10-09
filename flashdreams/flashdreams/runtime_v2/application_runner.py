@@ -18,6 +18,7 @@ from flashdreams.runtime_v2.preparation_guard import (
     PreparationGuard,
     resolve_preparation_policy,
 )
+from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 
@@ -53,6 +54,7 @@ class ApplicationRunner:
         client_window: IClientWindow | None,
         *,
         metrics_output_sink: MetricsOutputSink | None = None,
+        profiler: RuntimeProfiler | None = None,
         application_flags: ApplicationFlags = ApplicationFlags(),
     ) -> None:
         """
@@ -62,11 +64,14 @@ class ApplicationRunner:
                 worker.
             metrics_output_sink: Optional sink for model-step metrics. It is
                 opened and closed once for each session.
+            profiler: Optional host-side input-latency profiler. It is opened
+                and closed once for each session.
             application_flags: Optional preload behavior.
         """
         self._application = application
         self._client_window = client_window
         self._metrics_output_sink = metrics_output_sink
+        self._profiler = profiler
         self._application_flags = application_flags
 
     def run(
@@ -165,6 +170,7 @@ class ApplicationRunner:
                             session,
                             self._client_window,
                             metrics_output_sink=self._metrics_output_sink,
+                            profiler=self._profiler,
                             steps=session_steps,
                             timeout_seconds=remaining_seconds,
                             completed_steps=completed_steps,
