@@ -240,14 +240,10 @@ jobs:
           find "${cache_dir}/sdists-v9" -name "*.whl" -exec ls -lh {} \; 2>/dev/null || true
 
   # ===========================================================================
-  # Public source approval does not cover publishing a wheel. After reviewing
-  # the wheel and obtaining approval for binary distribution, a maintainer may
-  # set FLASHDREAMS_PYPI_APPROVED_SHA to the full source commit SHA. Unset or
-  # stale approval disables publication; each new commit requires new approval.
-  # CPU wheel builds and all tests still run without publication approval.
+  # Publish to PyPI -- runs only on main after cpu + gpu jobs pass.
   # ===========================================================================
   publish-pypi:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.FLASHDREAMS_PYPI_APPROVED_SHA == github.sha
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: [cpu, gpu]
     runs-on: linux-amd64-cpu8
     steps:

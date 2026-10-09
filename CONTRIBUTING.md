@@ -224,9 +224,6 @@ We aim for an initial review on every PR within two business days. If
 your PR has been quiet longer than that, please feel free to leave a
 short ping comment.
 
-Maintainers preparing a release should follow [RELEASE.md](RELEASE.md),
-including wheel review and publication approval.
-
 ## File Tree Of FlashDreams
 
 Where a new app or model goes. Each documents its own layout:

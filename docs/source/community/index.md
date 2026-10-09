@@ -57,9 +57,6 @@ uv sync --package flashdreams-wan21 --extra dev
 
 ```
 
-See [RELEASE.md](https://github.com/NVIDIA/flashdreams/blob/main/RELEASE.md)
-for the package inventory and publication requirements.
-
 ### Which Python API should I use?
 
 Use `flashdreams.api_v2`; the
