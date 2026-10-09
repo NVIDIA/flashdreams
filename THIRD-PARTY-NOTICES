@@ -115,21 +115,9 @@ HY-WorldPlay          Tencent HY-WorldPlay Community License Agreement
     card identifies the custom agreement, including territory restrictions,
     additional commercial terms and use/distribution conditions:
     https://huggingface.co/tencent/HY-WorldPlay/blob/f4c29235647707b571479a69b569e4166f9f5bf8/README.md
-    Upstream source has file-specific MIT, Apache-2.0 and Tencent notices.
-    License discrepancy: integrations_v2/hy_worldplay/impl/{_pose.py,_memory.py}
-    currently declare Apache-2.0. The corresponding upstream pose/FOV files
-    carry Tencent community notices that predate the FlashDreams port:
-    https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/hyvideo/generate.py
-    https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/hyvideo/utils/retrieval_context.py
-    Memory selection also ports wan/models/utils.py. The revision above
-    is a comparison pin, not a confirmed original-copy revision.
-    The pose/FOV headers refer to this separate agreement:
-    https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5/blob/60783e704160023913bee78f0b47036d393d4dfa/LICENSE
-    These local declarations remain unresolved; changing a header alone
-    does not establish an Apache grant for upstream material. Confirm the
-    original source and applicable rights, then align file notices, license
-    texts and REUSE metadata. This disclosure is not license clearance.
-    The confirmed MIT PRoPE adaptation is recorded below.
+    Adapted pose and memory source is included in this repository under
+    the Tencent agreements described in Source-level redistributions below.
+    The PRoPE helpers retain their separate MIT grant.
 
 diffusers              Apache-2.0   https://github.com/huggingface/diffusers
 scipy                  BSD-3-Clause https://github.com/scipy/scipy
@@ -333,6 +321,38 @@ The decoder adapts TCDecoder helpers, including IdentityConv2d and decoder
 deepening. The comparison revision above is the upstream pin used by
 integrations_v2/flashvsr/tests/parity_check/run.sh. FlashDreams modifies
 these helpers for its decoder/cache interfaces.
+
+--------------------------------------------------------------------------------
+HY-WorldPlay pose and memory helpers
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/hy_worldplay/impl/{_pose.py,_memory.py}
+License:  Apache-2.0 NVIDIA modifications; Tencent upstream portions:
+          LicenseRef-Tencent-HunyuanVideo-1.5-Community AND
+          LicenseRef-Tencent-HY-WorldPlay-Community
+          Copyright (c) 2025 Tencent. All Rights Reserved.
+          Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Upstream: https://github.com/Tencent-Hunyuan/HY-WorldPlay/tree/1588e1336e842b03b0a7860c654ebd7c46bb065e
+
+_pose.py adapts pose parsing/action labels from hyvideo/generate.py and
+camera trajectories from hyvideo/generate_custom_trajectory.py.
+_memory.py adapts FOV helpers from hyvideo/utils/retrieval_context.py and
+memory selection from wan/models/utils.py. NVIDIA modified these routines
+for FlashDreams interfaces, types and device handling. The revision above
+is a source-comparison pin.
+
+The generate.py and retrieval_context.py notices specify the Tencent
+HunyuanVideo-1.5 Community License Agreement. The trajectory and memory
+selection sources use the repository's Tencent HY-WorldPlay Community
+License Agreement. The complete agreements, including acceptable-use
+policies, are in:
+  LICENSES/LicenseRef-Tencent-HunyuanVideo-1.5-Community.txt
+  LICENSES/LicenseRef-Tencent-HY-WorldPlay-Community.txt
+They exclude the EU, UK and South Korea and impose use/distribution and
+additional commercial conditions. Apache-2.0 applies to NVIDIA's
+modifications and does not replace those terms. Required Tencent notices
+are retained in NOTICE and integrations_v2/hy_worldplay/NOTICE. The
+independently packaged integration includes its own copies of the terms.
 
 --------------------------------------------------------------------------------
 PRoPE projective positional-encoding helpers

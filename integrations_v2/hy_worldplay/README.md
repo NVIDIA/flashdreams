@@ -19,13 +19,18 @@ memory-selection settings on the pipeline config.
 
 ## Model and upstream source licenses
 
-The downloaded checkpoint uses the
-[Tencent HY-WorldPlay Community License Agreement](https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/License.txt),
-which includes territory restrictions, commercial conditions and use rules.
-FlashDreams's Apache license does not replace that agreement. Upstream source
-also has file-specific terms; the pose and memory ports require provenance
-and rights review. The PRoPE helpers retain their MIT notice. See
-[THIRD-PARTY-NOTICES](../../THIRD-PARTY-NOTICES) for the distinctions.
+NVIDIA source and modifications use Apache-2.0. The adapted pose and memory
+helpers in `impl/_pose.py` and `impl/_memory.py` also retain the Tencent
+HunyuanVideo-1.5 and HY-WorldPlay community terms; PRoPE helpers in
+`impl/_prope.py` retain MIT terms. See [NOTICE](NOTICE) for source attribution
+and [LICENSES](LICENSES/) for the full agreements, included in this package.
+
+The separately downloaded checkpoint uses the
+[Tencent HY-WorldPlay Community License Agreement](https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/License.txt).
+Both Tencent agreements exclude the EU, UK and South Korea and impose
+use/distribution and commercial conditions. FlashDreams's Apache license
+does not replace those terms. FlashDreams is provided by NVIDIA; it is not
+a Tencent product or service, and Tencent does not endorse it.
 
 ## Install
 

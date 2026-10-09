@@ -132,3 +132,17 @@ path = "integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudar
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright (c) 2005-2011 Lode Vandevenne"
 SPDX-License-Identifier = "Zlib"
+
+# --- Adapted Tencent pose/memory helpers retain both upstream agreements.
+#     Apache-2.0 covers NVIDIA modifications, not a relicensing of Tencent code.
+[[annotations]]
+path = [
+    "integrations_v2/hy_worldplay/impl/_pose.py",
+    "integrations_v2/hy_worldplay/impl/_memory.py",
+]
+precedence = "override"
+SPDX-FileCopyrightText = [
+    "Copyright (c) 2025 Tencent. All Rights Reserved.",
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+]
+SPDX-License-Identifier = "Apache-2.0 AND LicenseRef-Tencent-HunyuanVideo-1.5-Community AND LicenseRef-Tencent-HY-WorldPlay-Community"

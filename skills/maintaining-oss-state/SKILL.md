@@ -186,6 +186,16 @@ its complete upstream MIT notice alongside Apache-2.0 NVIDIA modifications.
 Keep both terms and `LICENSES/MIT.txt`; a repository-level license does not
 replace an upstream file's explicit grant.
 
+The adapted HY-WorldPlay `_pose.py` and `_memory.py` each combine
+Apache-2.0 NVIDIA modifications with `LicenseRef-Tencent-HunyuanVideo-1.5-Community`
+and `LicenseRef-Tencent-HY-WorldPlay-Community` upstream portions. Preserve
+their scoped headers, exact-file REUSE overrides, both full agreements and
+required Tencent notices. The integration's `license-files` includes copies
+of all four source licenses and its NOTICE for standalone wheel/sdist builds;
+keep those copies aligned with the root texts. These restrictive community
+terms are not permissive open-source approval, and cannot be replaced with
+Apache solely because another file or upstream subtree uses Apache.
+
 ## 4. `NOTICE` vs `THIRD-PARTY-NOTICES` — what goes where
 
 Two distinct files. Mixing them up is the most common OSS-state mistake.
