@@ -13,6 +13,10 @@ and each file's license notice:
     framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp} retain the Zlib
     license. Full text: LICENSES/Zlib.txt.
 
+  * integrations_v2/hy_worldplay/impl/_prope.py retains MIT upstream
+    portions and Apache-2.0 NVIDIA modifications. Full MIT terms:
+    LICENSES/MIT.txt; the original notice is preserved in the source file.
+
   * Modified Cosmos-Drive-Dreams camera helpers and SwiftVR adaptations
     retain their Apache-2.0 terms and upstream attributions, as listed
     in THIRD-PARTY-NOTICES.
@@ -24,9 +28,11 @@ The renderer retains its own Apache license file because it is packaged
 independently. Its bundled-source exceptions remain separately licensed.
 
 Per-file SPDX identifiers and REUSE.toml describe source licensing.
-LICENSES/ contains Apache-2.0, BSD-3-Clause and Zlib texts. Dependency
+LICENSES/ contains Apache-2.0, BSD-3-Clause, MIT and Zlib texts. Dependency
 project licenses and upstream links are listed in THIRD-PARTY-NOTICES;
 package and native-artifact contents can carry additional terms.
+Separately downloaded model weights and examples retain their upstream
+terms, including custom or noncommercial licenses; see THIRD-PARTY-NOTICES.
 
 Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 

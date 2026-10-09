@@ -181,6 +181,11 @@ Cudaraster has two local exceptions: `CudaRasterKernels.cu` is Apache-2.0;
 additions (`Apache-2.0 AND BSD-3-Clause`). Keep their exact-path overrides
 and inline terms aligned; do not replace the historical BSD banner.
 
+The PRoPE port in `integrations_v2/hy_worldplay/impl/_prope.py` retains
+its complete upstream MIT notice alongside Apache-2.0 NVIDIA modifications.
+Keep both terms and `LICENSES/MIT.txt`; a repository-level license does not
+replace an upstream file's explicit grant.
+
 ## 4. `NOTICE` vs `THIRD-PARTY-NOTICES` — what goes where
 
 Two distinct files. Mixing them up is the most common OSS-state mistake.
@@ -211,6 +216,9 @@ in THIRD-PARTY-NOTICES:
   - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/
     cudaraster/framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp}
         Zlib          (see LICENSES/Zlib.txt)
+  - integrations_v2/hy_worldplay/impl/_prope.py
+        MIT upstream portions and Apache-2.0 NVIDIA modifications
+        (see LICENSES/MIT.txt and the original notice in the source file).
 
 Modified Cosmos-Drive-Dreams camera helpers and SwiftVR adaptations retain
 their Apache-2.0 terms and upstream copyrights.
@@ -290,6 +298,12 @@ Rules:
   Path (absolute from repo root), License (SPDX + pointer to
   `LICENSES/<SPDX>.txt`), Upstream URL, and a paragraph explaining what
   was modified vs. what's upstream code.
+
+Model checkpoints and example assets also belong in the integration's
+notice inventory, even when downloaded separately. Track their source
+and license independently of Python dependencies and NVIDIA source.
+LingBot v2's noncommercial terms and HY-WorldPlay's custom agreements
+require a use/rights decision; passing REUSE lint does not establish it.
 
 ## 5. Adding or upgrading a runtime dependency
 

@@ -16,6 +16,9 @@ in THIRD-PARTY-NOTICES:
   - integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/
     cudaraster/framework/3rdparty/lodepng/{lodepng.h,lodepng.cpp}
         Zlib          (see LICENSES/Zlib.txt)
+  - integrations_v2/hy_worldplay/impl/_prope.py
+        MIT upstream portions and Apache-2.0 NVIDIA modifications
+        (see LICENSES/MIT.txt and the original notice in the source file).
 
 Modified Cosmos-Drive-Dreams camera helpers and SwiftVR adaptations retain
 their Apache-2.0 terms and upstream copyrights.

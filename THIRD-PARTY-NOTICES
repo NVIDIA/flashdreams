@@ -17,10 +17,11 @@ by itself enumerate the terms of its bundled native libraries or tools.
 
 Most dependencies are consumed unmodified at runtime through Python's
 import system (i.e. dynamic linking via the interpreter); their source
-is not redistributed in this repository. The licenses named below are
-SPDX identifiers; the full text of each license is available from the
-upstream project's URL. Source-level redistributions (third-party source
-code physically present in this repository) are disclosed in the
+is not redistributed in this repository. Licenses are identified by SPDX
+identifier where available, or by their upstream agreement name. Model
+weights and example assets downloaded separately retain their own terms;
+FlashDreams's Apache-2.0 license does not replace those terms. Source-level
+redistributions (third-party source code physically present in this repository) are disclosed in the
 "Source-level redistributions" section at the end of this file.
 
 ================================================================================
@@ -93,6 +94,13 @@ Big Buck Bunny         CC-BY-3.0    https://peach.blender.org/about/
 Optional integration: integrations_v2/flashvsr
 ================================================================================
 
+FlashVSR              Apache-2.0   https://github.com/OpenImagingLab/FlashVSR
+    The integration uses the OpenImagingLab implementation and downloads
+    JunhaoZhuang/FlashVSR-v1.1 checkpoints and a prompt tensor separately.
+    The checkpoint model card declares Apache-2.0:
+    https://huggingface.co/JunhaoZhuang/FlashVSR-v1.1/blob/27561b186ded3402d7c975f4fd722e2885b6135f/README.md
+    Source attribution and the parity-test source pin are recorded below.
+
 ninja                  Apache-2.0   https://github.com/ninja-build/ninja
     The Python distribution wrapper and bundled Ninja executable can carry
     separate Apache/BSD terms; retain the selected artifact's licenses.
@@ -100,6 +108,22 @@ ninja                  Apache-2.0   https://github.com/ninja-build/ninja
 ================================================================================
 Optional integration: integrations_v2/hy_worldplay
 ================================================================================
+
+HY-WorldPlay          Tencent HY-WorldPlay Community License Agreement
+    https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/License.txt
+    The WAN-5B distilled checkpoint is downloaded separately. Its model
+    card identifies the custom agreement, including territory restrictions,
+    additional commercial terms and use/distribution conditions:
+    https://huggingface.co/tencent/HY-WorldPlay/blob/f4c29235647707b571479a69b569e4166f9f5bf8/README.md
+    Upstream source also has file-specific MIT, Apache-2.0 and Tencent
+    community notices. Pose and memory helper provenance requires review
+    against upstream files referring to HunyuanVideo-1.5's separate
+    community agreement; Apache-only coverage is not established for
+    those portions. The confirmed MIT PRoPE adaptation is recorded below.
+    Affected local files: integrations_v2/hy_worldplay/impl/{_pose.py,_memory.py}.
+    Compare upstream hyvideo/generate.py and hyvideo/utils/retrieval_context.py
+    at the revision above. Their headers reference this separate agreement:
+    https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5/blob/60783e704160023913bee78f0b47036d393d4dfa/LICENSE
 
 diffusers              Apache-2.0   https://github.com/huggingface/diffusers
 scipy                  BSD-3-Clause https://github.com/scipy/scipy
@@ -169,6 +193,20 @@ this repository.
 ================================================================================
 Optional integration: integrations_v2/lingbot
 ================================================================================
+
+LingBot-World v1      Apache-2.0   https://github.com/Robbyant/lingbot-world
+    The v1 fast checkpoint model card also declares Apache-2.0:
+    https://huggingface.co/robbyant/lingbot-world-fast/blob/b7a1db2da9bd3ba675ee01c228f41db0309b981e/README.md
+LingBot-World v2      CC-BY-NC-SA-4.0
+    https://github.com/Robbyant/lingbot-world-v2/blob/1895d300d8ac936401689b26389f51cbd36530eb/LICENSE.txt
+    The v2 14B and 1.3B causal-fast checkpoints declare the same terms:
+    https://huggingface.co/robbyant/lingbot-world-v2-14b-causal-fast/blob/5c33dd40b213598c418fd25bff30fdbd23fd38a7/README.md
+    https://huggingface.co/robbyant/lingbot-world-v2-1.3b-causal-fast/blob/7e36a5f919f86cb4255cc9bfc30adb44963fbde1/README.md
+    Checkpoints are downloaded separately. The example-data path also
+    downloads from the v2 repository, including when using v1 presets;
+    its applicable provenance/grant must be checked separately. The v2
+    public terms require noncommercial use, attribution and share-alike
+    for shared adaptations. They do not establish commercial-use rights.
 
 aiohttp                Apache-2.0 AND MIT  https://github.com/aio-libs/aiohttp
 aiortc                 BSD-3-Clause https://github.com/aiortc/aiortc
@@ -263,5 +301,45 @@ These seven files adapt SwiftVR's encoder, transformer, decoder and streaming
 pipeline to FlashDreams. Their upstream copyrights, Apache license identifiers
 and NVIDIA modification notices remain in the files. Model weights are
 obtained separately and are not included by this source attribution.
+
+--------------------------------------------------------------------------------
+LingBot-World v1 camera helpers
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/lingbot/impl/encoder/utils.py
+License:  Apache-2.0 (see LICENSES/Apache-2.0.txt)
+Upstream: https://github.com/Robbyant/lingbot-world/blob/a43bec7f8091c83e9b30b16b912f6fc906236fa6/wan/utils/cam_utils.py
+
+Camera interpolation, SE(3), intrinsic and Plücker-ray helpers are adapted
+for FlashDreams. This is a reviewed comparison revision, not an assertion
+of the original-copy revision. The v2 model terms above do not replace
+this v1 source grant.
+
+--------------------------------------------------------------------------------
+FlashVSR decoder helpers
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/flashvsr/impl/decoder/network.py
+License:  Apache-2.0 (see LICENSES/Apache-2.0.txt)
+Upstream: https://github.com/OpenImagingLab/FlashVSR/blob/b527c6f285fb30df530f5febc8b45764a789c961/examples/WanVSR/utils/TCDecoder.py
+
+The decoder adapts TCDecoder helpers, including IdentityConv2d and decoder
+deepening. The comparison revision above is the upstream pin used by
+integrations_v2/flashvsr/tests/parity_check/run.sh. FlashDreams modifies
+these helpers for its decoder/cache interfaces.
+
+--------------------------------------------------------------------------------
+PRoPE projective positional-encoding helpers
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/hy_worldplay/impl/_prope.py
+License:  MIT upstream portions; Apache-2.0 NVIDIA modifications
+          (see LICENSES/MIT.txt and LICENSES/Apache-2.0.txt).
+          Copyright (c) Authors of "PRoPE: Projective Positional Encoding for Multiview Transformers"
+Upstream: https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/hyvideo/prope/camera_rope.py
+
+Modified for FlashDreams Q/K/V and cached attention interfaces. The full
+upstream MIT notice is retained in the file. The comparison revision is
+not asserted to be the original-copy revision.
 
 ================================================================================

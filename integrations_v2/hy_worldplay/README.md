@@ -17,6 +17,16 @@ model configuration is the `HyWorldPlayPipelineConfig` literal exported from
 The pipeline uses the HY-WorldPlay distilled checkpoint by default and keeps
 memory-selection settings on the pipeline config.
 
+## Model and upstream source licenses
+
+The downloaded checkpoint uses the
+[Tencent HY-WorldPlay Community License Agreement](https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/License.txt),
+which includes territory restrictions, commercial conditions and use rules.
+FlashDreams's Apache license does not replace that agreement. Upstream source
+also has file-specific terms; the pose and memory ports require provenance
+and rights review. The PRoPE helpers retain their MIT notice. See
+[THIRD-PARTY-NOTICES](../../THIRD-PARTY-NOTICES) for the distinctions.
+
 ## Install
 
 ```bash
