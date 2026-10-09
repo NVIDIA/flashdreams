@@ -14,7 +14,7 @@ h.	“Output” shall mean the information and/or content output of Tencent Huny
 i.	“Tencent,” “We” or “Us” shall mean the applicable entity or entities in the Tencent corporate family that own(s) intellectual property or other rights embodied in or utilized by the Materials.
 j.	“Tencent Hunyuan” shall mean the large language models, text/image/video/audio/3D generation models, and multimodal large language models and their software and algorithms, including trained model weights, parameters (including optimizer states), machine-learning model code, inference-enabling code, training-enabling code, fine-tuning enabling code and other elements of the foregoing made publicly available by Us, including, without limitation to, Tencent HunyuanVideo 1.5 released at [https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5, https://huggingface.co/tencent/HunyuanVideo-1.5].
 k.	“Tencent Hunyuan Works” shall mean: (i) the Materials; (ii) Model Derivatives; and (iii) all derivative works thereof.
-l.	“Territory” shall mean the worldwide territory, excluding the territory of the European Union, United Kingdom and South Korea. 
+l.	“Territory” shall mean the worldwide territory, excluding the territory of the European Union, United Kingdom and South Korea.
 m.	“Third Party” or “Third Parties” shall mean individuals or legal entities that are not under common control with Us or You.
 n.	“including” shall mean including but not limited to.
 2.	GRANT OF RIGHTS.
@@ -59,7 +59,7 @@ Tencent endeavors to promote safe and fair use of its tools and features, includ
 1.	Outside the Territory;
 2.	In any way that violates any applicable national, federal, state, local, international or any other law or regulation;
 3.	To harm Yourself or others;
-4.	To repurpose or distribute output from Tencent Hunyuan or any Model Derivatives to harm Yourself or others; 
+4.	To repurpose or distribute output from Tencent Hunyuan or any Model Derivatives to harm Yourself or others;
 5.	To override or circumvent the safety guardrails and safeguards We have put in place;
 6.	For the purpose of exploiting, harming or attempting to exploit or harm minors in any way;
 7.	To generate or disseminate verifiably false information and/or content with the purpose of harming others or influencing elections;

@@ -14,7 +14,7 @@ h.	“Output” shall mean the information and/or content output of Tencent HY-W
 i.	“Tencent,” “We” or “Us” shall mean the applicable entity or entities in the Tencent corporate family that own(s) intellectual property or other rights embodied in or utilized by the Materials..
 j.	“Tencent HY-WorldPlay” shall mean the 3D generation models and their software and algorithms, including trained model weights, parameters (including optimizer states), machine-learning model code, inference-enabling code, training-enabling code, fine-tuning enabling code and other elements of the foregoing made publicly available by Us at [https://github.com/Tencent-Hunyuan/HY-WorldPlay].
 k.	“Tencent HY-WorldPlay Works” shall mean: (i) the Materials; (ii) Model Derivatives; and (iii) all derivative works thereof.
-l.	“Territory” shall mean the worldwide territory, excluding the territory of the European Union, United Kingdom and South Korea. 
+l.	“Territory” shall mean the worldwide territory, excluding the territory of the European Union, United Kingdom and South Korea.
 m.	“Third Party” or “Third Parties” shall mean individuals or legal entities that are not under common control with Us or You.
 n.	“including” shall mean including but not limited to.
 2.	GRANT OF RIGHTS.
@@ -27,7 +27,7 @@ c.	You are encouraged to: (i) publish at least one technology introduction blogp
 d.	All distributions to Third Parties (other than through a Hosted Service) must be accompanied by a “Notice” text file that contains the following notice: “Tencent HY-WorldPlay is licensed under the Tencent HY-WorldPlay Community License Agreement, Copyright © 2025 Tencent. All Rights Reserved. The trademark rights of “Tencent Hunyuan” are owned by Tencent or its affiliate.”
 You may add Your own copyright statement to Your modifications and, except as set forth in this Section and in Section 5, may provide additional or different license terms and conditions for use, reproduction, or distribution of Your modifications, or for any such Model Derivatives as a whole, provided Your use, reproduction, modification, distribution, performance and display of the work otherwise complies with the terms and conditions of this Agreement (including as regards the Territory). If You receive Tencent HY-WorldPlay Works from a Licensee as part of an integrated end user product, then this Section 3 of this Agreement will not apply to You.
 4.	ADDITIONAL COMMERCIAL TERMS.
-If, on the Tencent HY-WorldPlay version release date, the monthly active users of all products or services made available by or for Licensee is greater than 1 million monthly active users in the preceding calendar month, You must request a license from Tencent, which Tencent may grant to You in its sole discretion, and You are not authorized to exercise any of the rights under this Agreement unless or until Tencent otherwise expressly grants You such rights. 
+If, on the Tencent HY-WorldPlay version release date, the monthly active users of all products or services made available by or for Licensee is greater than 1 million monthly active users in the preceding calendar month, You must request a license from Tencent, which Tencent may grant to You in its sole discretion, and You are not authorized to exercise any of the rights under this Agreement unless or until Tencent otherwise expressly grants You such rights.
 Subject to Tencent's written approval, you may request a license for the use of Tencent HY-WorldPlay by submitting the following information to hunyuan3d@tencent.com:
 a.	Your company’s name and associated business sector that plans to use Tencent HY-WorldPlay.
 b.	Your intended use case and the purpose of using Tencent HY-WorldPlay.
@@ -62,7 +62,7 @@ Tencent endeavors to promote safe and fair use of its tools and features, includ
 1.	Outside the Territory;
 2.	In any way that violates any applicable national, federal, state, local, international or any other law or regulation;
 3.	To harm Yourself or others;
-4.	To repurpose or distribute output from Tencent HY-WorldPlay or any Model Derivatives to harm Yourself or others; 
+4.	To repurpose or distribute output from Tencent HY-WorldPlay or any Model Derivatives to harm Yourself or others;
 5.	To override or circumvent the safety guardrails and safeguards We have put in place;
 6.	For the purpose of exploiting, harming or attempting to exploit or harm minors in any way;
 7.	To generate or disseminate verifiably false information and/or content with the purpose of harming others or influencing elections;
