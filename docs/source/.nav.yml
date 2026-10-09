@@ -1,0 +1,36 @@
+nav:
+  - index.md
+  - quickstart
+  - models
+  - demos
+  - Documentation:
+      - Documentation Overview: documentation/index.md
+      - CLI Reference: documentation/cli.md
+      - Demo API:
+          - Demo API Overview: documentation/demo_api/index.md
+          - Guides:
+              - Create a demo: documentation/demo_api/guides/create_demo.md
+              - Integrate a model with a demo: documentation/demo_api/guides/integrate_model.md
+              - Demo configuration: documentation/demo_api/guides/configuration.md
+              - Application slugs and dispatch: documentation/demo_api/guides/application_slugs.md
+              - Interactive serving: documentation/demo_api/guides/interactive_serving.md
+              - Local benchmarks: documentation/demo_api/guides/local_benchmarks.md
+          - API Reference:
+              - Application API: documentation/demo_api/api_reference/application.md
+      - Inferencing API:
+          - Inferencing API Overview: documentation/inferencing_api/index.md
+          - Guides:
+              - Create a model: documentation/inferencing_api/guides/create_model.md
+              - Stream inference pipeline: documentation/inferencing_api/guides/stream_inference_pipeline.md
+              - Latency tuning: documentation/inferencing_api/guides/latency_tuning.md
+              - Accelerated building blocks: documentation/inferencing_api/guides/accelerated.md
+          - API Reference:
+              - Inference Runtime API: documentation/inferencing_api/api_reference/runtime.md
+              - Pipeline API: documentation/inferencing_api/api_reference/pipeline.md
+              - Core API: documentation/inferencing_api/api_reference/core.md
+      - Tooling:
+          - Tooling Overview: documentation/tools/index.md
+          - Offline Program Packager: documentation/tools/offline_program_packager.md
+          - Build Website: documentation/tools/build_website.md
+      - Troubleshooting: troubleshooting.md
+  - community
