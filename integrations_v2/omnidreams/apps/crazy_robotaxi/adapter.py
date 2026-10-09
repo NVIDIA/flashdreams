@@ -101,6 +101,7 @@ def _preset_documentation() -> str:
     def collect(
         value: object, path: tuple[str, ...] = ()
     ) -> dict[tuple[str, ...], tuple[object, str]]:
+        assert is_dataclass(value)
         values = {}
         editable = {item.name for item, _annotation in iter_setting_fields(value, path)}
         for item in fields(value):

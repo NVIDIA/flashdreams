@@ -292,9 +292,11 @@ def test_build_and_tuning_controls_round_trip(
     for key, value in overrides.items():
         assert setting_value(reloaded.settings, tuple(key.split("."))) == value
     transformer = reloaded.settings.model.pipeline.diffusion_model.transformer
-    assert transformer.network == config.diffusion_model.transformer.network
-    assert transformer.batch_shape == config.diffusion_model.transformer.batch_shape
-    assert transformer.num_views == config.diffusion_model.transformer.num_views
+    expected_transformer = config.diffusion_model.transformer
+    assert isinstance(expected_transformer, CosmosTransformerConfig)
+    assert transformer.network == expected_transformer.network
+    assert transformer.batch_shape == expected_transformer.batch_shape
+    assert transformer.num_views == expected_transformer.num_views
 
 
 def test_pipeline_configs_are_keyed_by_name() -> None:

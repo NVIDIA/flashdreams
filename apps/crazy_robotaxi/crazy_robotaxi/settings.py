@@ -646,7 +646,7 @@ def _convert_value(
             raise SettingsError(f"{context} must be a mapping with string keys")
         raw_values = {
             name: value
-            for name, value in raw.items()
+            for name, value in cast(Mapping[str, object], raw).items()
             if (*path, name) not in _DEPRECATED_SETTING_PATHS
         }
         configurable = {

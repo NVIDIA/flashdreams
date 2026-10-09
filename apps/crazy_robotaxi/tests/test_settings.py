@@ -291,6 +291,7 @@ def test_new_dataclass_values_ignore_deprecated_settings(tmp_path: Path) -> None
         ("renderer", "raster"),
         base_dir=tmp_path,
     )
+    assert isinstance(parsed, type(raster))
     assert parsed.near_plane_m == raster.near_plane_m
     assert parsed.width == 1024
 

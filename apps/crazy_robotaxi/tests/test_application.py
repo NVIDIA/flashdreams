@@ -32,6 +32,8 @@ from crazy_robotaxi.live_edit.config import (
     LiveEditObstacleConfig,
     LiveEditStyleConfig,
     LiveEditWeatherConfig,
+    StyleSkin,
+    WeatherPreset,
 )
 from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.rules import TaxiGameSnapshot
@@ -282,7 +284,10 @@ def test_tooltip_cli_flags_change_their_settings(tmp_path: Path) -> None:
             for path in paths:
                 before = document.update(before, path, not enabled)
         elif action.dest in ("live_edit_skin_first", "live_edit_weather_first"):
-            argv.append(current[-1].name)
+            assert isinstance(current, tuple)
+            selected = current[-1]
+            assert isinstance(selected, (StyleSkin, WeatherPreset))
+            argv.append(selected.name)
         elif action.dest == "live_edit_item_types":
             argv.append("nitro")
         elif action.choices:
@@ -290,8 +295,10 @@ def test_tooltip_cli_flags_change_their_settings(tmp_path: Path) -> None:
         elif action.type is Path:
             argv.append(str(tmp_path / "override"))
         elif action.type is float:
+            assert isinstance(current, (int, float))
             argv.append(str(current + 0.1))
         elif action.type is int:
+            assert current is None or isinstance(current, int)
             argv.append(str(current + 1 if current is not None else 2))
         else:
             argv.append("cpu")
