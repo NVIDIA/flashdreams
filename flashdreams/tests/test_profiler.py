@@ -34,15 +34,21 @@ from numpy import uint64
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop
-from flashdreams.infra import profiler as profiler_module
-from flashdreams.infra.profiler import (
+from flashdreams.api_v2.profiler import IProfiler
+from flashdreams.infra import profiler as event_timer_module
+from flashdreams.runtime_v2 import profiler as profiler_module
+from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
+from flashdreams.runtime_v2.presentation_manager import PresentationManager
+from flashdreams.runtime_v2.profiler import (
     CompositeProfiler,
     CudaEventProfiler,
     FrameRateProfiler,
     InputLatencyProfiler,
-    IProfiler,
     NullProfiler,
     NVTXProfiler,
+)
+from flashdreams.runtime_v2.profiler_utils import (
     _reset_default_profiler,
     bind_inference_profiler,
     create_profiler,
@@ -50,9 +56,6 @@ from flashdreams.infra.profiler import (
     set_flashdreams_inference_profiler,
     unbind_inference_profiler,
 )
-from flashdreams.runtime_v2.event_buffer import EventBuffer
-from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
-from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -200,6 +203,7 @@ class _StubEvents:
 @pytest.fixture
 def stub_events(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(profiler_module, "EventProfiler", _StubEvents)
+    monkeypatch.setattr(event_timer_module, "EventProfiler", _StubEvents)
 
 
 def test_cuda_event_profiler_recovers_from_a_step_that_never_collected(
@@ -520,7 +524,7 @@ def test_pipeline_reports_timings_a_caller_recorded_on_the_cache(
 
     with set_flashdreams_inference_profiler(recording):
         pipeline.generate(0, cache, input=torch.tensor([[1]]))
-        cache.event_profiler = profiler_module.EventProfiler()
+        cache.event_profiler = event_timer_module.EventProfiler()
         cache.event_profiler.record("denoise")
         stats = pipeline.finalize(0, cache)
 
@@ -845,7 +849,7 @@ def test_a_pipeline_run_inside_another_keeps_both_timings(
         if inner_times_itself:  # FlashVSR: its own generate(), timed on its cache
             inner_cache.autoregressive_index = 0
             inner_cache.final_state = outer_cache.final_state
-            inner_cache.event_profiler = profiler_module.EventProfiler()
+            inner_cache.event_profiler = event_timer_module.EventProfiler()
             inner_cache.event_profiler.record("denoise")
         else:
             inner.generate(0, inner_cache, input=torch.tensor([[1]]))
@@ -946,6 +950,27 @@ def test_the_model_loop_records_its_pace_every_step() -> None:
     loop.run(steps=3)
 
     assert recording.events.count("enter:model.pace") == 3
+
+
+def test_a_session_does_not_take_its_profiler_from_the_context() -> None:
+    """A session gets its profiler from whoever creates it, never from whatever
+    happens to be bound."""
+    red_screen = pytest.importorskip("red_screen")
+    app = red_screen.create_app()
+    app.init([])
+    try:
+        with set_flashdreams_inference_profiler(_CallCounter()) as stray:
+            session = app.create_session(
+                SessionDesc(
+                    output_layout=VideoTensorLayout.bcthw,
+                    video_width=2,
+                    video_height=2,
+                )
+            )
+            assert session._profiler is not stray
+        assert isinstance(session._profiler, NullProfiler)
+    finally:
+        app.close()
 
 
 def test_the_application_runner_resets_the_profiler_it_created(

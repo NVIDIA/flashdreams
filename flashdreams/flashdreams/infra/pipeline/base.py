@@ -45,11 +45,8 @@ from flashdreams.infra.encoder import (
     StreamingEncoder,
     StreamingEncoderCacheT,
 )
-from flashdreams.infra.profiler import (
-    EventProfiler,
-    format_result_as_ms,
-    get_inference_profiler,
-)
+from flashdreams.infra.profiler import EventProfiler, format_result_as_ms
+from flashdreams.runtime_v2.profiler_utils import get_inference_profiler
 
 
 @dataclass(kw_only=True)

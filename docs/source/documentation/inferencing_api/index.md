@@ -18,7 +18,7 @@ the lower-level pipeline and model building blocks.
 - [Create a model](guides/create_model.md)
 - [Stream inference pipeline](guides/stream_inference_pipeline.md)
 - [Latency tuning](guides/latency_tuning.md)
-- [Profiling with Nsight Systems](guides/nvtx_profiling.md)
+- [Profiling a pipeline](guides/profiling.md)
 - [Accelerated building blocks](guides/accelerated.md)
 
 ## API Reference

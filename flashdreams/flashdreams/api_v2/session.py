@@ -10,12 +10,13 @@ from functools import cached_property
 from typing import Any, final
 
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
+from flashdreams.api_v2.profiler import IProfiler
 from flashdreams.core.distributed.parallel import ParallelContext
-from flashdreams.infra.profiler import IProfiler, get_inference_profiler
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
+from flashdreams.runtime_v2.profiler import NullProfiler
 from flashdreams.runtime_v2.session_desc import SessionDesc
 
 
@@ -54,15 +55,12 @@ class ISession(ABC):
         """Return this session's model frame buffer."""
         return PresentationManager()
 
-    @cached_property
-    def _profiler(self) -> IProfiler:
-        """Return the profiler this session's loops run with.
+    _profiler: IProfiler = NullProfiler()
+    """The profiler this session's loops run with.
 
-        The application runner gives it the system profiler; outside one it is
-        taken from the context. Assign before :meth:`init` to run with a
-        different one.
-        """
-        return get_inference_profiler()
+    The application runner assigns the system profiler when it creates the
+    session. Assign before :meth:`init` to run with a different one.
+    """
 
     @abstractmethod
     def init(self) -> None:

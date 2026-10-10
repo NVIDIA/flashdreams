@@ -1,5 +1,5 @@
 ---
-title: 'Profiling with Nsight Systems'
+title: 'Profiling a demo'
 ---
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 Praneeth Samineni. -->
@@ -64,3 +64,24 @@ on screen back to the step that made it.
 
 FlashVSR and SwiftVR use their own `generate` method, so their reports have no
 `pipeline.*` ranges.
+
+## Using your own profiler
+
+A session runs with the profiler the application runner creates. To use your
+own, assign it to the session before `init()`, for example in its constructor:
+
+```python
+self._profiler = MyProfiler()
+```
+
+The session's loops get it as `self.profiler`, so a model loop can record its
+own ranges and events:
+
+```python
+with self.profiler.range("my_stage"):
+    ...
+self.profiler.event("my_event")
+```
+
+To profile a pipeline on its own, see
+[Profiling a pipeline](../../inferencing_api/guides/profiling.md).
