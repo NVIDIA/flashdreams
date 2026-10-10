@@ -73,6 +73,7 @@ from crazy_robotaxi.rules import (
     project_target_pose_to_bev_edge,
 )
 from crazy_robotaxi.settings import (
+    SETTING_CLI_FLAGS,
     CrazyRobotaxiUserSettings,
     LiveEditMappingLocation,
     SettingsDocument,
@@ -84,6 +85,7 @@ from crazy_robotaxi.settings import (
     presentation_resolution_wh,
     restart_required_settings,
     setting_choices,
+    setting_description,
     setting_value,
 )
 from crazy_robotaxi.world_overlay import (
@@ -2169,6 +2171,7 @@ class TaxiHudState:
                 )
             )
             row_y = float(imgui.get_cursor_pos_y())
+            imgui.begin_group()
             imgui.set_cursor_pos_y(
                 row_y + max(0.0, (field_height - label_height) / 2.0)
             )
@@ -2227,6 +2230,10 @@ class TaxiHudState:
                     except SettingsError as exc:
                         self._options_error = str(exc)
                         changed = False
+            imgui.end_group()
+            _draw_option_tooltip(
+                imgui, setting_description(value, item), ".".join(item_path)
+            )
             if changed:
                 try:
                     self._options_draft = document.update(draft, item_path, edited)
@@ -4173,6 +4180,20 @@ def _settings_widget_content_width(
     text_width = max(_point_xy(imgui.calc_text_size(label))[0] for label in labels)
     frame_padding_x = _point_xy(imgui.get_style().frame_padding)[0]
     return text_width + 2.0 * frame_padding_x + frame_height
+
+
+def _draw_option_tooltip(imgui: Any, description: str | None, yaml_key: str) -> None:
+    """Show wrapped help, the YAML path, and available CLI flags on hover."""
+    if imgui.begin_item_tooltip():
+        imgui.push_text_wrap_pos(imgui.get_font_size() * 35.0)
+        try:
+            help_text = f"{description}\n\n" if description else ""
+            cli_flags = SETTING_CLI_FLAGS.get(yaml_key)
+            cli_help = f"\nCLI: {cli_flags}" if cli_flags else ""
+            imgui.text_unformatted(f"{help_text}YAML: {yaml_key}{cli_help}")
+        finally:
+            imgui.pop_text_wrap_pos()
+            imgui.end_tooltip()
 
 
 def _wrapped_input_text(

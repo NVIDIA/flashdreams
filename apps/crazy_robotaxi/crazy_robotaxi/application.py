@@ -49,7 +49,9 @@ from crazy_robotaxi.settings import (
     LiveEditMappingLocation,
     SettingsDocument,
     default_config_path,
+    default_settings,
     normalize_settings,
+    options_documentation,
     presentation_resolution_wh,
 )
 from crazy_robotaxi.ui import bev_display_extent
@@ -87,6 +89,8 @@ class CrazyRobotaxiApplicationDefaults:
     width: int = 1280
     height: int = 704
     pipeline_config: Any | None = None
+    preset_documentation: Callable[[], str] | None = None
+    """Optional model-owned preset guide appended to the options export."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,7 +234,29 @@ class CrazyRobotaxiApplication(IApplication):
         default_pipeline = self._pipeline_config
         if default_pipeline is None:
             raise RuntimeError("A world-model integration must provide pipeline_config")
-        args = _parser(self._application_defaults).parse_args(list(commandline_args))
+        parser = _parser(self._application_defaults)
+        args = parser.parse_args(list(commandline_args))
+        if args.export_options_docs is not None:
+            settings = default_settings(
+                default_pipeline,
+                width=self._application_defaults.width,
+                height=self._application_defaults.height,
+            )
+            documentation = options_documentation(settings)
+            documentation += (
+                f"\n## Application arguments\n\n```text\n{parser.format_help()}```\n"
+            )
+            if self._application_defaults.preset_documentation is not None:
+                documentation += (
+                    "\n" + self._application_defaults.preset_documentation()
+                )
+            try:
+                args.export_options_docs.expanduser().write_text(
+                    documentation, encoding="utf-8"
+                )
+            except OSError as exc:
+                parser.error(f"cannot export options documentation: {exc}")
+            raise SystemExit(0)
         control_documents = load_controls_documents(
             args.controls_dir or default_controls_dir()
         )
@@ -685,6 +711,12 @@ def _parser(
         description="Drive Crazy Robotaxi on an authored semantic map.",
     )
     parser.add_argument("--config", type=Path)
+    parser.add_argument(
+        "--export-options-docs",
+        type=Path,
+        metavar="PATH",
+        help="write the selected preset's options reference to Markdown and exit",
+    )
     parser.add_argument("--controls-dir", type=Path)
     parser.add_argument("--map", type=Path, default=_DEFAULT_MAP)
     parser.add_argument("--width", type=int, default=defaults.width)
@@ -699,7 +731,7 @@ def _parser(
         help=(
             "render the ImGui HUD (default). --no-ui presents raw model frames "
             "and needs no Vulkan device; requires --game-mode, --map, and "
-            "--total-blocks"
+            "--total-blocks; race mode also requires --race-course"
         ),
     )
     parser.add_argument("--device", default="cuda")

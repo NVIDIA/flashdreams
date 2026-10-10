@@ -56,6 +56,7 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
     """Token length to pad/truncate to."""
 
     dtype: torch.dtype = torch.bfloat16
+    """Parameter and activation precision of the text encoder."""
 
     embedding_concat_strategy: str = "full_concat"
     """``"full_concat"`` (default, 100352 dims, matches upstream),
@@ -76,6 +77,7 @@ class CosmosReason1TextEncoderConfig(EncoderConfig):
 
     embedding_cache_size: int = 0
     """Number of most recently encoded prompt batches whose embeddings are kept.
+    ``0`` disables caching.
 
     Game hosts re-encode the same scene prompt on every restart. With
     ``run_on_cpu`` the cache lives in host memory and hits are copied to the

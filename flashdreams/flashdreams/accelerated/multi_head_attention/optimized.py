@@ -105,7 +105,7 @@ class QuantizationOption:
     """Activation quantization granularity for the output projection."""
 
     quantized_sdpa: bool = False
-    """Use unscaled FP8 e4m3 Q/K/V in scaled-dot-product attention.
+    """Use unscaled FP8 e4m3 Q/K/V in scaled-dot-product attention; can reduce accuracy.
 
     This directly casts Q, K, and V to FP8 e4m3 before calling the configured
     SDPA backend and stores the K/V cache in that dtype. The cuDNN path requires

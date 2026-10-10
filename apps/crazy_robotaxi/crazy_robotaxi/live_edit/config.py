@@ -102,7 +102,9 @@ class LiveEditStyleConfig:
     """Global corrector gain composed with the alpha*(t) gate profile."""
 
     corrector_mode: str = "fused"
-    """Drift-corrector deploy mode. ``fused`` rides the CUDA-graph-safe
+    """Drift-corrector deploy mode: ``fused``, ``unfused``, or ``off``.
+
+    ``fused`` rides the CUDA-graph-safe
     per-state ``DriftCorrectorDispatch`` (compile_network + use_cuda_graph
     stay ON; validated 207 ms/chunk vs 203.9 no-corrector); ``unfused``
     falls back to the eager scale-gated path, which forces the graph-free
@@ -126,7 +128,9 @@ class LiveEditStyleConfig:
     """Edit-window strength marker for skin swaps. With the pre-merged edit
     LoRA deployed, any value > 1.0 (together with ``guidance_chunks`` > 0)
     opens the single-branch LoRA window; exactly 1.0 falls back to a plain
-    swap, which *deactivates* the LoRA. 2.5/20 is the validated skin
+    swap, which deactivates the LoRA.
+
+    2.5/20 is the validated skin
     deployment from the smoke harness."""
 
     guidance_chunks: int = 6
@@ -144,6 +148,7 @@ class LiveEditStyleConfig:
 
     reswap_interval_chunks: int = 8
     """Re-issue the active skin's ``replace_text`` every N generated chunks.
+    ``0`` disables the refresh.
 
     Long holds soften after ~8-10 chunks as the edit window ages out of the
     KV cache; a periodic duty-cycled re-swap keeps the style crisp. ``0``
@@ -308,13 +313,15 @@ class LiveEditWeatherConfig:
     """Whether the weather ability responds to the weather-cycle key."""
 
     guidance_scale: float = 2.5
-    """Two-prompt edit-guidance strength for weather swaps (the PR #431
-    mechanism: flow pushed along the new-minus-old text direction). 2.5/20
+    """Two-prompt edit-guidance strength for weather swaps.
+
+    The PR #431
+    mechanism pushes flow along the new-minus-old text direction. 2.5/20
     is the validated skin deployment; earlier sweeps needed 3.0 for snow,
     so this is exposed as ``--live-edit-weather-guidance``."""
 
     guidance_chunks: int = 6
-    """Number of chunks the two-prompt LANDING window stays open.
+    """Number of guided chunks after a weather swap; each costs about twice model time.
 
     TRANSIENT COST: weather has no LoRA, so every denoise step inside this
     window runs a second network forward — a swap costs ~2x per chunk for
@@ -327,6 +334,7 @@ class LiveEditWeatherConfig:
 
     maintain_interval_chunks: int = 0
     """Re-open a short guidance window every N chunks while weather holds.
+    ``0`` disables maintenance pulses.
 
     ``0`` (default) holds with no guidance at all — the validated
     land-then-release policy. A positive interval issues a maintenance
@@ -350,7 +358,9 @@ class LiveEditWeatherConfig:
 
     corrector_gain: float = 0.0
     """Absolute style-drift-corrector gain while weather is active. ``0``
-    (default) keeps the corrector off during weather — policy decision
+    (default) keeps the corrector off during weather.
+
+    Policy decision
     2026-08-23: the clean-forcing corrector runs ONLY for game-skin states
     (0.15), base and weather states stay uncorrected. A/B note: 0.10
     measured slightly crisper late-run under long weather holds, so the knob
@@ -362,7 +372,9 @@ class LiveEditWeatherConfig:
 
     weathers: tuple[WeatherPreset, ...] = _DEFAULT_WEATHERS
     """Selectable weathers, cycled clear -> rain -> snow -> storm ->
-    hurricane -> clear by default; :func:`weathers_starting_with` rotates the order for direct
+    hurricane -> clear by default.
+
+    :func:`weathers_starting_with` rotates the order for direct
     one-press selection."""
 
     def __post_init__(self) -> None:
@@ -437,13 +449,15 @@ class LiveEditObstacleConfig:
 
     static_count: int = 0
     """Static roadblock cars placed ahead of the spawn pose from the first
-    chunk and retained until reset. Slots start
+    chunk and retained until reset. ``0`` disables.
+
+    Slots start
     ``static_ahead_m`` out, ``spacing_m`` apart, laterals alternating
     right/left by ``static_lateral_m`` so the ego can weave between them.
     In visual mode, pair with ``guide_scale`` ~2.0: unguided static
     boxes can render at ghost strength when the initial camera frame shows
     the road empty, while s=2.0 materializes solid
-    stopped cars in the 5-25 m band. ``0`` disables."""
+    stopped cars in the 5-25 m band."""
 
     static_ahead_m: float = 28.0
     """Meters ahead of the spawn pose where the first static car sits
@@ -455,7 +469,10 @@ class LiveEditObstacleConfig:
     guide_scale: float = 0.0
     """Box-axis guidance strength (flow extrapolated along the
     with-box/without-box conditioning direction). ``0`` disables the
-    guidance hook entirely (the event may render at ghost strength); ``2.0``
+    guidance hook entirely (the event may render at ghost strength).
+    Guided event chunks cost about twice model time. Unsupported by the native DiT executor.
+
+    ``2.0``
     is the validated in-game operating point (solid vehicle, in-box |diff| ~18 vs
     ~7 unguided, out-box clean; ``3.0`` breaks up at near range).
     CUDA-graph safe (2026-08-21): during an event each denoise step replays
@@ -527,6 +544,7 @@ class LiveEditCoinsConfig:
 
     max_visible_sprites: int = 64
     """Composite at most this many coins per frame, keeping the nearest.
+    ``0`` disables the cap.
 
     Dense courses put hundreds of coins inside the render radius (the
     shipped suburb course peaks at 211), and the compositor's per-frame

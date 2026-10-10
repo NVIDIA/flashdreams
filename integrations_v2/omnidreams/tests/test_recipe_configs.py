@@ -3,13 +3,26 @@
 
 """CPU-safe configuration and application binding checks for OmniDreams."""
 
+import re
+from collections import Counter
 from collections.abc import Callable
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 import tomli as tomllib
 from crazy_robotaxi.application import CrazyRobotaxiApplication
+from crazy_robotaxi.settings import (
+    SETTING_CLI_FLAGS,
+    SettingsDocument,
+    SettingsError,
+    default_settings,
+    iter_setting_fields,
+    options_documentation,
+    setting_description,
+    setting_value,
+)
 from interactive_drive import InteractiveDriveApplication, InteractiveDriveConfig
 from omnidreams.apps.crazy_robotaxi.adapter import (
     OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS,
@@ -69,6 +82,221 @@ from omnidreams.impl.vae_native import OmnidreamsWanVAEEncoderConfig
 from flashdreams.api_v2.application import IApplication
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_options_export_includes_current_preset_comparisons(tmp_path: Path) -> None:
+    def unexpected(*args: object, **kwargs: object) -> object:
+        pytest.fail("Preset documentation export attempted model or scene preparation")
+
+    app = CrazyRobotaxiApplication(
+        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS,
+        pipeline_factory=unexpected,
+        scene_factory=cast(Any, unexpected),
+        native_preparer=unexpected,
+    )
+    output = tmp_path / "options.md"
+    with pytest.raises(SystemExit) as error:
+        app.init(["--export-options-docs", str(output)])
+
+    assert error.value.code == 0
+    reference = output.read_text()
+    guide = reference.split("## OmniDreams runner presets\n", 1)[1]
+    project = Path(__file__).parents[1] / "pyproject.toml"
+    registry = tomllib.loads(project.read_text())["project"]["entry-points"][
+        "flashdreams.applications_v2"
+    ]
+    overview = guide.split("### Standard and shared values", 1)[0]
+    runners = re.findall(r"^\| `(crazy-robotaxi[^`]+)` \|", overview, re.M)
+    assert set(runners) == {
+        slug for slug in registry if slug.startswith("crazy-robotaxi-")
+    }
+    assert len(runners) == 12
+    assert "1280 × 704" in overview
+    assert "1024 × 560" in overview
+
+    perf = guide.split("### `crazy-robotaxi-omnidreams-perf`\n", 1)[1].split("###", 1)[
+        0
+    ]
+    assert "`[1000, 500]` | `[1000, 100]`" in perf
+    assert "`disabled` | `required`" in perf
+    fast = guide.split("### `crazy-robotaxi-omnidreams-fast-perf`\n", 1)[1].split(
+        "###", 1
+    )[0]
+    assert "`model.pipeline.diffusion_model.seed`" in fast
+    assert "`42` | `null`" in fast
+    assert "`bfloat16` | `float16`" in fast
+    assert "`model.pipeline.image_encoder.native_vae_backend` | Preset-owned" in guide
+    assert "32 GB VRAM" in guide
+    assert "inactive" in guide
+    assert "schema_version: 1" in guide
+    assert app._config is None
+
+
+@pytest.mark.parametrize(
+    "config", OMNIDREAMS_CONFIGS.values(), ids=OMNIDREAMS_CONFIGS.keys()
+)
+def test_exported_options_match_the_menu(
+    config: OmnidreamsPipelineConfig,
+) -> None:
+    settings = default_settings(config, width=1280, height=704)
+    documented: Counter[tuple[str, str, str, str]] = Counter()
+    owners: dict[tuple[str, str], str] = {}
+    heading = ""
+    for line in options_documentation(settings).splitlines():
+        if line.startswith("#"):
+            heading = line.lstrip("# ")
+        if not line.startswith("| **"):
+            continue
+        columns = re.split(r"(?<!\\)\|", line)[1:-1]
+        assert len(columns) == 5
+        label = columns[0].strip().replace("**", "")
+        yaml_key = columns[1].strip().replace("`", "")
+        description = columns[-1].strip().replace("\\|", "|")
+        cli_flags = columns[3].strip().replace("`", "")
+        documented[label, yaml_key, description, cli_flags] += 1
+        owners[heading, label] = columns[2].strip()
+    assert documented
+
+    descriptions: Counter[tuple[str, str, str, str]] = Counter()
+
+    def collect(value: object, path: tuple[str, ...] = ()) -> None:
+        for item, _annotation in iter_setting_fields(value, path):
+            current = getattr(value, item.name)
+            item_path = (*path, item.name)
+            if is_dataclass(current) and not isinstance(current, type):
+                collect(current, item_path)
+            else:
+                description = setting_description(value, item)
+                assert description, item_path
+                label = f"{item.name.replace('_', ' ').title()}:"
+                yaml_key = ".".join(item_path)
+                cli_flags = SETTING_CLI_FLAGS.get(yaml_key, "—")
+                descriptions[label, yaml_key, description, cli_flags] += 1
+
+    collect(settings)
+    assert descriptions == documented
+    assert owners["GAME", "Gamepad Button Style:"] == "Crazy Robotaxi"
+    assert owners["GAME → TAXI → VEHICLE", "Max Speed Mps:"] == "Game engine"
+    assert owners["MODEL → PIPELINE → DIFFUSION MODEL", "Seed:"] == "FlashDreams"
+    assert (
+        owners["MODEL → PIPELINE → IMAGE ENCODER", "Native Vae Acceleration:"]
+        == "OmniDreams"
+    )
+
+
+def test_noise_option_reuses_its_existing_field_docstring() -> None:
+    config = OMNIDREAMS_PIPELINE_CONFIG.diffusion_model
+    item = next(
+        item for item in fields(config) if item.name == "noise_in_unpatchified_shape"
+    )
+    assert "description" not in item.metadata
+    assert setting_description(config, item) == (
+        "Debug-only: draw the initial noise in the unpatchified shape, then patchify. "
+        "Slower than the default patchified path; useful when matching another "
+        "implementation's RNG sequence."
+    )
+
+
+@pytest.mark.parametrize(
+    "key",
+    (
+        "synthetic_text_max_length",
+        "diffusion_model.transformer.batch_shape",
+        "diffusion_model.transformer.num_views",
+        "diffusion_model.transformer.network.model_channels",
+        "diffusion_model.transformer.network.enable_cross_view_attn",
+        "diffusion_model.transformer.state_dict_transform",
+        "text_encoder.embedding_concat_strategy",
+        "text_encoder.n_layers_per_group",
+        "image_encoder.z_dim",
+        "image_encoder.native_vae_backend",
+        "image_encoder.state_dict_transform",
+        "encoder.latent_std",
+        "encoder.native_vae_backend",
+        "encoder.state_dict_transform",
+    ),
+)
+def test_preset_owned_model_fields_are_not_user_overrides(
+    tmp_path: Path, key: str
+) -> None:
+    path = tmp_path / "config.yaml"
+    document = SettingsDocument.load(
+        path, pipeline_config=OMNIDREAMS_PIPELINE_CONFIG, width=1280, height=704
+    )
+    names = ("model", "pipeline", *key.split("."))
+    with pytest.raises(SettingsError, match="is not configurable"):
+        document.update(document.settings, names, None)
+
+    yaml = "\n".join(
+        f"{'  ' * depth}{name}:" + (" null" if depth == len(names) - 1 else "")
+        for depth, name in enumerate(names)
+    )
+    path.write_text(yaml + "\n", encoding="utf-8")
+    if names[-1] == "state_dict_transform":
+        with pytest.raises(
+            SettingsError,
+            match=re.escape(f"{'.'.join(names[:-1])} has unknown keys: {names[-1]}"),
+        ):
+            SettingsDocument.load(
+                path, pipeline_config=OMNIDREAMS_PIPELINE_CONFIG, width=1280, height=704
+            )
+    else:
+        loaded = SettingsDocument.load(
+            path, pipeline_config=OMNIDREAMS_PIPELINE_CONFIG, width=1280, height=704
+        )
+        assert setting_value(loaded.settings, names) == setting_value(
+            document.defaults, names
+        )
+        loaded.save(loaded.settings)
+        assert "model:" not in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "config", OMNIDREAMS_CONFIGS.values(), ids=OMNIDREAMS_CONFIGS.keys()
+)
+def test_build_and_tuning_controls_round_trip(
+    tmp_path: Path, config: OmnidreamsPipelineConfig
+) -> None:
+    path = tmp_path / "config.yaml"
+    document = SettingsDocument.load(
+        path, pipeline_config=config, width=1280, height=704
+    )
+    overrides = {
+        "model.pipeline.diffusion_model.transformer.window_size_t": 8,
+        "model.pipeline.diffusion_model.scheduler.shift": 3.5,
+        "game.taxi.vehicle.max_speed_mps": 25.0,
+        "game.taxi.rules.global_time_s": 90.0,
+    }
+    for component, prefix in (
+        ("diffusion_model.transformer", "native_dit"),
+        ("image_encoder", "native_vae"),
+        ("encoder", "native_vae"),
+    ):
+        overrides.update(
+            {
+                f"model.pipeline.{component}.{prefix}_build_root": str(
+                    tmp_path / component
+                ),
+                f"model.pipeline.{component}.{prefix}_max_jobs": 2,
+                f"model.pipeline.{component}.{prefix}_verbose_build": True,
+            }
+        )
+    draft = document.settings
+    for key, value in overrides.items():
+        draft = document.update(draft, tuple(key.split(".")), value)
+    document.save(draft)
+
+    reloaded = SettingsDocument.load(
+        path, pipeline_config=config, width=1280, height=704
+    )
+    for key, value in overrides.items():
+        assert setting_value(reloaded.settings, tuple(key.split("."))) == value
+    transformer = reloaded.settings.model.pipeline.diffusion_model.transformer
+    expected_transformer = config.diffusion_model.transformer
+    assert isinstance(expected_transformer, CosmosTransformerConfig)
+    assert transformer.network == expected_transformer.network
+    assert transformer.batch_shape == expected_transformer.batch_shape
+    assert transformer.num_views == expected_transformer.num_views
 
 
 def test_pipeline_configs_are_keyed_by_name() -> None:
