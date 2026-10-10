@@ -18,12 +18,12 @@
 import pytest
 import torch
 import torch.nn.functional as F
-
 from flashdreams.accelerated.common.non_persistent_linear import (
     NonPersistentLinear,
 )
 from flashdreams.accelerated.quantization.linear import (
     QuantizedNonPersistentLinear,
+    TorchaoNonPersistentLinear,
     WeightGranularity,
 )
 from flashdreams.accelerated.quantization.quantizer import (
@@ -33,6 +33,52 @@ from flashdreams.accelerated.quantization.quantizer import (
 )
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_torchao_staging_and_explicit_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep ordinary configs and CPU/meta staging independent of torchao."""
+    import builtins
+
+    from flashdreams.accelerated.multi_head_attention.optimized import (
+        QuantizationOption,
+    )
+
+    original_import = builtins.__import__
+
+    def without_torchao(name, *args, **kwargs):
+        if name.startswith("torchao"):
+            raise AssertionError("CPU staging must not import torchao")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_torchao)
+    assert QuantizationOption().output_projection_backend == "flashdreams"
+    assert (
+        QuantizationOption(output_projection_backend="torchao").output_projection
+        is None
+    )
+    for device in ("cpu", "meta"):
+        source = torch.eye(32, device=device)
+        layer = TorchaoNonPersistentLinear(source, None).bfloat16()
+        assert layer.state_dict() == {}
+        assert list(layer.parameters()) == []
+        assert not layer._prepared
+        assert layer.source_weight.dtype is torch.bfloat16
+        with pytest.raises(RuntimeError, match="CUDA in BF16"):
+            layer(torch.ones(2, 32, device=device, dtype=torch.bfloat16))
+    with pytest.raises(ValueError, match="divisible by 16"):
+        TorchaoNonPersistentLinear(torch.ones(17, 32), None)
+    with pytest.raises(ValueError, match="E4M3 and SLICE"):
+        QuantizationOption(
+            output_projection=torch.int8, output_projection_backend="torchao"
+        )
+    with pytest.raises(ValueError, match="E4M3 and SLICE"):
+        QuantizationOption(
+            output_projection=torch.float8_e4m3fn,
+            output_granularity=Granularity.TENSOR,
+            output_projection_backend="torchao",
+        )
+    with pytest.raises(ValueError, match="unsupported output projection backend"):
+        QuantizationOption(output_projection_backend="unknown")  # ty:ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("dtype", DTYPE_MAX)

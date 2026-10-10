@@ -21,10 +21,6 @@ from typing import Any
 
 import pytest
 import torch
-from torch import Tensor
-from torch.nn.attention.flex_attention import create_block_mask
-
-import flashdreams.accelerated.multi_head_attention.optimized as optimized
 from flashdreams.accelerated.multi_head_attention import (
     AttentionConfig,
     AttentionType,
@@ -32,6 +28,7 @@ from flashdreams.accelerated.multi_head_attention import (
     RoPEConfig,
     RoPEScope,
     RoPEStyle,
+    optimized,
 )
 from flashdreams.accelerated.multi_head_attention.cudnn import native_cudnn_fp8_sdpa
 from flashdreams.accelerated.multi_head_attention.optimized import (
@@ -43,11 +40,16 @@ from flashdreams.accelerated.multi_head_attention.optimized import (
     SDPABackend,
 )
 from flashdreams.accelerated.multi_head_attention.torch import TorchMultiHeadAttention
-from flashdreams.accelerated.quantization.linear import QuantizedNonPersistentLinear
+from flashdreams.accelerated.quantization.linear import (
+    QuantizedNonPersistentLinear,
+    TorchaoNonPersistentLinear,
+)
 from flashdreams.accelerated.quantization.quantizer import (
     DTYPE_MAX,
 )
 from flashdreams.core.attention import BlockKVCache
+from torch import Tensor
+from torch.nn.attention.flex_attention import create_block_mask
 
 pytestmark = pytest.mark.ci_gpu
 
@@ -894,3 +896,118 @@ def test_native_cudnn_fp8_sdpa_replays_inside_cuda_graph(
     graph.replay()
     torch.cuda.synchronize()
     torch.testing.assert_close(output, torch.zeros_like(output))
+
+
+@torch.inference_mode()
+@pytest.mark.parametrize("use_bias", (False, True))
+def test_torchao_output_projection_lifecycle(use_bias: bool) -> None:
+    """Rebuild FP8 buffers on load/move and explicitly recapture changed weights."""
+    pytest.importorskip("torchao")
+    from torchao.quantization import Float8Tensor
+
+    if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (9, 0):
+        pytest.skip("rowwise FP8 requires SM90+")
+    from flashdreams.infra.cuda_graph import CUDAGraphWrapper
+
+    torch.manual_seed(42)
+    config = AttentionConfig(query_dim=128, n_heads=2, head_dim=64)
+    policy = OptimizedImplConfig(
+        quantization=QuantizationOption(
+            output_projection=torch.float8_e4m3fn, output_projection_backend="torchao"
+        )
+    )
+    owner = _OptimizedMHA(AttentionType.SELF_ATTENTION, config, policy)
+    if not use_bias:
+        owner.output_proj = torch.nn.Linear(128, 128, bias=False)
+    source_state = {k: v.detach().clone() for k, v in owner.state_dict().items()}
+    # Exercise both common staging orders without quantizing FP32 intermediates.
+    owner.cuda().bfloat16()
+    layer = owner.quantized_output_projection
+    assert isinstance(layer, TorchaoNonPersistentLinear)
+    assert isinstance(layer.weight, Float8Tensor)
+    assert layer.weight.qdata.dtype is torch.float8_e4m3fn
+    assert layer.state_dict() == {} and list(layer.parameters()) == []
+    assert set(owner.state_dict()) == set(source_state)
+    assert layer.source_weight.data_ptr() == owner.output_proj.weight.data_ptr()
+    x = torch.randn(2, 16, 128, device="cuda", dtype=torch.bfloat16)
+    expected = owner.output_proj(x)
+    actual = owner._project_output(x)
+    assert (actual.float() - expected.float()).norm() / expected.float().norm() < 0.125
+    with pytest.raises(ValueError, match="zero/underflow weight rows"):
+        TorchaoNonPersistentLinear(
+            torch.zeros(32, 32, device="cuda", dtype=torch.bfloat16), None
+        )
+    zero = torch.zeros_like(x)
+    torch.testing.assert_close(
+        owner._project_output(zero), owner.output_proj(zero), rtol=0, atol=0
+    )
+    with pytest.raises(ValueError, match="BF16"):
+        layer(x.float())
+    with pytest.raises(ValueError, match="width"):
+        layer(x[..., :127])
+
+    graph = CUDAGraphWrapper(owner._project_output, warmup_iters=2)
+    for _ in range(4):
+        retained = graph(x)
+    retained_copy = retained.clone()
+    graph(x * 2)
+    torch.testing.assert_close(retained, retained_copy, rtol=0, atol=0)
+    changed_shape = x[:, :8].contiguous()
+    for _ in range(4):
+        changed = graph(changed_shape)
+    torch.testing.assert_close(changed, owner._project_output(changed_shape))
+
+    graph.reset()
+    new_state = {k: v.clone() for k, v in source_state.items()}
+    new_state["output_proj.weight"].mul_(0.5)
+    owner.load_state_dict(new_state, strict=True)
+    for _ in range(4):
+        reloaded = graph(x)
+    torch.testing.assert_close(reloaded, owner._project_output(x))
+    assert not torch.equal(reloaded, actual)
+
+    replica = _OptimizedMHA(AttentionType.SELF_ATTENTION, config, policy)
+    if not use_bias:
+        replica.output_proj = torch.nn.Linear(128, 128, bias=False)
+    import io
+
+    checkpoint = io.BytesIO()
+    torch.save(owner.state_dict(), checkpoint)
+    checkpoint.seek(0)
+    replica.load_state_dict(
+        torch.load(checkpoint, map_location="cpu", weights_only=True),
+        strict=True,
+        assign=True,
+    )
+    replica.cpu().bfloat16().cuda()
+    torch.testing.assert_close(replica._project_output(x), reloaded, rtol=0, atol=0)
+    replica.optimized_impl_config = OptimizedImplConfig(
+        quantization=QuantizationOption(
+            output_projection_backend="torchao", output_projection=None
+        )
+    )
+    replica._refresh_derived_weights()
+    assert replica.quantized_output_projection is None
+    torch.testing.assert_close(
+        replica._project_output(x), replica.output_proj(x), rtol=0, atol=0
+    )
+
+
+@torch.inference_mode()
+def test_torchao_missing_dependency_is_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Diagnose an absent optional package before compiling or capturing."""
+    import importlib.metadata
+
+    if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (9, 0):
+        pytest.skip("rowwise FP8 requires SM90+")
+
+    def missing(name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", missing)
+    with pytest.raises(ImportError, match="output_projection=None"):
+        TorchaoNonPersistentLinear(
+            torch.eye(32, device="cuda", dtype=torch.bfloat16), None
+        )

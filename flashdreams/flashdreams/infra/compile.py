@@ -130,6 +130,7 @@ def compile_module(
     *,
     mode: CompileMode = "max-autotune-no-cudagraphs",
     dynamic: bool | None = None,
+    options: dict[str, Any] | None = None,
 ) -> M:
     """``torch.compile`` returning the same static type as ``module``.
 
@@ -141,6 +142,8 @@ def compile_module(
         module: ``nn.Module`` to compile.
         mode: One of the four ``torch.compile`` modes; see :data:`CompileMode`.
         dynamic: Dynamic-shape policy forwarded to ``torch.compile``.
+        options: Per-call Inductor options overriding the selected mode. Neither
+            the supplied dictionary nor global numerical settings are modified.
 
     Returns:
         The compiled module, statically typed as the same ``M`` so attribute
@@ -148,4 +151,10 @@ def compile_module(
     """
     _configure_inductor_cache()
     _patch_triton_bundle_collection()
+    if options is not None:
+        from torch._inductor import list_mode_options
+
+        merged_options = dict(list_mode_options(mode, dynamic))
+        merged_options.update(options)
+        return cast(M, torch.compile(module, options=merged_options, dynamic=dynamic))
     return cast(M, torch.compile(module, mode=mode, dynamic=dynamic))
