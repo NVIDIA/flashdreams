@@ -21,6 +21,8 @@ exclude = [
 [tool.uv]
 managed = true
 required-version = ">=0.11.8"
+# pyOpenSSL 26.4 supports the cryptography 50 security floor below.
+constraint-dependencies = ["pyopenssl>=26.4.0"]
 override-dependencies = [
     "nvidia-cublas>=13.4",
     # Temporary cap for mediapy 1.2.6: numpy 2.5 makes npt.NDArray a PEP 695

@@ -7,6 +7,7 @@
 
 import asyncio
 import json
+import sys
 import time
 from dataclasses import replace
 from typing import Any, cast
@@ -118,6 +119,72 @@ async def _connect_browser(
     )
     await asyncio.wait_for(channel_opened.wait(), timeout=5)
     return peer, channel, video_track
+
+
+def test_server_checks_json_before_ignoring_events_without_a_session() -> None:
+    server = webrtc_server.WebRTCServer()
+    callback = Mock()
+    server.register_input_callback(callback)
+    for message in (b"{}", "{", "[]"):
+        with pytest.raises(ValueError):
+            server._buffer_browser_message(message)
+    server._buffer_browser_message('{"type": "mouse", "action": []}')
+    server._buffer_browser_message('{"type": "close"}')
+    callback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_invalid_browser_events_report_errors_and_allow_later_input() -> None:
+    window = WebRTCClientWindow()
+    peer: RTCPeerConnection | None = None
+    try:
+        window.open(_session_desc())
+        peer, channel, _ = await _connect_browser(window)
+        errors: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+
+        @channel.on("message")
+        def on_message(message: str) -> None:
+            payload = json.loads(message)
+            if payload.get("type") == "error":
+                errors.put_nowait(payload)
+
+        # Exceed both the Python and C JSON decoder recursion limits.
+        depth = max(10_000, sys.getrecursionlimit() + 1)
+        for message, expected in (
+            (
+                json.dumps({"type": "mouse", "action": []}),
+                "Mouse event action must be 'move', 'button', or 'wheel'.",
+            ),
+            (
+                json.dumps({"type": "mouse", "action": "move", "x": 10**400, "y": 0}),
+                "Mouse x must be finite.",
+            ),
+            (
+                '{"type":"close","extra":' + "[" * depth + "0" + "]" * depth + "}",
+                "Browser event nesting is too deep.",
+            ),
+        ):
+            channel.send(message)
+            assert await asyncio.wait_for(errors.get(), timeout=5) == {
+                "type": "error",
+                "message": expected,
+            }
+            assert window.get_user_input_events().get_events() == []
+
+        channel.send(json.dumps({"type": "keyboard", "key": "w", "pressed": True}))
+        events = []
+        for _ in range(100):
+            events.extend(window.get_user_input_events().get_events())
+            if events:
+                break
+            await asyncio.sleep(0.01)
+        assert len(events) == 1
+        assert isinstance(events[0], KeyboardUserInputEvent)
+        assert (events[0].key, events[0].state) == ("w", KeyboardInputState.PRESSED)
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
 
 
 @pytest.mark.asyncio
