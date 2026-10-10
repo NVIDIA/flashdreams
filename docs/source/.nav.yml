@@ -15,6 +15,7 @@ nav:
               - Application slugs and dispatch: documentation/demo_api/guides/application_slugs.md
               - Interactive serving: documentation/demo_api/guides/interactive_serving.md
               - Local benchmarks: documentation/demo_api/guides/local_benchmarks.md
+              - Profiling a demo: documentation/demo_api/guides/profiling.md
           - API Reference:
               - Application API: documentation/demo_api/api_reference/application.md
       - Inferencing API:
@@ -23,7 +24,7 @@ nav:
               - Create a model: documentation/inferencing_api/guides/create_model.md
               - Stream inference pipeline: documentation/inferencing_api/guides/stream_inference_pipeline.md
               - Latency tuning: documentation/inferencing_api/guides/latency_tuning.md
-              - Profiling with Nsight Systems: documentation/inferencing_api/guides/nvtx_profiling.md
+              - Profiling a pipeline: documentation/inferencing_api/guides/profiling.md
               - Accelerated building blocks: documentation/inferencing_api/guides/accelerated.md
           - API Reference:
               - Inference Runtime API: documentation/inferencing_api/api_reference/runtime.md

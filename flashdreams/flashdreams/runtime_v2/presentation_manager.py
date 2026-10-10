@@ -13,8 +13,9 @@ from contextlib import contextmanager
 import torch
 from torch import Tensor
 
-from flashdreams.infra.profiler import IProfiler, NullProfiler
+from flashdreams.api_v2.profiler import IProfiler
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
+from flashdreams.runtime_v2.profiler import NullProfiler
 from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateTracker
 from flashdreams.runtime_v2.session_desc import BackpressureMode
 from flashdreams.runtime_v2.step_result import StepResult

@@ -18,8 +18,8 @@ from flashdreams.api_v2.loop import (
     ModelInferenceState,
     UILoopRequests,
 )
+from flashdreams.api_v2.profiler import IProfiler
 from flashdreams.api_v2.session import ISession
-from flashdreams.infra.profiler import IProfiler
 from flashdreams.runtime_v2.coordination import StepAgreement
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink

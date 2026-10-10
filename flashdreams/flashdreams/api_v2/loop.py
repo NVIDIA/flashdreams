@@ -17,13 +17,13 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, final
 import torch
 from torch import Tensor
 
-from flashdreams.infra.profiler import (
-    IProfiler,
-    NullProfiler,
+from flashdreams.api_v2.profiler import IProfiler
+from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.profiler import NullProfiler
+from flashdreams.runtime_v2.profiler_utils import (
     bind_inference_profiler,
     unbind_inference_profiler,
 )
-from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
