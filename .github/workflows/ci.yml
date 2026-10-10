@@ -239,44 +239,6 @@ jobs:
           echo "=== Cached built wheels (sdists-v9) ==="
           find "${cache_dir}/sdists-v9" -name "*.whl" -exec ls -lh {} \; 2>/dev/null || true
 
-  # ===========================================================================
-  # Publish to PyPI -- runs only on main after cpu + gpu jobs pass.
-  # ===========================================================================
-  publish-pypi:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [cpu, gpu]
-    runs-on: linux-amd64-cpu8
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-
-      - name: Build wheel
-        run: uv build --wheel --package flashdreams
-
-      - name: Previously published check
-        id: previously_published
-        run: |
-          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' flashdreams/flashdreams/_version.py)
-          echo "version=$version"
-          if curl -sSf "https://pypi.org/simple/flashdreams/" \
-             | grep -q "flashdreams-${version}-"; then
-            echo "Version $version already exists on PyPI -- skipping publish"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Version $version not found on PyPI -- will publish"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Publish to PyPI
-        if: steps.previously_published.outputs.skip != 'true'
-        run: >
-          uv publish
-          --publish-url https://upload.pypi.org/legacy/
-          --check-url https://pypi.org/simple/
-          --token ${{ secrets.PYPI_API_TOKEN }}
-          dist/*
+  # PyPI publication is intentionally disabled. Release wheels must pass the
+  # qualified malware-scanning process before the exact scanned artifact is
+  # published. The cpu job above retains the ordinary wheel-build smoke test.

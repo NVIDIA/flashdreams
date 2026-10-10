@@ -1292,12 +1292,18 @@ class WanVAEEncoderConfig(EncoderConfig):
     )
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
+    """Checkpoint for the Wan VAE encoder."""
+
     dtype: torch.dtype = torch.bfloat16
+    """Parameter and activation precision of the Wan VAE encoder."""
+
     use_cuda_graph: bool = True
     """Wrap the encoder forward in a CUDA graph for replay."""
 
     use_compile: bool = False
-    """``torch.compile(mode="max-autotune-no-cudagraphs")``. Off by default:
+    """Compile the encoder with ``torch.compile``; can increase peak VRAM usage.
+
+    Uses ``mode="max-autotune-no-cudagraphs"``. Off by default:
     Inductor autotune workspaces can add several GiB of transient VRAM per
     unique input shape, surfacing as 'illegal memory access' on smaller GPUs
     with the full-channel ``vae`` checkpoint."""

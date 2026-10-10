@@ -14,7 +14,7 @@ on a first frame that its prompt belongs to, so it is compared against runs of
 itself rather than against the text-to-video clips.
 
 The v1 demo suites that run through `flashdreams-run` are a separate workflow,
-in [the local benchmarks guide](../../../docs/source/developer_guides/local_benchmarks.rst).
+in [the local benchmarks guide](../../../docs/source/documentation/demo_api/guides/local_benchmarks.md).
 
 ## Set up
 
