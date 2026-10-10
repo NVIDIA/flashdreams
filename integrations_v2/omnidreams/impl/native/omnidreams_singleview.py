@@ -552,13 +552,12 @@ def _scoped_cuda_arch_list(cuda_arch_list: str | None) -> Iterator[None]:
             os.environ[_PYTORCH_CUDA_ARCH_LIST_ENV] = previous
 
 
-def _load_prebuilt_extension(sage3_disabled: bool) -> ModuleType:
+def _load_prebuilt_extension() -> ModuleType:
     """Load the extension prepared in an offline bundle without build sources."""
     build_root = Path(os.environ["TORCH_EXTENSIONS_DIR"]) / "torch_extensions"
-    prefix = f"omnidreams_singleview_native_sage3_{int(not sage3_disabled)}_"
     binaries = [
         (directory.name, binary)
-        for directory in build_root.glob(f"{prefix}*")
+        for directory in build_root.glob("omnidreams_singleview_native_sage3_*")
         for suffix in importlib.machinery.EXTENSION_SUFFIXES
         if (binary := directory / f"{directory.name}{suffix}").is_file()
     ]
@@ -608,7 +607,7 @@ def load_extension(
 
         try:
             if getattr(sys, "frozen", False):
-                _extension[extension_key] = _load_prebuilt_extension(sage3_disabled)
+                _extension[extension_key] = _load_prebuilt_extension()
                 return _extension[extension_key]
             _ensure_windows_cuda13_toolkit()
 

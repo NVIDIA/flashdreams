@@ -517,8 +517,6 @@ def _launcher_source(
             # those binaries because rebuilding would require a target-side compiler.
             from torch.utils import cpp_extension
 
-            original_cpp_extension_load = cpp_extension.load
-
             def load_cpp_extension(name, *args, **kwargs):
                 extension_dir = Path(os.environ["TORCH_EXTENSIONS_DIR"]) / name
                 if kwargs.get("is_python_module", True):
@@ -533,7 +531,10 @@ def _launcher_source(
                         spec.loader.exec_module(module)
                         sys.modules[name] = module
                         return module
-                return original_cpp_extension_load(name, *args, **kwargs)
+                raise RuntimeError(
+                    f"Preloaded native extension {{name!r}} is missing from "
+                    f"{{extension_dir}}; rebuild the offline bundle."
+                )
 
             cpp_extension.load = load_cpp_extension
 
@@ -633,8 +634,8 @@ def _bundle_readme_source(slug: str) -> str:
         | `{executable}` | 2 | One process extracts and later cleans up the runtime; the other hosts the model loop and client-window UI. |
 
         `python`, `cmake`, and `ninja` processes are not expected during normal runtime;
-        Python and validated native extensions are contained in this bundle. Ninja
-        is included if a native extension needs to rebuild.
+        Python and validated native extensions are contained in this bundle.
+        If a prebuilt extension is missing, rebuild the bundle on the packaging host.
 
         ## Bundle root contents
 

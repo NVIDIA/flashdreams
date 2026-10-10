@@ -60,16 +60,16 @@ def _preflight_hf_cache(
 
 
 def _hf_cache_filename(filename: str, subfolder: str | None) -> str:
-    return f"{subfolder.rstrip('/')}/{filename}" if subfolder else filename
+    return os.path.join(*subfolder.split("/"), filename) if subfolder else filename
 
 
-def _is_hf_file_cached(
+def _cached_hf_file_path(
     *,
     repo_id: str,
     filename: str,
     subfolder: str | None,
     revision: str,
-) -> bool:
+) -> str | None:
     try:
         cached = try_to_load_from_cache(
             repo_id=repo_id,
@@ -77,8 +77,8 @@ def _is_hf_file_cached(
             revision=revision,
         )
     except Exception:
-        return False
-    return isinstance(cached, str) and os.path.exists(cached)
+        return None
+    return cached if isinstance(cached, str) and os.path.isfile(cached) else None
 
 
 def _preflight_checkpoint_cache_requirement(
@@ -493,23 +493,27 @@ def _download_checkpoint_from_huggingface_url(
 ) -> str:
     """Download a checkpoint from Hugging Face and return local cached path."""
     repo_id, filename, subfolder, revision = _parse_huggingface_checkpoint_url(url)
-    logger.info(f"Downloading checkpoint from Hugging Face: {url}")
     settings: dict[str, object] = {
         "repo": repo_id,
         "filename": filename,
         "revision": revision,
     }
-    if not _is_hf_file_cached(
+    cached_path = _cached_hf_file_path(
         repo_id=repo_id,
         filename=filename,
         subfolder=subfolder,
         revision=revision,
-    ):
-        _preflight_checkpoint_cache_requirement(
-            label="Hugging Face checkpoint cache",
-            min_free_gb=checkpoint_min_free_gb,
-            settings=settings,
-        )
+    )
+    if cached_path is not None:
+        logger.info(f"Loading checkpoint from local HF cache: {cached_path}")
+        return cached_path
+
+    logger.info(f"Downloading checkpoint from Hugging Face: {url}")
+    _preflight_checkpoint_cache_requirement(
+        label="Hugging Face checkpoint cache",
+        min_free_gb=checkpoint_min_free_gb,
+        settings=settings,
+    )
     min_bytes = _preflight_hf_cache(
         label="Hugging Face checkpoint cache",
         settings=settings,

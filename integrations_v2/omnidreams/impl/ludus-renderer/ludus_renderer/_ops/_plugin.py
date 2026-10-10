@@ -6,6 +6,7 @@
 import glob
 import os
 import subprocess
+import sys
 import time
 
 import torch
@@ -83,7 +84,7 @@ def _get_plugin():
             if paths:
                 return sorted(paths, key=get_sort_key)[-1]
 
-        if (
+        if not getattr(sys, "frozen", False) and (
             subprocess.run(
                 ["where.exe", "cl.exe"],
                 stdout=subprocess.DEVNULL,

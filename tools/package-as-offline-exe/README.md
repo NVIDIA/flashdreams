@@ -91,6 +91,10 @@ The executable contains the Python runtime, application code, dependencies,
 native libraries, Ninja, and packaged GPU assets. The bundle has at most
 1,700 files; `cache-extras.zip` holds cache files moved out of the directory
 tree to meet that limit.
+Native extensions are compiled during packaging and reused at runtime. The
+destination machine does not need CUDA Toolkit or Visual Studio Build Tools
+for those extensions, but it still needs a compatible NVIDIA GPU and driver.
+If a prepared extension is missing, rebuild the bundle on the packaging host.
 
 Notes on generated files:
 
