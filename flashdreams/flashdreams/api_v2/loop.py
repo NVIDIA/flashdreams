@@ -17,7 +17,13 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, final
 import torch
 from torch import Tensor
 
+from flashdreams.api_v2.profiler import IProfiler
 from flashdreams.runtime_v2.event_buffer import EventBuffer
+from flashdreams.runtime_v2.profiler import NullProfiler
+from flashdreams.runtime_v2.profiler_utils import (
+    bind_inference_profiler,
+    unbind_inference_profiler,
+)
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
@@ -109,6 +115,7 @@ class ILoop(ABC, Generic[StateT]):
         frequency: int,
         shutdown_event: threading.Event,
         failure_queue: queue.Queue[BaseException],
+        profiler: IProfiler | None = None,
     ) -> None:
         """Store objects supplied when this loop is registered with a session.
 
@@ -117,6 +124,8 @@ class ILoop(ABC, Generic[StateT]):
             frequency: Maximum steps per second; zero disables pacing.
             shutdown_event: Event to signal that the loop should shutdown.
             failure_queue: Queue that stores loop failures/exceptions.
+            profiler: Profiler the session runs with; records nothing by
+                default.
 
         Raises:
             TypeError: ``frequency`` is not an integer.
@@ -128,6 +137,7 @@ class ILoop(ABC, Generic[StateT]):
             raise ValueError("frequency must be >= 0.")
         self.state = state
         self.frequency = frequency
+        self.profiler: IProfiler = profiler if profiler is not None else NullProfiler()
         self._message_queue: queue.Queue[_Message[StateT]] = queue.Queue()
         self.user_events = UserInputEvents([])
         self._pending_user_events: list[UserInputEvent] = []
@@ -272,11 +282,14 @@ class ILoop(ABC, Generic[StateT]):
                 raise TypeError("Message operations must return None.")
 
     def _pace(self, last_run_started: float | None) -> float:
-        if self.frequency == 0 or last_run_started is None:
+        # Recorded every step, so a short pace reads as no wait rather than
+        # a missing range.
+        with self.profiler.range("model.pace"):
+            if self.frequency == 0 or last_run_started is None:
+                return time.monotonic()
+            earliest_start = last_run_started + 1.0 / self.frequency
+            self._shutdown_event.wait(max(0.0, earliest_start - time.monotonic()))
             return time.monotonic()
-        earliest_start = last_run_started + 1.0 / self.frequency
-        self._shutdown_event.wait(max(0.0, earliest_start - time.monotonic()))
-        return time.monotonic()
 
     def _empty_message_queue(self) -> None:
         while True:
@@ -354,10 +367,13 @@ class IModelLoop(ILoop[StateT], ABC):
             step_control: Admission and input synchronization; ``None`` runs locally.
             device: Mesh device to bind on this model thread before running hooks.
         """
+        profiler_token = bind_inference_profiler(self.profiler)
         steps_run = 0
         last_run_started: float | None = None
         unpublished_step_elapsed_s = 0.0
         unpublished_generation: int | None = None
+        # Input read by steps whose output is still buffered: (arrivals, step start).
+        unpublished_inputs: list[tuple[list[int], int]] = []
         self._set_inference_state(ModelInferenceState.RUNNING)
         try:
             if device is not None and device.type == "cuda":
@@ -372,11 +388,22 @@ class IModelLoop(ILoop[StateT], ABC):
                 elif stopping:
                     break
                 events, generation = event_buffer.read(reader_id)
+                received_ns = event_buffer.last_read_received_ns(reader_id)
                 if step_control is not None:
                     events, generation = step_control.inputs(events, generation)
                 if generation != unpublished_generation:
                     unpublished_step_elapsed_s = 0.0
                     unpublished_generation = generation
+                    # The reset discarded the buffered output this input went into.
+                    if unpublished_inputs:
+                        self.profiler.input_dropped(
+                            [
+                                ns
+                                for arrivals, _ in unpublished_inputs
+                                for ns in arrivals
+                            ]
+                        )
+                        unpublished_inputs.clear()
                 result: list[StepResult] | None = None
                 step_completed = False
                 try:
@@ -402,17 +429,39 @@ class IModelLoop(ILoop[StateT], ABC):
                     # handled at the next boundary, never by skipping a collective.
                     assert run.step_index is not None
                     step_started_at = time.monotonic()
-                    raw_result = self.step(run.step_index, self.user_events)
+                    step_started_ns = time.monotonic_ns()
+                    with self.profiler.range(f"model.step[{run.step_index}]"):
+                        raw_result = self.step(run.step_index, self.user_events)
                     step_elapsed_s = time.monotonic() - step_started_at
                     result = _model_results(raw_result)
                     step_completed = True
                 finally:
                     self._finish_run(result, step_completed=step_completed)
                 unpublished_step_elapsed_s += step_elapsed_s
+                if received_ns:
+                    unpublished_inputs.append((received_ns, step_started_ns))
 
                 # Carry timing across steps whose output remains buffered.
                 if result:
-                    publish(generation, result, unpublished_step_elapsed_s)
+                    # Keyed by the result's own step index, which is what the
+                    # presenter sees, and recorded before the result can be shown.
+                    step = (generation, result[0].step_index)
+                    self.profiler.event(
+                        "model.frame", count=result[0].frame_count, step=step
+                    )
+                    for arrivals, started_ns in unpublished_inputs:
+                        self.profiler.input_consumed(step, arrivals, started_ns)
+                    unpublished_inputs.clear()
+                    # Read the rates before publishing: afterwards the result
+                    # belongs to the presentation thread and must not be touched.
+                    step_metrics = self.profiler.collect_fps()
+                    step_metrics.update(self.profiler.collect_input_latency_ms())
+                    if step_metrics:
+                        for channel in result:
+                            if channel.metrics is not None:
+                                channel.metrics.update(step_metrics)
+                    with self.profiler.range("model.publish"):
+                        publish(generation, result, unpublished_step_elapsed_s)
                     unpublished_step_elapsed_s = 0.0
                 steps_run += 1
         except BaseException as error:
@@ -420,6 +469,7 @@ class IModelLoop(ILoop[StateT], ABC):
         finally:
             if steps_run_out is not None:
                 steps_run_out.append(steps_run)
+            unbind_inference_profiler(profiler_token)
             self._set_inference_state(ModelInferenceState.FINISHED)
             try:
                 self._shutdown()

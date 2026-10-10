@@ -21,6 +21,7 @@ scenario, presentation, replay, warmup, and benchmark utilities.
 - [Application slugs and model adapter dispatch](guides/application_slugs.md)
 - [Interactive serving](guides/interactive_serving.md)
 - [Local benchmarks](guides/local_benchmarks.md)
+- [Profiling a demo](guides/profiling.md)
 
 ## API Reference
 

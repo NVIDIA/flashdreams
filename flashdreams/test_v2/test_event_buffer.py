@@ -61,3 +61,19 @@ def test_consecutive_pointer_moves_are_retained_for_fast_and_slow_readers() -> N
         for event in slow_events.get_events()
         if isinstance(event, MouseUserInputEvent)
     ] == [0.1, 0.2, 0.3, 0.5, 0.6]
+
+
+def test_each_read_reports_when_its_events_reached_the_runtime() -> None:
+    """Latency starts here, since event timestamps count from each window's start."""
+    buffer = EventBuffer()
+    buffer.register(0)
+    buffer.append(UserInputEvents([_move(1, 0.1), _move(2, 0.2)]))
+    buffer.read(0)
+    first = buffer.last_read_received_ns(0)
+    buffer.append(UserInputEvents([_move(3, 0.3)]))
+    buffer.collect_garbage()
+    buffer.read(0)
+    second = buffer.last_read_received_ns(0)
+
+    assert len(first) == 2 and first[0] == first[1], "one stamp per batch"
+    assert len(second) == 1 and second[0] >= first[0]

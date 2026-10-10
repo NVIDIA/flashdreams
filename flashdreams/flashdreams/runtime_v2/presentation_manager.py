@@ -13,7 +13,9 @@ from contextlib import contextmanager
 import torch
 from torch import Tensor
 
+from flashdreams.api_v2.profiler import IProfiler
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
+from flashdreams.runtime_v2.profiler import NullProfiler
 from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateTracker
 from flashdreams.runtime_v2.session_desc import BackpressureMode
 from flashdreams.runtime_v2.step_result import StepResult
@@ -185,6 +187,7 @@ class PresentationManager:
         self._backpressure_mode = BackpressureMode.BLOCK
         self._stop = threading.Event()
         self._put_timeout = 1.0 / 30.0
+        self._profiler: IProfiler = NullProfiler()
         self._counter_lock = threading.Lock()
         self._generation = 0
         self._presented_chunk: list[StepResult] | None = None
@@ -217,6 +220,7 @@ class PresentationManager:
         trace_chunk_lifecycle: bool = False,
         frames_per_second: int = 30,
         maximum_frames_per_second: int | None = None,
+        profiler: IProfiler | None = None,
     ) -> None:
         """Set presentation timing and backpressure mode.
 
@@ -231,6 +235,7 @@ class PresentationManager:
             frames_per_second: Initial video presentation rate.
             maximum_frames_per_second: Upper bound for presentation cadence;
                 ``None`` uses ``frames_per_second``.
+            profiler: Records presented frames; ``None`` records nothing.
         """
         self._reset_buffered_chunks()
         self._presentation_clock = _PresentationClock(
@@ -241,6 +246,7 @@ class PresentationManager:
         self._stop = stop
         self._put_timeout = put_timeout
         self._trace_chunk_lifecycle = trace_chunk_lifecycle
+        self._profiler = NullProfiler() if profiler is None else profiler
 
     def publish(
         self,
@@ -401,6 +407,10 @@ class PresentationManager:
             self._presented_frame_count += 1
             self._trace_presented_frame(generation)
             self._presentation_clock.mark_advanced(now, backlog=backlog)
+            self._profiler.event(
+                "present.frame",
+                step=(generation, self._presented_chunk[0].step_index),
+            )
             return True, None
 
         chunk = self._take_buffered_chunk(
@@ -414,6 +424,9 @@ class PresentationManager:
         self._presented_frame_count += 1
         self._trace_presented_frame(generation)
         self._presentation_clock.mark_advanced(now, backlog=backlog)
+        step = (generation, chunk[0].step_index)
+        self._profiler.event("present.frame", step=step)
+        self._profiler.step_presented(step)
         return True, chunk
 
     @property

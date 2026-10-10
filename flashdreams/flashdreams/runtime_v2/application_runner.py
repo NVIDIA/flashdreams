@@ -18,6 +18,10 @@ from flashdreams.runtime_v2.preparation_guard import (
     PreparationGuard,
     resolve_preparation_policy,
 )
+from flashdreams.runtime_v2.profiler_utils import (
+    create_profiler,
+    set_flashdreams_inference_profiler,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 
@@ -137,7 +141,12 @@ class ApplicationRunner:
             self._application.init(commandline_args)
             if self._application_flags.skip_preload_validation:
                 return
-            with preparation_guard:
+            # Every session this application creates profiles the same way.
+            profiler = create_profiler()
+            with (
+                preparation_guard,
+                set_flashdreams_inference_profiler(profiler),
+            ):
                 next_session_desc: SessionDesc | None = session_desc
                 while next_session_desc is not None:
                     # Only multi-rank replacements have an agreed decision that
@@ -149,7 +158,13 @@ class ApplicationRunner:
                     ):
                         break
                     session = self._application.create_session(next_session_desc)
+                    # The session runs with the system profiler unless it set
+                    # its own.
+                    if "_profiler" not in vars(session):
+                        session._profiler = profiler
                     parallel = session.parallel_context
+                    # Rates describe one session, not the run's whole sequence.
+                    profiler.reset_counts()
                     session_run_started = True
                     remaining_seconds = (
                         None

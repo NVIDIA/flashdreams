@@ -77,6 +77,8 @@ uv run --only-group docs zensical serve -f docs/zensical.toml
 
 Use `--no-instantiate` before GPU work to inspect the resolved runner config without constructing models or loading checkpoints.
 
+Before performance work, collect an nsys report with `uv run flashdreams-profile` and read the timeline; see `docs/source/documentation/demo_api/guides/profiling.md`.
+
 ## No-GPU Workflow
 
 - Inspect available runners with `uv run flashdreams-run --help`, then inspect a specific runner with `uv run flashdreams-run --no-instantiate <runner-name>`.
