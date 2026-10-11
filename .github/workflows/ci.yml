@@ -82,6 +82,7 @@ jobs:
         run: uv run --no-sync pytest -m ci_cpu -v
 
       - name: Prepare FlashDreams wheel artifact
+        shell: bash
         env:
           BUILD_COMMAND: uv build --wheel --package flashdreams
           BUILD_CONTAINER_IMAGE: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
