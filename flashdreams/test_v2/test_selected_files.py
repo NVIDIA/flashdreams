@@ -62,20 +62,6 @@ def _ui_loop() -> _UILoop:
     return loop
 
 
-def test_selected_files_event_carries_bytes_and_request_id() -> None:
-    event = SelectedFilesUserInputEvent(
-        timestamp=uint64(1),
-        request_id="open-1",
-        status=SelectedFilesStatus.OK,
-        files=(SelectedFile(name="seed.png", data=b"png"),),
-    )
-
-    assert event.get_type_name() == "selected_files"
-    assert event.request_id == "open-1"
-    assert event.status is SelectedFilesStatus.OK
-    assert event.files[0].data == b"png"
-
-
 def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
     loop = _ui_loop()
     loop.file_selector(

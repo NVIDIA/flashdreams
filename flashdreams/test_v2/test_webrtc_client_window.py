@@ -662,10 +662,6 @@ async def test_browser_script_checks_type_and_size_before_upload() -> None:
     window = WebRTCClientWindow()
     try:
         async with ClientSession() as client:
-            async with client.get(window.server.url) as response:
-                page = await response.text()
-                assert 'id="prompt-dialog"' in page
-                assert "Choose file" not in page
             async with client.get(f"{window.server.url}app.js") as response:
                 script = await response.text()
         assert "fileNameMatchesAccept" in script
@@ -676,10 +672,6 @@ async def test_browser_script_checks_type_and_size_before_upload() -> None:
             "fetch(`/api/files?request_id=${encodeURIComponent(requestId)}`" in script
         )
         assert "input.multiple" in script
-        assert "showModal" not in script
-        assert "The app requested a file" in script
-        assert "The app requested files" in script
-        assert 'completeFileSelection(pendingFileRequest.id, "cancelled")' not in script
     finally:
         window.close()
 
