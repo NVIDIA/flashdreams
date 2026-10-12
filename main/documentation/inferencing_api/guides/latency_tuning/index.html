@@ -27,7 +27,7 @@
     
     
       
-        <title>OmniDreams interactive latency tuning - FlashDreams</title>
+        <title>Latency tuning - FlashDreams</title>
       
     
     
@@ -87,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#model-and-backend-choice" class="md-skip">
+        <a href="#1-establish-a-reproducible-baseline" class="md-skip">
           Skip to content
         </a>
       
@@ -101,7 +101,7 @@
 
   
 
-<header class="md-header md-header--shadow" data-md-component="header">
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
     <a href="../../../.." title="FlashDreams" class="md-header__button md-logo" aria-label="FlashDreams" data-md-component="logo">
       
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              OmniDreams interactive latency tuning
+              Latency tuning
             
           </span>
         </div>
@@ -188,13 +188,200 @@
     </div>
   </nav>
   
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../.." class="md-tabs__link">
+        
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../quickstart/" class="md-tabs__link">
+          
+  
+  Get Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../models/" class="md-tabs__link">
+          
+  
+  Models
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../demos/" class="md-tabs__link">
+          
+  
+  Demos
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../../" class="md-tabs__link">
+          
+  
+  Documentation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../community/" class="md-tabs__link">
+          
+  
+  Community
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
 </header>
     
     <div class="md-container" data-md-component="container">
       
       
-        
-          
         
       
       <main class="md-main" data-md-component="main">
@@ -208,8 +395,10 @@
                     
 
 
+  
 
-<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
     <a href="../../../.." title="FlashDreams" class="md-nav__button md-logo" aria-label="FlashDreams" data-md-component="logo">
       
@@ -247,7 +436,7 @@
   <span class="md-ellipsis">
     
   
-  FlashDreams
+  Home
 
     
   </span>
@@ -275,6 +464,9 @@
     
     
     
+      
+      
+    
     
     <li class="md-nav__item md-nav__item--nested">
       
@@ -291,7 +483,7 @@
   <span class="md-ellipsis">
     
   
-  Quickstart
+  Get Started
 
     
   </span>
@@ -327,28 +519,11 @@
       
         
       
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
@@ -394,6 +569,73 @@
             <ul class="md-nav__list" data-md-scrollfix>
               
                 
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Streaming & Autoregressive
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Streaming & Autoregressive
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
               
                 
                   
@@ -571,7 +813,7 @@
   <span class="md-ellipsis">
     
   
-  HY-Worldplay
+  HY-WorldPlay
 
     
   </span>
@@ -583,6 +825,101 @@
   
 
                 
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/sana_wm_streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  SANA-WM
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Bidirectional
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Bidirectional
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
               
                 
                   
@@ -692,6 +1029,70 @@
 
                 
               
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Upscaling & Restoration
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Upscaling & Restoration
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
                 
                   
   
@@ -753,6 +1154,15 @@
     </li>
   
 
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
     
       
       
@@ -771,16 +1181,11 @@
       
         
       
-        
-      
-        
-      
-        
-      
-        
-      
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
@@ -826,6 +1231,61 @@
             <ul class="md-nav__list" data-md-scrollfix>
               
                 
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Game-Like Experiences
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Game-Like Experiences
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
               
                 
                   
@@ -880,6 +1340,74 @@
   
 
                 
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Model Interfaces
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Model Interfaces
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
               
                 
                   
@@ -996,6 +1524,15 @@
     </li>
   
 
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
     
       
       
@@ -1025,8 +1562,14 @@
     
     
     
+      
+        
+        
+      
+      
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
@@ -1051,7 +1594,7 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
@@ -1116,6 +1659,9 @@
       
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
@@ -1185,6 +1731,9 @@
       
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
@@ -1407,6 +1956,9 @@
     
     
     
+      
+      
+    
     
     <li class="md-nav__item md-nav__item--nested">
       
@@ -1510,6 +2062,9 @@
     
     
     
+      
+      
+    
     
     <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
@@ -1576,6 +2131,9 @@
       
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--active md-nav__item--nested">
@@ -1729,10 +2287,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#model-and-backend-choice" class="md-nav__link">
+  <a href="#1-establish-a-reproducible-baseline" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Model and backend choice
+        1. Establish a reproducible baseline
       </span>
     </span>
   </a>
@@ -1740,10 +2298,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#resolution" class="md-nav__link">
+  <a href="#2-separate-cold-and-steady-state" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Resolution
+        2. Separate cold and steady state
       </span>
     </span>
   </a>
@@ -1751,10 +2309,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#chunk-size-constraints" class="md-nav__link">
+  <a href="#3-read-the-pipeline-stages" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Chunk size constraints
+        3. Read the pipeline stages
       </span>
     </span>
   </a>
@@ -1762,10 +2320,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#fp8-and-native-acceleration" class="md-nav__link">
+  <a href="#4-change-one-bottleneck-at-a-time" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        FP8 and native acceleration
+        4. Change one bottleneck at a time
       </span>
     </span>
   </a>
@@ -1773,21 +2331,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#transport-choice" class="md-nav__link">
+  <a href="#5-validate-performance-and-quality-together" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Transport choice
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#profiling-and-validated-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Profiling and validated reference
+        5. Validate performance and quality together
       </span>
     </span>
   </a>
@@ -1856,6 +2403,9 @@
       
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
@@ -2011,6 +2561,9 @@
       
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
@@ -2171,6 +2724,9 @@
     
     
     
+      
+      
+    
     
     <li class="md-nav__item md-nav__item--nested">
       
@@ -2241,10 +2797,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#model-and-backend-choice" class="md-nav__link">
+  <a href="#1-establish-a-reproducible-baseline" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Model and backend choice
+        1. Establish a reproducible baseline
       </span>
     </span>
   </a>
@@ -2252,10 +2808,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#resolution" class="md-nav__link">
+  <a href="#2-separate-cold-and-steady-state" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Resolution
+        2. Separate cold and steady state
       </span>
     </span>
   </a>
@@ -2263,10 +2819,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#chunk-size-constraints" class="md-nav__link">
+  <a href="#3-read-the-pipeline-stages" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Chunk size constraints
+        3. Read the pipeline stages
       </span>
     </span>
   </a>
@@ -2274,10 +2830,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#fp8-and-native-acceleration" class="md-nav__link">
+  <a href="#4-change-one-bottleneck-at-a-time" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        FP8 and native acceleration
+        4. Change one bottleneck at a time
       </span>
     </span>
   </a>
@@ -2285,21 +2841,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#transport-choice" class="md-nav__link">
+  <a href="#5-validate-performance-and-quality-together" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Transport choice
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#profiling-and-validated-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Profiling and validated reference
+        5. Validate performance and quality together
       </span>
     </span>
   </a>
@@ -2333,132 +2878,114 @@
   <h1 id="__skip">Latency tuning</h1>
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
-
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-<p>Interactive launch latency has two different components:</p>
-<ul>
-<li><strong>Model / chunk latency</strong> is the time spent preparing HDMap conditioning,
-  running the OmniDreams DiT, decoding the generated chunk, and updating model
-  state. This is usually the dominant input-to-visual delay.</li>
-<li><strong>Video-transport latency</strong> is the time spent delivering already-generated
-  frames to a local window or browser. The presentation mode and network path
-  affect this cost, but they do not make the model generate a chunk faster.</li>
-</ul>
-<p>Tune the model path first when the profiler shows per-chunk work dominating.
-Tune transport when generated frames are ready quickly but arrive late or unevenly
-in the viewer.</p>
-<h2 id="model-and-backend-choice">Model and backend choice</h2>
-<p>Use the OmniDreams world-model backend for latency work. The raster backend is
-useful for scene, control, and presenter debugging, but it does not exercise the
-model path and should not be used as a model-latency reference.</p>
-<p>The registered Interactive Drive applications are the supported starting points:</p>
-<ul>
-<li><code>interactive-drive-omnidreams</code> is the default single-view configuration at
-  <code>1280 x 704</code> (width x height), 30 FPS, 8 generated frames per steady-state
-  block, LightVAE enabled, and native DiT acceleration disabled.</li>
-<li><code>interactive-drive-omnidreams-optimized-gb300</code> and
-  <code>interactive-drive-omnidreams-optimized-rtx-pro-6000</code> select
-  hardware-specific optimized PyTorch attention policies at <code>1280 x 704</code>.</li>
-<li><code>interactive-drive-omnidreams-perf</code> is the perf-tuned configuration. It lowers the
-  default resolution to <code>1168 x 640</code>, keeps 30 FPS and 8-frame steady-state
-  blocks, enables the performance recipe, and requires the native DiT path.</li>
-<li><code>interactive-drive-omnidreams-fast-perf</code> adds the native FP8 LightVAE
-  encoders to the perf configuration.</li>
-</ul>
-<p>Run the perf application only on hosts that can build and load the native extension:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>interactive-drive-omnidreams-perf<span class="w"> </span>--mode<span class="w"> </span>native-window
+<p>Tune latency from measurements, not from model size or code shape. Interactive
+latency includes model work, decode, transfer, queueing, and presentation; a
+faster kernel cannot fix a backed-up presenter, and transport changes cannot
+make a slow denoising loop faster.</p>
+<h2 id="1-establish-a-reproducible-baseline">1. Establish a reproducible baseline</h2>
+<p>Fix the model slug, checkpoint, input, seed, resolution, block count, precision,
+compile flags, cache policy, and presentation mode. Record the commit, GPU,
+driver, CUDA, PyTorch, cuDNN, and compiler-cache state.</p>
+<p>Use <code>--stats-path</code> before the application separator. It enables synchronized
+pipeline profiling and writes model-step metrics:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-self-forcing<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>t2v-self-forcing-wan2.1-t2v-1.3b<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--mode<span class="w"> </span>mp4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-path<span class="w"> </span>artifacts/latency/baseline.mp4<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--stats-path<span class="w"> </span>artifacts/latency/baseline.json<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--timeout<span class="w"> </span>unbound<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--no-ui<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--prompt<span class="w"> </span><span class="s2">&quot;A fixed benchmark prompt.&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--total-blocks<span class="w"> </span><span class="m">14</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--seed<span class="w"> </span><span class="m">1</span>
 </code></pre></div>
-<p>The perf config's <code>native_dit_acceleration="required"</code> is intentional. If the
-native extension is not available, startup fails instead of silently falling
-back to the slower PyTorch path.</p>
-<h2 id="resolution">Resolution</h2>
-<p>Resolution is one of the highest-impact latency knobs because it changes the
-amount of HDMap, DiT, and VAE work per chunk. Pass application arguments after
-the <code>--</code> separator:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>interactive-drive-omnidreams<span class="w"> </span>--mode<span class="w"> </span>native-window<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--width<span class="w"> </span><span class="m">1168</span><span class="w"> </span>--height<span class="w"> </span><span class="m">640</span>
-</code></pre></div>
-<p><code>--width</code> and <code>--height</code> must be positive. The OmniDreams pipeline also
-requires both dimensions to be divisible by the VAE spatial compression ratio
-times the DiT patch size (16 for the registered single-view configurations).
-The registered defaults, <code>1280 x 704</code> and <code>1168 x 640</code>, satisfy this
-constraint.</p>
-<p>Lowering resolution reduces per-chunk compute and transport payload size, with
-the expected image-quality tradeoff. The application uses the selected
-resolution for both HDMap rasterization and world-model output.</p>
-<h2 id="chunk-size-constraints">Chunk size constraints</h2>
-<p>Do not treat chunk size as an arbitrary latency knob. The registered
-Interactive Drive applications do not expose a chunk-size command-line option,
-and the world-model adapter validates the pipeline at startup:</p>
+<p>Profiling synchronizes CUDA and changes throughput. Use it to attribute stages,
+not as the headline uninstrumented result.</p>
+<h2 id="2-separate-cold-and-steady-state">2. Separate cold and steady state</h2>
+<p>The first steps may include checkpoint loading, text/context encoding,
+<code>torch.compile</code>, kernel autotuning, graph capture, and cache fill. Report at
+least:</p>
 <ul>
-<li>The initial conditioning chunk is fixed at 5 frames.</li>
-<li>The registered single-view configurations generate 8-frame steady-state
-  chunks.</li>
+<li>application initialization or preload time;</li>
+<li>first visible chunk latency;</li>
+<li>warmup steps excluded;</li>
+<li>steady-state median and p90 chunk time;</li>
+<li>frames per chunk and effective generated FPS;</li>
+<li>peak and reserved GPU memory.</li>
 </ul>
-<p>At 30 FPS, an 8-frame steady-state chunk covers about 267 ms of generated video.
-Reducing video-transport latency cannot remove this model-side chunk granularity.</p>
-<h2 id="fp8-and-native-acceleration">FP8 and native acceleration</h2>
-<p>The perf application config uses the OmniDreams single-view native CUDA
-extension for the DiT path. These values are properties of the registered
-pipeline preset, not application manifest fields:</p>
-<div class="highlight"><pre><span></span><code><span class="nt">native_dit_acceleration</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">required</span>
-<span class="nt">native_dit_backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fp8_kvcache_cudnn</span>
-<span class="nt">native_dit_attention_backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cudnn</span>
-</code></pre></div>
-<p>The implementation supports <code>disabled</code>, <code>auto</code>, and <code>required</code> native
-acceleration policies and <code>fp8_kvcache_cudnn</code> and <code>bf16</code> native DiT
-backends. Its attention selector accepts <code>auto</code>, <code>cudnn</code>, <code>sparge</code>,
-<code>sage3</code>, <code>sage3_fp8</code>, and <code>prefer_sage3_fp8</code>; the perf application pins
-<code>cudnn</code>.</p>
-<p>The native extension requires a source checkout, <code>git</code>, network access, a
-CUDA toolchain (<code>nvcc</code>) matching the PyTorch build, and a Blackwell-class GPU
-(SM 12.0). It downloads pinned third-party sources when first used and builds
-for <code>12.0a</code> by default. The automatic architecture detection recognizes the
-SM 12.0 RTX PRO 6000 and RTX 5090 device families.</p>
-<p>H100 / Hopper systems should use the standard PyTorch CUDA path with native DiT
-disabled unless you are deliberately maintaining a compatible native build. That
-path is supported, but it is not the same perf path as the published GB300
-numbers.</p>
-<p>GB300 systems should use <code>interactive-drive-omnidreams-optimized-gb300</code>;
-GB300 is not an SM 12.0 target for the native extension.</p>
-<p>The <code>interactive-drive-omnidreams-fast-perf</code> application enables native FP8
-for both the first-frame and per-step LightVAE encoders. It automatically
-exports and caches calibration state at
-<code>artifacts/native_vae/lightvae_fp8_state.pt</code> when no explicit state is
-configured. Custom pipeline configurations can instead set
-<code>native_vae_fp8_state_path</code> or the
-<code>OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH</code> environment variable.</p>
-<p>The regular perf application leaves native VAE acceleration disabled.</p>
-<h2 id="transport-choice">Transport choice</h2>
-<p>Pick transport based on where the viewer runs:</p>
+<p>Run long enough to reach a full rolling cache. Use fresh processes when
+comparing compile, autotune, or persistent-cache behavior.</p>
+<h2 id="3-read-the-pipeline-stages">3. Read the pipeline stages</h2>
+<p>The base pipeline reports <code>encode_ms</code>, <code>diffuse_ms</code>, <code>decode_ms</code>,
+<code>finalize_ms</code>, <code>total_ms_wo_finalize</code>, and <code>total_ms</code> when those stages are
+present. It also reports allocated, reserved, and peak GPU memory.</p>
+<table>
+<thead>
+<tr>
+<th>Dominant observation</th>
+<th>Investigate first</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>encode_ms</code></td>
+<td>control preprocessing, VAE encoder, input layout/copies</td>
+</tr>
+<tr>
+<td><code>diffuse_ms</code></td>
+<td>denoising steps, attention/GEMM backend, compile, CUDA graphs, model cache</td>
+</tr>
+<tr>
+<td><code>decode_ms</code></td>
+<td>decoder choice, streaming cache, layout conversion, memory format</td>
+</tr>
+<tr>
+<td><code>finalize_ms</code></td>
+<td>K/V maintenance, synchronization, overlap opportunity</td>
+</tr>
+<tr>
+<td>Pipeline fast but display late</td>
+<td>device-to-host transfer, encoding, queue depth, pacing, network</td>
+</tr>
+<tr>
+<td>Latency grows over time</td>
+<td>unbounded cache/history, allocator growth, presenter backlog</td>
+</tr>
+</tbody>
+</table>
+<p>Measure transfer and presentation separately when they are not represented by
+pipeline metrics. For interactive generation, also report estimated
+input-to-visible latency rather than only model FPS.</p>
+<h2 id="4-change-one-bottleneck-at-a-time">4. Change one bottleneck at a time</h2>
+<p>Prefer the smallest option that addresses the measured hot stage:</p>
 <ul>
-<li><code>--mode native-window</code>: local GPU-backed presentation when the host has a
-  graphics-capable GPU and display stack.</li>
-<li><code>--mode webrtc</code>: browser presentation. Add <code>--host 0.0.0.0</code> and a fixed
-  <code>--port</code> when connecting from another host.</li>
-<li><code>--mode mp4 --output-path FILE</code>: file output for offline inspection; it is
-  not an interactive transport.</li>
+<li>reduce resolution, denoising steps, or context only when the quality tradeoff
+  is acceptable;</li>
+<li>bound and preallocate K/V caches before compiler or graph work;</li>
+<li>compile the smallest fixed-shape compute region;</li>
+<li>capture CUDA graphs only with stable shapes, pointers, and stream ordering;</li>
+<li>compare attention backends on the target GPU instead of assuming portability;</li>
+<li>keep the quality decoder as the reference when evaluating a faster decoder;</li>
+<li>tune ordered pacing and bounded queues after generation gets faster.</li>
 </ul>
-<p>Presentation choice affects delivery after a frame exists. If the model is
-still spending most of the time inside each chunk, use the perf application
-and resolution knobs first.</p>
-<h2 id="profiling-and-validated-reference">Profiling and validated reference</h2>
-<p>Pass <code>--stats-path FILE.json</code> before the application-argument separator to
-record model-step measurements. This also enables synchronized per-stage
-pipeline profiling, so use it for measurement rather than as a throughput
-setting:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>interactive-drive-omnidreams-perf<span class="w"> </span>--mode<span class="w"> </span>native-window<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--stats-path<span class="w"> </span>artifacts/interactive-drive-stats.json
-</code></pre></div>
-<p>The validated published reference is the single-view GB300 table in
-<a href="../../../../models/omnidreams/">OmniDreams</a>, measured at <code>1280 x 704</code> (width x height). Its
-KV-cache update measurement is off the hot path and excluded from the reported
-total. This guide consolidates the supported latency controls; it does not add
-new end-to-end hardware measurements.</p>
+<p>Keep optimized paths opt-in until their startup, reset, scene-switch, and
+shape-change behavior is validated. Hardware-specific results belong on the
+model page, not as universal defaults in this generic guide.</p>
+<h2 id="5-validate-performance-and-quality-together">5. Validate performance and quality together</h2>
+<p>Use the same latent for decoder comparisons, compare cache changes before and
+after the rolling-window boundary, and use controlled short schedules for
+attention or compile changes. Preserve the fallback path.</p>
+<p>A defensible result includes the exact command and environment, warmup policy,
+median and p90 totals, stage timings, memory, output artifacts, quality method,
+and whether the candidate is recommended, useful only as an opt-in, rejected,
+or still unvalidated.</p>
+<p>For repeatable command execution and reports, use the
+<a href="../../../demo_api/guides/local_benchmarks/">local benchmark guide</a>. For low-level
+attention and quantization options, continue with
+<a href="../accelerated/">Accelerated building blocks</a> only after profiling identifies
+that stage as the bottleneck.</p>
 
 
 
@@ -2552,7 +3079,7 @@ new end-to-end hardware measurements.</p>
       
         
         
-      <script id="__config" type="application/json">{"annotate":null,"base":"../../../..","features":["content.action.edit","navigation.indexes","navigation.footer"],"redirect":null,"search":"../../../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+      <script id="__config" type="application/json">{"annotate":null,"base":"../../../..","features":["content.action.edit","navigation.indexes","navigation.footer","navigation.tabs","navigation.tabs.sticky"],"redirect":null,"search":"../../../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
     
     
       <script src="../../../../assets/javascripts/bundle.67a597eb.min.js"></script>

@@ -27,7 +27,7 @@
     
     
       
-        <title>Inference pipeline overview - FlashDreams</title>
+        <title>Stream inference pipeline - FlashDreams</title>
       
     
     
@@ -87,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#examples" class="md-skip">
+        <a href="#component-boundaries" class="md-skip">
           Skip to content
         </a>
       
@@ -101,7 +101,7 @@
 
   
 
-<header class="md-header md-header--shadow" data-md-component="header">
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
     <a href="../../../.." title="FlashDreams" class="md-header__button md-logo" aria-label="FlashDreams" data-md-component="logo">
       
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Inference pipeline overview
+              Stream inference pipeline
             
           </span>
         </div>
@@ -188,13 +188,200 @@
     </div>
   </nav>
   
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../.." class="md-tabs__link">
+        
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../quickstart/" class="md-tabs__link">
+          
+  
+  Get Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../models/" class="md-tabs__link">
+          
+  
+  Models
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../demos/" class="md-tabs__link">
+          
+  
+  Demos
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../../" class="md-tabs__link">
+          
+  
+  Documentation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../community/" class="md-tabs__link">
+          
+  
+  Community
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
 </header>
     
     <div class="md-container" data-md-component="container">
       
       
-        
-          
         
       
       <main class="md-main" data-md-component="main">
@@ -208,8 +395,10 @@
                     
 
 
+  
 
-<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
     <a href="../../../.." title="FlashDreams" class="md-nav__button md-logo" aria-label="FlashDreams" data-md-component="logo">
       
@@ -247,7 +436,7 @@
   <span class="md-ellipsis">
     
   
-  FlashDreams
+  Home
 
     
   </span>
@@ -275,6 +464,9 @@
     
     
     
+      
+      
+    
     
     <li class="md-nav__item md-nav__item--nested">
       
@@ -291,7 +483,7 @@
   <span class="md-ellipsis">
     
   
-  Quickstart
+  Get Started
 
     
   </span>
@@ -327,28 +519,11 @@
       
         
       
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
@@ -394,6 +569,73 @@
             <ul class="md-nav__list" data-md-scrollfix>
               
                 
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Streaming & Autoregressive
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Streaming & Autoregressive
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
               
                 
                   
@@ -571,7 +813,7 @@
   <span class="md-ellipsis">
     
   
-  HY-Worldplay
+  HY-WorldPlay
 
     
   </span>
@@ -583,6 +825,101 @@
   
 
                 
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/sana_wm_streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  SANA-WM
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Bidirectional
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Bidirectional
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
               
                 
                   
@@ -692,6 +1029,70 @@
 
                 
               
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Upscaling & Restoration
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Upscaling & Restoration
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
                 
                   
   
@@ -753,6 +1154,15 @@
     </li>
   
 
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
     
       
       
@@ -771,16 +1181,11 @@
       
         
       
-        
-      
-        
-      
-        
-      
-        
-      
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
@@ -826,6 +1231,61 @@
             <ul class="md-nav__list" data-md-scrollfix>
               
                 
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Game-Like Experiences
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Game-Like Experiences
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
               
                 
                   
@@ -880,6 +1340,74 @@
   
 
                 
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Model Interfaces
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Model Interfaces
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
               
                 
                   
@@ -996,6 +1524,15 @@
     </li>
   
 
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
     
       
       
@@ -1025,8 +1562,14 @@
     
     
     
+      
+        
+        
+      
+      
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
@@ -1051,7 +1594,7 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
@@ -1116,6 +1659,9 @@
       
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
@@ -1185,6 +1731,9 @@
       
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
@@ -1407,6 +1956,9 @@
     
     
     
+      
+      
+    
     
     <li class="md-nav__item md-nav__item--nested">
       
@@ -1510,6 +2062,9 @@
     
     
     
+      
+      
+    
     
     <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
@@ -1576,6 +2131,9 @@
       
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--active md-nav__item--nested">
@@ -1702,10 +2260,43 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#component-boundaries" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Examples
+        Component boundaries
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollout-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Rollout lifecycle
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shape-and-state-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Shape and state rules
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configure-then-instantiate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Configure, then instantiate
       </span>
     </span>
   </a>
@@ -1801,6 +2392,9 @@
       
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
@@ -1956,6 +2550,9 @@
       
     
     
+    
+      
+      
     
     
     <li class="md-nav__item md-nav__item--nested">
@@ -2116,6 +2713,9 @@
     
     
     
+      
+      
+    
     
     <li class="md-nav__item md-nav__item--nested">
       
@@ -2186,10 +2786,43 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#component-boundaries" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Examples
+        Component boundaries
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollout-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Rollout lifecycle
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shape-and-state-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Shape and state rules
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configure-then-instantiate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Configure, then instantiate
       </span>
     </span>
   </a>
@@ -2223,100 +2856,109 @@
   <h1 id="__skip">Stream inference pipeline</h1>
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
-
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-<p>This page outlines the major computation flow in the FlashDreams inference pipeline.
-It outlines the core concepts and APIs for building custom model integrations,
-or modifying existing ones.</p>
-<p>This is the low-level model pipeline used behind an <code>api_v2</code> model loop. See
-the <a href="../../../demo_api/api_reference/application/">Demo Application API reference</a>
-for the public application contracts above it.</p>
+<p><code>flashdreams.infra.pipeline.StreamInferencePipeline</code> is the low-level model
+pipeline used by v2 application model loops. It owns encode, diffuse, and
+decode stages plus a per-rollout cache. Application, session, UI, and transport
+behavior live above this layer.</p>
 <p><img alt="FlashDreams autoregressive inference pipeline overview." src="../../../../_static/diagrams/flashdreams-inference-pipeline-overview.jpg" /></p>
-<p>The key entry point for the inference pipeline is the
-<code>~flashdreams.infra.pipeline.StreamInferencePipeline</code> class, which defines the
-autoregressive generation loop shown in the figure. The persistent state is held in
-<code>~flashdreams.infra.pipeline.StreamInferencePipelineCache</code> as a cache object,
-which is shared within the pipeline and updated in each autoregressive step.</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">StreamInferencePipeline</span><span class="p">,</span>
-    <span class="n">StreamInferencePipelineCache</span><span class="p">,</span>
-<span class="p">)</span>
+<h2 id="component-boundaries">Component boundaries</h2>
+<p>A pipeline contains:</p>
+<div class="highlight"><pre><span></span><code>StreamInferencePipeline
+├── encoder (optional per-step StreamingEncoder)
+├── diffusion_model
+│   ├── transformer
+│   │   └── context_encoder (one-shot Encoder)
+│   └── scheduler
+└── decoder (optional StreamingDecoder)
+</code></pre></div>
+<p>The two encoder positions are not interchangeable:</p>
+<table>
+<thead>
+<tr>
+<th>Slot</th>
+<th>Runs</th>
+<th>Contract</th>
+<th>Typical input</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>transformer.context_encoder</code></td>
+<td>once while building a rollout cache</td>
+<td>stateless <code>Encoder</code></td>
+<td>text or reference image</td>
+</tr>
+<tr>
+<td><code>pipeline.encoder</code></td>
+<td>once per autoregressive step</td>
+<td>stateful <code>StreamingEncoder</code></td>
+<td>camera, HD map, action, video chunk</td>
+</tr>
+</tbody>
+</table>
+<p>Set <code>pipeline.encoder=None</code> when no per-step control exists. Set
+<code>pipeline.decoder=None</code> to return the clean latent. Use <code>StreamingVideoEncoder</code>
+or <code>StreamingVideoDecoder</code> when pixel-video compression ratios and temporal
+size mapping are part of the contract.</p>
+<h2 id="rollout-lifecycle">Rollout lifecycle</h2>
+<p>Create one cache, then call <code>generate</code> and <code>finalize</code> with consecutive indices:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamInferencePipeline</span>
 
 <span class="n">pipeline</span><span class="p">:</span> <span class="n">StreamInferencePipeline</span> <span class="o">=</span> <span class="o">...</span>
-
-<span class="c1"># Initialize component caches with already-prepared rollout context.</span>
-<span class="n">cache</span><span class="p">:</span> <span class="n">StreamInferencePipelineCache</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">initialize_cache</span><span class="p">(</span>
+<span class="n">cache</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">initialize_cache</span><span class="p">(</span>
     <span class="n">transformer_context</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;text_embeddings&quot;</span><span class="p">:</span> <span class="n">text_embeddings</span><span class="p">},</span>
     <span class="n">encoder_context</span><span class="o">=</span><span class="p">{},</span>
     <span class="n">decoder_context</span><span class="o">=</span><span class="p">{},</span>
 <span class="p">)</span>
 
-<span class="c1"># Autoregressive generation loop</span>
 <span class="k">for</span> <span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">control</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">controls</span><span class="p">):</span>
-    <span class="n">current_output</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">cache</span><span class="p">,</span> <span class="nb">input</span><span class="o">=</span><span class="n">control</span><span class="p">)</span>
-    <span class="k">yield</span> <span class="n">current_output</span>
-    <span class="n">pipeline</span><span class="o">.</span><span class="n">finalize</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">cache</span><span class="p">)</span>
-</code></pre></div>
-<p>The code snippet above shows the generic execution loop. The initial call
-<code>~flashdreams.infra.pipeline.StreamInferencePipeline.initialize_cache</code>
-forwards the three context dictionaries to the transformer, encoder, and decoder
-cache initializers. Recipe-specific subclasses can expose higher-level arguments;
-for example, <code>WanInferencePipeline.initialize_cache</code> accepts raw text and an
-optional first frame and prepares the transformer context internally. Then, for each autoregressive step,
-<code>~flashdreams.infra.pipeline.StreamInferencePipeline.generate</code> is called to produce the current output chunk,
-followed by <code>~flashdreams.infra.pipeline.StreamInferencePipeline.finalize</code>. This split exists because
-<code>~flashdreams.infra.pipeline.StreamInferencePipeline.finalize</code> typically handles additional KV
-cache updates that are not in the hot path, which can be offloaded to a background thread in many
-cases to hide latency.</p>
-<p>Inside <code>~flashdreams.infra.pipeline.StreamInferencePipeline.generate</code>, the pipeline encodes the
-per-step control input, runs the diffusion model's denoising loop, and decodes the latent chunk into
-the final output. The following snippet illustrates this internal flow:</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># class StreamInferencePipeline</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">,</span> <span class="n">autoregressive_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">cache</span><span class="p">,</span> <span class="nb">input</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-    <span class="c1"># 1. Convert per-step control into model conditioning</span>
-    <span class="k">if</span> <span class="nb">input</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="nb">input</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoder</span><span class="p">(</span>
-            <span class="nb">input</span><span class="o">=</span><span class="nb">input</span><span class="p">,</span>
-            <span class="n">autoregressive_index</span><span class="o">=</span><span class="n">autoregressive_index</span><span class="p">,</span>
-            <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="o">.</span><span class="n">encoder_cache</span><span class="p">,</span>
-        <span class="p">)</span>
-
-    <span class="c1"># 2. Run scheduler loop + DiT flow prediction</span>
-    <span class="n">clean_latent</span><span class="p">,</span> <span class="n">final_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diffusion_model</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span>
-        <span class="n">autoregressive_index</span><span class="o">=</span><span class="n">autoregressive_index</span><span class="p">,</span>
-        <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="o">.</span><span class="n">transformer_cache</span><span class="p">,</span>
-        <span class="nb">input</span><span class="o">=</span><span class="nb">input</span><span class="p">,</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span>
+        <span class="n">autoregressive_index</span><span class="p">,</span>
+        <span class="n">cache</span><span class="p">,</span>
+        <span class="nb">input</span><span class="o">=</span><span class="n">control</span><span class="p">,</span>
     <span class="p">)</span>
-    <span class="n">cache</span><span class="o">.</span><span class="n">final_state</span> <span class="o">=</span> <span class="n">final_state</span>
-
-    <span class="c1"># 3. Convert latent chunk to output chunk</span>
-    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">clean_latent</span>
-
-    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">decoder</span><span class="p">(</span>
-        <span class="nb">input</span><span class="o">=</span><span class="n">clean_latent</span><span class="p">,</span>
-        <span class="n">autoregressive_index</span><span class="o">=</span><span class="n">autoregressive_index</span><span class="p">,</span>
-        <span class="n">cache</span><span class="o">=</span><span class="n">cache</span><span class="o">.</span><span class="n">decoder_cache</span><span class="p">,</span>
-    <span class="p">)</span>
+    <span class="k">yield</span> <span class="n">output</span>
+    <span class="n">metrics</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">finalize</span><span class="p">(</span><span class="n">autoregressive_index</span><span class="p">,</span> <span class="n">cache</span><span class="p">)</span>
 </code></pre></div>
-<p>In FlashDreams, these components are composed using a configuration system. This allows building
-customized pipelines by supplying different configurations for the encoder, diffusion model, and decoder.
-A typical <code>~flashdreams.infra.pipeline.StreamInferencePipelineConfig</code> is instantiated as follows:</p>
+<p><code>initialize_cache</code> forwards each context dictionary to the matching component's
+<code>initialize_autoregressive_cache</code>. Recipe-specific pipeline subclasses may
+expose higher-level inputs; for example, a Wan pipeline accepts text and an
+optional image and prepares transformer context internally.</p>
+<p><code>generate</code> performs these stages:</p>
+<ol>
+<li>encode a supplied per-step input;</li>
+<li>run the scheduler and transformer denoising loop;</li>
+<li>decode the clean latent when a decoder exists;</li>
+<li>retain the diffusion final state on the cache.</li>
+</ol>
+<p><code>finalize</code> consumes that final state and advances the autoregressive model/cache
+for the next step. Use the same cache and index for both calls. The base class
+rejects skipped, repeated, or mismatched indices. When synchronized profiling
+is enabled, <code>finalize</code> returns stage timings and GPU-memory metrics; otherwise
+it returns <code>None</code>.</p>
+<h2 id="shape-and-state-rules">Shape and state rules</h2>
+<p>Outside the transformer network, video tensors are normally pre-patchify
+<code>[B, C, T, H, W]</code>. Inside the network they are token sequences such as
+<code>[B, L/cp, C]</code>. The transformer owns patchify/context-parallel split and the
+inverse gather/unpatchify boundary; callers should not duplicate it.</p>
+<p>Caches mirror component ownership:</p>
+<ul>
+<li>pipeline cache: encoder, transformer, decoder caches plus the latest final
+  diffusion state;</li>
+<li>transformer cache: encoded context, RoPE state, and network cache;</li>
+<li>network cache: model-specific K/V or recurrent state.</li>
+</ul>
+<p>Allocate caches per rollout or session. Do not share mutable caches across
+sessions, and rebuild them when shape or context changes.</p>
+<h2 id="configure-then-instantiate">Configure, then instantiate</h2>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">DiffusionModelConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.diffusion.scheduler.fm</span><span class="w"> </span><span class="kn">import</span> <span class="n">FlowMatchSchedulerConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamInferencePipelineConfig</span>
 
-<span class="c1"># Supply configs for the encoder, transformer, and decoder.</span>
-<span class="n">MyStreamingEncoderConfig</span> <span class="o">=</span> <span class="o">...</span>
-<span class="n">MyTransformerConfig</span> <span class="o">=</span> <span class="o">...</span>
-<span class="n">MyStreamingDecoderConfig</span> <span class="o">=</span> <span class="o">...</span>
-
-<span class="c1"># create a pipeline config</span>
 <span class="n">pipeline_config</span> <span class="o">=</span> <span class="n">StreamInferencePipelineConfig</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;customized-method-name&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my-model&quot;</span><span class="p">,</span>
     <span class="n">encoder</span><span class="o">=</span><span class="n">MyStreamingEncoderConfig</span><span class="p">(),</span>
     <span class="n">diffusion_model</span><span class="o">=</span><span class="n">DiffusionModelConfig</span><span class="p">(</span>
         <span class="n">transformer</span><span class="o">=</span><span class="n">MyTransformerConfig</span><span class="p">(),</span>
@@ -2325,26 +2967,18 @@ A typical <code>~flashdreams.infra.pipeline.StreamInferencePipelineConfig</code>
     <span class="n">decoder</span><span class="o">=</span><span class="n">MyStreamingDecoderConfig</span><span class="p">(),</span>
 <span class="p">)</span>
 
-<span class="c1"># then a pipeline can be simply instantiated as follows:</span>
 <span class="n">pipeline</span> <span class="o">=</span> <span class="n">pipeline_config</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
 </code></pre></div>
-<p>More details are in
-<a href="../../../demo_api/guides/configuration/">Demo configuration</a>.</p>
-<h2 id="examples">Examples</h2>
-<p>Samples on how existing models use this structure:</p>
-<ul>
-<li><a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/omnidreams/config.py">NVIDIA OmniDreams config</a>:
-  An I2V video model with a VAE-based causal encoder for HDMap control.</li>
-<li><a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/lingbot/config.py">LingBot-World config</a>:
-  A camera-controlled I2V model that uses the per-step camera encoder.</li>
-<li><a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/self_forcing/config.py">Self-Forcing config</a>:
-  A pure T2V model that sets <code>encoder=None</code>, so each rollout starts from noise.</li>
-<li><a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan21/config.py">Wan2.1 config</a>:
-  Treats a bidirectional video model as a single-rollout autoregressive model.</li>
-</ul>
-<p>To add an implementation, follow <a href="../create_model/">Create a model</a>. To make it
-selectable by a demo, continue with
-<a href="../../../demo_api/guides/configuration/">Demo configuration</a>.</p>
+<p>Subclass the pipeline only when the public cache-initialization behavior must
+change. Most integrations should compose existing component contracts and keep
+model-specific logic in the integration.</p>
+<p>Reference configs include
+<a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/self_forcing/config.py">Self-Forcing</a>
+for uncontrolled streaming T2V,
+<a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/lingbot/config.py">LingBot-World</a>
+for per-step camera control, and
+<a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan21/config.py">Wan 2.1</a>
+for single-step bidirectional generation.</p>
 
 
 
@@ -2438,7 +3072,7 @@ selectable by a demo, continue with
       
         
         
-      <script id="__config" type="application/json">{"annotate":null,"base":"../../../..","features":["content.action.edit","navigation.indexes","navigation.footer"],"redirect":null,"search":"../../../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+      <script id="__config" type="application/json">{"annotate":null,"base":"../../../..","features":["content.action.edit","navigation.indexes","navigation.footer","navigation.tabs","navigation.tabs.sticky"],"redirect":null,"search":"../../../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
     
     
       <script src="../../../../assets/javascripts/bundle.67a597eb.min.js"></script>
