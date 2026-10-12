@@ -131,6 +131,14 @@ class PresentationLayout:
     view_index: int | None
     """The one camera to present, or ``None`` to tile the whole rig."""
 
+    @classmethod
+    def grid(cls, count: int) -> PresentationLayout:
+        """Use the same row-major grid for camera rigs and auxiliary sensors."""
+        if count < 1:
+            raise ValueError("A presentation grid needs at least one stream")
+        columns = math.ceil(math.sqrt(count))
+        return cls(columns, math.ceil(count / columns), None)
+
     @property
     def cells(self) -> int:
         return self.columns * self.rows
@@ -213,10 +221,7 @@ class AppConfig:
         """One named camera alone, or the rig tiled as close to square as it goes."""
         if self.present_camera is not None:
             return PresentationLayout(1, 1, self.camera_index(self.present_camera))
-        columns = math.ceil(math.sqrt(len(self.camera_names)))
-        return PresentationLayout(
-            columns, math.ceil(len(self.camera_names) / columns), None
-        )
+        return PresentationLayout.grid(len(self.camera_names))
 
     def camera_index(self, camera_name: str) -> int:
         """Where ``camera_name`` sits in the rig, however the caller spelled it."""
