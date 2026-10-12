@@ -116,7 +116,6 @@ def test_open_file_button_requests_a_client_file(label: str, request_id: str) ->
     imgui = _file_picker_imgui(pressed=label)
 
     loop.step_ui(imgui, 0, UserInputEvents([]))
-    loop.step_ui(imgui, 1, UserInputEvents([]))
     requests = loop.flush_ui_loop_requests()
 
     assert requests is not None

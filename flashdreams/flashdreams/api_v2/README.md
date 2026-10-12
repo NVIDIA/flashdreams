@@ -231,7 +231,7 @@ Pass `open=True` only when that control was activated this tick (for ImGui,
 `SelectedFilesUserInputEvent` for that id, or `None`. Read `status`; use
 `files` only when the pick succeeded. Reuse the same `request_id` for the
 same control so extra clicks do not stack pickers; use a different id for a
-different control. `accept` is filename suffixes (empty = any type);
+different control (one id used twice in a tick raises `ValueError`). `accept` is filename suffixes (empty = any type);
 `max_file_bytes` is the size budget per file (`None` = the
 `MAX_SELECTED_FILE_BYTES` ceiling); `multiple` allows more than one file, with
 the whole set capped by `MAX_SELECTED_FILE_BATCH_BYTES`. Both caps live in
