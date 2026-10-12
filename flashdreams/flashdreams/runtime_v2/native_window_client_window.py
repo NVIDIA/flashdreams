@@ -310,6 +310,7 @@ class NativeWindowClientWindow(IClientWindow):
         self,
         *,
         title: str = "FlashDreams",
+        allow_file_selection: bool = True,
         presenter_factory: Callable[..., _SlangPyNativeWindowPresenter] | None = None,
         clock_ns: Callable[[], int] = time.monotonic_ns,
     ) -> None:
@@ -317,6 +318,8 @@ class NativeWindowClientWindow(IClientWindow):
 
         Args:
             title: Native window title.
+            allow_file_selection: Whether file picks open the OS selector.
+                ``False`` reports every pick as ``UNAVAILABLE``.
             presenter_factory: Optional SlangPy-compatible presenter factory.
             clock_ns: Monotonic clock used for input timestamps.
 
@@ -326,6 +329,7 @@ class NativeWindowClientWindow(IClientWindow):
         if not title.strip():
             raise ValueError("Native-window title must be non-empty.")
         self.title = title
+        self._allow_file_selection = allow_file_selection
         self._presenter_factory = presenter_factory
         self._clock_ns = clock_ns
         self._session_started_ns: int | None = None
@@ -382,6 +386,15 @@ class NativeWindowClientWindow(IClientWindow):
 
     def request_selected_files(self, request: FileSelectionRequest) -> None:
         """Ask the OS file selector and enqueue the chosen files."""
+        if not self._allow_file_selection:
+            self._put_input(
+                SelectedFilesUserInputEvent(
+                    timestamp=uint64(0),
+                    request_id=request.request_id,
+                    status=SelectedFilesStatus.UNAVAILABLE,
+                )
+            )
+            return
         started = self._file_gate.submit(
             replace(
                 QueuedFileSelection.from_request(request),

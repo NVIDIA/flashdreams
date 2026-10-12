@@ -123,6 +123,18 @@ def test_a_native_window_mode_is_lazy_and_keeps_its_title() -> None:
     assert window.title == "World model"
 
 
+def test_file_selection_is_allowed_unless_disabled() -> None:
+    allowed = create_client_window(_parsed(["--mode", "native-window"]))
+    disabled = create_client_window(
+        _parsed(["--mode", "native-window", "--disable-file-selection"])
+    )
+
+    assert isinstance(allowed, NativeWindowClientWindow)
+    assert isinstance(disabled, NativeWindowClientWindow)
+    assert allowed._allow_file_selection is True
+    assert disabled._allow_file_selection is False
+
+
 def test_an_installed_mode_owns_its_flashdreams_run_v2_arguments(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -290,6 +302,7 @@ class TestWebRTC:
         window = mode.create(_parsed(["--mode", "webrtc"]))
         try:
             assert isinstance(window, WebRTCClientWindow)
+            assert window._allow_file_selection is True
             assert window.metrics_snapshot()["webrtc_sender_queue_capacity_count"] == 2
             assert mode.starting(window) == f"Open {window.server.url} in a browser."
         finally:

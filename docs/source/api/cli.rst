@@ -60,6 +60,10 @@ It defaults to warning; use ``FLASHDREAMS_PREPARATION_POLICY`` to select
 the FlashDreams cache, or ``FLASHDREAMS_PREPARATION_ISSUES_PATH`` when set.
 Add ``--skip-preload-validation`` to skip validation (running first-block of `ISession`).
 
+Add ``--disable-file-selection`` to a v2 run where the client has no usable file
+selector, such as a packaged app streamed from a remote host. Every file pick
+then reports ``UNAVAILABLE`` instead of opening a selector.
+
 The common command shape is ``flashdreams-run <runner> [mode]``. A runner only
 advertises modes it implements; unsupported pairs fail before CUDA
 initialization. Shared modes are ``run``, ``mp4``, ``null``, ``webrtc``, and

@@ -60,6 +60,9 @@ uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
 Do not pass `--preload-application`; the packager controls preparation so it
 can validate and populate the bundle's caches.
 
+Pass `--disable-file-selection` to bake in a launcher that never opens a file
+selector; every file pick in the app then reports `UNAVAILABLE`.
+
 The generated launcher embeds the supplied application arguments to this installer program inside the executable.
 
 The packager runs initialization and one model block. Preparation findings are

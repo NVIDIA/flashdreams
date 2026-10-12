@@ -235,7 +235,8 @@ different control (one id used twice in a tick raises `ValueError`). `accept` is
 `max_file_bytes` is the size budget per file (`None` = the
 `MAX_SELECTED_FILE_BYTES` ceiling); `multiple` allows more than one file, with
 the whole set capped by `MAX_SELECTED_FILE_BATCH_BYTES`. Both caps live in
-`runtime_v2/selected_file.py`.
+`runtime_v2/selected_file.py`. A run launched with `--disable-file-selection`
+never opens a selector; every pick returns `UNAVAILABLE`, so handle that status.
 
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The
