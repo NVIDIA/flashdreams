@@ -91,6 +91,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Bundle directory (default: artifacts/<slug>-bundle).",
     )
     parser.add_argument(
+        "--working-dir",
+        type=Path,
+        help="Directory contents to copy before preload (default: output directory).",
+    )
+    parser.add_argument(
         "--noconsole",
         action="store_true",
         help="Build without a console window on Windows (ignored on Linux).",
@@ -506,6 +511,15 @@ def _launcher_source(
             cache_path.mkdir(parents=True, exist_ok=True)
             os.environ[name] = str(cache_path)
 
+        if sys.stdout is None or sys.stderr is None:
+            runtime_log = (cache_root / "runtime.log").open(
+                "a", encoding="utf-8", buffering=1
+            )
+            if sys.stdout is None:
+                sys.stdout = runtime_log
+            if sys.stderr is None:
+                sys.stderr = runtime_log
+
         if getattr(sys, "frozen", False):
             runtime_root = Path(getattr(sys, "_MEIPASS", bundle_root))
             os.environ["PATH"] = (
@@ -839,6 +853,7 @@ def package(
     slug: str,
     config: list[str],
     output: Path,
+    working_dir: Path | None = None,
     preload_timeout: float | None = None,
     hidden_imports: tuple[str, ...] = (),
     executables: tuple[str, ...] = (),
@@ -851,6 +866,7 @@ def package(
         slug: Registered v2 application slug.
         config: Arguments after the slug in ``flashdreams-run-v2``.
         output: Final bundle directory, which must not already exist.
+        working_dir: Directory contents to seed the bundle; defaults to ``output``.
         preload_timeout: Optional limit for application preload and validation.
         hidden_imports: Additional modules that PyInstaller cannot discover.
         executables: Executables from PATH required by the frozen runtime.
@@ -880,7 +896,29 @@ def package(
     if destination.exists():
         raise PackageError(f"Output already exists: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    staging = destination.with_name(f".fd-{uuid.uuid4().hex}.tmp")
+    staging = destination
+    working_dir = (working_dir or destination).expanduser().resolve()
+    if working_dir != destination:
+        if destination.is_relative_to(working_dir) or working_dir.is_relative_to(
+            destination
+        ):
+            raise PackageError(
+                "Separate working and output directories must not overlap."
+            )
+        working_dir.mkdir(parents=True, exist_ok=True)
+    reserved = {
+        "cache",
+        _CACHE_ARCHIVE,
+        ".build",
+        "launcher.py",
+        "preload.py",
+        "README.md",
+        _INSTALLER_OUTPUT,
+        _PREPARATION_ISSUES,
+        _executable_name(slug),
+    }
+    if any((working_dir / name).exists() for name in reserved):
+        raise PackageError("Working directory contents conflict with bundle files.")
     staging.mkdir()
     launcher = staging / "launcher.py"
     preload = staging / "preload.py"
@@ -889,9 +927,15 @@ def package(
     installer_output = staging / _INSTALLER_OUTPUT
     preparation_issues = staging / _PREPARATION_ISSUES
     succeeded = False
-    completed_bundle = False
 
     try:
+        if working_dir != destination:
+            try:
+                shutil.copytree(working_dir, staging, dirs_exist_ok=True)
+            except OSError as error:
+                raise PackageError(
+                    f"Could not copy working directory: {error}"
+                ) from error
         cache_root.mkdir()
         preload.write_text(
             _preload_source(
@@ -979,20 +1023,10 @@ def package(
         launcher.unlink()
         preload.unlink()
         _archive_cache_to_file_limit(staging)
-        completed_bundle = True
-        try:
-            if destination.exists():
-                raise FileExistsError(f"Output appeared during build: {destination}")
-            staging.replace(destination)
-        except OSError as error:
-            raise PackageError(
-                f"Could not publish the completed bundle to {destination}: {error}. "
-                f"The bundle is retained at {staging}."
-            ) from error
         succeeded = True
         return destination
     finally:
-        if not succeeded and not completed_bundle:
+        if not succeeded:
             shutil.rmtree(staging, ignore_errors=True)
 
 
@@ -1013,6 +1047,7 @@ def main(arguments: list[str] | None = None) -> int:
             executables=tuple(parsed.collect_executable),
             skip_runtime_validation=parsed.skip_runtime_validation,
             noconsole=parsed.noconsole,
+            working_dir=parsed.working_dir,
         )
     except PackageError as error:
         print(f"ERROR: {error}", file=sys.stderr)

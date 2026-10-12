@@ -53,8 +53,12 @@ written to `PREPARATION_ISSUES.txt` beside `INSTALLER_OUTPUT.txt`.
 --output PATH
     Destination bundle directory.
 
+--working-dir PATH
+    Defaults to the output directory (which must not already exist, ensuring nothing extra is copied if this option is used). Create if missing and copy its contents into the bundle before preload.
+
 --noconsole
     Build without a console window on Windows (ignored on Linux).
+    Console-free launchers write stdout and stderr to runtime.log in the writable runtime cache.
 
 --preload-timeout SECONDS
     Fail if initialization and preload do not finish within this time.
