@@ -547,10 +547,18 @@ class IUILoop(ILoop[StateT], ABC):
     ) -> SelectedFilesUserInputEvent | None:
         """Drive one client file-selector control and return this tick's result.
 
-        Call every UI tick for each control. Pass ``open=True`` only when
-        that control was activated this tick. ``request_id`` is which
-        control this is: reuse it so extra clicks do not stack pickers;
-        use a different id for a different control.
+        Call every UI tick for each control, like an ImGui widget. Pass
+        ``open=True`` on the tick the control is activated. Give each control
+        its own stable ``request_id``. While a pick for ``request_id`` is
+        still open, another ``open=True`` for it is dropped with a warning.
+
+        Example:
+
+        .. code-block:: python
+
+            pick = self.file_selector("open-image", open=imgui.button("Open"))
+            if pick is not None and pick.status is SelectedFilesStatus.OK:
+                image_bytes = pick.files[0].data
 
         Args:
             request_id: Stable id for this control. Echoed on the matching event.

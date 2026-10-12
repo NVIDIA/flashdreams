@@ -3,9 +3,15 @@
 
 """Client window abstract interface."""
 
-from abc import ABC, abstractmethod
+from abc import ABC
 
-from flashdreams.runtime_v2.selected_file import FileSelectionRequest
+from numpy import uint64
+
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    SelectedFilesStatus,
+)
+from flashdreams.runtime_v2.user_input_event import SelectedFilesUserInputEvent
 
 from .input_source import InputSource
 from .output_sink import OutputSink
@@ -49,16 +55,25 @@ class IClientWindow(InputSource, OutputSink, ABC):
         """
         pass
 
-    @abstractmethod
-    def request_selected_files(self, request: FileSelectionRequest) -> None:
+    # Optional to implement
+    def request_selected_files(
+        self, request: FileSelectionRequest
+    ) -> SelectedFilesUserInputEvent | None:
         """Request to open a file selector local to the client this window drives.
 
-        The result arrives later through
-        :meth:`InputSource.get_user_input_events` as
-        :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`.
-        Every request must get a result; a window without a client file
-        selector reports ``UNAVAILABLE``.
+        Every request gets exactly one result. Return it now, or return
+        ``None`` and deliver it later through
+        :meth:`InputSource.get_user_input_events`. The default has no
+        selector and returns ``UNAVAILABLE``.
 
         Args:
             request: Selector request queued by the UI loop.
+
+        Returns:
+            The result when it is known immediately, otherwise ``None``.
         """
+        return SelectedFilesUserInputEvent(
+            timestamp=uint64(0),
+            request_id=request.request_id,
+            status=SelectedFilesStatus.UNAVAILABLE,
+        )

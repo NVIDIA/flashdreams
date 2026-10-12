@@ -19,7 +19,6 @@ from flashdreams.api_v2.session import ISession
 from flashdreams.core.distributed.parallel import ParallelContext
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
-from flashdreams.runtime_v2.selected_file import FileSelectionRequest
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
@@ -146,9 +145,6 @@ class _Window(IClientWindow):
         self._calls = calls
         self.results: list[StepResult] = []
         self._reported_close = False
-
-    def request_selected_files(self, request: FileSelectionRequest) -> None:
-        del request
 
     def get_user_input_events(self) -> UserInputEvents:
         if not self._reported_close:

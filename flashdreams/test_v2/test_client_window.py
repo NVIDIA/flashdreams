@@ -11,7 +11,6 @@ from numpy import uint64
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.input_source import InputSource
 from flashdreams.api_v2.output_sink import OutputSink
-from flashdreams.runtime_v2.selected_file import FileSelectionRequest
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -37,9 +36,6 @@ class FakeClientWindow(IClientWindow):
     def get_user_input_events(self) -> UserInputEvents:
         return self._input
 
-    def request_selected_files(self, request: FileSelectionRequest) -> None:
-        del request
-
     def open(self, session_desc: SessionDesc) -> None:
         self.session_desc = session_desc
         self._is_open = True
@@ -53,24 +49,6 @@ class FakeClientWindow(IClientWindow):
 
     def update_input_events(self, input: UserInputEvents) -> None:
         self._input = input
-
-
-def test_client_window_must_answer_file_selection() -> None:
-    class NoFileSelection(IClientWindow):
-        def get_user_input_events(self) -> UserInputEvents:
-            return UserInputEvents([])
-
-        def open(self, session_desc: SessionDesc) -> None:
-            del session_desc
-
-        def write(self, result: StepResult) -> None:
-            del result
-
-        def close(self) -> None:
-            return
-
-    with pytest.raises(TypeError, match="request_selected_files"):
-        NoFileSelection()  # type: ignore[abstract]
 
 
 def test_client_window_for_null_model() -> None:

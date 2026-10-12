@@ -12,7 +12,6 @@ from red_screen import create_app
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
-from flashdreams.runtime_v2.selected_file import FileSelectionRequest
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -62,9 +61,6 @@ class ScriptedClientWindow(IClientWindow):
             if self._batches:
                 return self._batches.pop(0)
         return UserInputEvents([])
-
-    def request_selected_files(self, request: FileSelectionRequest) -> None:
-        del request
 
     def open(self, session_desc: SessionDesc) -> None:
         self.session_desc = session_desc

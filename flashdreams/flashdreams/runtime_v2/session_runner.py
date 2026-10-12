@@ -19,11 +19,13 @@ from flashdreams.api_v2.loop import (
     UILoopRequests,
 )
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.coordination import StepAgreement
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _LOGGER = logging.getLogger(__name__)
 _MODEL_THREAD_NAME = "flashdreams-model-generation-thread"
@@ -175,7 +177,9 @@ def run_session(
 
                 request = ui_loop.flush_ui_loop_requests()
                 if request is not None:
-                    _apply_window_requests(window, request)
+                    immediate = _apply_window_requests(window, request)
+                    if immediate:
+                        event_buffer.append(UserInputEvents(immediate))
                     if request.new_session is not None:
                         next_session_desc = request.new_session
                         stop.set()
@@ -405,16 +409,18 @@ def run_session(
     return next_session_desc
 
 
-def _apply_window_requests(window: IClientWindow, request: UILoopRequests) -> None:
-    """Apply UI window settings in request order."""
+def _apply_window_requests(
+    window: IClientWindow, request: UILoopRequests
+) -> list[UserInputEvent]:
+    """Apply UI window settings in request order; return immediate file results."""
     if request.hide_cursor is not None:
         window.request_hide_cursor(request.hide_cursor)
     if request.lock_cursor_to_window is not None:
         window.request_lock_cursor_to_window(request.lock_cursor_to_window)
     if request.new_window_size is not None:
         window.request_new_window_size(request.new_window_size)
-    for selection in request.file_selections:
-        window.request_selected_files(selection)
+    results = (window.request_selected_files(item) for item in request.file_selections)
+    return [result for result in results if result is not None]
 
 
 def _open_chunk_trace(path_value: object) -> _ChunkTraceLog:

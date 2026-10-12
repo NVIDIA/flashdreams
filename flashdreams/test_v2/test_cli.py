@@ -22,7 +22,6 @@ from flashdreams.runtime_v2 import cli, client_window_factory
 from flashdreams.runtime_v2.application_runner import ApplicationRunner, Unbound
 from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
-from flashdreams.runtime_v2.selected_file import FileSelectionRequest
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -42,9 +41,6 @@ class _StubApplication(IApplication):
 class _StubWindow(IClientWindow):
     def get_user_input_events(self) -> UserInputEvents:
         return UserInputEvents([])
-
-    def request_selected_files(self, request: FileSelectionRequest) -> None:
-        del request
 
     def open(self, session_desc: SessionDesc) -> None:
         del session_desc

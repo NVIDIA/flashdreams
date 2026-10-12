@@ -20,12 +20,12 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
+from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
-from flashdreams.runtime_v2.null_client_window import NullClientWindow
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -33,6 +33,7 @@ from flashdreams.runtime_v2.session_desc import (
 )
 from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from t2v.application import T2VApplication
 from t2v.ui import T2VImGuiUILoop
@@ -168,7 +169,7 @@ def check_t2v_model_impl(
         ):
             run_session(
                 application.create_session(session_desc),
-                NullClientWindow(),
+                _DiscardingClientWindow(),
                 metrics_output_sink=inspector,
                 steps=steps,
             )
@@ -401,6 +402,22 @@ class _FrameInspector(MetricsOutputSink):
     def close(self) -> None:
         if self._mp4 is not None:
             self._mp4.close()
+
+
+class _DiscardingClientWindow(IClientWindow):
+    """Drive a checked run without retaining its composed UI output."""
+
+    def get_user_input_events(self) -> UserInputEvents:
+        return UserInputEvents([])
+
+    def open(self, session_desc: SessionDesc) -> None:
+        del session_desc
+
+    def write(self, result: StepResult) -> None:
+        del result
+
+    def close(self) -> None:
+        return
 
 
 def _compare(

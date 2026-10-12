@@ -308,27 +308,17 @@ def test_selected_files_event_rejects_inconsistent_status() -> None:
 
 
 @pytest.mark.parametrize("kind", ["mp4", "null"])
-def test_headless_window_completes_queued_file_selections_as_unavailable(
+def test_window_without_a_selector_answers_unavailable(
     kind: str, tmp_path: Path
 ) -> None:
     window = (
         Mp4ClientWindow(tmp_path / "clip.mp4") if kind == "mp4" else NullClientWindow()
     )
-    window.request_selected_files(
+    pick = window.request_selected_files(
         FileSelectionRequest(request_id="open-1", initial_path="/tmp")
     )
-    window.request_selected_files(
-        FileSelectionRequest(request_id="open-2", initial_path="/var")
-    )
 
-    events = window.get_user_input_events().get_events()
-
-    picks = [
-        event for event in events if isinstance(event, SelectedFilesUserInputEvent)
-    ]
-    assert [event.request_id for event in picks] == ["open-1", "open-2"]
-    assert all(
-        event.status is SelectedFilesStatus.UNAVAILABLE and event.files == ()
-        for event in picks
-    )
-    assert window.get_user_input_events().get_events() == []
+    assert pick is not None
+    assert pick.request_id == "open-1"
+    assert pick.status is SelectedFilesStatus.UNAVAILABLE
+    assert pick.files == ()

@@ -35,7 +35,10 @@ from flashdreams.runtime_v2.presentation_manager import (
     PresentationManager,
     _PresentationClock,
 )
-from flashdreams.runtime_v2.selected_file import FileSelectionRequest
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    SelectedFilesStatus,
+)
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -48,6 +51,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     ResetUserInputEvent,
+    SelectedFilesUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -676,10 +680,13 @@ class RecordingClientWindow(IClientWindow):
         self._log.record("window.request_lock_cursor_to_window")
         self.cursor_requests.append(("lock", lock_cursor_to_window))
 
-    def request_selected_files(self, request: FileSelectionRequest) -> None:
-        """Record one file-selector request."""
+    def request_selected_files(
+        self, request: FileSelectionRequest
+    ) -> SelectedFilesUserInputEvent | None:
+        """Record one file-selector request and answer with the default."""
         self._log.record("window.request_selected_files")
         self.file_selection_requests.append(request)
+        return super().request_selected_files(request)
 
     def get_user_input_events(self) -> UserInputEvents:
         self._log.record("window.get_user_input_events")
@@ -1407,6 +1414,28 @@ def test_run_session_forwards_file_selection_requests_to_the_window() -> None:
         )
     ]
     assert "window.request_selected_files" in log.calls
+
+
+def test_run_session_delivers_an_immediate_file_selection_result() -> None:
+    log = CallLog()
+    picks: list[SelectedFilesUserInputEvent] = []
+
+    class PickingSession(FakeSession):
+        def run_ui(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            pick = self.ui_loop.file_selector("open-1", open=self.ui_steps == 0)
+            self.ui_steps += 1
+            if pick is not None:
+                picks.append(pick)
+            return super().run_ui(step_index, events)
+
+    session_desc = replace(
+        _session_desc(), presentation_mode=PresentationMode.CONTINUOUS
+    )
+    run_session(PickingSession(session_desc, log), RecordingClientWindow(log), steps=4)
+
+    assert [(pick.request_id, pick.status) for pick in picks] == [
+        ("open-1", SelectedFilesStatus.UNAVAILABLE)
+    ]
 
 
 def test_timeout_wins_over_a_ui_requested_replacement() -> None:

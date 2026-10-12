@@ -167,9 +167,6 @@ class _Window(IClientWindow):
     def open(self, desc):
         self._main_thread()
 
-    def request_selected_files(self, request):
-        del request
-
     def get_user_input_events(self):
         self._main_thread()
         if (
