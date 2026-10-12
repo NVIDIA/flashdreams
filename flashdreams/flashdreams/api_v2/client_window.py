@@ -3,7 +3,7 @@
 
 """Client window abstract interface."""
 
-from abc import ABC
+from abc import ABC, abstractmethod
 
 from flashdreams.runtime_v2.selected_file import FileSelectionRequest
 
@@ -49,15 +49,16 @@ class IClientWindow(InputSource, OutputSink, ABC):
         """
         pass
 
-    # Optional to implement
+    @abstractmethod
     def request_selected_files(self, request: FileSelectionRequest) -> None:
         """Request to open a file selector local to the client this window drives.
 
         The result arrives later through
         :meth:`InputSource.get_user_input_events` as
         :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`.
+        Every request must get a result; a window without a client file
+        selector reports ``UNAVAILABLE``.
 
         Args:
             request: Selector request queued by the UI loop.
         """
-        pass

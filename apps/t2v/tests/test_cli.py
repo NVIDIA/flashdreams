@@ -38,6 +38,7 @@ from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
 from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
+from flashdreams.runtime_v2.selected_file import FileSelectionRequest
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -159,6 +160,9 @@ class RecordingWindow(IClientWindow):
 
     def get_user_input_events(self) -> UserInputEvents:
         return UserInputEvents([])
+
+    def request_selected_files(self, request: FileSelectionRequest) -> None:
+        del request
 
     def open(self, session_desc: SessionDesc) -> None:
         self.session_desc = session_desc
