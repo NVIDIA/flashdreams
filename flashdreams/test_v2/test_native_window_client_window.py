@@ -24,13 +24,13 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
-    FullscreenDisabledOptimalSizeUserInputEvent,
-    FullscreenEnabledOptimalSizeUserInputEvent,
+    FullscreenDisabledOptimalWindowSizeUserInputEvent,
+    FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
-    OptimalSizeUserInputEvent,
+    OptimalWindowSizeUserInputEvent,
 )
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -111,12 +111,12 @@ def test_fullscreen_events_acknowledge_only_accepted_changes(enabled: bool) -> N
     events = window.get_user_input_events().get_events()
     assert len(events) == 1
     event = events[0]
-    assert isinstance(event, OptimalSizeUserInputEvent)
+    assert isinstance(event, OptimalWindowSizeUserInputEvent)
     assert isinstance(
         event,
-        FullscreenEnabledOptimalSizeUserInputEvent
+        FullscreenEnabledOptimalWindowSizeUserInputEvent
         if enabled
-        else FullscreenDisabledOptimalSizeUserInputEvent,
+        else FullscreenDisabledOptimalWindowSizeUserInputEvent,
     )
     assert (event.width, event.height) == (1920, 1080)
     assert event.get_timestamp() == 5000

@@ -60,8 +60,8 @@ from omnidreams_game_engine.types import CameraCalibration
 
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.runtime_v2.user_input_event import (
-    FullscreenDisabledOptimalSizeUserInputEvent,
-    FullscreenEnabledOptimalSizeUserInputEvent,
+    FullscreenDisabledOptimalWindowSizeUserInputEvent,
+    FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -92,7 +92,7 @@ def test_taxi_ui_uses_acknowledged_fullscreen_dimensions(
         1,
         UserInputEvents(
             [
-                FullscreenEnabledOptimalSizeUserInputEvent(
+                FullscreenEnabledOptimalWindowSizeUserInputEvent(
                     timestamp=np.uint64(0), width=1920, height=1080
                 )
             ]
@@ -112,7 +112,7 @@ def test_taxi_ui_uses_acknowledged_fullscreen_dimensions(
         3,
         UserInputEvents(
             [
-                FullscreenDisabledOptimalSizeUserInputEvent(
+                FullscreenDisabledOptimalWindowSizeUserInputEvent(
                     timestamp=np.uint64(1),
                     width=windowed_max_size[0],
                     height=windowed_max_size[1],

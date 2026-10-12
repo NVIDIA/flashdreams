@@ -24,7 +24,7 @@ from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
-    FullscreenEnabledOptimalSizeUserInputEvent,
+    FullscreenEnabledOptimalWindowSizeUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
@@ -59,7 +59,7 @@ def test_fullscreen_resize_precedes_imgui_frame() -> None:
         0,
         UserInputEvents(
             [
-                FullscreenEnabledOptimalSizeUserInputEvent(
+                FullscreenEnabledOptimalWindowSizeUserInputEvent(
                     timestamp=uint64(0), width=8, height=6
                 )
             ]

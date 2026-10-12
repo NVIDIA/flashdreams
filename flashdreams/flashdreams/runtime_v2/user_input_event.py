@@ -21,7 +21,7 @@ class KeyboardInputState(Enum):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class OptimalSizeUserInputEvent(UserInputEvent):
+class OptimalWindowSizeUserInputEvent(UserInputEvent):
     """Client's maximum usable window dimensions in pixels."""
 
     width: int
@@ -32,27 +32,29 @@ class OptimalSizeUserInputEvent(UserInputEvent):
     @classmethod
     def get_type_name(cls) -> str:
         """Return the event type name."""
-        return "optimal_size"
+        return "optimal_window_size"
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class FullscreenEnabledOptimalSizeUserInputEvent(OptimalSizeUserInputEvent):
+class FullscreenEnabledOptimalWindowSizeUserInputEvent(OptimalWindowSizeUserInputEvent):
     """Acknowledged fullscreen mode and its usable dimensions."""
 
     @classmethod
     def get_type_name(cls) -> str:
         """Return the event type name."""
-        return "fullscreen_enabled_optimal_size"
+        return "fullscreen_enabled_optimal_window_size"
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class FullscreenDisabledOptimalSizeUserInputEvent(OptimalSizeUserInputEvent):
+class FullscreenDisabledOptimalWindowSizeUserInputEvent(
+    OptimalWindowSizeUserInputEvent
+):
     """Acknowledged windowed mode and its maximum usable dimensions."""
 
     @classmethod
     def get_type_name(cls) -> str:
         """Return the event type name."""
-        return "fullscreen_disabled_optimal_size"
+        return "fullscreen_disabled_optimal_window_size"
 
 
 @dataclass(frozen=True, slots=True, eq=False)
