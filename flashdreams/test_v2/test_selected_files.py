@@ -87,7 +87,7 @@ def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
 def test_ui_loop_rejects_request_id_reused_in_one_tick() -> None:
     loop = _ui_loop()
     loop.file_selector("open-1")
-    with pytest.raises(ValueError, match="more than one control"):
+    with pytest.raises(ValueError, match="more than once this tick"):
         loop.file_selector("open-1", open=True)
 
     loop.flush_ui_loop_requests()

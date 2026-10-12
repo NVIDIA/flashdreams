@@ -224,14 +224,14 @@ UI control that needs a fresh application session calls
 `request_new_session(session_desc)` with a fully resolved replacement
 description; the runtime cleans the current session and passes that description
 to `ApplicationRunner` unchanged. Remaining timeout and remaining model steps
-still apply to the replacement. A control that needs a file from the client
-calls `file_selector` every UI tick with a stable `request_id`.
-Pass `open=True` only when that control was activated this tick (for ImGui,
+still apply to the replacement. Call `file_selector` every UI tick from each
+place in the UI that can open a client file picker, using a stable `request_id`.
+Pass `open=True` only when the user asks to open it on that tick (for ImGui,
 `open=imgui.button(...)`). The call returns this tick's
 `SelectedFilesUserInputEvent` for that id, or `None`. Read `status`; use
-`files` only when the pick succeeded. Reuse the same `request_id` for the
-same control so extra clicks do not stack pickers; use a different id for a
-different control (one id used twice in a tick raises `ValueError`). `accept` is filename suffixes (empty = any type);
+`files` only when the pick succeeded. Reuse that `request_id` so extra clicks
+do not stack pickers; use a different id for every other place that can open
+one. Using an id twice in one tick raises `ValueError`. `accept` is filename suffixes (empty = any type);
 `max_file_bytes` is the size budget per file (`None` = the
 `MAX_SELECTED_FILE_BYTES` ceiling); `multiple` allows more than one file, with
 the whole set capped by `MAX_SELECTED_FILE_BATCH_BYTES`. Both caps live in

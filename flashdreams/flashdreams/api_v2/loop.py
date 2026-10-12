@@ -545,11 +545,12 @@ class IUILoop(ILoop[StateT], ABC):
         max_file_bytes: int | None = None,
         multiple: bool = False,
     ) -> SelectedFilesUserInputEvent | None:
-        """Drive one client file-selector control and return this tick's result.
+        """Request files from the client and return this tick's matching result.
 
-        Call every UI tick for each control, like an ImGui widget. Pass
-        ``open=True`` on the tick the control is activated. Give each control
-        its own stable ``request_id``. While a pick for ``request_id`` is
+        Call every UI tick from each place in the UI that can open a picker.
+        Pass ``open=True`` only on the tick that the user asks to open it, such
+        as when an ImGui button returns ``True``. Use a different stable
+        ``request_id`` for each such place. While a pick for ``request_id`` is
         still open, another ``open=True`` for it is dropped with a warning.
 
         Example:
@@ -561,7 +562,8 @@ class IUILoop(ILoop[StateT], ABC):
                 image_bytes = pick.files[0].data
 
         Args:
-            request_id: Stable id for this control. Echoed on the matching event.
+            request_id: Stable id for this place in the UI. Echoed on the
+                matching event.
             initial_path: Directory hint for the selector; ``None`` uses the
                 current user's home directory.
             open: Whether to start a selector this tick.
@@ -593,7 +595,7 @@ class IUILoop(ILoop[StateT], ABC):
             raise TypeError("open must be a bool.")
         if request_id in self._file_selector_ids:
             raise ValueError(
-                f"request_id {request_id!r} is used by more than one control."
+                f"request_id {request_id!r} is used more than once this tick."
             )
         if open:
             if initial_path is None:

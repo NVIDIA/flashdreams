@@ -9,9 +9,9 @@ Small ImGui applications for the FlashDreams v2 loop runtime:
 
 - `imgui-ui-text-input` renders an editable text field over model output.
 - `imgui-ui-file-picker` opens the client file selector and shows the chosen
-  name and size. Each Open control calls `file_selector` every UI tick with
+  name and size. Each Open button calls `file_selector` every UI tick with
   a stable `request_id`; the returned event carries the file bytes. Extra
-  clicks on the same control while a picker is open are ignored;
+  clicks on the same button while a picker is open are ignored;
   **Open A then B** queues both selectors one at a time. Closing the native
   window or dropping the WebRTC tab completes leftover and in-flight picks
   as unavailable.
