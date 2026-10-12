@@ -73,10 +73,10 @@ to register a runnable application.
 
 ## Related
 
-- Follow the [/quickstart/index](../quickstart/index.md) for the shortest path to
+- Follow [Get Started](../quickstart/index.md) for the shortest path to
   running a model on your own hardware.
 - The [API guides](../documentation/index.md) cover the architecture behind the
   models you can run today.
-- [/community/index](../community/index.md) lists the channels to use if a process on
+- [Community](../community/index.md) lists the channels to use if a process on
   this page does not run on your hardware.
 - Browse the source on GitHub at [NVIDIA/flashdreams](https://github.com/NVIDIA/flashdreams).
