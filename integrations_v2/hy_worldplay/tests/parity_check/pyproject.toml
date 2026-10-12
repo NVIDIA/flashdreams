@@ -69,7 +69,8 @@ dependencies = [
     "numpy>=1.24",
     "omegaconf",
     "opencv-python-headless",
-    "pillow",
+    # Pillow 12.3 fixes image memory corruption and decompression-bomb bypasses.
+    "pillow>=12.3.0",
     "pyyaml",
     "regex",
     "remote-pdb",
@@ -82,6 +83,11 @@ dependencies = [
 
 [tool.uv]
 managed = true
+# CVE-2026-59890; PyTorch's <82 cap was unnecessary.
+# ponytail: override legacy metadata until all profiles use torch>=2.13.
+# https://github.com/pytorch/pytorch/pull/188190
+override-dependencies = ["setuptools>=83.0.0,<84"]
+build-constraint-dependencies = ["setuptools>=83.0.0,<84"]
 
 [tool.uv.sources]
 # Neither package is on PyPI; install both from the local source tree.

@@ -48,3 +48,12 @@ dependencies = [
 
 [tool.uv]
 managed = true
+# CVE-2026-59890; PyTorch's <82 cap was unnecessary.
+# ponytail: override legacy metadata until all profiles use torch>=2.13.
+# https://github.com/pytorch/pytorch/pull/188190
+# MoviePy 2.2.1's Pillow cap blocks patched releases; CPU image operations are validated.
+# ponytail: remove Pillow override after https://github.com/Zulko/moviepy/pull/2562 ships.
+override-dependencies = ["setuptools>=83.0.0,<84", "pillow>=12.3.0,<13"]
+build-constraint-dependencies = ["setuptools>=83.0.0,<84"]
+# Security floors for HTTP proxy TLS, chunked decoding, and items-view leaks.
+constraint-dependencies = ["urllib3>=2.8.0,<3", "multidict>=6.9.1,<7"]

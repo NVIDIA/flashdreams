@@ -38,7 +38,7 @@ CHECKPOINT_PATH = "https://huggingface.co/gdhe17/Self-Forcing/blob/main/checkpoi
 PIPELINE_WAN21_T2V_1PT3B = WanInferencePipelineConfig(
     name="self-forcing-wan2.1-t2v-1.3b",
     encoder=None,
-    decoder=WanVAEDecoderConfig(),
+    decoder=WanVAEDecoderConfig(use_compile=True),
     diffusion_model=DiffusionModelConfig(
         seed=42,
         transformer=Wan21TransformerConfig(

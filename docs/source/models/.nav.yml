@@ -1,0 +1,15 @@
+nav:
+  - index.md
+  - NVIDIA OmniDreams: omnidreams.md
+  - Self-Forcing: self_forcing.md
+  - Causal-Forcing: causal_forcing.md
+  - Causal Wan 2.2: causal_wan22.md
+  - LingBot-World: lingbot_world.md
+  - Waypoint 1.5: waypoint.md
+  - HY-Worldplay: hy_worldplay.md
+  - SANA-WM: sana_wm_streaming.md
+  - Wan 2.1: wan21.md
+  - Wan 2.2: wan22.md
+  - Cosmos-Predict 2.5: cosmos_predict2.md
+  - FlashVSR: flashvsr.md
+  - SwiftVR: swiftvr.md

@@ -1,0 +1,292 @@
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #76b900;
+  --md-accent-fg-color: #426b00;
+  --fd-accent: #5e9400;
+  --fd-accent-hover: #4b7600;
+  --fd-accent-soft: rgb(94 148 0 / 12%);
+  --fd-border: #e4e7ec;
+  --fd-border-strong: #cdd2da;
+  --fd-surface: #fff;
+  --fd-surface-muted: #f7f8fa;
+  --fd-text-muted: #5a6271;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #76b900;
+  --md-accent-fg-color: #a9d951;
+  --fd-accent: #a9d951;
+  --fd-accent-hover: #bce96c;
+  --fd-accent-soft: rgb(169 217 81 / 16%);
+  --fd-border: #2a313d;
+  --fd-border-strong: #3a4150;
+  --fd-surface: #1a1f29;
+  --fd-surface-muted: #161a22;
+  --fd-text-muted: #a8b0bf;
+}
+
+[data-md-color-scheme="slate"] .md-header .md-logo img {
+  content: url("../images/horizontal-dark.svg");
+}
+
+.md-header__title {
+  display: none;
+}
+
+.md-grid {
+  max-width: 96rem;
+}
+
+.md-typeset img,
+.md-typeset video {
+  display: block;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.fd-hero {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(16rem, 0.9fr);
+  gap: clamp(1.25rem, 4cqi, 2rem);
+  align-items: center;
+  margin: 0 0 3.5rem;
+  padding: clamp(1.5rem, 5cqi, 2.8rem);
+  border: 1px solid var(--fd-border);
+  border-radius: 0.875rem;
+  background:
+    radial-gradient(120% 140% at 0 0, var(--fd-accent-soft), transparent 55%),
+    linear-gradient(180deg, var(--fd-surface-muted), var(--md-default-bg-color));
+}
+
+.md-typeset .fd-hero-title {
+  margin: 0 0 1rem;
+  font-size: clamp(1.8rem, 7cqi, 3rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+}
+
+.md-typeset .fd-hero-lede {
+  margin: 0 0 1.5rem;
+  color: var(--fd-text-muted);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.fd-hero-visual img,
+.fd-split-visual img {
+  display: block;
+  width: 100%;
+  border-radius: 0.5rem;
+}
+
+.fd-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.md-typeset .fd-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  padding: 0.55rem 1.1rem;
+  border: 1px solid var(--fd-border-strong);
+  border-radius: 0.5rem;
+  color: var(--md-default-fg-color);
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out,
+    transform 150ms ease-out;
+}
+
+.md-typeset .fd-button:hover,
+.md-typeset .fd-button:focus-visible {
+  border-color: var(--fd-accent);
+  box-shadow: 0 2px 5px rgb(15 23 42 / 10%);
+  transform: translateY(-1px);
+}
+
+.md-typeset .fd-button-primary {
+  border-color: var(--fd-accent);
+  background: var(--fd-accent);
+  color: #fff;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .fd-button-primary {
+  color: #0f1218;
+}
+
+.md-typeset .fd-button-primary:hover,
+.md-typeset .fd-button-primary:focus-visible {
+  border-color: var(--fd-accent-hover);
+  background: var(--fd-accent-hover);
+}
+
+.fd-split {
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.9fr) minmax(0, 1.1fr);
+  gap: 2rem;
+  align-items: center;
+  margin: 1rem 0 1.5rem;
+}
+
+.md-typeset .fd-split-copy p {
+  margin: 0;
+}
+
+.fd-card-grid {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.25rem 0 2rem;
+}
+
+.fd-card-grid-four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.fd-card-grid-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.md-typeset .fd-card {
+  display: flex;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--fd-border);
+  border-radius: 0.5rem;
+  background: var(--fd-surface);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+  color: var(--fd-text-muted);
+}
+
+.md-typeset div.fd-card {
+  flex-direction: column;
+}
+
+.md-typeset .fd-card p {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.md-typeset .fd-card-title {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--md-default-fg-color);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.md-typeset a.fd-card {
+  text-decoration: none;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out,
+    transform 150ms ease-out;
+}
+
+.md-typeset a.fd-card:hover,
+.md-typeset a.fd-card:focus-visible {
+  border-color: var(--fd-accent);
+  box-shadow: 0 4px 12px rgb(15 23 42 / 10%);
+  transform: translateY(-2px);
+}
+
+.md-typeset .fd-stat-card {
+  flex-direction: column;
+  justify-content: center;
+  min-height: 7rem;
+}
+
+.md-typeset .fd-stat-value {
+  color: var(--fd-accent);
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.md-typeset .fd-stat-label {
+  margin-top: 0.35rem;
+  color: var(--fd-text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.md-typeset .fd-model-card {
+  flex-direction: column;
+  min-height: 7rem;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 900px) {
+  .fd-card-grid-four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .fd-hero,
+  .fd-split {
+    grid-template-columns: 1fr;
+  }
+
+  .fd-hero {
+    padding: 1.5rem;
+  }
+
+  .fd-card-grid-three {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .fd-cta-row .fd-button {
+    flex: 1 1 100%;
+  }
+
+  .fd-card-grid-four,
+  .fd-card-grid-three {
+    grid-template-columns: 1fr;
+  }
+}
+
+.transparent-section {
+  border: 1px solid var(--fd-border);
+  border-radius: 0.875rem;
+  border-style: solid;
+  background-color: transparent;
+  padding: 20px;             /* Adds breathing room inside the block */
+  border-radius: 20px;        /* Optional: softens the edges */
+
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+.grey-section {
+  border: 1px solid var(--fd-border);
+  border-radius: 0.875rem;
+  background-color: var(--fd-surface-muted);
+  padding: 20px;             /* Adds breathing room inside the grey block */
+  border-radius: 20px;        /* Optional: softens the edges */
+
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.md-typeset figcaption {
+  width: 75%;
+  max-width: 75%;
+  text-align: center;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.md-typeset figcaption.tiny-figcaption {
+  font-size: 0.6rem;
+}

@@ -40,7 +40,7 @@ CHECKPOINT_PATH_FRAMEWISE = "https://huggingface.co/zhuhz22/Causal-Forcing/blob/
 PIPELINE_WAN21_T2V_1PT3B_CHUNKWISE = WanInferencePipelineConfig(
     name="causal-forcing-wan2.1-t2v-1.3b-chunkwise",
     encoder=None,
-    decoder=WanVAEDecoderConfig(),
+    decoder=WanVAEDecoderConfig(use_compile=True),
     diffusion_model=DiffusionModelConfig(
         seed=42,
         transformer=Wan21TransformerConfig(

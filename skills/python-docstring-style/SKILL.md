@@ -305,9 +305,10 @@ Place on its own line, one blank line before and after, short title. Don't use `
 - Voice: third person descriptive for docstring summaries of classes/attributes ("Long-lived AR cache…"); imperative for functions/methods ("Slice…", "Capture…").
 - No emojis in docstrings or comments.
 
-## Sphinx / Napoleon compatibility
+## Zensical compatibility
 
-Docs are built with `sphinx.ext.napoleon` (Google style) + `sphinx.ext.autodoc`, and `warningiserror = True` in `docs/source/conf.py` — **any malformed rST breaks CI**.
+The Zensical site is built from Markdown under `docs/source`; keep
+Google-style docstrings valid and readable in source.
 
 Practical rules:
 

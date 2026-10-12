@@ -237,8 +237,8 @@ In order of cost:
   largest `num_chunk` the GPU allows, discarding warmup chunks. Scope = **DiT + VAE
   enc/dec**, per-stage medians post-warmup. Harnesses: `tests/parity_check/bench.sh`
   (matched) / `bench_batch.sh` (native-only sample loop).
-- Author a model-card page mirroring `docs/source/models/lingbot_world.rst` (hero +
-  gallery videos, perf table, methodology); register it in `docs/source/models/index.rst`.
+- Author a model-card page mirroring `docs/source/models/lingbot_world.md` (hero +
+  gallery videos, perf table, methodology); register it in `docs/source/models/index.md`.
 
 ## Gotchas (hard-won)
 

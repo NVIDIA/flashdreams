@@ -255,7 +255,7 @@ flashdreams/flashdreams/        # the framework package
 flashdreams/test_v2/            # FlashDreams Runtime/Protocol tests (window, run_session, threads)
 flashdreams/tests/              # framework tests not yet migrated to test_v2/
 tests/                          # repo-wide test-runner scripts + meta checks, not package tests
-docs/source/                    # Sphinx sources
+docs/source/                    # Zensical Markdown sources
 ```
 
 ## Coding conventions

@@ -24,21 +24,41 @@ class TaxiVehicleConfig(VehicleConfig):
     """Full-lock steering angle for tight arcade turns."""
 
     steer_rate_rad_per_s: float = 2.415
-    """Reach full lock in the original keyboard control's 1 / 3.5 seconds."""
+    """Steering rate toward full lock in radians per second.
+
+    The default reaches full lock in the original keyboard control's 1 / 3.5 seconds.
+    """
 
     steer_return_rate_rad_per_s: float = 3.45
-    """Return from full lock in the original keyboard control's 1 / 5 seconds."""
+    """Steering return rate toward center in radians per second.
+
+    The default returns from full lock in the original keyboard control's 1 / 5 seconds.
+    """
 
     max_accel_mps2: float = 10.0
+    """Forward acceleration cap."""
+
     reverse_accel_mps2: float = 10.0
+    """Reverse acceleration cap."""
+
     max_brake_mps2: float = 14.0
+    """Normal braking strength."""
+
     handbrake_decel_mps2: float = 18.0
+    """Deceleration while using the handbrake."""
+
     handbrake_yaw_gain: float = 3.25
+    """Additional rotation induced by the handbrake."""
+
     max_handbrake_yaw_rate_radps: float = 1.5
+    """Cap on handbrake rotation speed."""
+
     max_lateral_accel_mps2: float = 17.0
     """Lateral-acceleration ceiling for responsive high-speed steering."""
 
     max_body_roll_rad: float = 0.16
+    """Limit on sideways body tilt."""
+
     curb_collision_restitution: float = 0.45
     """Rebound coefficient for map curbs and other static barriers."""
 
@@ -82,8 +102,13 @@ class TaxiVehicleConfig(VehicleConfig):
     """Body-roll acceleration scale while the handbrake is active."""
 
     speed_limit_enabled: bool = True
+    """Applies map speed limits to the taxi."""
+
     actor_collision_enabled: bool = True
+    """Enables collisions with dynamic actors."""
+
     static_collision_enabled: bool = True
+    """Enables collisions with static map barriers."""
 
 
 def _move_towards(current: float, target: float, max_delta: float) -> float:
