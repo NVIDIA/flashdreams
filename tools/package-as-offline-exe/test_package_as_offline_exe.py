@@ -39,8 +39,9 @@ def test_noninteractive_mode_cannot_be_packaged() -> None:
         _PACKAGER["_validate_config"](["--mode", "mp4"])
 
 
+@pytest.mark.parametrize("noconsole", [False, True])
 def test_required_runtime_assets_are_bundled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, noconsole: bool
 ) -> None:
     imgui_fonts = tmp_path / "imgui_bundle/assets/fonts"
     imgui_fonts.mkdir(parents=True)
@@ -62,9 +63,11 @@ def test_required_runtime_assets_are_bundled(
         slug="example",
         application_module="example",
         build_root=tmp_path / "build",
+        noconsole=noconsole,
     )
 
     assert "--onefile" in command
+    assert ("--noconsole" in command) == noconsole
     assert "--onedir" not in command
     assert "--contents-directory" not in command
     bundled_data = [
@@ -124,6 +127,26 @@ def test_nvrtc_builtins_are_bundled_beside_nvrtc(
     ]
     assert f"{builtins}{os.pathsep}." in binaries
     assert f"{builtins}{os.pathsep}{Path('nvidia/cu13/lib')}" in binaries
+
+
+@pytest.mark.parametrize("noconsole", [False, True])
+def test_main_passes_noconsole_to_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, noconsole: bool
+) -> None:
+    packaged_options: dict[str, Any] = {}
+
+    def fake_package(*args: Any, **kwargs: Any) -> Path:
+        packaged_options.update(kwargs)
+        return tmp_path
+
+    monkeypatch.setitem(_PACKAGER["main"].__globals__, "package", fake_package)
+    arguments = ["--noconsole"] if noconsole else []
+    arguments.extend(
+        [":::", "flashdreams-run-v2", "example", "--mode", "native-window"]
+    )
+
+    assert _PACKAGER["main"](arguments) == 0
+    assert packaged_options["noconsole"] == noconsole
 
 
 def test_skip_runtime_validation_keeps_application_preload() -> None:

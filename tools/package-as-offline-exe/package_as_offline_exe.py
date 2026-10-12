@@ -91,6 +91,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Bundle directory (default: artifacts/<slug>-bundle).",
     )
     parser.add_argument(
+        "--noconsole",
+        action="store_true",
+        help="Build without a console window on Windows (ignored on Linux).",
+    )
+    parser.add_argument(
         "--preload-timeout",
         type=float,
         help="Stop init and preload after this many seconds.",
@@ -665,6 +670,7 @@ def _pyinstaller_command(
     build_root: Path,
     hidden_imports: tuple[str, ...] = (),
     executables: tuple[str, ...] = (),
+    noconsole: bool = False,
 ) -> list[str]:
     """Prepare and return the PyInstaller command for an application package."""
     module_root = application_module.partition(".")[0]
@@ -729,6 +735,8 @@ def _pyinstaller_command(
         "--hidden-import",
         application_module,
     ]
+    if noconsole:
+        command.append("--noconsole")
     for module in sorted(local_modules):
         command.extend(("--paths", str(_module_search_path(module))))
         command.extend(("--collect-all", module))
@@ -835,6 +843,7 @@ def package(
     hidden_imports: tuple[str, ...] = (),
     executables: tuple[str, ...] = (),
     skip_runtime_validation: bool = False,
+    noconsole: bool = False,
 ) -> Path:
     """Preload and freeze one configured v2 application into ``output``.
 
@@ -846,6 +855,7 @@ def package(
         hidden_imports: Additional modules that PyInstaller cannot discover.
         executables: Executables from PATH required by the frozen runtime.
         skip_runtime_validation: Skip the preload's one-block runtime check.
+        noconsole: Build without a console window on Windows.
 
     Returns:
         Absolute path to the completed bundle.
@@ -940,6 +950,7 @@ def package(
                     build_root=build_root,
                     hidden_imports=hidden_imports,
                     executables=executables,
+                    noconsole=noconsole,
                 ),
                 cwd=staging,
                 env=_cache_environment(cache_root),
@@ -1001,6 +1012,7 @@ def main(arguments: list[str] | None = None) -> int:
             hidden_imports=tuple(parsed.hidden_import),
             executables=tuple(parsed.collect_executable),
             skip_runtime_validation=parsed.skip_runtime_validation,
+            noconsole=parsed.noconsole,
         )
     except PackageError as error:
         print(f"ERROR: {error}", file=sys.stderr)

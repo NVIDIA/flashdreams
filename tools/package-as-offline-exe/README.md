@@ -12,9 +12,9 @@ complete `flashdreams-run-v2` command:
 
 ```bash
 uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
-  --output artifacts/interactive-drive-omnidreams-bundle \
-  ::: flashdreams-run-v2 interactive-drive-omnidreams-fast-perf \
-  --mode native-window -- --game-mode
+  --noconsole --output artifacts/taxi-omnidreams-bundle \
+  ::: flashdreams-run-v2 crazy-robotaxi-omnidreams-fast-perf \
+  --mode native-window
 ```
 
 The command after `:::` must begin with `flashdreams-run-v2`, and its effective
@@ -52,6 +52,9 @@ written to `PREPARATION_ISSUES.txt` beside `INSTALLER_OUTPUT.txt`.
 ```text
 --output PATH
     Destination bundle directory.
+
+--noconsole
+    Build without a console window on Windows (ignored on Linux).
 
 --preload-timeout SECONDS
     Fail if initialization and preload do not finish within this time.
