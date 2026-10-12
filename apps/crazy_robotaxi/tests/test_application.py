@@ -313,7 +313,8 @@ def test_tooltip_cli_flags_change_their_settings(tmp_path: Path) -> None:
     assert not document.path.exists()
 
 
-def test_application_registers_model_and_imgui_ui_loops() -> None:
+@pytest.mark.parametrize("fullscreen", [False, True])
+def test_application_registers_model_and_imgui_ui_loops(fullscreen: bool) -> None:
     pipeline_closed: list[bool] = []
     pipeline = SimpleNamespace(close=lambda: pipeline_closed.append(True))
     pipeline_requests: list[tuple[object, str]] = []
@@ -333,6 +334,7 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
             "--profile-input-latency",
             "--show-fps",
         ]
+        + (["--fullscreen"] if fullscreen else [])
     )
 
     session = app.create_session(desc)
@@ -346,6 +348,10 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
+    requests = ui_loop.flush_ui_loop_requests()
+    assert (requests.fullscreen if requests is not None else None) is (
+        True if fullscreen else None
+    )
     assert session._presentation_manager._presentation_stream is None
     assert model_loop.state.pipeline is None
     assert app._pipeline is not None

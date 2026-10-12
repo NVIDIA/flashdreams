@@ -5,8 +5,12 @@
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import logging
+import os
 import queue
+import sys
 import threading
 import time
 from collections import deque
@@ -25,6 +29,8 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
+    FullscreenDisabledOptimalSizeUserInputEvent,
+    FullscreenEnabledOptimalSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -37,6 +43,68 @@ if TYPE_CHECKING:
     import slangpy as spy
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class _X11ClientMessage(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("serial", ctypes.c_ulong),
+        ("send_event", ctypes.c_int),
+        ("display", ctypes.c_void_p),
+        ("window", ctypes.c_ulong),
+        ("message_type", ctypes.c_ulong),
+        ("format", ctypes.c_int),
+        ("data", ctypes.c_long * 5),
+        ("padding", ctypes.c_long * 12),
+    ]
+
+
+def _x11_property(xlib: Any, display: Any, window: int, name: str) -> list[int]:
+    """Read an EWMH property containing 32-bit integers or atoms."""
+    actual_type = ctypes.c_ulong()
+    actual_format = ctypes.c_int()
+    count = ctypes.c_ulong()
+    remaining = ctypes.c_ulong()
+    data = ctypes.POINTER(ctypes.c_ubyte)()
+    xlib.XGetWindowProperty.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_long,
+        ctypes.c_long,
+        ctypes.c_int,
+        ctypes.c_ulong,
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.POINTER(ctypes.c_ubyte)),
+    ]
+    atom = xlib.XInternAtom(display, name.encode(), False)
+    status = xlib.XGetWindowProperty(
+        display,
+        window,
+        atom,
+        0,
+        1024,
+        False,
+        0,
+        ctypes.byref(actual_type),
+        ctypes.byref(actual_format),
+        ctypes.byref(count),
+        ctypes.byref(remaining),
+        ctypes.byref(data),
+    )
+    try:
+        if status != 0 or actual_format.value != 32 or not data:
+            return []
+        values = ctypes.cast(data, ctypes.POINTER(ctypes.c_ulong))
+        return [int(values[index]) for index in range(count.value)]
+    finally:
+        if data:
+            xlib.XFree.argtypes = [ctypes.c_void_p]
+            xlib.XFree(data)
+
 
 _PRINTABLE_KEY_NAMES = {
     "space": " ",
@@ -126,6 +194,17 @@ class NativeWindowClientWindow(IClientWindow):
         self._pressed_key_values: dict[str, str] = {}
         self._hide_cursor = False
         self._lock_cursor_to_window = False
+        self._fullscreen_request: bool | None = None
+
+    def request_fullscreen(self, is_fullscreen_enabled: bool) -> None:
+        """Request a native mode change and acknowledge it on a later input poll."""
+        presenter = self._presenter
+        if presenter is not None and presenter.request_fullscreen(
+            is_fullscreen_enabled
+        ):
+            self._fullscreen_request = is_fullscreen_enabled
+        else:
+            self._fullscreen_request = None
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor in the native window."""
@@ -222,6 +301,20 @@ class NativeWindowClientWindow(IClientWindow):
             try:
                 presenter.process_events()
                 self._window_size = presenter.size
+                if self._fullscreen_request is not None:
+                    size = presenter.fullscreen_size(self._fullscreen_request)
+                    if size is not None:
+                        event_type = (
+                            FullscreenEnabledOptimalSizeUserInputEvent
+                            if self._fullscreen_request
+                            else FullscreenDisabledOptimalSizeUserInputEvent
+                        )
+                        self._put_input(
+                            event_type(
+                                timestamp=uint64(0), width=size[0], height=size[1]
+                            )
+                        )
+                        self._fullscreen_request = None
                 # ponytail: Text delayed by more than one poll can still arrive
                 # as a second press. Split physical and text runtime events if a
                 # client needs a longer coalescing window.
@@ -290,6 +383,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._session_started_ns = None
         self._session_desc = None
         self._window_size = None
+        self._fullscreen_request = None
         self._input_events = queue.SimpleQueue()
         self._poll_input_events = None
         self._pending_printable_keys.clear()
@@ -414,12 +508,22 @@ class _SlangPyNativeWindowPresenter:
         self._width = int(width)
         self._height = int(height)
         self._closed = False
+        self._windowed_placement: tuple[Any, int] | None = None
+        self._fullscreen_enabled = False
+        self._optimal_size: tuple[int, int] | None = None
         self._window = spy.Window(
             width=self._width,
             height=self._height,
             title=title,
             resizable=False,
         )
+        self._native_hwnd = None
+        self._xdisplay: Any = None
+        self._xwindow: int | None = None
+        if sys.platform == "win32":
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            user32.GetActiveWindow.restype = ctypes.c_void_p
+            self._native_hwnd = user32.GetActiveWindow()
         try:
             self._presentation = _PresentationContext(
                 spy=spy,
@@ -460,11 +564,237 @@ class _SlangPyNativeWindowPresenter:
         self._window.cursor_mode = cursor_mode
 
     def resize(self, width: int, height: int) -> tuple[int, int]:
-        """Request a native resize and return the last acknowledged size."""
+        """Resize a windowed surface, preserving fullscreen monitor dimensions."""
         if self._closed:
             raise RuntimeError("Cannot resize a closed native window.")
+        if getattr(self, "_fullscreen_enabled", False):
+            return self.size
         self._window.resize(width, height)
         return self.size
+
+    def request_fullscreen(self, enabled: bool) -> bool:
+        """Ask the native window system to switch fullscreen mode."""
+        if self._closed:
+            return False
+        if sys.platform == "win32":
+            return self._request_fullscreen_windows(enabled)
+        if sys.platform.startswith("linux"):
+            return self._request_fullscreen_x11(enabled)
+        return False
+
+    def fullscreen_size(self, enabled: bool) -> tuple[int, int] | None:
+        """Return usable dimensions only after the requested mode is accepted."""
+        if sys.platform.startswith("linux"):
+            display, window, xlib = self._x11_window()
+            states = _x11_property(xlib, display, window, "_NET_WM_STATE")
+            atom = xlib.XInternAtom(display, b"_NET_WM_STATE_FULLSCREEN", False)
+            if (atom in states) != enabled:
+                return None
+            self._fullscreen_enabled = enabled
+            if enabled:
+                return self.size
+            root = xlib.XDefaultRootWindow(display)
+            work = _x11_property(xlib, display, root, "_NET_WORKAREA")
+            desktop = _x11_property(xlib, display, root, "_NET_CURRENT_DESKTOP")
+            offset = 4 * (desktop[0] if desktop else 0)
+            if len(work) < offset + 4:
+                return None
+            # ponytail: EWMH work area spans the desktop on multi-monitor X11;
+            # use RandR monitor work areas if per-monitor windowed limits are needed.
+            extents = _x11_property(xlib, display, window, "_NET_FRAME_EXTENTS")
+            if len(extents) != 4:
+                extents = [0, 0, 0, 0]
+            return (
+                work[offset + 2] - extents[0] - extents[1],
+                work[offset + 3] - extents[2] - extents[3],
+            )
+        elif self._fullscreen_enabled != enabled:
+            return None
+        return self._optimal_size
+
+    def _request_fullscreen_windows(self, enabled: bool) -> bool:
+        """Switch borderless fullscreen using the window's current monitor."""
+        from ctypes import wintypes
+
+        class MonitorInfo(ctypes.Structure):
+            _fields_ = [
+                ("size", wintypes.DWORD),
+                ("monitor", wintypes.RECT),
+                ("work", wintypes.RECT),
+                ("flags", wintypes.DWORD),
+            ]
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        hwnd = self._native_hwnd
+        if hwnd is None:
+            return False
+        user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+        user32.MonitorFromWindow.restype = wintypes.HANDLE
+        user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MonitorInfo)]
+        user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+        user32.SetWindowPos.argtypes = [
+            wintypes.HWND,
+            wintypes.HWND,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.UINT,
+        ]
+        get_style = (
+            user32.GetWindowLongPtrW
+            if ctypes.sizeof(ctypes.c_void_p) == 8
+            else user32.GetWindowLongW
+        )
+        set_style = (
+            user32.SetWindowLongPtrW
+            if ctypes.sizeof(ctypes.c_void_p) == 8
+            else user32.SetWindowLongW
+        )
+        get_style.argtypes = [wintypes.HWND, ctypes.c_int]
+        get_style.restype = ctypes.c_ssize_t
+        set_style.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+        set_style.restype = ctypes.c_ssize_t
+        info = MonitorInfo()
+        info.size = ctypes.sizeof(info)
+        monitor = user32.MonitorFromWindow(hwnd, 2)
+        if not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            return False
+        style = get_style(hwnd, -16)
+        current_rect = wintypes.RECT()
+        if not user32.GetWindowRect(hwnd, ctypes.byref(current_rect)):
+            return False
+        if enabled and self._windowed_placement is None:
+            self._windowed_placement = current_rect, style
+        target_style = (
+            style & ~0x00CF0000
+            if enabled
+            else (self._windowed_placement[1] if self._windowed_placement else style)
+        )
+        rect = (
+            info.monitor
+            if enabled
+            else (
+                self._windowed_placement[0]
+                if self._windowed_placement
+                else current_rect
+            )
+        )
+        ctypes.set_last_error(0)
+        set_style(hwnd, -16, target_style)
+        if ctypes.get_last_error():
+            return False
+        if not user32.SetWindowPos(
+            hwnd,
+            None,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+            0x0034,
+        ):
+            set_style(hwnd, -16, style)
+            return False
+        usable = info.monitor if enabled else info.work
+        if not enabled:
+            # Convert the work area to client dimensions, excluding restored chrome.
+            user32.AdjustWindowRectEx.argtypes = [
+                ctypes.POINTER(wintypes.RECT),
+                wintypes.DWORD,
+                wintypes.BOOL,
+                wintypes.DWORD,
+            ]
+            chrome = wintypes.RECT()
+            if not user32.AdjustWindowRectEx(
+                ctypes.byref(chrome), target_style, False, get_style(hwnd, -20)
+            ):
+                return False
+            self._optimal_size = (
+                usable.right - usable.left - (chrome.right - chrome.left),
+                usable.bottom - usable.top - (chrome.bottom - chrome.top),
+            )
+            self._windowed_placement = None
+        else:
+            self._optimal_size = usable.right - usable.left, usable.bottom - usable.top
+        self._fullscreen_enabled = enabled
+        return True
+
+    def _x11_window(self) -> tuple[Any, int, Any]:
+        """Return SlangPy's X11 display, window, and the system Xlib."""
+        xlib = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+        xlib.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+        xlib.XInternAtom.restype = ctypes.c_ulong
+        xlib.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        xlib.XDefaultRootWindow.restype = ctypes.c_ulong
+        if self._xdisplay is None:
+            xlib.XOpenDisplay.argtypes = [ctypes.c_char_p]
+            xlib.XOpenDisplay.restype = ctypes.c_void_p
+            self._xdisplay = xlib.XOpenDisplay(None)
+        display = self._xdisplay
+        if not display:
+            raise RuntimeError("Cannot open the native X11 display.")
+        if self._xwindow is None:
+            root = xlib.XDefaultRootWindow(display)
+            xlib.XFetchName.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_ulong,
+                ctypes.POINTER(ctypes.c_char_p),
+            ]
+            xlib.XFree.argtypes = [ctypes.c_void_p]
+            for candidate in reversed(
+                _x11_property(xlib, display, root, "_NET_CLIENT_LIST")
+            ):
+                if _x11_property(xlib, display, candidate, "_NET_WM_PID") != [
+                    os.getpid()
+                ]:
+                    continue
+                name = ctypes.c_char_p()
+                try:
+                    if (
+                        xlib.XFetchName(display, candidate, ctypes.byref(name))
+                        and name.value == self._window.title.encode()
+                    ):
+                        self._xwindow = candidate
+                        break
+                finally:
+                    if name:
+                        xlib.XFree(name)
+        if self._xwindow is None:
+            raise RuntimeError("The native window has not been registered with X11.")
+        return display, self._xwindow, xlib
+
+    def _request_fullscreen_x11(self, enabled: bool) -> bool:
+        """Send an EWMH fullscreen request without waiting for the window manager."""
+        try:
+            display, window, xlib = self._x11_window()
+        except (OSError, RuntimeError):
+            return False
+        root = xlib.XDefaultRootWindow(display)
+        supported = _x11_property(xlib, display, root, "_NET_SUPPORTED")
+        fullscreen = xlib.XInternAtom(display, b"_NET_WM_STATE_FULLSCREEN", False)
+        if fullscreen not in supported:
+            return False
+        event = _X11ClientMessage()
+        event.type = 33
+        event.display = display
+        event.window = window
+        event.message_type = xlib.XInternAtom(display, b"_NET_WM_STATE", False)
+        event.format = 32
+        event.data[0], event.data[1], event.data[3] = int(enabled), fullscreen, 1
+        xlib.XSendEvent.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.c_int,
+            ctypes.c_long,
+            ctypes.c_void_p,
+        ]
+        if not xlib.XSendEvent(
+            display, root, False, (1 << 19) | (1 << 20), ctypes.byref(event)
+        ):
+            return False
+        xlib.XFlush.argtypes = [ctypes.c_void_p]
+        xlib.XFlush(display)
+        return True
 
     def set_input_callbacks(
         self,
@@ -531,6 +861,11 @@ class _SlangPyNativeWindowPresenter:
             presentation.close()
         finally:
             window.close()
+            if getattr(self, "_xdisplay", None):
+                xlib = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+                xlib.XCloseDisplay.argtypes = [ctypes.c_void_p]
+                xlib.XCloseDisplay(self._xdisplay)
+                self._xdisplay = None
 
     def _on_keyboard_event(self, event: spy.KeyboardEvent) -> None:
         """Forward one keyboard event to the runtime callback."""

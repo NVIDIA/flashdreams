@@ -91,6 +91,9 @@ class UILoopRequests:
     new_window_size: tuple[int, int] | None = None
     """Requested downstream window size, or ``None`` to leave it unchanged."""
 
+    fullscreen: bool | None = None
+    """Requested fullscreen mode, or ``None`` to leave it unchanged."""
+
 
 class ILoop(ABC, Generic[StateT]):
     """Shared state, messaging, and lifecycle for a session loop.
@@ -490,6 +493,17 @@ class IUILoop(ILoop[StateT], ABC):
         if not isinstance(hide_cursor, bool):
             raise TypeError("hide_cursor must be a bool.")
         self.get_or_create_ui_loop_requests().hide_cursor = hide_cursor
+
+    @final
+    def request_fullscreen(self, is_fullscreen_enabled: bool) -> None:
+        """Request fullscreen without waiting for the client to accept it.
+
+        Accepted changes arrive as fullscreen optimal-size input events.
+        A client may reject the request without sending an event.
+        """
+        if not isinstance(is_fullscreen_enabled, bool):
+            raise TypeError("is_fullscreen_enabled must be a bool.")
+        self.get_or_create_ui_loop_requests().fullscreen = is_fullscreen_enabled
 
     @final
     def request_lock_cursor_to_window(self, lock_cursor_to_window: bool) -> None:

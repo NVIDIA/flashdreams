@@ -24,6 +24,7 @@ from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    FullscreenEnabledOptimalSizeUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
@@ -32,6 +33,40 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_fullscreen_resize_precedes_imgui_frame() -> None:
+    renderer = Mock(spec=_ImGuiUIRenderer)
+    renderer.width, renderer.height = 4, 3
+
+    def resize(width: int, height: int) -> None:
+        renderer.width, renderer.height = width, height
+
+    def render(step_index, events, step_ui):
+        assert (renderer.width, renderer.height) == (8, 6)
+        step_ui(SimpleNamespace(), step_index, events)
+        return torch.zeros(4, renderer.height, renderer.width)
+
+    renderer.resize.side_effect = resize
+    renderer.render.side_effect = render
+    loop = _Loop(renderer=renderer)
+    loop.output_layout = VideoTensorLayout.tchw
+    manager = Mock(spec=PresentationManager)
+    manager.presented_frames.return_value = ()
+    manager.composite.side_effect = lambda back_buffer, overlay: overlay[:3]
+    loop._presentation_manager = manager
+    results = loop.step(
+        0,
+        UserInputEvents(
+            [
+                FullscreenEnabledOptimalSizeUserInputEvent(
+                    timestamp=uint64(0), width=8, height=6
+                )
+            ]
+        ),
+    )
+    renderer.resize.assert_called_once_with(8, 6)
+    assert results[0].read_output().shape == (1, 3, 6, 8)
 
 
 def test_imgui_renderer_uses_an_explicit_cuda_device(

@@ -122,6 +122,9 @@ class ApplicationConfig:
     show_current_prompt: bool = False
     """Whether the HUD displays the prompt currently driving generation."""
 
+    fullscreen: bool = False
+    """Whether the session UI requests fullscreen at startup."""
+
     hud_enabled: bool = True
     """Whether gameplay HUD overlays are visible."""
 
@@ -346,6 +349,7 @@ class CrazyRobotaxiApplication(IApplication):
                 else settings.diagnostics.input_trace_path
             ),
             show_fps=settings.presentation.show_fps,
+            fullscreen=args.fullscreen,
             presentation_resolution_wh=presentation_resolution,
             show_current_prompt=settings.presentation.show_current_prompt,
             hud_enabled=settings.presentation.hud_enabled,
@@ -723,6 +727,7 @@ def _parser(
     parser.add_argument("--height", type=int, default=defaults.height)
     parser.add_argument("--display-width", type=int)
     parser.add_argument("--display-height", type=int)
+    parser.add_argument("--fullscreen", action="store_true")
     parser.add_argument("--force-map-recompile", action="store_true")
     parser.add_argument(
         "--ui",

@@ -21,6 +21,41 @@ class KeyboardInputState(Enum):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class OptimalSizeUserInputEvent(UserInputEvent):
+    """Client's maximum usable window dimensions in pixels."""
+
+    width: int
+    """Maximum window width."""
+    height: int
+    """Maximum window height."""
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "optimal_size"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class FullscreenEnabledOptimalSizeUserInputEvent(OptimalSizeUserInputEvent):
+    """Acknowledged fullscreen mode and its usable dimensions."""
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "fullscreen_enabled_optimal_size"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class FullscreenDisabledOptimalSizeUserInputEvent(OptimalSizeUserInputEvent):
+    """Acknowledged windowed mode and its maximum usable dimensions."""
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "fullscreen_disabled_optimal_size"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class NumeralKeypadUserInputEvent(UserInputEvent):
     """User input event for a numeral keypad."""
 
