@@ -675,29 +675,6 @@ def test_native_window_reports_a_selected_file(
     assert event.files[0].data == b"png-bytes"
 
 
-def test_native_window_disabled_file_selection_reports_unavailable(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    def chooser(**_: object) -> tuple[str, ...]:
-        raise AssertionError("disabled file selection must not open a chooser")
-
-    monkeypatch.setattr(native_window_module, "_ask_open_filename", chooser)
-    window = NativeWindowClientWindow(
-        allow_file_selection=False,
-        presenter_factory=_presenter_factory(_Presenter()),
-    )
-    window.open(_session_desc())
-    window.request_selected_files(_file_request("open-1", str(tmp_path)))
-    events = _wait_for_input_events(window)
-    window.close()
-
-    assert len(events) == 1
-    event = events[0]
-    assert isinstance(event, SelectedFilesUserInputEvent)
-    assert event.request_id == "open-1"
-    assert event.status is SelectedFilesStatus.UNAVAILABLE
-
-
 def test_native_window_reports_cancelled_file_selection(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

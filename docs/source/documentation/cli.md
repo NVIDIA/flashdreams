@@ -101,10 +101,6 @@ are written to `preparation_issues.txt` in the FlashDreams cache, or to
 `FLASHDREAMS_PREPARATION_ISSUES_PATH` when set. Use
 `--skip-preload-validation` to skip the first-block validation.
 
-Add `--disable-file-selection` to a v2 run where the client has no usable file
-selector, such as a packaged app streamed from a remote host. Every file pick
-then reports `UNAVAILABLE` instead of opening a selector.
-
 Open a local native window:
 
 ```bash

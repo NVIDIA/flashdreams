@@ -53,7 +53,6 @@ class WebRTCClientWindow(IClientWindow):
         host: str = "127.0.0.1",
         port: int = 0,
         startup_timeout_seconds: float = 10.0,
-        allow_file_selection: bool = True,
     ) -> None:
         """Create the WebRTC backend.
 
@@ -64,10 +63,7 @@ class WebRTCClientWindow(IClientWindow):
             host: Interface on which the HTTP server listens.
             port: Listening port. Zero asks the operating system to choose one.
             startup_timeout_seconds: Maximum time to wait for server startup.
-            allow_file_selection: Whether file picks ask the browser.
-                ``False`` reports every pick as ``UNAVAILABLE``.
         """
-        self._allow_file_selection = allow_file_selection
         self._input_events: deque[UserInputEvent] = deque()
         self._hide_cursor = False
         self._lock_cursor_to_window = False
@@ -132,16 +128,6 @@ class WebRTCClientWindow(IClientWindow):
 
     def request_selected_files(self, request: FileSelectionRequest) -> None:
         """Ask the connected browser to open a file selector."""
-        if not self._allow_file_selection:
-            with self._input_lock:
-                self._input_events.append(
-                    SelectedFilesUserInputEvent(
-                        timestamp=self.server.event_timestamp_us(),
-                        request_id=request.request_id,
-                        status=SelectedFilesStatus.UNAVAILABLE,
-                    )
-                )
-            return
         started = self._file_gate.submit(QueuedFileSelection.from_request(request))
         if started is not None:
             self._start_file_selection(started)

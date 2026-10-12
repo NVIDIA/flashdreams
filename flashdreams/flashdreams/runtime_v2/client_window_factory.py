@@ -49,9 +49,6 @@ class ClientWindowMode(ABC):
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
         """Create the window.
 
-        When ``parsed_args.disable_file_selection`` is set, the window reports
-        every file pick as ``UNAVAILABLE`` without opening a selector.
-
         Raises:
             ValueError: Whatever :meth:`check_arguments` reports.
         """
@@ -119,11 +116,7 @@ class _WebRTCMode(ClientWindowMode):
         # Imported here so a run writing a file needs none of the serving stack.
         from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
-        return WebRTCClientWindow(
-            host=parsed_args.host,
-            port=parsed_args.port,
-            allow_file_selection=not parsed_args.disable_file_selection,
-        )
+        return WebRTCClientWindow(host=parsed_args.host, port=parsed_args.port)
 
     def starting(self, client_window: IClientWindow) -> str | None:
         """Return where to connect, which nobody can guess when the port is free."""
@@ -149,10 +142,7 @@ class _NativeWindowMode(ClientWindowMode):
             NativeWindowClientWindow,
         )
 
-        return NativeWindowClientWindow(
-            title=parsed_args.window_title,
-            allow_file_selection=not parsed_args.disable_file_selection,
-        )
+        return NativeWindowClientWindow(title=parsed_args.window_title)
 
 
 _BUILTIN_MODES: tuple[ClientWindowMode, ...] = (
@@ -261,14 +251,6 @@ def add_client_window_arguments(parser: argparse.ArgumentParser) -> None:
             "to read. This also enables synchronized per-stage pipeline "
             "profiling. If a run replaces its session, the file contains the "
             "final session."
-        ),
-    )
-    parser.add_argument(
-        "--disable-file-selection",
-        action="store_true",
-        help=(
-            "Never open a client file selector; every file pick reports "
-            "unavailable. For packaged runs on platforms without one."
         ),
     )
     for mode in modes:

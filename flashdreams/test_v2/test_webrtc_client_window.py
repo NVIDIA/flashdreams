@@ -600,20 +600,6 @@ async def test_browser_file_selector_result_reports_status() -> None:
 
 
 @pytest.mark.asyncio
-async def test_disabled_file_selection_reports_unavailable_without_browser() -> None:
-    window = WebRTCClientWindow(allow_file_selection=False)
-    window.open(_session_desc())
-    try:
-        window.request_selected_files(_file_request("open-1"))
-        assert "open-1" not in window.server._pending_file_requests
-        event = await _wait_selected_files_event(window)
-        assert event.request_id == "open-1"
-        assert event.status is SelectedFilesStatus.UNAVAILABLE
-    finally:
-        window.close()
-
-
-@pytest.mark.asyncio
 async def test_browser_file_selector_result_cannot_claim_ok() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
