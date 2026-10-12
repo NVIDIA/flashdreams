@@ -18,11 +18,8 @@ prompt and first-frame image, it generates a complete 81-frame, 1280x640 clip
 in one rollout. FlashDreams exposes it through the
 `t2v-wan22-ti2v-5b` application.
 
-<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-    <source src="../_static/model_clips/wan22/wan22-ti2v-5b.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/wan22/wan22-ti2v-5b.avif" alt="" />
 </div>
 
 <figcaption class="tiny-figcaption">
@@ -46,8 +43,10 @@ uv run --no-sync flashdreams-run-v2 \
   --no-ui --no-compile
 ```
 
-- [Demo presets](#t2v-presets)
-- [Demo arguments](../demos/t2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#t2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/t2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -66,7 +65,7 @@ uv run --no-sync flashdreams-run-v2 \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan22">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/wan22">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan22/config.py">Pipeline configurations</a>
 </div>
 

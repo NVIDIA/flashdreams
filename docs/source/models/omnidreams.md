@@ -17,11 +17,8 @@ OmniDreams is an HDMap-conditioned streaming world model for driving
 generation, with application configurations that balance visual fidelity and
 runtime throughput.
 
-<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-    <source src="https://research.nvidia.com/labs/sil/projects/omnidreams-blog/teaser.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/omnidreams/omnidreams-teaser.avif" alt="" />
 </div>
 <figcaption class="tiny-figcaption">
   Teaser video source:
@@ -41,8 +38,10 @@ uv run --no-sync flashdreams-run-v2 crazy-robotaxi-omnidreams \
 # Open http://127.0.0.1:8089/
 ```
 
-- [Demo presets](#crazy-robotaxi-presets)
-- [Demo arguments](../demos/crazy_robotaxi.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#crazy-robotaxi-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/crazy_robotaxi.md#demo-arguments">Demo Arguments</a>
+</div>
 
 ### Interactive Drive
 
@@ -57,8 +56,10 @@ uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
 # Open http://127.0.0.1:8089/
 ```
 
-- [Demo presets](#interactive-drive-presets)
-- [Demo arguments](../demos/interactive_drive.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#interactive-drive-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/interactive_drive.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -104,7 +105,7 @@ Fastest preset: `interactive-drive-omnidreams-fast-perf`.
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/omnidreams">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/omnidreams/config.py">Pipeline configurations</a>
 </div>
 
@@ -131,21 +132,15 @@ Single-view latency on NVIDIA GB300 at `704 x 1280`:
 
 ## Samples
 
-<div class="model-video-grid zoomable">
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
+<div class="model-media-grid zoomable">
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.avif" alt="" />
     <figcaption class="tiny-figcaption">
       example_data_uuid: "239560dc-33d1-11ef-9720-00044bcbccac"
     </figcaption>
   </div>
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-24b84744-4156-11ef-b27d-00044bf655de-pip.avif" alt="" />
     <figcaption class="tiny-figcaption">
       example_data_uuid: "24b84744-4156-11ef-b27d-00044bf655de"
     </figcaption>

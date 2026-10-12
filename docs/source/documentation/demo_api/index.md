@@ -15,13 +15,17 @@ scenario, presentation, replay, warmup, and benchmark utilities.
 
 ## Guides
 
-- [Create a demo](guides/create_demo.md)
-- [Integrate a model with a demo](guides/integrate_model.md)
-- [Demo configuration](guides/configuration.md)
-- [Application slugs and model adapter dispatch](guides/application_slugs.md)
-- [Interactive serving](guides/interactive_serving.md)
-- [Local benchmarks](guides/local_benchmarks.md)
+<div class="fd-card-grid fd-card-grid-three fd-overview-grid">
+  <a class="fd-card fd-model-card" href="guides/create_demo/"><span class="fd-card-title">Create a demo</span><span>Build a model-independent application against the Demo API.</span></a>
+  <a class="fd-card fd-model-card" href="guides/integrate_model/"><span class="fd-card-title">Integrate a model</span><span>Connect a model implementation to an existing demo.</span></a>
+  <a class="fd-card fd-model-card" href="guides/configuration/"><span class="fd-card-title">Demo configuration</span><span>Define arguments, defaults, and application configuration.</span></a>
+  <a class="fd-card fd-model-card" href="guides/application_slugs/"><span class="fd-card-title">Application slugs and dispatch</span><span>Register application names and route model adapters.</span></a>
+  <a class="fd-card fd-model-card" href="guides/interactive_serving/"><span class="fd-card-title">Interactive serving</span><span>Serve responsive sessions through supported client windows.</span></a>
+  <a class="fd-card fd-model-card" href="guides/local_benchmarks/"><span class="fd-card-title">Local benchmarks</span><span>Measure application performance in a local environment.</span></a>
+</div>
 
 ## API Reference
 
-- [Demo Application API](api_reference/application.md)
+<div class="fd-card-grid fd-card-grid-three fd-overview-grid">
+  <a class="fd-card fd-model-card" href="api_reference/application/"><span class="fd-card-title">Demo Application API</span><span>Reference for application, session, loop, input, and output contracts.</span></a>
+</div>

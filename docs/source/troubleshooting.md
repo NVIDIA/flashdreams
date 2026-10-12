@@ -72,7 +72,7 @@ use a model-page configuration documented for the installed GPU.
 
 **Fix or next step:**
 
-Start with the non-perf OmniDreams launch in [/models/omnidreams](models/omnidreams.md). The
+Start with the non-perf OmniDreams launch in [NVIDIA OmniDreams](models/omnidreams.md). The
 perf application downloads its pinned third-party sources on first use. Verify
 that the machine has network access, the required GPU, and a CUDA toolchain
 that matches the PyTorch build before launching:

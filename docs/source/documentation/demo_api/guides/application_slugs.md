@@ -5,46 +5,55 @@ title: 'Application slugs and model adapters'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-This guide covers discovery for applications implementing
-`flashdreams.api_v2` and launched by `flashdreams-run-v2`. See the
-[Demo Application API reference](../api_reference/application.md) for the
-application contracts.
+An application slug identifies one installed, zero-argument
+`flashdreams.api_v2.IApplication` factory. It selects both an interaction and a
+model binding; it is not a pipeline-config registry key.
 
-## Discovery
+## Register an application
 
-Each integration registers zero-argument application factories in
-`flashdreams.applications_v2`:
+Register factories in the model integration's `pyproject.toml`:
 
 ```toml
-
 [project.entry-points."flashdreams.applications_v2"]
-"cam2v-lingbot" = "lingbot.apps.cam2v.adapter:create_app"
-"cam2v-lingbot-world-fast" = "lingbot.apps.cam2v.adapter:create_app_fast"
-
+"t2v-self-forcing-wan2.1-t2v-1.3b" = "self_forcing.apps.t2v.adapter:create_app"
+"t2v-self-forcing-wan2.1-t2v-1.3b-taehv" = "self_forcing.apps.t2v.adapter:create_app_taehv"
 ```
 
-List the slugs installed in the current environment, then inspect one
-application's arguments:
+Each target must be callable without arguments and return an uninitialized
+`IApplication`. Importing the module or calling the factory must not load a
+checkpoint, initialize CUDA, or open a window; `IApplication.init` owns that
+work.
+
+Use a stable, lowercase, hyphenated slug. Existing integrations generally use
+`<demo>-<model-or-config>` and append a suffix for a supported variant. The
+entry-point table is the source of truth; slug parsing is not an API.
+
+## Discover and inspect slugs
 
 ```bash
-
-uv run flashdreams-run-v2 --help
-uv run flashdreams-run-v2 cam2v-lingbot -- --help
-
+uv run --no-sync flashdreams-run-v2 --help
+uv run --no-sync flashdreams-run-v2 \
+    t2v-self-forcing-wan2.1-t2v-1.3b -- --help
 ```
 
-The default slug is normally `<application>-<model>`. Compatible variants
-append a descriptive suffix and map to an explicit factory in the same adapter.
-The registered entry points in each integration's `pyproject.toml` are the
-source of truth.
+The first command lists registered entry points. The second constructs the
+application and asks its argument parser for help. Arguments before `--` belong
+to `flashdreams-run-v2`; arguments after it belong to the application.
 
-## Ownership
+For small development-only examples, the registry can also import a module
+whose name is the slug with hyphens changed to underscores and call its
+`create_app`. This fallback is not listed by `--help`, so real integrations
+should register an entry point.
 
-Reusable application behavior belongs under `apps/<application>/`. Model
-implementation, configuration, and tests belong under
-`integrations_v2/<model>/`. The only bridge is the small
-`apps/<application>/adapter.py` module in the model package.
+## Keep ownership one-way
 
-Do not add `runner.py`, `launch.py`, `runtime.py`, `model_session.py`,
-or a model-specific copy of an existing application merely to make a v2 slug.
-See [Integrate a model with a demo](integrate_model.md) for the workflow.
+| Concern | Owner |
+| --- | --- |
+| Interaction, session, controls, UI, presentation policy | `apps/<demo>/` |
+| Model implementation, checkpoint mapping, pipeline configs | `integrations_v2/<model>/` |
+| Binding and application factory | `integrations_v2/<model>/apps/<demo>/adapter.py` |
+| File, browser, or native-window transport | `flashdreams.runtime_v2` |
+
+Do not copy a reusable app into the model package or add `runner.py`,
+`launch.py`, or `model_session.py` merely to expose a v2 slug. Follow
+[Integrate a model with a demo](integrate_model.md) for the adapter workflow.

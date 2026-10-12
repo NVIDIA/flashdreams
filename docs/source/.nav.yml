@@ -1,8 +1,8 @@
 nav:
-  - index.md
-  - quickstart
-  - models
-  - demos
+  - Home: index.md
+  - Get Started: quickstart
+  - Models: models
+  - Demos: demos
   - Documentation:
       - Documentation Overview: documentation/index.md
       - CLI Reference: documentation/cli.md
@@ -33,4 +33,4 @@ nav:
           - Offline Program Packager: documentation/tools/offline_program_packager.md
           - Build Website: documentation/tools/build_website.md
       - Troubleshooting: troubleshooting.md
-  - community
+  - Community: community
