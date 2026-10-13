@@ -11,10 +11,7 @@ import pytest
 from numpy import uint64
 
 from flashdreams.api_v2.loop import IUILoop
-from flashdreams.runtime_v2.file_selection_gate import (
-    FileSelectionGate,
-    QueuedFileSelection,
-)
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
@@ -31,8 +28,13 @@ from flashdreams.runtime_v2.selected_file import (
     selected_files_policy_status,
 )
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.session_runner import _FileSelections
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import SelectedFilesUserInputEvent
+from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEvent,
+    FileSelectorOpenedUserInputEvent,
+    SelectedFilesUserInputEvent,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 pytestmark = pytest.mark.ci_cpu
@@ -137,99 +139,95 @@ def test_ui_loop_keeps_file_results_until_a_step_runs() -> None:
     assert loop.user_events.get_events() == []
 
 
-def _queued(request_id: str) -> QueuedFileSelection:
-    return QueuedFileSelection(
+class _PickerWindow(NullClientWindow):
+    def __init__(self) -> None:
+        self.started: list[str] = []
+
+    def request_selected_files(self, request: FileSelectionRequest) -> None:
+        self.started.append(request.request_id)
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _request(request_id: str) -> FileSelectionRequest:
+    return FileSelectionRequest(request_id=request_id, initial_path="/tmp")
+
+
+def _opened(request_id: str) -> FileSelectorOpenedUserInputEvent:
+    return FileSelectorOpenedUserInputEvent(timestamp=uint64(0), request_id=request_id)
+
+
+def _result(request_id: str) -> SelectedFilesUserInputEvent:
+    return SelectedFilesUserInputEvent(
+        timestamp=uint64(0),
         request_id=request_id,
-        initial_path="/tmp",
-        accept=(".bin",),
-        max_bytes=16,
+        status=SelectedFilesStatus.CANCELLED,
     )
 
 
-def test_file_selection_gate_ignores_duplicates_and_serves_one_at_a_time() -> None:
-    gate = FileSelectionGate()
-    assert gate.submit(_queued("open-1")).started is not None
-    assert gate.submit(_queued("open-1")).started is None
-    assert gate.submit(_queued("open-2")).started is None
-    assert gate.submit(_queued("open-2")).started is None
-    assert gate.complete("open-2") == (False, None)
-    claimed, nxt = gate.complete("open-1")
-    assert claimed
-    assert nxt is not None
-    assert nxt.request_id == "open-2"
-    assert gate.complete("open-2") == (True, None)
+def _statuses(events: list[UserInputEvent]) -> list[tuple[str, SelectedFilesStatus]]:
+    return [
+        (event.request_id, event.status)
+        for event in events
+        if isinstance(event, SelectedFilesUserInputEvent)
+    ]
 
 
-def test_file_selection_gate_drain_returns_active_then_queued() -> None:
-    gate = FileSelectionGate()
-    assert gate.submit(_queued("open-1")).started is not None
-    assert gate.submit(_queued("open-2")).started is None
-    claimed, nxt = gate.complete("open-1")
-    assert claimed
-    assert nxt is not None
-    assert [item.request_id for item in gate.drain()] == ["open-2"]
-    assert gate.drain() == ()
+def test_session_shows_one_picker_at_a_time() -> None:
+    window = _PickerWindow()
+    selections = _FileSelections(window, timeout_seconds=1.0, clock=_Clock())
+    assert selections.request(_request("open-1")) == []
+    assert selections.request(_request("open-1")) == []
+    busy = selections.request(_request("open-2"))
+    assert _statuses(busy) == [("open-2", SelectedFilesStatus.UNAVAILABLE)]
+    assert window.started == ["open-1"]
+
+    assert selections.filter([_result("open-2")]) == []
+    kept = selections.filter([_result("open-1")])
+    assert _statuses(kept) == [("open-1", SelectedFilesStatus.CANCELLED)]
+    assert selections.request(_request("open-2")) == []
+    assert window.started == ["open-1", "open-2"]
 
 
-def test_file_selection_gate_stale_complete_does_not_release_new_request() -> None:
-    gate = FileSelectionGate()
-    first = gate.submit(_queued("open-1")).started
-    assert first is not None
-    stale_generation = first.generation
-    gate.drain()
-    second = gate.submit(_queued("open-1")).started
-    assert second is not None
-    assert second.generation != stale_generation
-    assert gate.complete("open-1", generation=stale_generation) == (False, None)
-    assert gate.is_current("open-1", second.generation)
-    assert gate.complete("open-1", generation=second.generation) == (True, None)
+def test_session_times_out_unopened_picker_and_drops_its_late_result() -> None:
+    window = _PickerWindow()
+    clock = _Clock()
+    selections = _FileSelections(window, timeout_seconds=1.0, clock=clock)
+    selections.request(_request("open-1"))
+
+    clock.now = 1.0
+    kept = selections.filter([])
+    assert _statuses(kept) == [("open-1", SelectedFilesStatus.UNAVAILABLE)]
+    assert selections.filter([_result("open-1")]) == []
+    assert selections.request(_request("open-2")) == []
+    assert window.started == ["open-1", "open-2"]
 
 
-def test_file_selection_gate_complete_after_drain_is_not_claimed() -> None:
-    gate = FileSelectionGate()
-    first = gate.submit(_queued("open-1")).started
-    assert first is not None
-    leftover = gate.drain()
-    assert leftover[0].request_id == "open-1"
-    assert gate.complete("open-1", first.generation) == (False, None)
+def test_session_opened_picker_waits_for_the_user_without_deadline() -> None:
+    window = _PickerWindow()
+    clock = _Clock()
+    selections = _FileSelections(window, timeout_seconds=1.0, clock=clock)
+    selections.request(_request("open-1"))
+    assert selections.filter([_opened("open-1"), _opened("other")]) == []
+
+    clock.now = 100.0
+    assert selections.filter([]) == []
+    kept = selections.filter([_result("open-1")])
+    assert _statuses(kept) == [("open-1", SelectedFilesStatus.CANCELLED)]
 
 
-def test_file_selection_gate_holds_unpresented_request_until_host_finishes() -> None:
-    gate = FileSelectionGate()
-    active = gate.submit(_queued("open-1")).started
-    assert active is not None
-    assert gate.submit(_queued("open-2")).started is None
-    expired = gate.expire_presentation(active)
-    assert [item.request_id for item in expired] == ["open-1", "open-2"]
-    assert gate.may_show(active.request_id, active.generation) is False
-    assert gate.is_current(active.request_id, active.generation)
-    refused = gate.submit(_queued("open-3"))
-    assert refused.started is None
-    assert refused.unavailable
-    assert gate.expire_presentation(active) == ()
-    assert gate.complete(active.request_id, active.generation) == (False, None)
-    assert gate.submit(_queued("open-3")).started is not None
-
-
-def test_file_selection_gate_presented_request_does_not_expire() -> None:
-    gate = FileSelectionGate()
-    active = gate.submit(_queued("open-1")).started
-    assert active is not None
-    assert gate.mark_presented(active.request_id, active.generation)
-    assert gate.expire_presentation(active) == ()
-    assert gate.complete(active.request_id, active.generation) == (True, None)
-
-
-def test_file_selection_gate_old_pick_cannot_expire_a_reused_id() -> None:
-    gate = FileSelectionGate()
-    old = gate.submit(_queued("open-1")).started
-    assert old is not None
-    assert gate.complete(old.request_id, old.generation) == (True, None)
-    new = gate.submit(_queued("open-1")).started
-    assert new is not None
-    assert (new.request_id, new.generation) == (old.request_id, old.generation)
-    assert gate.expire_presentation(old) == ()
-    assert gate.expire_presentation(new) == (new,)
+def test_session_passes_through_immediate_results_and_other_input() -> None:
+    selections = _FileSelections(NullClientWindow(), clock=_Clock())
+    kept = selections.request(_request("open-1"))
+    assert _statuses(kept) == [("open-1", SelectedFilesStatus.UNAVAILABLE)]
+    close = CloseUserInputEvent(timestamp=uint64(0))
+    assert selections.filter([close]) == [close]
 
 
 def test_selected_file_policy_helpers() -> None:

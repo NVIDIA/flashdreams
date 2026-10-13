@@ -15,6 +15,13 @@ MAX_SELECTED_FILE_BYTES = 32 * 1024 * 1024
 MAX_SELECTED_FILE_BATCH_BYTES = 8 * MAX_SELECTED_FILE_BYTES
 """Hard ceiling for the total bytes of one selected-files request."""
 
+FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS = 30.0
+"""Seconds to wait for a client window to show a picker before ``UNAVAILABLE``.
+
+The deadline starts when a request is handed to the window. Once the window
+reports the picker is shown, the user may take as long as they want.
+"""
+
 
 def clamp_selected_file_max_bytes(max_bytes: int | None) -> int:
     """Return a file-size budget that cannot exceed ``MAX_SELECTED_FILE_BYTES``.
@@ -97,7 +104,8 @@ class SelectedFilesStatus(Enum):
     """A chosen file did not match ``accept``. Checked before size."""
 
     UNAVAILABLE = "unavailable"
-    """The selector could not complete."""
+    """No pick was made: another picker was open, the client has no picker or
+    left, the picker was not shown in time, or a chosen file was unreadable."""
 
 
 def selected_file_policy_status(

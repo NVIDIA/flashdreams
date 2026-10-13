@@ -12,7 +12,6 @@ import pytest
 from imgui_ui_demo.file_picker_app import (
     _FILE_SELECTION_ERROR_COLOR,
     _FILE_SELECTION_STATUS_TEXT,
-    _OPEN_A_THEN_B_LABEL,
     _OPEN_FILE_A_LABEL,
     _OPEN_FILE_A_REQUEST_ID,
     _OPEN_FILE_B_LABEL,
@@ -141,20 +140,6 @@ def test_open_files_button_requests_multiple_client_files() -> None:
     assert requests.file_selections[0].multiple is True
 
 
-def test_open_a_then_b_queues_both_request_ids() -> None:
-    _state, loop = _file_picker_loop()
-    imgui = _file_picker_imgui(pressed=_OPEN_A_THEN_B_LABEL)
-
-    loop.step_ui(imgui, 0, UserInputEvents([]))
-    requests = loop.flush_ui_loop_requests()
-
-    assert requests is not None
-    assert [item.request_id for item in requests.file_selections] == [
-        _OPEN_FILE_A_REQUEST_ID,
-        _OPEN_FILE_B_REQUEST_ID,
-    ]
-
-
 def test_selected_files_event_updates_file_picker_status() -> None:
     state, loop = _file_picker_loop()
     imgui = _file_picker_imgui()
@@ -171,10 +156,41 @@ def test_selected_files_event_updates_file_picker_status() -> None:
     )
     loop.step_ui(imgui, 0, loop.user_events)
 
-    assert state.status == "seed.png (2 bytes)"
-    imgui.text.assert_called_with("seed.png (2 bytes)")
+    assert state.statuses == {_OPEN_FILE_A_REQUEST_ID: "seed.png (2 bytes)"}
+    assert [call.args[0] for call in imgui.text.call_args_list] == [
+        f"{_OPEN_FILE_A_LABEL}: seed.png (2 bytes)",
+        f"{_OPEN_FILE_B_LABEL}: No file selected.",
+        f"{_OPEN_FILES_LABEL}: No file selected.",
+    ]
     imgui.text_wrapped.assert_not_called()
     imgui.push_style_color.assert_not_called()
+
+
+def test_each_button_shows_only_its_own_result() -> None:
+    state, loop = _file_picker_loop()
+    loop.user_events = UserInputEvents(
+        [
+            SelectedFilesUserInputEvent(
+                timestamp=uint64(0),
+                request_id=_OPEN_FILE_B_REQUEST_ID,
+                status=SelectedFilesStatus.OK,
+                files=(SelectedFile(name="b.bin", data=b"b"),),
+            ),
+            SelectedFilesUserInputEvent(
+                timestamp=uint64(0),
+                request_id=_OPEN_FILES_REQUEST_ID,
+                status=SelectedFilesStatus.UNAVAILABLE,
+            ),
+        ]
+    )
+    loop.step_ui(_file_picker_imgui(), 0, loop.user_events)
+
+    assert state.statuses == {
+        _OPEN_FILE_B_REQUEST_ID: "b.bin (1 bytes)",
+        _OPEN_FILES_REQUEST_ID: _FILE_SELECTION_STATUS_TEXT[
+            SelectedFilesStatus.UNAVAILABLE
+        ],
+    }
 
 
 def test_selected_files_event_lists_every_chosen_file() -> None:
@@ -196,8 +212,12 @@ def test_selected_files_event_lists_every_chosen_file() -> None:
     )
     loop.step_ui(imgui, 0, loop.user_events)
 
-    assert state.status == "a.bin (2 bytes), b.raw (3 bytes)"
-    imgui.text.assert_called_with("a.bin (2 bytes), b.raw (3 bytes)")
+    assert state.statuses == {
+        _OPEN_FILES_REQUEST_ID: "a.bin (2 bytes), b.raw (3 bytes)"
+    }
+    imgui.text.assert_called_with(
+        f"{_OPEN_FILES_LABEL}: a.bin (2 bytes), b.raw (3 bytes)"
+    )
     imgui.text_wrapped.assert_not_called()
     imgui.push_style_color.assert_not_called()
 
@@ -222,8 +242,8 @@ def test_file_picker_shows_error_status_in_red() -> None:
     loop.step_ui(imgui, 0, loop.user_events)
 
     message = _FILE_SELECTION_STATUS_TEXT[cancelled]
-    assert state.status == message
-    imgui.push_style_color.assert_called_with("text", _FILE_SELECTION_ERROR_COLOR)
-    imgui.text_wrapped.assert_called_with(message)
+    assert state.statuses == {_OPEN_FILE_A_REQUEST_ID: message}
+    imgui.push_style_color.assert_called_once_with("text", _FILE_SELECTION_ERROR_COLOR)
+    imgui.text_wrapped.assert_called_once_with(f"{_OPEN_FILE_A_LABEL}: {message}")
     imgui.pop_style_color.assert_called_once_with()
-    imgui.text.assert_not_called()
+    assert imgui.text.call_count == 2

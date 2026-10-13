@@ -5,7 +5,7 @@
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
@@ -47,17 +47,18 @@ _FILE_SELECTION_STATUS_TEXT = {
     ),
     SelectedFilesStatus.UNAVAILABLE: (
         "SelectedFilesStatus.UNAVAILABLE: picker could not complete "
-        "(no interactive client, gone client, failed chooser, or unreadable file)."
+        "(another picker open, no or gone client, failed chooser, or "
+        "unreadable file)."
     ),
 }
 _FILE_SELECTION_ERROR_COLOR = (1.0, 0.25, 0.25, 1.0)
 """RGBA used for cancelled and other failed selector results."""
 
 _OPEN_FILE_A_REQUEST_ID = "open-file-a"
-"""Selector slot for Open file (A). Mash uses this same id."""
+"""Selector slot for Open file (A)."""
 
 _OPEN_FILE_B_REQUEST_ID = "open-file-b"
-"""Selector slot for Open file (B). Queued behind A when both are requested."""
+"""Selector slot for Open file (B)."""
 
 _OPEN_FILE_A_LABEL = "Open file (A)"
 """ImGui label for selector slot A."""
@@ -65,14 +66,21 @@ _OPEN_FILE_A_LABEL = "Open file (A)"
 _OPEN_FILE_B_LABEL = "Open file (B)"
 """ImGui label for selector slot B."""
 
-_OPEN_A_THEN_B_LABEL = "Open A then B"
-"""ImGui label that requests A then B in the same UI tick."""
-
 _OPEN_FILES_REQUEST_ID = "open-files"
 """Selector slot for Open files. Asks for more than one file."""
 
 _OPEN_FILES_LABEL = "Open files"
 """ImGui label for a multi-file selector slot."""
+
+_FILE_SELECTOR_SLOTS = (
+    (_OPEN_FILE_A_LABEL, _OPEN_FILE_A_REQUEST_ID, False),
+    (_OPEN_FILE_B_LABEL, _OPEN_FILE_B_REQUEST_ID, False),
+    (_OPEN_FILES_LABEL, _OPEN_FILES_REQUEST_ID, True),
+)
+"""``(label, request_id, multiple)`` for each Open button, in display order."""
+
+_NO_FILE_SELECTED = "No file selected."
+"""Status shown for a button before its first result."""
 
 
 class BreathingBackgroundModelLoop(IModelLoop[tuple[SessionDesc, torch.device | str]]):
@@ -107,14 +115,23 @@ class BreathingBackgroundModelLoop(IModelLoop[tuple[SessionDesc, torch.device | 
 
 @dataclass(slots=True)
 class FilePickerState:
-    """Last file-selector result shown by the demo overlay."""
+    """Last file-selector result for each Open button."""
 
-    status: str = "No file selected."
-    """Human-readable status of the last selector result."""
+    statuses: dict[str, str] = field(default_factory=dict)
+    """Status text by ``request_id``. A missing id has no result yet."""
+
+
+def _status_text(event: SelectedFilesUserInputEvent) -> str:
+    """Return the overlay text for one selector result."""
+    if event.status is not SelectedFilesStatus.OK:
+        return _FILE_SELECTION_STATUS_TEXT[event.status]
+    return ", ".join(
+        f"{chosen.name} ({len(chosen.data)} bytes)" for chosen in event.files
+    )
 
 
 class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
-    """Request a ``.bin`` / ``.raw`` pick and show the chosen name and size."""
+    """Request ``.bin`` / ``.raw`` picks and show each button's own result."""
 
     def step_ui(
         self,
@@ -122,80 +139,46 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
         step_index: int,
         events: UserInputEvents,
     ) -> Tensor | None:
-        """Draw the Open-file controls and apply this tick's selector results."""
+        """Draw the Open buttons and one status line per button."""
         del step_index, events
         imgui.set_next_window_pos(imgui.ImVec2(16.0, 16.0), imgui.Cond_.once)
         imgui.set_next_window_size(imgui.ImVec2(520.0, 300.0), imgui.Cond_.once)
         imgui.begin("File picker")
         try:
-            clicked_a = imgui.button(_OPEN_FILE_A_LABEL)
-            clicked_b = imgui.button(_OPEN_FILE_B_LABEL)
-            clicked_a_then_b = imgui.button(_OPEN_A_THEN_B_LABEL)
-            clicked_files = imgui.button(_OPEN_FILES_LABEL)
-            self._apply_demo_pick(
-                self._request_demo_file(
-                    _OPEN_FILE_A_REQUEST_ID,
-                    open=clicked_a or clicked_a_then_b,
+            clicked = [imgui.button(label) for label, _, _ in _FILE_SELECTOR_SLOTS]
+            for (_, request_id, multiple), pressed in zip(
+                _FILE_SELECTOR_SLOTS, clicked, strict=True
+            ):
+                pick = self.file_selector(
+                    request_id,
+                    open=pressed,
+                    accept=(".bin", ".raw"),
+                    max_file_bytes=MAX_SELECTED_FILE_BYTES,
+                    multiple=multiple,
                 )
-            )
-            self._apply_demo_pick(
-                self._request_demo_file(
-                    _OPEN_FILE_B_REQUEST_ID,
-                    open=clicked_b or clicked_a_then_b,
-                )
-            )
-            self._apply_demo_pick(
-                self._request_demo_file(
-                    _OPEN_FILES_REQUEST_ID,
-                    open=clicked_files,
-                    multiple=True,
-                )
-            )
-            if self.state.status in _FILE_SELECTION_STATUS_TEXT.values():
+                if pick is not None:
+                    self.state.statuses[request_id] = _status_text(pick)
+            for label, request_id, _ in _FILE_SELECTOR_SLOTS:
+                status = self.state.statuses.get(request_id, _NO_FILE_SELECTED)
+                line = f"{label}: {status}"
+                if status not in _FILE_SELECTION_STATUS_TEXT.values():
+                    imgui.text(line)
+                    continue
                 imgui.push_style_color(
                     imgui.Col_.text,
                     imgui.ImVec4(*_FILE_SELECTION_ERROR_COLOR),
                 )
                 try:
-                    imgui.text_wrapped(self.state.status)
+                    imgui.text_wrapped(line)
                 finally:
                     imgui.pop_style_color()
-            else:
-                imgui.text(self.state.status)
         finally:
             imgui.end()
         return self.presented_model_frame()
 
-    def _request_demo_file(
-        self,
-        request_id: str,
-        *,
-        open: bool,
-        multiple: bool = False,
-    ) -> SelectedFilesUserInputEvent | None:
-        """Poll one ``.bin`` / ``.raw`` selector slot and optionally start it."""
-        return self.file_selector(
-            request_id,
-            open=open,
-            accept=(".bin", ".raw"),
-            max_file_bytes=MAX_SELECTED_FILE_BYTES,
-            multiple=multiple,
-        )
-
-    def _apply_demo_pick(self, event: SelectedFilesUserInputEvent | None) -> None:
-        """Show this tick's selector result on the overlay."""
-        if event is None:
-            return
-        if event.status is not SelectedFilesStatus.OK:
-            self.state.status = _FILE_SELECTION_STATUS_TEXT[event.status]
-            return
-        self.state.status = ", ".join(
-            f"{chosen.name} ({len(chosen.data)} bytes)" for chosen in event.files
-        )
-
     def reset(self) -> None:
-        """Clear the last selector result for a new generation."""
-        self.state.status = "No file selected."
+        """Clear every button's result for a new generation."""
+        self.state.statuses.clear()
         super().reset()
 
 

@@ -11,6 +11,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from numpy import uint64
+
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import (
     IModelLoop,
@@ -23,8 +25,17 @@ from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.coordination import StepAgreement
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
+from flashdreams.runtime_v2.selected_file import (
+    FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS,
+    FileSelectionRequest,
+    SelectedFilesStatus,
+)
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import (
+    FileSelectorOpenedUserInputEvent,
+    SelectedFilesUserInputEvent,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,6 +56,88 @@ class _ChunkTraceLog:
     handler: logging.FileHandler
     previous_level: int
     previous_propagate: bool
+
+
+class _FileSelections:
+    """Allow one client file picker at a time for a session, on the UI thread.
+
+    A request made while another picker is active completes as
+    ``UNAVAILABLE``. The active request has a deadline until its window reports
+    the picker opened; after that the user may take as long as they want.
+    Results for any other id are dropped, so each request gets one result.
+    """
+
+    # ponytail: a picker that opens after its deadline, or one left open across a
+    # session replacement, can sit beside the next one. Upgrade path: have
+    # windows report when a dialog closes and wait for that before the next.
+
+    def __init__(
+        self,
+        window: IClientWindow,
+        *,
+        timeout_seconds: float = FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._window = window
+        self._timeout_seconds = timeout_seconds
+        self._clock = clock
+        self._active: FileSelectionRequest | None = None
+        self._deadline: float | None = None
+
+    def request(self, request: FileSelectionRequest) -> list[UserInputEvent]:
+        """Start ``request`` and return any result known right away."""
+        active = self._active
+        if active is not None:
+            if active.request_id == request.request_id:
+                return []
+            return [self._unavailable(request)]
+        self._active = request
+        self._deadline = self._clock() + self._timeout_seconds
+        try:
+            result = self._window.request_selected_files(request)
+        except Exception:
+            _LOGGER.exception("File selector %r failed to start.", request.request_id)
+            result = self._unavailable(request)
+        if result is None:
+            return []
+        self._active = None
+        return [result]
+
+    def filter(self, events: list[UserInputEvent]) -> list[UserInputEvent]:
+        """Apply window file events and the deadline; return events for the loops."""
+        kept: list[UserInputEvent] = []
+        for event in events:
+            active = self._active
+            if isinstance(event, FileSelectorOpenedUserInputEvent):
+                if active is not None and active.request_id == event.request_id:
+                    self._deadline = None
+            elif isinstance(event, SelectedFilesUserInputEvent):
+                if active is not None and active.request_id == event.request_id:
+                    kept.append(event)
+                    self._active = None
+            else:
+                kept.append(event)
+        if (
+            self._active is not None
+            and self._deadline is not None
+            and self._clock() >= self._deadline
+        ):
+            _LOGGER.warning(
+                "File selector %r was not shown within %g seconds.",
+                self._active.request_id,
+                self._timeout_seconds,
+            )
+            kept.append(self._unavailable(self._active))
+            self._active = None
+        return kept
+
+    @staticmethod
+    def _unavailable(request: FileSelectionRequest) -> SelectedFilesUserInputEvent:
+        return SelectedFilesUserInputEvent(
+            timestamp=uint64(0),
+            request_id=request.request_id,
+            status=SelectedFilesStatus.UNAVAILABLE,
+        )
 
 
 def _log_secondary_failure(message: str, error: BaseException) -> None:
@@ -115,6 +208,7 @@ def run_session(
     agreement: StepAgreement | None = None
 
     event_buffer = EventBuffer()
+    file_selections = None if window is None else _FileSelections(window)
     model_thread_handle: threading.Thread | None = None
     ui_loop: IUILoop[object] | None = None
     model_loop: IModelLoop[object] | None = None
@@ -157,14 +251,15 @@ def run_session(
             return False
 
         def collect_input() -> None:
-            if window is None:
+            if window is None or file_selections is None:
                 return
-            event_buffer.append(window.get_user_input_events())
+            events = window.get_user_input_events().get_events()
+            event_buffer.append(UserInputEvents(file_selections.filter(events)))
 
         def run_ui_once(*, step_requested: bool = True) -> None:
             """Process UI lifecycle control and run a requested UI step."""
             nonlocal next_session_desc
-            if ui_loop is None or window is None:
+            if ui_loop is None or window is None or file_selections is None:
                 return
             events, generation = event_buffer.read(_UI_READER_ID)
             result: list[StepResult] | None = None
@@ -177,7 +272,7 @@ def run_session(
 
                 request = ui_loop.flush_ui_loop_requests()
                 if request is not None:
-                    immediate = _apply_window_requests(window, request)
+                    immediate = _apply_window_requests(window, request, file_selections)
                     if immediate:
                         event_buffer.append(UserInputEvents(immediate))
                     if request.new_session is not None:
@@ -410,7 +505,9 @@ def run_session(
 
 
 def _apply_window_requests(
-    window: IClientWindow, request: UILoopRequests
+    window: IClientWindow,
+    request: UILoopRequests,
+    file_selections: _FileSelections,
 ) -> list[UserInputEvent]:
     """Apply UI window settings in request order; return immediate file results."""
     if request.hide_cursor is not None:
@@ -419,8 +516,11 @@ def _apply_window_requests(
         window.request_lock_cursor_to_window(request.lock_cursor_to_window)
     if request.new_window_size is not None:
         window.request_new_window_size(request.new_window_size)
-    results = (window.request_selected_files(item) for item in request.file_selections)
-    return [result for result in results if result is not None]
+    return [
+        result
+        for item in request.file_selections
+        for result in file_selections.request(item)
+    ]
 
 
 def _open_chunk_trace(path_value: object) -> _ChunkTraceLog:

@@ -557,8 +557,9 @@ class IUILoop(ILoop[StateT], ABC):
         Call every UI tick from each place in the UI that can open a picker.
         Pass ``open=True`` only on the tick that the user asks to open it, such
         as when an ImGui button returns ``True``. Use a different stable
-        ``request_id`` for each such place. While a pick for ``request_id`` is
-        still open, another ``open=True`` for it is dropped with a warning.
+        ``request_id`` for each such place. One picker is open at a time:
+        another ``open=True`` for the open ``request_id`` is ignored, and one
+        for any other id completes as ``UNAVAILABLE``.
 
         Example:
 
