@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import threading
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -682,6 +683,51 @@ def test_dynamic_prompts_preencode_when_complete_set_fits_host_cache() -> None:
         ),
         ("A sunny suburb. The taxi is stationary.",),
     }
+
+
+def test_dynamic_prompt_preencoding_runs_in_background() -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(),
+        map_context_config=LiveEditMapContextConfig(
+            enabled=True,
+            include_current_road_context=False,
+            include_next_map_node_type=False,
+            include_next_map_node_context=False,
+            include_upcoming_road_curve_direction=False,
+        ),
+    )
+    ability.configure_map(
+        load_game_map(Path(__file__).parent / "maps" / "traffic_loop.robotaxi.yaml")
+    )
+    ability._base_prompt = "A sunny suburb."
+    started = threading.Event()
+    release = threading.Event()
+
+    def preencode(prompts: list[str]) -> None:
+        del prompts
+        started.set()
+        assert release.wait(timeout=2.0)
+
+    pipeline = SimpleNamespace(
+        text_encoder=SimpleNamespace(
+            config=SimpleNamespace(run_on_cpu=True, embedding_cache_size=4),
+            preencode=preencode,
+        )
+    )
+
+    try:
+        ability._precompute_prompt_embeddings(pipeline)
+        assert started.wait(timeout=2.0)
+        assert ability._dynamic_prompt_preencode_future is not None
+        assert not ability._dynamic_prompt_preencode_future.done()
+        ability._pending_map_suffix = "The taxi is stationary."
+        ability._apply_pending_map_context()
+        assert ability._pending_map_suffix == "The taxi is stationary."
+    finally:
+        release.set()
+
+    ability.finish_dynamic_prompt_preencoding()
+    assert ability._dynamic_prompt_preencode_future is None
 
 
 def test_dynamic_prompt_preencoding_skips_sets_larger_than_host_cache() -> None:

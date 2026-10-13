@@ -35,6 +35,7 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
 from typing import Any, cast
 
@@ -50,6 +51,11 @@ from crazy_robotaxi.live_edit.weather_ability import compose_prompt, compose_swa
 
 _NO_PENDING = object()
 """Sentinel distinguishing "no request" from "revert to base" (None)."""
+
+_PROMPT_PREENCODE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="crazy-robotaxi-prompt-preencode",
+)
 
 
 class _V2PromptSession:
@@ -119,6 +125,7 @@ class StyleAbility:
         self._corrector_states: set[str] = set()
         self._prompt_embeddings: dict[str, Any] = {}
         self._dynamic_prompts_use_host_cache = False
+        self._dynamic_prompt_preencode_future: Future[None] | None = None
 
     def configure_map(self, game_map: Any) -> None:
         """Bind the selected resolved map before a rollout starts."""
@@ -279,7 +286,7 @@ class StyleAbility:
         self._session = _V2PromptSession(pipeline, cache)
         self.reset_v2(cache)
 
-    def reset_v2(self, cache: Any, *, pipeline: Any | None = None) -> None:
+    def reset_v2(self, cache: Any) -> None:
         """Bind a new V2 cache and reset all live-edit state."""
         if isinstance(self._session, _V2PromptSession):
             self._session._cache = cache
@@ -290,8 +297,14 @@ class StyleAbility:
         self._chunks_since_swap = 0
         self.reset_map_context()
         self._update_corrector(None, None, 0.0)
-        if pipeline is not None and self._dynamic_prompts_use_host_cache:
-            self._preencode_dynamic_prompts(pipeline)
+
+    def finish_dynamic_prompt_preencoding(self) -> None:
+        """Wait for startup prompt encoding before gameplay can present."""
+        future = self._dynamic_prompt_preencode_future
+        if future is None:
+            return
+        future.result()
+        self._dynamic_prompt_preencode_future = None
 
     def before_v2_chunk(self) -> None:
         """Apply queued edits at the model-thread chunk boundary."""
@@ -350,7 +363,12 @@ class StyleAbility:
                 pipeline
             )
             if self._dynamic_prompts_use_host_cache:
-                self._preencode_dynamic_prompts(pipeline)
+                self._dynamic_prompt_preencode_future = (
+                    _PROMPT_PREENCODE_EXECUTOR.submit(
+                        self._preencode_dynamic_prompts,
+                        pipeline,
+                    )
+                )
             return
         start = time.perf_counter()
         for prompt in prompts:
@@ -827,6 +845,9 @@ class StyleAbility:
 
     def _apply_pending_map_context(self) -> None:
         """Land the newest deferred map suffix as a plain prompt swap."""
+        preencoding = self._dynamic_prompt_preencode_future
+        if preencoding is not None and not preencoding.done():
+            return
         suffix = self._pending_map_suffix
         self._pending_map_suffix = None
         if suffix is None or suffix == self._active_map_suffix:
