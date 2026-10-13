@@ -202,6 +202,7 @@ window.addEventListener("keydown", event => {
     return;
   }
   event.preventDefault();
+  event.stopImmediatePropagation();
   promptDialogCancel?.click();
 });
 
@@ -444,7 +445,7 @@ peer.addEventListener("connectionstatechange", () => {
 
 window.addEventListener("keydown", event => {
   const keyId = event.code || event.key;
-  if (pressedKeys.has(keyId)) {
+  if (pressedKeys.has(keyId) || (promptDialog !== null && promptDialog.open)) {
     return;
   }
   const wasSent = sendInput({

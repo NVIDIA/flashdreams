@@ -200,7 +200,7 @@ def _parse_chooser_stdout(
     """Return selected paths from a chooser, or ``()`` when cancelled."""
     if completed.returncode == 1:
         return ()
-    output = completed.stdout.strip()
+    output = completed.stdout.removesuffix("\n")
     if not output:
         return ()
     if not multiple:
@@ -585,6 +585,9 @@ class NativeWindowClientWindow(IClientWindow):
                 presenter.close()
                 raise
 
+        # ponytail: this frees the picker slot while an old OS dialog may still be
+        # open, so the replacement session can open a second dialog beside it.
+        # Upgrade path: keep the drained slot occupied until its worker finishes.
         self._invalidate_file_selections(deliver_unavailable=False)
         self._session_file_generation = self._file_gate.generation
         self._session_started_ns = self._clock_ns()

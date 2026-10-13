@@ -826,6 +826,8 @@ async def test_browser_script_checks_type_and_size_before_upload() -> None:
         )
         assert "input.multiple" in script
         assert "file_selector_ack" in script
+        assert "event.stopImmediatePropagation();" in script
+        assert "(promptDialog !== null && promptDialog.open)" in script
     finally:
         window.close()
 

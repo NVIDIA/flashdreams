@@ -1071,6 +1071,26 @@ def test_ask_open_filename_linux_uses_zenity(
     assert "--file-filter=Accepted | *.png *.jpg" in calls[1]
 
 
+def test_ask_open_filename_linux_keeps_trailing_spaces_in_a_filename(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        native_window_module.shutil,
+        "which",
+        lambda name: "/usr/bin/zenity" if name == "zenity" else None,
+    )
+    monkeypatch.setattr(
+        native_window_module.subprocess,
+        "Popen",
+        lambda argv, **kwargs: _ChooserProcess(
+            returncode=0, stdout="/tmp/report.bin \n"
+        ),
+    )
+    assert native_window_module._ask_open_filename_linux(initial_dir="/tmp") == (
+        "/tmp/report.bin ",
+    )
+
+
 def test_ask_open_filename_linux_cancel_is_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
