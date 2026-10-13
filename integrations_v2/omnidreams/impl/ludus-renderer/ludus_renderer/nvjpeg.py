@@ -56,8 +56,10 @@ def _get_plugin():
     else:
         ldflags = []
 
-    # Reset CUDA arch list to let PyTorch detect the installed GPU
-    os.environ["TORCH_CUDA_ARCH_LIST"] = ""
+    # Let PyTorch detect the installed GPU unless the caller already chose an arch list:
+    # on GPUs newer than this torch knows (e.g. compute capability 10.7) detection raises
+    # "Unknown CUDA arch", and an explicit "<newest known>+PTX" is the only way to build.
+    os.environ.setdefault("TORCH_CUDA_ARCH_LIST", "")
 
     # Speed up compilation on Windows
     if os.name == "nt":

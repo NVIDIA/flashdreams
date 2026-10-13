@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from crazy_robotaxi.dynamics import TaxiVehicleConfig, integrate_taxi_vehicle
+from crazy_robotaxi.free_roam import FreeRoamGameRules, FreeRoamSnapshot
 from crazy_robotaxi.high_scores import (
     HighScoreStore,
     RaceTimeStore,
@@ -62,6 +63,23 @@ def _controller(
         config=config or TaxiGameConfig(waypoint_spacing_m=1000.0),
         high_score_store=high_score_store,
         frame_advance=frame_advance,
+    )
+
+
+def test_free_roam_keeps_generating_and_advances_live_edit_per_frame() -> None:
+    visited: list[tuple[VehicleState, bool]] = []
+    rules = FreeRoamGameRules(
+        lambda state, active: visited.append((state, active)) or 0
+    )
+    trajectory = _trajectory((0.0, 0.0), (1.0, 0.0), (2.0, 0.0))
+
+    update = rules.advance_frames(trajectory, 1.0 / 30.0)
+
+    assert update.frames == (FreeRoamSnapshot(),) * 3
+    assert visited == [(state, True) for state in trajectory.vehicle_states]
+    assert rules.is_running
+    assert (
+        rules.snapshot(trajectory.boundary_state_after_chunk).session_state == "playing"
     )
 
 

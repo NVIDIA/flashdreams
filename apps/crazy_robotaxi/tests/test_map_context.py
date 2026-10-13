@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from crazy_robotaxi.live_edit.config import LiveEditMapContextConfig
 from crazy_robotaxi.live_edit.map_context import MapContextTracker
 from omnidreams_game_engine.game_map import load_game_map
 from omnidreams_game_engine.game_map.types import GameMapLane, ResolvedGameMap
@@ -40,6 +41,13 @@ def _with_prompt_contexts(game_map: ResolvedGameMap) -> ResolvedGameMap:
 
 def _lane(game_map: ResolvedGameMap, lane_id: str) -> GameMapLane:
     return next(lane for lane in game_map.lanes if lane.lane_id == lane_id)
+
+
+def _tracker(game_map: ResolvedGameMap, **config_overrides: bool) -> MapContextTracker:
+    return MapContextTracker(
+        game_map,
+        LiveEditMapContextConfig(enabled=True, **config_overrides),
+    )
 
 
 def _sample_polyline(points: np.ndarray, distance_m: float) -> tuple[np.ndarray, float]:
@@ -87,7 +95,7 @@ def test_intersection_approach_current_and_outgoing_context_handoff() -> None:
     game_map = _with_prompt_contexts(
         load_game_map(_MAPS / "intersection_geometry.robotaxi.yaml")
     )
-    tracker = MapContextTracker(game_map)
+    tracker = _tracker(game_map)
     incoming = _lane(game_map, "west_road:lane:2")
     outgoing = _lane(game_map, "east_road:lane:2")
     connector = _lane(game_map, "center:connector:0")
@@ -113,7 +121,7 @@ def test_intersection_approach_current_and_outgoing_context_handoff() -> None:
 
 def test_stopping_shortens_lookahead_and_motion_uses_hysteresis() -> None:
     game_map = load_game_map(_MAPS / "intersection_geometry.robotaxi.yaml")
-    tracker = MapContextTracker(game_map)
+    tracker = _tracker(game_map)
     incoming = _lane(game_map, "west_road:lane:2")
     near = _lane_length(incoming) - 20.0
 
@@ -133,7 +141,7 @@ def test_stopping_shortens_lookahead_and_motion_uses_hysteresis() -> None:
 
 def test_reversing_away_recomputes_destination_immediately() -> None:
     game_map = load_game_map(_MAPS / "intersection_geometry.robotaxi.yaml")
-    tracker = MapContextTracker(game_map)
+    tracker = _tracker(game_map)
     toward_center = _lane(game_map, "west_road:lane:2")
     toward_west_end = _lane(game_map, "west_road:lane:1")
 
@@ -153,7 +161,7 @@ def test_reversing_away_recomputes_destination_immediately() -> None:
 
 def test_velocity_selects_actual_travel_direction_over_vehicle_yaw() -> None:
     game_map = load_game_map(_MAPS / "intersection_geometry.robotaxi.yaml")
-    tracker = MapContextTracker(game_map)
+    tracker = _tracker(game_map)
     lane = _lane(game_map, "west_road:lane:2")
     state = _state_on_lane(lane, _lane_length(lane) - 15.0, velocity=True)
     state.yaw_rad += math.pi
@@ -168,7 +176,7 @@ def test_two_off_map_chunks_clear_scene_context_but_keep_motion() -> None:
     game_map = _with_prompt_contexts(
         load_game_map(_MAPS / "intersection_geometry.robotaxi.yaml")
     )
-    tracker = MapContextTracker(game_map)
+    tracker = _tracker(game_map)
     lane = _lane(game_map, "west_road:lane:2")
     on_map = tracker.update(_state_on_lane(lane, 30.0))
     off_map = VehicleState(1e6, 1e6, 0.0, 0.0, 4.0, 0.0)
@@ -187,7 +195,7 @@ def test_culdesac_driveway_and_parking_lot_phrases() -> None:
         load_game_map(_MAPS / "parking_driveway.robotaxi.yaml")
     )
 
-    driveway_tracker = MapContextTracker(game_map)
+    driveway_tracker = _tracker(game_map)
     toward_driveway = _lane(game_map, "west_road:lane:1")
     driveway_lane = _lane(game_map, "lot_driveway:lane:0")
     approaching_driveway = driveway_tracker.update(
@@ -197,7 +205,7 @@ def test_culdesac_driveway_and_parking_lot_phrases() -> None:
         _state_on_lane(driveway_lane, 0.5 * _lane_length(driveway_lane))
     )
 
-    culdesac_tracker = MapContextTracker(game_map)
+    culdesac_tracker = _tracker(game_map)
     toward_culdesac = _lane(game_map, "west_road:lane:0")
     approaching_end = culdesac_tracker.update(
         _state_on_lane(toward_culdesac, _lane_length(toward_culdesac) - 10.0)
@@ -218,7 +226,7 @@ def test_culdesac_driveway_and_parking_lot_phrases() -> None:
 
 def test_unique_road_joint_successor_contributes_curve_context() -> None:
     game_map = load_game_map(_MAPS / "traffic_loop.robotaxi.yaml")
-    tracker = MapContextTracker(game_map)
+    tracker = _tracker(game_map)
     lane = _lane(game_map, "south_east:lane:1")
 
     result = tracker.update(
@@ -244,9 +252,46 @@ def test_sampled_curved_roads_report_signed_curve_direction(
     points: list[tuple[float, float]], direction: str
 ) -> None:
     game_map = load_game_map(_MAPS / "traffic_loop.robotaxi.yaml")
-    tracker = MapContextTracker(game_map)
+    tracker = _tracker(game_map)
     template = game_map.lanes[0]
     centerline = np.asarray([(x, y, 0.0) for x, y in points], dtype=np.float32)
     lane = replace(template, centerline_world=centerline, successor_ids=())
 
     assert tracker._curve_direction(lane, 0.0, 50.0, stop_at_branch=True) == direction
+
+
+@pytest.mark.parametrize(
+    ("disabled_field", "excluded_fragment"),
+    [
+        ("include_current_road_context", "Current road context."),
+        ("include_next_map_node_type", "Next map node type."),
+        ("include_next_map_node_context", "Next map node context."),
+        (
+            "include_upcoming_road_curve_direction",
+            "The road curves left ahead.",
+        ),
+        ("include_taxi_motion_state", "The taxi is stationary."),
+    ],
+)
+def test_each_dynamic_prompt_fragment_can_be_excluded_independently(
+    disabled_field: str, excluded_fragment: str
+) -> None:
+    game_map = load_game_map(_MAPS / "traffic_loop.robotaxi.yaml")
+    tracker = _tracker(game_map, **{disabled_field: False})
+    all_fragments = {
+        "Current road context.",
+        "Next map node type.",
+        "Next map node context.",
+        "The road curves left ahead.",
+        "The taxi is stationary.",
+    }
+
+    suffix = tracker._compose_suffix(
+        road_context="Current road context.",
+        node_phrase="Next map node type.",
+        node_context="Next map node context.",
+        curve="left",
+    )
+
+    assert excluded_fragment not in suffix
+    assert all(fragment in suffix for fragment in all_fragments - {excluded_fragment})

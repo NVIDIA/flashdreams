@@ -136,13 +136,21 @@ class _NativeWindowMode(ClientWindowMode):
             help="Native window title. Default: %(default)s.",
         )
 
+        parser.add_argument(
+            "--fullscreen",
+            action="store_true",
+            help="Create app in fullscreen mode.",
+        )
+
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
         # Imported here so file and browser runs need none of the SlangPy stack.
         from flashdreams.runtime_v2.native_window_client_window import (
             NativeWindowClientWindow,
         )
 
-        return NativeWindowClientWindow(title=parsed_args.window_title)
+        return NativeWindowClientWindow(
+            title=parsed_args.window_title, fullscreen=parsed_args.fullscreen
+        )
 
 
 _BUILTIN_MODES: tuple[ClientWindowMode, ...] = (
