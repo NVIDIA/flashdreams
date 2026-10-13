@@ -309,6 +309,7 @@ Use the same output resolution and rollout length for every candidate:
 ```bash
 uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
   --mode mp4 \
+  --timeout unbound \
   --output-path /tmp/interactive-drive-swiftvr-candidate.mp4 \
   --stats-path /tmp/interactive-drive-swiftvr-candidate-stats.json \
   -- --total-blocks 100 --no-ui --width 1280 --height 704 \

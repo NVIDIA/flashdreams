@@ -19,12 +19,12 @@ is what makes the file it writes the same on every run.
 ```bash
 uv sync --package flashdreams-color-fade --inexact
 uv run --no-sync flashdreams-run-v2 color-fade --output-path fade.mp4 \
-    -- --seconds 4
+    --timeout unbound -- --seconds 4
 ```
 
 Writing an MP4 needs an `ffmpeg` executable on `PATH`, and a frame size that is
-even in both directions. The run ends on its own: the session knows how long its
-fade is, so nothing has to pass a step count.
+even in both directions. `unbound` means no runner time-limit; the fade still
+ends when the session finishes.
 
 ## Arguments
 

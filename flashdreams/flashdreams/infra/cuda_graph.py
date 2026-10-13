@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Reusable CUDA-graph capture wrapper for stateful inference callables."""
 
@@ -31,7 +19,7 @@ def set_or_copy(
 ) -> None:
     """Write ``new_value`` into ``state[key]``, preserving the storage pointer.
 
-    First write clones into a fresh buffer; subsequent same-shape writes
+    First write clones into a compact buffer; subsequent same-shape writes
     ``copy_`` in place. Pointer stability is required for CUDA-graph
     capture, since captured kernels reference the slot's storage address.
 
@@ -45,7 +33,8 @@ def set_or_copy(
     if cur is not None and cur.shape == new_value.shape:
         cur.copy_(new_value)
     else:
-        state[key] = new_value.clone()
+        # Preserve-format clones can retain full-chunk strides under Inductor.
+        state[key] = new_value.clone(memory_format=torch.contiguous_format)
 
 
 class CUDAGraphWrapper:
@@ -155,9 +144,14 @@ class CUDAGraphWrapper:
 
     @staticmethod
     def _make_slot(value: Any) -> Any:
-        """Static buffer for a tensor; pass-through value for non-tensors."""
+        """Static buffer for a tensor; pass-through value for non-tensors.
+
+        ``empty_like`` already preserves ``value``'s memory format (dense
+        channels-last included); a bare ``.contiguous()`` on top of that
+        would silently force it back to the default row-major layout.
+        """
         if isinstance(value, torch.Tensor):
-            return torch.empty_like(value).contiguous()
+            return torch.empty_like(value, memory_format=torch.preserve_format)
         return value
 
     def _stage(

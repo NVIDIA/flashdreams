@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]
@@ -44,6 +32,8 @@ dev = [
 "cam2v-lingbot" = "lingbot.apps.cam2v.adapter:create_app"
 "cam2v-lingbot-world-fast" = "lingbot.apps.cam2v.adapter:create_app_fast"
 "cam2v-lingbot-world-fast-taehv-window15-sink3" = "lingbot.apps.cam2v.adapter:create_app_fast_taehv_window15_sink3"
+"cam2v-lingbot-world-v2-1p3b-causal-fast-perf" = "lingbot.apps.cam2v.adapter:create_app_v2_1p3b_causal_fast_perf"
+"cam2v-lingbot-world-v2-1p3b-causal-fast-perf-taehv" = "lingbot.apps.cam2v.adapter:create_app_v2_1p3b_causal_fast_perf_taehv"
 "cam2v-lingbot-world-v2-14b-causal-fast" = "lingbot.apps.cam2v.adapter:create_app_v2_14b_causal_fast"
 "cam2v-lingbot-world-v2-14b-causal-fast-taehv-window15-sink3" = "lingbot.apps.cam2v.adapter:create_app_v2_14b_causal_fast_taehv_window15_sink3"
 

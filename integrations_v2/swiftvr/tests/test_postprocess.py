@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """CPU contract tests for SwiftVR post-processing."""
 
@@ -156,16 +144,16 @@ def test_swiftvr_flush_emits_one_frame_per_input(
     assert result.shape[0] == frame_count
 
 
-def test_swiftvr_reuses_resident_pipeline_across_sessions(
+def test_swiftvr_reuses_resident_pipeline_and_shape_warmup_across_fps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created = _install_fake_pipeline(monkeypatch)
     config = SwiftVRPostProcessorConfig(device="cpu", chunk_size=8, prewarm=True)
     processor = config.setup()
 
-    first = processor.start(VideoSpec(height=4, width=4))
+    first = processor.start(VideoSpec(height=4, width=4, fps=30))
     first.prepare()
-    second = config.setup().start(VideoSpec(height=4, width=4))
+    second = config.setup().start(VideoSpec(height=4, width=4, fps=75))
     second.prepare()
 
     assert config.setup() is processor
@@ -188,6 +176,29 @@ def test_swiftvr_exposes_and_clears_latest_finalize_metrics(
 
     assert session.pull_finalize_metrics() == {"total_ms": 1.0}
     assert session.pull_finalize_metrics() is None
+
+
+def test_swiftvr_reset_starts_fresh_stream_with_resident_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = _install_fake_pipeline(monkeypatch)
+    session = (
+        SwiftVRPostProcessorConfig(device="cpu", chunk_size=8, prewarm=True)
+        .setup()
+        .start(VideoSpec(height=4, width=4))
+    )
+    session.prepare()
+    session.process(VideoChunk(tensor=torch.zeros((8, 3, 4, 4)), layout="tchw"))
+    session.flush()
+
+    session.reset()
+    output = session.process(
+        VideoChunk(tensor=torch.zeros((8, 3, 4, 4)), layout="tchw")
+    )
+
+    assert len(created) == 1
+    assert len(created[0].starts) == 3  # prewarm, first rollout, reset rollout
+    assert output[0].tensor.shape[2] == 5  # cold-stream trim repeats after reset
 
 
 def test_swiftvr_reports_exact_scaled_output_spec() -> None:

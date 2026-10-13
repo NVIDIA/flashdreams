@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """CPU-only contracts for the first-use PhysX CMake build."""
 
@@ -108,7 +96,7 @@ def test_build_lock_heartbeat_refreshes_active_lock(
     assert not lock_path.exists()
 
 
-def test_load_native_physx_runs_cmake_path_once_per_process(
+def test_prepare_native_physx_populates_runtime_cache(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     module_path = tmp_path / "ludus_physx_native.pyd"
@@ -147,12 +135,21 @@ def test_load_native_physx_runs_cmake_path_once_per_process(
         _physx_native.sys.modules, _physx_native._MODULE_NAME, raising=False
     )
 
-    first = _physx_native.load_native_physx()
+    first = _physx_native.prepare_native_physx()
     second = _physx_native.load_native_physx()
 
     assert first is loaded_module
     assert second is loaded_module
     assert configure_calls == [(tmp_path, tmp_path / "physx")]
+
+
+def test_load_native_physx_rejects_missing_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_physx_native, "_CACHED_MODULE", None)
+
+    with pytest.raises(RuntimeError, match=r"prepare_physx\(\).*IApplication.init"):
+        _physx_native.load_native_physx()
 
 
 def test_configure_and_build_delegates_freshness_to_cmake(

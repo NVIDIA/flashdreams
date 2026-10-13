@@ -16,6 +16,9 @@ dependencies = ["flashdreams[serving]"]
 [project.entry-points."flashdreams.applications_v2"]
 "action2v-dummy" = "action2v.dummy:create_app"
 
+[tool.uv]
+managed = true
+
 [tool.uv.sources]
 flashdreams = { workspace = true }
 

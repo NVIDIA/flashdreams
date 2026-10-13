@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Standalone native PhysX implementation isolated behind Ludus data types."""
 
@@ -25,7 +13,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ._physx_native import load_native_physx
 from .object_graph import (
     BodyState,
     InvisibleBarrier,
@@ -64,7 +51,9 @@ class _CompactPhysicsStep:
 
 def prepare_physx() -> None:
     """Build and cache the pinned standalone PhysX module if necessary."""
-    load_native_physx()
+    from ._physx_native import prepare_native_physx
+
+    prepare_native_physx()
 
 
 def _native_id(value: str, *, barrier: bool = False) -> int:
@@ -194,6 +183,8 @@ class PhysXWorld:
             or max_actor_drive_speed_mps <= 0.0
         ):
             raise ValueError("max_actor_drive_speed_mps must be finite and positive")
+        from ._physx_native import load_native_physx
+
         native = load_native_physx()
         minimum_capacity = len(graph.objects) + 1
         self._scene = native.NativeScene(capacity or max(256, minimum_capacity * 2))

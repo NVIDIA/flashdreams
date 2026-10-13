@@ -39,7 +39,6 @@ from interactive_drive.types import (
 )
 
 _FIRST_STEADY_STATE_WARMUP_MESSAGE = "Optimizing world model..."
-_VIEW_NAMES = ["camera_front_wide_120fov"]
 
 
 class WorldModelRenderBackend(RenderBackend):
@@ -76,6 +75,7 @@ class WorldModelRenderBackend(RenderBackend):
         self._pending_raster_frames: deque[PresentedFrame] = deque()
         self._first_transition_frame: PresentedFrame | None = None
         self._scene: SceneBundle | None = None
+        self._view_names: tuple[str, ...] = ()
         self._next_chunk_count = 0
         self._debug_first_chunk_condition_frames: tuple[np.ndarray, ...] | None = None
 
@@ -113,6 +113,7 @@ class WorldModelRenderBackend(RenderBackend):
 
     def load_scene(self, scene: SceneBundle) -> None:
         self._scene = scene
+        self._view_names = tuple(camera.logical_name for camera in scene.cameras)
         self._next_chunk_count = 0
         self._debug_first_chunk_condition_frames = self._load_debug_condition_frames(
             self._debug_condition_frame_dir
@@ -136,11 +137,16 @@ class WorldModelRenderBackend(RenderBackend):
                 physics_debug_frames=trajectory.physics_debug_frames,
             )
             raster_end = time.perf_counter()
-            condition_frames = [frame.rgb_host_uint8 for frame in raster_chunk.frames]
+            condition_views = _condition_views(raster_chunk.frames)
             display_frames = raster_chunk.frames
         else:
-            condition_frames = [
-                frame.copy() for frame in self._debug_first_chunk_condition_frames
+            if len(self._view_names) != 1:
+                raise RuntimeError(
+                    "The HD-map condition-frame override holds one camera's frames, "
+                    f"so it cannot drive a rig of {len(self._view_names)}."
+                )
+            condition_views = [
+                [frame.copy() for frame in self._debug_first_chunk_condition_frames]
             ]
             physx_frames = (
                 self._rasterizer.render_physx_debug_lazy_frames(
@@ -155,7 +161,7 @@ class WorldModelRenderBackend(RenderBackend):
             display_frames = tuple(
                 PresentedFrame(
                     timestamp_us=int(timestamp_us),
-                    rgb_host_uint8=frame.copy(),
+                    view_rgb_host_uint8=(frame.copy(),),
                     depth_host_f32=None,
                     rgb_native=None,
                     depth_native=None,
@@ -181,13 +187,13 @@ class WorldModelRenderBackend(RenderBackend):
                 f"dir={self._debug_condition_frame_dir}",
             )
         _log_prompt_handoff("first_chunk.start", scene)
-        model_frames = self._start_pipeline(
-            scene.initial_rgb, condition_frames, scene.prompt
+        model_views = self._start_pipeline(
+            scene.initial_rgbs, condition_views, scene.prompt
         )
         model_end = time.perf_counter()
         merged_frames = self._merge_frames(
             display_frames,
-            model_frames,
+            model_views,
             annotate_first_transition=True,
         )
         merge_end = time.perf_counter()
@@ -223,10 +229,10 @@ class WorldModelRenderBackend(RenderBackend):
             physics_debug_frames=trajectory.physics_debug_frames,
         )
         raster_end = time.perf_counter()
-        condition_frames = [frame.rgb_host_uint8 for frame in raster_chunk.frames]
-        model_frames = self._continue_pipeline(condition_frames)
+        condition_views = _condition_views(raster_chunk.frames)
+        model_views = self._continue_pipeline(condition_views)
         model_end = time.perf_counter()
-        merged_frames = self._merge_frames(raster_chunk.frames, model_frames)
+        merged_frames = self._merge_frames(raster_chunk.frames, model_views)
         merge_end = time.perf_counter()
         self._next_chunk_count += 1
         total_ms = (merge_end - chunk_start) * 1000.0
@@ -315,13 +321,9 @@ class WorldModelRenderBackend(RenderBackend):
             if self._postprocess_stream is None
             else self._postprocess_stream.finish()
         )
-        model_frames = (
-            []
-            if output is None
-            else lazy_rgb_frames_from_video_tensor(output.detach(), layout="bvtchw")
-        )
-        _synchronize_cuda_frame_event(model_frames)
-        merged_frames = self._merge_frames((), model_frames)
+        model_views = [] if output is None else _model_view_frames(output.detach())
+        _synchronize_cuda_frame_event([frame for view in model_views for frame in view])
+        merged_frames = self._merge_frames((), model_views)
         if self._pending_raster_frames:
             raise RuntimeError(
                 "Post-processing finished without emitting "
@@ -331,24 +333,26 @@ class WorldModelRenderBackend(RenderBackend):
 
     def _start_pipeline(
         self,
-        initial_rgb: object,
-        condition_frames: Sequence[object],
+        initial_rgbs: Sequence[object],
+        condition_views: Sequence[Sequence[object]],
         prompt: str,
-    ) -> list[LazyCudaFrame]:
+    ) -> list[list[LazyCudaFrame]]:
         self._clear_pipeline(finalize_pending=False)
-        self._cache = self._initialize_cache(initial_rgb, prompt)
-        return self._step_pipeline(condition_frames)
+        self._cache = self._initialize_cache(initial_rgbs, prompt)
+        return self._step_pipeline(condition_views)
 
     def _continue_pipeline(
-        self, condition_frames: Sequence[object]
-    ) -> list[LazyCudaFrame]:
+        self, condition_views: Sequence[Sequence[object]]
+    ) -> list[list[LazyCudaFrame]]:
         if self._cache is None:
             raise RuntimeError(
                 "render_first_chunk() must run before render_next_chunk()."
             )
-        return self._step_pipeline(condition_frames)
+        return self._step_pipeline(condition_views)
 
-    def _step_pipeline(self, condition_frames: Sequence[object]) -> list[LazyCudaFrame]:
+    def _step_pipeline(
+        self, condition_views: Sequence[Sequence[object]]
+    ) -> list[list[LazyCudaFrame]]:
         if self._cache is None:
             raise RuntimeError("The stream pipeline cache has not been initialized.")
         self._finalize_pending()
@@ -357,17 +361,23 @@ class WorldModelRenderBackend(RenderBackend):
             if self._step_index == 0
             else self._chunk.chunk_frames
         )
-        if len(condition_frames) != expected_frames:
+        if len(condition_views) != len(self._view_names):
             raise ValueError(
-                "Condition chunk length does not match the demo chunk size: "
-                f"{len(condition_frames)} vs {expected_frames}."
+                "Conditioning does not cover the scene's rig: "
+                f"{len(condition_views)} views vs {len(self._view_names)} cameras."
             )
+        for view_name, frames in zip(self._view_names, condition_views, strict=True):
+            if len(frames) != expected_frames:
+                raise ValueError(
+                    "Condition chunk length does not match the demo chunk size: "
+                    f"{len(frames)} vs {expected_frames} for view {view_name!r}."
+                )
         step_index = self._step_index
         with torch.cuda.device(self._pipeline.device):
             video_chunk = self._pipeline.generate(
                 autoregressive_index=step_index,
                 cache=self._cache,
-                input=self._condition_tensor(condition_frames),
+                input=self._condition_tensor(condition_views),
             )
         self._pending_finalization_index = step_index
         output = (
@@ -379,14 +389,18 @@ class WorldModelRenderBackend(RenderBackend):
             )
         )
         self._step_index += 1
-        return lazy_rgb_frames_from_video_tensor(output.detach(), layout="bvtchw")
+        return _model_view_frames(output.detach())
 
-    def _initialize_cache(self, initial_rgb: object, prompt: str) -> Any:
+    def _initialize_cache(self, initial_rgbs: Sequence[object], prompt: str) -> Any:
         with torch.cuda.device(self._pipeline.device):
             return self._pipeline.initialize_cache(
-                text=[[prompt]],
-                image=self._initial_rgb_tensor(initial_rgb),
-                view_names=_VIEW_NAMES,
+                # ``text`` is ``[B, V]``, so the scene's one sentence is aimed
+                # at each camera in turn. A scene describes a place rather than
+                # a camera, and the pipeline sizes its caches from the view
+                # count it reads here, which left a rig with caches for one.
+                text=[[prompt for _ in self._view_names]],
+                image=self._initial_rgb_tensor(initial_rgbs),
+                view_names=list(self._view_names),
             )
 
     def _finalize_pending(self) -> dict[str, float] | None:
@@ -430,19 +444,31 @@ class WorldModelRenderBackend(RenderBackend):
             world_size=1,
         )
 
-    def _initial_rgb_tensor(self, frame: object) -> torch.Tensor:
-        tensor = torch.from_numpy(_rgb_hwc_uint8(frame))
-        tensor = tensor.permute(2, 0, 1).unsqueeze(0).unsqueeze(0).unsqueeze(2)
+    def _initial_rgb_tensor(self, frames: Sequence[object]) -> torch.Tensor:
+        views = [
+            torch.from_numpy(_rgb_hwc_uint8(frame)).permute(2, 0, 1) for frame in frames
+        ]
+        tensor = torch.stack(views, dim=0).unsqueeze(0).unsqueeze(2)
         return self._to_model_range(tensor)
 
-    def _condition_tensor(self, condition_frames: Sequence[object]) -> torch.Tensor:
-        cuda_video = _condition_cuda_video(condition_frames)
-        if cuda_video is not None:
-            tensor = cuda_video.permute(0, 3, 1, 2).unsqueeze(0).unsqueeze(0)
-            return self._to_model_range(tensor)
-        video = np.stack([_rgb_hwc_uint8(frame) for frame in condition_frames], axis=0)
+    def _condition_tensor(
+        self, condition_views: Sequence[Sequence[object]]
+    ) -> torch.Tensor:
+        cuda_views = _condition_cuda_views(condition_views)
+        if cuda_views is not None:
+            video = torch.stack(
+                [view.permute(0, 3, 1, 2) for view in cuda_views], dim=0
+            )
+            return self._to_model_range(video.unsqueeze(0))
+        video = np.stack(
+            [
+                np.stack([_rgb_hwc_uint8(frame) for frame in frames], axis=0)
+                for frames in condition_views
+            ],
+            axis=0,
+        )
         tensor = torch.from_numpy(np.ascontiguousarray(video))
-        tensor = tensor.permute(0, 3, 1, 2).unsqueeze(0).unsqueeze(0)
+        tensor = tensor.permute(0, 1, 4, 2, 3).unsqueeze(0)
         return self._to_model_range(tensor)
 
     def _to_model_range(self, tensor: torch.Tensor) -> torch.Tensor:
@@ -481,30 +507,43 @@ class WorldModelRenderBackend(RenderBackend):
     def _merge_frames(
         self,
         raster_frames: Sequence[PresentedFrame],
-        model_frames: Sequence[object],
+        model_views: Sequence[Sequence[object]],
         *,
         annotate_first_transition: bool = False,
     ) -> tuple[PresentedFrame, ...]:
         self._pending_raster_frames.extend(raster_frames)
         if annotate_first_transition and raster_frames:
             self._first_transition_frame = raster_frames[-1]
-        if len(model_frames) > len(self._pending_raster_frames):
+        if model_views and len(model_views) != len(self._view_names):
+            raise ValueError(
+                "World-model output does not cover the scene's rig: "
+                f"{len(model_views)} views vs {len(self._view_names)} cameras."
+            )
+        lengths = {len(frames) for frames in model_views}
+        if len(lengths) > 1:
+            raise ValueError(
+                f"World-model views returned unequal frame counts: {sorted(lengths)}"
+            )
+        model_count = lengths.pop() if lengths else 0
+        if model_count > len(self._pending_raster_frames):
             raise ValueError(
                 "World-model output exceeds the buffered conditioning frames: "
-                f"{len(model_frames)} vs {len(self._pending_raster_frames)}"
+                f"{model_count} vs {len(self._pending_raster_frames)}"
             )
 
         merged: list[PresentedFrame] = []
-        for model_rgb in model_frames:
+        for index in range(model_count):
             raster_frame = self._pending_raster_frames.popleft()
             merged.append(
                 PresentedFrame(
                     timestamp_us=raster_frame.timestamp_us,
-                    rgb_host_uint8=raster_frame.rgb_host_uint8,
+                    view_rgb_host_uint8=raster_frame.view_rgb_host_uint8,
                     depth_host_f32=raster_frame.depth_host_f32,
                     rgb_native=raster_frame.rgb_native,
                     depth_native=raster_frame.depth_native,
-                    model_rgb_host_uint8=model_rgb,
+                    view_model_rgb_host_uint8=tuple(
+                        view[index] for view in model_views
+                    ),
                     bev_host_uint8=raster_frame.bev_host_uint8,
                     physx_debug=raster_frame.physx_debug,
                     physx_rgb_host_uint8=raster_frame.physx_rgb_host_uint8,
@@ -524,6 +563,47 @@ def _rgb_hwc_uint8(frame: object) -> np.ndarray:
     return np.ascontiguousarray(
         np.array(np.asarray(frame, dtype=np.uint8)[..., :3], copy=True)
     )
+
+
+def _condition_views(frames: Sequence[PresentedFrame]) -> list[list[object]]:
+    """A chunk's conditioning as one column per camera, in rig order.
+
+    Frames arrive a moment at a time and the pipeline wants a view at a time,
+    so this is the transpose.
+    """
+    if not frames:
+        return []
+    views = frames[0].views
+    for frame in frames:
+        if frame.views != views:
+            raise ValueError(
+                "A raster chunk must hold the same cameras in every frame; "
+                f"found {frame.views} where the chunk opened with {views}."
+            )
+    return [
+        [frame.view_rgb_host_uint8[view] for frame in frames] for view in range(views)
+    ]
+
+
+def _model_view_frames(output: torch.Tensor) -> list[list[LazyCudaFrame]]:
+    """One lazy frame list per view of a ``bvtchw`` chunk, in rig order."""
+    return [
+        lazy_rgb_frames_from_video_tensor(output, layout="bvtchw", view_index=view)
+        for view in range(int(output.shape[1]))
+    ]
+
+
+def _condition_cuda_views(
+    condition_views: Sequence[Sequence[object]],
+) -> list[torch.Tensor] | None:
+    """Every view as one CUDA video, or ``None`` if any view is not resident."""
+    videos: list[torch.Tensor] = []
+    for frames in condition_views:
+        video = _condition_cuda_video(frames)
+        if video is None:
+            return None
+        videos.append(video)
+    return videos
 
 
 def _condition_cuda_video(

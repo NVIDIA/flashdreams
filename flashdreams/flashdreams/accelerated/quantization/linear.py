@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Quantized nonpersistent linear transformation for accelerated inference."""
 
@@ -29,6 +17,10 @@ from flashdreams.accelerated.quantization.quantizer import (
     Granularity,
     dequantize,
     quantize,
+)
+from flashdreams.accelerated.quantization.quantizer_kernel import (
+    requires_triton_rowwise_fp8_mm,
+    rowwise_fp8_mm_triton,
 )
 
 
@@ -97,6 +89,9 @@ class QuantizedNonPersistentLinear(NonPersistentLinear):
     weight_scale: Tensor
     """FP32 weight scale shaped ``[O, 1]`` or ``[1, 1]``."""
 
+    _use_triton_rowwise_fp8_mm: bool
+    """Whether the device requires Triton for rowwise FP8 GEMM."""
+
     def __init__(
         self,
         weight: Tensor,
@@ -140,6 +135,11 @@ class QuantizedNonPersistentLinear(NonPersistentLinear):
         self.register_buffer(
             "weight_scale", weight_scale.contiguous(), persistent=False
         )
+        self._refresh_rowwise_fp8_mm_backend()
+
+    def _refresh_rowwise_fp8_mm_backend(self) -> None:
+        """Select Triton when Windows Blackwell lacks rowwise ``_scaled_mm``."""
+        self._use_triton_rowwise_fp8_mm = requires_triton_rowwise_fp8_mm(self.weight)
 
     def _apply(
         self,
@@ -162,6 +162,7 @@ class QuantizedNonPersistentLinear(NonPersistentLinear):
             self.weight = weight.to(device=self.weight.device)
         if self.weight_scale.dtype is not weight_scale.dtype:
             self.weight_scale = weight_scale.to(device=self.weight_scale.device)
+        self._refresh_rowwise_fp8_mm_backend()
         return module
 
     @overload
@@ -313,13 +314,21 @@ class QuantizedNonPersistentLinear(NonPersistentLinear):
             scaled_out_dtype = torch.bfloat16 if rowwise_scaling else out_dtype
             # Multiply ``input_2d [R, I]`` by ``weight.T [I, O]`` and fuse both
             # dequantization scales into the resulting ``output [R, O]``.
-            output = torch._scaled_mm(
-                input_2d,
-                self.weight.T,
-                input_scale,
-                weight_scale,
-                out_dtype=scaled_out_dtype,
-            )
+            if rowwise_scaling and self._use_triton_rowwise_fp8_mm:
+                output = rowwise_fp8_mm_triton(
+                    input_2d,
+                    self.weight.T,
+                    input_scale,
+                    weight_scale,
+                )
+            else:
+                output = torch._scaled_mm(
+                    input_2d,
+                    self.weight.T,
+                    input_scale,
+                    weight_scale,
+                    out_dtype=scaled_out_dtype,
+                )
             if output.dtype is not out_dtype:
                 output = output.to(out_dtype)
 

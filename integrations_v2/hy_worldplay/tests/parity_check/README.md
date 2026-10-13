@@ -175,9 +175,9 @@ This sub-venv intentionally **doubles as the plugin run-venv** in
 phase 1: it lists `flashdreams-hy-worldplay` as a path source so the
 `flashdreams.runner_configs` entry-point registers without a separate
 install step, and `flashdreams-run hy-worldplay-wan-i2v-5b` works
-here directly. The upstream + plugin runs share an identical dep stack
-(same torch / cuBLAS / sageattention / accelerate), which is required
-for the parity comparison below. Outside of this directory, use
+here directly. The upstream + plugin runs share the same pinned torch / cuBLAS
+stack, which is required for the parity comparison below. Outside of this
+directory, use
 `uv run --project integrations_v2/hy_worldplay/tests/parity_check ...`
 to target the same venv from elsewhere in the repo.
 

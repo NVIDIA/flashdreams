@@ -15,10 +15,10 @@ requires-python = ">=3.12,<3.13"
 #      stable pinned ``torch==2.11.*`` so parity numbers stay
 #      reproducible. (The native runner stays on flashdreams' own
 #      transformer + attention, so it does NOT need sageattention,
-#      cloudpickle, accelerate, or upstream's ``transformers==4.57.6``
+#      cloudpickle, or upstream's ``transformers==4.57.6``
 #      pin.)
 #   2. Provide a working ``cd HY-WorldPlay && torchrun wan/generate.py``
-#      harness *iff* the four heavy deps are re-installed manually
+#      harness *iff* the vendor-only heavy deps are re-installed manually
 #      (e.g. when re-baselining for a future 2b.6.1 Option-A refactor).
 #      ``run.sh`` documents the manual ``uv pip install`` step;
 #      production parity numbers come from the native path.
@@ -69,7 +69,8 @@ dependencies = [
     "numpy>=1.24",
     "omegaconf",
     "opencv-python-headless",
-    "pillow",
+    # Pillow 12.3 fixes image memory corruption and decompression-bomb bypasses.
+    "pillow>=12.3.0",
     "pyyaml",
     "regex",
     "remote-pdb",
@@ -79,6 +80,14 @@ dependencies = [
     "ftfy>=6.0",
     "einops>=0.7",
 ]
+
+[tool.uv]
+managed = true
+# CVE-2026-59890; PyTorch's <82 cap was unnecessary.
+# ponytail: override legacy metadata until all profiles use torch>=2.13.
+# https://github.com/pytorch/pytorch/pull/188190
+override-dependencies = ["setuptools>=83.0.0,<84"]
+build-constraint-dependencies = ["setuptools>=83.0.0,<84"]
 
 [tool.uv.sources]
 # Neither package is on PyPI; install both from the local source tree.

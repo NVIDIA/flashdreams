@@ -51,3 +51,13 @@ index 5d9b2159..55c14263 100644
 +            output = torch.nn.functional.scaled_dot_product_attention(query, key, value, **attn_kwargs)
          output = output.transpose(1, 2)
          return output
+diff --git a/fastvideo/models/encoders/t5_hf.py b/fastvideo/models/encoders/t5_hf.py
+--- a/fastvideo/models/encoders/t5_hf.py
++++ b/fastvideo/models/encoders/t5_hf.py
+@@ -32,6 +32,5 @@ class T5EncoderModel(TextEncoder):
+         kwargs = {
+             "local_files_only": True,
+-            "low_cpu_mem_usage": True,
+         }
+         try:
+             hf = HFT5EncoderModel.from_pretrained(model_path, dtype=dtype, **kwargs)

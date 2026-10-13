@@ -101,19 +101,38 @@ client asks for one, implement it, even if the body is `return`.
 
 ## What a step returns
 
-The two loops have different return contracts, and the runtime enforces both:
+Both loops return `list[StepResult]`. The list does not mean the same thing
+on both threads, and the runtime enforces both contracts:
 
-- A model loop returns `list[StepResult]`, one entry per channel. A single
-  `StepResult` or `None` raises `TypeError`.
-- A UI loop returns one `StepResult`, or `None` to present nothing this tick.
+- A model loop returns one entry per channel. A single `StepResult` or
+  `None` raises `TypeError`. An empty list means this step produced no
+  presentable output; the runtime does not publish it.
+- A UI loop returns one `StepResult` to present, or `[]` to present nothing
+  this tick. A list longer than one raises `TypeError`, because
+  `window.write` takes a single frame.
 
 Every channel in one model step must report the same `frame_count`, and a
 mismatch raises `ValueError`. A step may generate several frames at once; the
 runtime presents them one per UI tick rather than dropping all but the last.
 
+In a distributed session, every admitted rank executes the same model step and
+ordered collectives. The integration chooses the CP view/token axis and TP
+projections. Before rank zero returns non-empty results, it must gather every CP
+shard needed for publication in the original view/token order. Workers return
+`[]` only after participating in all required collectives, including that gather.
+
+Gather before decoding if the decoder needs the complete latent/view sequence;
+decode only on rank zero when the model permits it. TP reductions that already
+replicate a complete value need no additional gather. Use `build_shard()` and
+`gather_tokens()` when their tensor contract fits. The runtime cannot infer the
+sharded dimension, ordering, padding, or replication from a `StepResult`.
+A run whose model steps all return `[]` still ends when the model loop does.
+
 A UI loop reads what the model produced through `presented_model_frame` and
 `presented_model_frames`, which return `[C, H, W]` frames with one, three or
 four channels. Four channels is RGBA, and composites over what is beneath it.
+`has_pending_model_frames` and `presented_model_frame_count` say whether more
+model frames are waiting and how many have already been selected.
 
 Output sinks read floating-point frames as `[-1, 1]` and integer frames as
 `[0, 255]`. No `SessionDesc` setting remaps this; a UI loop that works in some
@@ -204,7 +223,9 @@ exposes `imgui_bundle.imgui` and an image-like pixel upload convenience form. A
 UI control that needs a fresh application session calls
 `request_new_session(session_desc)` with a fully resolved replacement
 description; the runtime cleans the current session and passes that description
-to `ApplicationRunner` unchanged.
+to `ApplicationRunner` unchanged. Remaining timeout and remaining model steps
+still apply to the replacement.
+
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The
 [`slangpy_ui_demo` integration](../../../integrations_v2/slangpy_ui_demo/README.md)

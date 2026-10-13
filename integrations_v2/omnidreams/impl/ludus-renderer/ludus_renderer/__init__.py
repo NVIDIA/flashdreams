@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """
 Ludus Renderer - GPU-native F-theta CUDA software renderer and PhysX scene.
@@ -44,17 +32,30 @@ from . import nvjpeg
 from ._ops import (
     CAMERA_TYPE_BEV,
     CAMERA_TYPE_REGULAR,
+    CUBE_FLAG_FLAT_FACES,
     CUBE_FLAG_WIREFRAME,
     PRIM_BEV_ROAD_SURFACE,
     PRIM_CROSSWALK,
     PRIM_EGO_OBSTACLE,
     PRIM_EGO_TRAJECTORY,
+    PRIM_INTERSECTION,
+    PRIM_LANE_BOUNDARY,
     PRIM_LANE_LINE,
+    PRIM_LANE_LINE_WHITE_DASHED,
+    PRIM_LANE_LINE_WHITE_SOLID,
+    PRIM_LANE_LINE_YELLOW_DASHED,
+    PRIM_LANE_LINE_YELLOW_SOLID,
     PRIM_OBSTACLE,
+    PRIM_POLE,
     # Constants
     PRIM_ROAD_BOUNDARY,
+    PRIM_ROAD_ISLAND,
+    PRIM_ROAD_MARKING,
     PRIM_STATIC_OBSTACLE,
+    PRIM_TRAFFIC_LIGHT,
+    PRIM_TRAFFIC_SIGN,
     PRIM_TYPE_COUNT,
+    PRIM_WAIT_LINE,
     CapStyle,
     Cube,
     CubePool,
@@ -75,6 +76,7 @@ from .augmentation import mirror_augment_scene
 from .clipgt import (
     ClipgtGpuScene,
     EgoTrackData,
+    _get_camera_cpp_ext,
     is_clipgt,
     load_av2_scene,
     load_clipgt_scene,
@@ -114,6 +116,16 @@ from .util import (
     rgb,
 )
 
+
+def prepare_ludus() -> None:
+    """Load all native dependencies used by Ludus gameplay rendering."""
+    from ._ops._plugin import _get_plugin
+
+    _get_plugin()
+    _get_camera_cpp_ext()
+    prepare_physx()
+
+
 __all__ = [
     # Version
     "__version__",
@@ -150,10 +162,23 @@ __all__ = [
     "PRIM_EGO_TRAJECTORY",
     "PRIM_OBSTACLE",
     "PRIM_EGO_OBSTACLE",
+    "PRIM_WAIT_LINE",
+    "PRIM_POLE",
+    "PRIM_ROAD_MARKING",
+    "PRIM_LANE_BOUNDARY",
+    "PRIM_TRAFFIC_LIGHT",
+    "PRIM_TRAFFIC_SIGN",
+    "PRIM_INTERSECTION",
+    "PRIM_ROAD_ISLAND",
+    "PRIM_LANE_LINE_WHITE_SOLID",
+    "PRIM_LANE_LINE_WHITE_DASHED",
+    "PRIM_LANE_LINE_YELLOW_SOLID",
+    "PRIM_LANE_LINE_YELLOW_DASHED",
     "PRIM_TYPE_COUNT",
     "CAMERA_TYPE_REGULAR",
     "CAMERA_TYPE_BEV",
     "CUBE_FLAG_WIREFRAME",
+    "CUBE_FLAG_FLAT_FACES",
     # PhysX-first object graph
     "BodyState",
     "InvisibleBarrier",
@@ -161,6 +186,7 @@ __all__ = [
     "PhysicsObjectGraph",
     "PhysicsStep",
     "PhysXWorld",
+    "prepare_ludus",
     "prepare_physx",
     "RigidBodyModel",
     "SceneObject",

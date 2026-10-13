@@ -1,23 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Autoregressive inference pipeline: encode → diffuse → decode."""
 
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Generic
 
@@ -219,6 +208,23 @@ class StreamInferencePipeline(
             Decoded tensor (e.g. RGB video) when a decoder is configured;
             otherwise the unpatchified clean latent from the diffusion model.
         """
+        return self._generate(
+            autoregressive_index,
+            cache,
+            input=input,
+        )
+
+    def _generate(
+        self,
+        autoregressive_index: int,
+        cache: StreamInferencePipelineCache[
+            StreamingEncoderCacheT, TransformerCacheT, StreamingDecoderCacheT
+        ],
+        input: Any = None,
+        *,
+        on_diffusion_complete: Callable[[], None] | None = None,
+    ) -> Tensor:
+        """Run the shared stages with an optional pre-decode completion hook."""
         prev = cache.autoregressive_index
         expected = (prev + 1) if prev is not None else 0
         assert autoregressive_index == expected, (
@@ -257,6 +263,9 @@ class StreamInferencePipeline(
 
         if events is not None:
             events.record("diffuse")
+
+        if on_diffusion_complete is not None:
+            on_diffusion_complete()
 
         if self.decoder is not None:
             assert cache.decoder_cache is not None  # invariant: paired with decoder

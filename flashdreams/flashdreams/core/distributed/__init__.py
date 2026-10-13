@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Distributed-training initialization helpers."""
 
@@ -43,12 +31,17 @@ DEFAULT_LOG_LEVEL = "INFO"
 def _safe_destroy_pg() -> None:
     """Tear down the default process group on interpreter exit.
 
-    Registered via :func:`atexit.register` from :func:`init` so NCCL stops
-    printing the ``destroy_process_group() was not called before program
-    exit`` warning at the end of every ``flashdreams-run`` / ``torchrun``
-    invocation. Best-effort: never raises, so a teardown failure cannot
-    mask the original exit code or exception.
+    Registered via :func:`atexit.register` when a FlashDreams initializer owns
+    the default group, so NCCL does not warn about a leaked group after a clean
+    exit. An uncaught exception may leave peers inside collectives, so failure
+    exits skip destruction and let the process supervisor stop the world.
     """
+    if (
+        getattr(sys, "last_exc", None) is not None
+        or getattr(sys, "last_value", None) is not None
+    ):
+        return
+
     try:
         if dist.is_available() and dist.is_initialized():
             dist.destroy_process_group()
@@ -72,7 +65,11 @@ def shutdown(*, synchronize: bool = False, terminate_process: bool = False) -> N
             return
         if synchronize:
             logger.info("Synchronizing distributed ranks before shutdown.")
-            dist.barrier(device_ids=[torch.cuda.current_device()])
+            dist.barrier(
+                device_ids=[torch.cuda.current_device()]
+                if dist.get_backend() == "nccl"
+                else None
+            )
             synchronization_complete = True
             logger.info("Distributed shutdown synchronization complete.")
     finally:

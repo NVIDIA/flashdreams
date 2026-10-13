@@ -16,6 +16,9 @@ dependencies = ["flashdreams[local-window,runners,serving]"]
 [project.entry-points."flashdreams.applications_v2"]
 "cam2v-dummy" = "cam2v.dummy:create_app"
 
+[tool.uv]
+managed = true
+
 [tool.uv.sources]
 flashdreams = { workspace = true }
 

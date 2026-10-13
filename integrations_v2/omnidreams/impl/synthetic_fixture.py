@@ -18,7 +18,7 @@ from typing import Any
 import torch
 from safetensors.torch import save_file
 
-from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
+from flashdreams.recipes.taehv import TaehvVAEDecoderConfig
 from flashdreams.recipes.taehv.impl import TAEHV
 from flashdreams.recipes.wan.autoencoder import vae as wan_vae_module
 from flashdreams.recipes.wan.autoencoder.vae import (
@@ -210,7 +210,7 @@ def _build_decoder_checkpoint(
     decoder_cfg: Any,
     seed: int,
 ) -> Path:
-    if isinstance(decoder_cfg, TeahvVAEDecoderConfig):
+    if isinstance(decoder_cfg, TaehvVAEDecoderConfig):
         fingerprint = _arch_fingerprint(decoder_cfg)
         path = out_dir / f"synthetic_lighttae_decoder_{fingerprint}.safetensors"
         if not path.exists():

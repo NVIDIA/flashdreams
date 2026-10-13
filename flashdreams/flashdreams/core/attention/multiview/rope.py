@@ -1,23 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Multi-view position IDs for multi-axis rotary position embeddings."""
 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 
 import torch
 from torch import Tensor
@@ -50,12 +39,58 @@ def vision_temporal_offset(
     return float(num_text_tokens) + modality_margin
 
 
-def temporal_positions(geometry: ClipGeometry, frames: Tensor) -> Tensor:
+def caption_mrope_ids(
+    view_text_tokens: Sequence[int],
+    *,
+    device: torch.device | None = None,
+) -> tuple[Tensor, int]:
+    """Build text positions for one caption per view.
+
+    Each caption starts at zero. The returned count is the longest caption's
+    position span, which can be passed to :func:`vision_temporal_offset`.
+
+    Args:
+        view_text_tokens: Token count for each view's caption, in view order.
+        device: Device on which to construct the position IDs.
+
+    Returns:
+        Position IDs shaped ``[3, sum(view_text_tokens)]`` and their shared span.
+
+    Raises:
+        ValueError: No captions are given or a token count is negative.
+    """
+    if not view_text_tokens:
+        raise ValueError("per-view captions need at least one view.")
+    if any(tokens < 0 for tokens in view_text_tokens):
+        raise ValueError(
+            f"caption lengths must be non-negative, got {list(view_text_tokens)}."
+        )
+    ids = torch.cat(
+        [
+            torch.arange(tokens, dtype=torch.float32, device=device)
+            for tokens in view_text_tokens
+        ]
+    )
+    return ids.unsqueeze(0).expand(3, -1).contiguous(), max(view_text_tokens)
+
+
+def temporal_positions(
+    geometry: ClipGeometry,
+    frames: Tensor,
+    *,
+    view_offsets: bool = True,
+) -> Tensor:
     """``[num_views * len(frames)]`` latent-time coordinates, view-major.
 
     ``frames`` are global frame indexes within the clip, so a chunk passes the
     range it actually covers rather than counting from zero.
+
+    Args:
+        view_offsets: Place each view in its own temporal band. ``False`` gives
+            every view the same temporal positions for the same frames.
     """
+    if not view_offsets:
+        return frames.to(torch.float32).repeat(geometry.num_views)
     views = torch.arange(geometry.num_views, device=frames.device, dtype=torch.float32)
     grid = views[:, None] * geometry.stride + frames[None, :].to(torch.float32)
     return grid.reshape(-1)
@@ -68,6 +103,7 @@ def _mrope_ids(
     fps: float,
     temporal_offset: float,
     base_fps: float = BASE_FPS,
+    view_offsets: bool = True,
 ) -> Tensor:
     """``[3, N]`` position ids -- temporal, height, width -- in packed token order."""
     if not math.isfinite(fps) or fps <= 0:
@@ -75,7 +111,11 @@ def _mrope_ids(
     patch_h, patch_w = geometry.patch_h, geometry.patch_w
     spatial = patch_h * patch_w
 
-    scaled = temporal_positions(geometry, frames) * (base_fps / fps) + temporal_offset
+    scaled = (
+        temporal_positions(geometry, frames, view_offsets=view_offsets)
+        * (base_fps / fps)
+        + temporal_offset
+    )
     t_index = scaled.repeat_interleave(spatial)
 
     grid_t = int(scaled.numel())
@@ -97,6 +137,7 @@ def clip_mrope_ids(
     fps: float,
     temporal_offset: float,
     base_fps: float = BASE_FPS,
+    view_offsets: bool = True,
     device: torch.device | None = None,
 ) -> Tensor:
     """Position ids for a whole clip, for one of the two vision tracks.
@@ -106,7 +147,12 @@ def clip_mrope_ids(
     """
     frames = torch.arange(geometry.frames_per_view, device=device)
     return _mrope_ids(
-        geometry, frames, fps=fps, temporal_offset=temporal_offset, base_fps=base_fps
+        geometry,
+        frames,
+        fps=fps,
+        temporal_offset=temporal_offset,
+        base_fps=base_fps,
+        view_offsets=view_offsets,
     )
 
 
@@ -118,6 +164,7 @@ def chunk_mrope_ids(
     fps: float,
     temporal_offset: float,
     base_fps: float = BASE_FPS,
+    view_offsets: bool = True,
     device: torch.device | None = None,
 ) -> Tensor:
     """Position ids for the frames one autoregressive chunk covers.
@@ -135,5 +182,10 @@ def chunk_mrope_ids(
         )
     frames = torch.arange(chunk_start, chunk_start + chunk_frames, device=device)
     return _mrope_ids(
-        geometry, frames, fps=fps, temporal_offset=temporal_offset, base_fps=base_fps
+        geometry,
+        frames,
+        fps=fps,
+        temporal_offset=temporal_offset,
+        base_fps=base_fps,
+        view_offsets=view_offsets,
     )

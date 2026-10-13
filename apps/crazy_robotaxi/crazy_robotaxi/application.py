@@ -10,10 +10,10 @@ import logging
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
+from ludus_renderer import prepare_ludus
 from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
 from omnidreams_game_engine.cli_args import (
     ExplicitArgTrackingArgumentParser,
@@ -49,7 +49,10 @@ from crazy_robotaxi.settings import (
     LiveEditMappingLocation,
     SettingsDocument,
     default_config_path,
+    default_settings,
     normalize_settings,
+    options_documentation,
+    presentation_resolution_wh,
 )
 from crazy_robotaxi.ui import bev_display_extent
 from flashdreams.api_v2.application import IApplication
@@ -86,6 +89,8 @@ class CrazyRobotaxiApplicationDefaults:
     width: int = 1280
     height: int = 704
     pipeline_config: Any | None = None
+    preset_documentation: Callable[[], str] | None = None
+    """Optional model-owned preset guide appended to the options export."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +115,9 @@ class ApplicationConfig:
 
     show_fps: bool
     """Whether the HUD displays the measured generated-video frame rate."""
+
+    presentation_resolution_wh: tuple[int, int] | None
+    """Presentation size, or ``None`` to use the model output dimensions."""
 
     show_current_prompt: bool = False
     """Whether the HUD displays the prompt currently driving generation."""
@@ -173,6 +181,7 @@ class ApplicationConfig:
 
 PipelineFactory = Callable[[Any, str], Any]
 SceneFactory = Callable[[SceneRequest, Any], SceneDefinition]
+NativePreparer = Callable[[], object]
 _TRACE_METADATA_KEY = "trace_chunk_lifecycle"
 _TRACE_PATH_METADATA_KEY = "trace_chunk_lifecycle_path"
 
@@ -186,6 +195,7 @@ class CrazyRobotaxiApplication(IApplication):
         pipeline_factory: PipelineFactory | None = None,
         defaults: CrazyRobotaxiApplicationDefaults | None = None,
         scene_factory: SceneFactory | None = None,
+        native_preparer: NativePreparer | None = None,
     ) -> None:
         self._application_defaults = defaults or CrazyRobotaxiApplicationDefaults()
         self._defaults = RendererSettings(
@@ -197,7 +207,10 @@ class CrazyRobotaxiApplication(IApplication):
         )
         self._pipeline_factory = pipeline_factory or _build_pipeline
         self._scene_factory = scene_factory or load_scene
+        self._native_preparer = native_preparer or prepare_ludus
         self._pipeline_config = self._application_defaults.pipeline_config
+        self._pipeline: Any | None = None
+        self._scenes: dict[SceneRequest, SceneDefinition] = {}
         self._config: ApplicationConfig | None = None
         self._map_options: tuple[GameMapOption, ...] = ()
 
@@ -221,7 +234,29 @@ class CrazyRobotaxiApplication(IApplication):
         default_pipeline = self._pipeline_config
         if default_pipeline is None:
             raise RuntimeError("A world-model integration must provide pipeline_config")
-        args = _parser(self._application_defaults).parse_args(list(commandline_args))
+        parser = _parser(self._application_defaults)
+        args = parser.parse_args(list(commandline_args))
+        if args.export_options_docs is not None:
+            settings = default_settings(
+                default_pipeline,
+                width=self._application_defaults.width,
+                height=self._application_defaults.height,
+            )
+            documentation = options_documentation(settings)
+            documentation += (
+                f"\n## Application arguments\n\n```text\n{parser.format_help()}```\n"
+            )
+            if self._application_defaults.preset_documentation is not None:
+                documentation += (
+                    "\n" + self._application_defaults.preset_documentation()
+                )
+            try:
+                args.export_options_docs.expanduser().write_text(
+                    documentation, encoding="utf-8"
+                )
+            except OSError as exc:
+                parser.error(f"cannot export options documentation: {exc}")
+            raise SystemExit(0)
         control_documents = load_controls_documents(
             args.controls_dir or default_controls_dir()
         )
@@ -256,6 +291,7 @@ class CrazyRobotaxiApplication(IApplication):
             raise ValueError("--prewarm-blocks must be non-negative")
         if settings.game.taxi.rules.global_time_s <= 0:
             raise ValueError("--game-time-s must be positive")
+        presentation_resolution = presentation_resolution_wh(settings.presentation)
         if initial_game_mode != "race" and initial_race_course_id is not None:
             raise ValueError("--race-course requires --game-mode race")
         map_path: Path = args.map
@@ -310,6 +346,7 @@ class CrazyRobotaxiApplication(IApplication):
                 else settings.diagnostics.input_trace_path
             ),
             show_fps=settings.presentation.show_fps,
+            presentation_resolution_wh=presentation_resolution,
             show_current_prompt=settings.presentation.show_current_prompt,
             hud_enabled=settings.presentation.hud_enabled,
             show_control_hints=settings.presentation.show_control_hints,
@@ -339,6 +376,33 @@ class CrazyRobotaxiApplication(IApplication):
             no_ui=not args.ui,
         )
         self._map_options = _discover_game_maps(map_path)
+        scene_requests = [self._config.scene_request]
+        for option in self._map_options:
+            requests = [
+                replace(
+                    self._config.scene_request, map_path=option.path, spawn_id=None
+                ),
+                *(
+                    replace(
+                        self._config.scene_request,
+                        map_path=option.path,
+                        spawn_id=course.spawn_id,
+                    )
+                    for course in option.race_courses
+                ),
+            ]
+            for request in requests:
+                if request not in scene_requests:
+                    scene_requests.append(request)
+        self._scenes = {
+            request: self._scene_factory(
+                request,
+                self._config.renderer.raster,
+            )
+            for request in scene_requests
+        }
+        self._native_preparer()
+        self._pipeline = self._pipeline_factory(pipeline_config, settings.model.device)
 
     def _apply_cli_settings(
         self,
@@ -428,6 +492,13 @@ class CrazyRobotaxiApplication(IApplication):
         presentation = settings.presentation
         if explicit("show_fps", ("presentation", "show_fps"), args.show_fps):
             presentation = replace(presentation, show_fps=bool(args.show_fps))
+        for argument, field_name in (
+            ("display_width", "width"),
+            ("display_height", "height"),
+        ):
+            value = getattr(args, argument)
+            if explicit(argument, ("presentation", field_name), value):
+                presentation = replace(presentation, **{field_name: value})
         runtime = settings.runtime
         for name, field_name in (
             ("total_blocks", "total_blocks"),
@@ -469,23 +540,33 @@ class CrazyRobotaxiApplication(IApplication):
         pipeline_config = self._pipeline_config
         if pipeline_config is None:
             raise RuntimeError("init() must select a pipeline before create_session()")
+        pipeline = self._pipeline
+        scenes = self._scenes
+        if pipeline is None or not scenes:
+            raise RuntimeError("init() must prepare assets before create_session()")
         if session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("Crazy Robotaxi produces tchw output")
         if session_desc.frames_per_second_for_step != _VIDEO_FPS:
             raise ValueError("Crazy Robotaxi generates video at 30 frames per second")
         actual = session_desc.video_width, session_desc.video_height
+        presentation = config.presentation_resolution_wh or actual
         config = replace(
             config,
             renderer=_fit_bev_renderer_to_ui(
                 config.renderer,
-                video_width=actual[0],
-                video_height=actual[1],
+                video_width=presentation[0],
+                video_height=presentation[1],
             ),
         )
         expected = config.renderer.raster.resolution_wh
         if actual != expected:
             raise ValueError(
-                f"Session dimensions {actual} do not match renderer {expected}"
+                f"Session/model dimensions {actual} do not match renderer raster "
+                f"dimensions {expected}. You may have changed Width or Height under "
+                "Options > Renderer > Raster, or used --width or --height; those "
+                "settings control model rendering. To resize only the displayed "
+                "output, use Options > Presentation > Width and Height or "
+                "--display-width and --display-height."
             )
         transformer = pipeline_config.diffusion_model.transformer
         scheduler = pipeline_config.diffusion_model.scheduler
@@ -496,7 +577,7 @@ class CrazyRobotaxiApplication(IApplication):
             "Crazy Robotaxi model preset=%s resolution=%sx%s native_dit=%s "
             "native_backend=%s attention_backend=%s native_vae=%s "
             "native_vae_backend=%s skip_finalize=%s "
-            "denoising_timesteps=%s bev=%s",
+            "denoising_timesteps=%s presentation=%sx%s bev=%s",
             config.model_preset_name,
             actual[0],
             actual[1],
@@ -507,15 +588,13 @@ class CrazyRobotaxiApplication(IApplication):
             encoder.native_vae_backend,
             transformer.skip_finalize_kv_cache,
             list(scheduler.denoising_timesteps),
+            presentation[0],
+            presentation[1],
             bev_resolution,
         )
         return CrazyRobotaxiSession(
-            pipeline_factory=partial(
-                self._pipeline_factory,
-                pipeline_config,
-                config.device,
-            ),
-            scene_factory=self._scene_factory,
+            pipeline_factory=lambda: pipeline,
+            scene_factory=lambda request, _raster: scenes[request],
             map_options=self._map_options,
             config=config,
             session_desc=replace(
@@ -537,8 +616,14 @@ class CrazyRobotaxiApplication(IApplication):
 
     def close(self) -> None:
         """Release application configuration state."""
+        pipeline = self._pipeline
         self._config = None
         self._map_options = ()
+        self._pipeline = None
+        self._scenes = {}
+        close = getattr(pipeline, "close", None)
+        if callable(close):
+            close()
 
 
 def _build_pipeline(config: Any, device: str) -> Any:
@@ -626,10 +711,18 @@ def _parser(
         description="Drive Crazy Robotaxi on an authored semantic map.",
     )
     parser.add_argument("--config", type=Path)
+    parser.add_argument(
+        "--export-options-docs",
+        type=Path,
+        metavar="PATH",
+        help="write the selected preset's options reference to Markdown and exit",
+    )
     parser.add_argument("--controls-dir", type=Path)
     parser.add_argument("--map", type=Path, default=_DEFAULT_MAP)
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)
+    parser.add_argument("--display-width", type=int)
+    parser.add_argument("--display-height", type=int)
     parser.add_argument("--force-map-recompile", action="store_true")
     parser.add_argument(
         "--ui",
@@ -638,7 +731,7 @@ def _parser(
         help=(
             "render the ImGui HUD (default). --no-ui presents raw model frames "
             "and needs no Vulkan device; requires --game-mode, --map, and "
-            "--total-blocks"
+            "--total-blocks; race mode also requires --race-course"
         ),
     )
     parser.add_argument("--device", default="cuda")

@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """SwiftVR-backed video post-processor."""
 
@@ -174,7 +162,7 @@ class SwiftVRPostProcessor(VideoPostProcessor[SwiftVRPostProcessorConfig]):
     def __init__(self, config: SwiftVRPostProcessorConfig) -> None:
         super().__init__(config)
         self._pipeline: SwiftVRPipeline | None = None
-        self._warmed_specs: set[VideoSpec] = set()
+        self._warmed_shapes: set[tuple[int, int, int]] = set()
 
     def start(self, spec: VideoSpec) -> VideoPostProcessorSession:
         """Start one causal video stream."""
@@ -193,7 +181,8 @@ class SwiftVRPostProcessor(VideoPostProcessor[SwiftVRPostProcessorConfig]):
     def prepare(self, spec: VideoSpec) -> None:
         """Load and optionally warm the model once for this input shape."""
         pipeline = self.pipeline()
-        if not self.config.prewarm or spec in self._warmed_specs:
+        shape = (spec.height, spec.width, spec.channels)
+        if not self.config.prewarm or shape in self._warmed_shapes:
             return
         output = self.config.output_spec(spec)
         stream = SwiftVRStream(
@@ -213,7 +202,7 @@ class SwiftVRPostProcessor(VideoPostProcessor[SwiftVRPostProcessorConfig]):
         stream.flush()
         if pipeline.device.type == "cuda":
             torch.cuda.synchronize(pipeline.device)
-        self._warmed_specs.add(spec)
+        self._warmed_shapes.add(shape)
 
 
 class _SwiftVRPostProcessorSession(VideoPostProcessorSession):
@@ -234,6 +223,16 @@ class _SwiftVRPostProcessorSession(VideoPostProcessorSession):
         """Preload and prewarm the persistent model before timed processing."""
         self._processor.prepare(self._spec)
         self._ensure_stream()
+
+    def reset(self) -> None:
+        """Start a fresh temporal stream while retaining resident model weights."""
+        self._stream = None
+        self._buffer = None
+        self._last_frame = None
+        self._metadata_spans.clear()
+        self._input_frames = 0
+        self._output_frames = 0
+        self._closed = False
 
     @torch.inference_mode()
     def process(self, chunk: VideoChunk) -> list[VideoChunk]:

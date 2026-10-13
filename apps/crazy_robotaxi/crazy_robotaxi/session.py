@@ -77,6 +77,9 @@ class ModelState:
     pipeline: Any | None = None
     """Lazily constructed after the client opens and a game is selected."""
 
+    owns_pipeline: bool = True
+    """Whether shutdown closes the pipeline instead of its application owner."""
+
     scene: SceneDefinition | None = None
     """Selected immutable scene; ``None`` while the startup menu is active."""
 
@@ -302,9 +305,10 @@ class ModelState:
         self.close()
         pipeline = self.pipeline
         self.pipeline = None
-        close = getattr(pipeline, "close", None)
-        if callable(close):
-            close()
+        if self.owns_pipeline:
+            close = getattr(pipeline, "close", None)
+            if callable(close):
+                close()
 
     def submit_player_name(self, name: str) -> None:
         """Submit a UI-validated leaderboard name on the model thread."""
@@ -621,10 +625,18 @@ class CrazyRobotaxiSession(ISession):
         return PresentationManager(device=torch.device(self._config.device))
 
     def init(self) -> None:
+        presentation_width, presentation_height = (
+            self._config.presentation_resolution_wh
+            or (
+                self._session_desc.video_width,
+                self._session_desc.video_height,
+            )
+        )
         hud_state = TaxiHudState(
             width=self._session_desc.video_width,
             height=self._session_desc.video_height,
             calibration=None,
+            presentation_size=(presentation_width, presentation_height),
             bev=self._config.renderer.bev,
             profile_input_latency=self._config.profile_input_latency,
             show_fps=self._config.show_fps,
@@ -679,6 +691,7 @@ class CrazyRobotaxiSession(ISession):
             state=ModelState(
                 pipeline_factory=self._pipeline_factory,
                 scene_factory=self._scene_factory,
+                owns_pipeline=False,
                 config=self._config,
                 session_desc=self._session_desc,
                 driver_input=DriverInput(
