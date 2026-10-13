@@ -9,7 +9,6 @@ import asyncio
 import contextlib
 import inspect
 import json
-import time
 from collections import deque
 from collections.abc import Callable, Mapping
 from collections.abc import Set as AbstractSet
@@ -39,7 +38,6 @@ from flashdreams.runtime.demo import (
     RuntimeHost,
     SessionEdges,
     SessionInfo,
-    SingleSessionAdmissionPolicy,
     StepPipeline,
     UserInputWindow,
     WebRTCErrorPolicy,
@@ -66,6 +64,7 @@ from flashdreams.serving.webrtc.encoders import (
 )
 from flashdreams.serving.webrtc.media import BufferedVideoTrack, NVENCVideoTrack
 from flashdreams.serving.webrtc.messages import (
+    CLEAR_EVENT_STATES,
     MESSAGE_TYPE_ACTION,
     MESSAGE_TYPE_DISCONNECT,
     MESSAGE_TYPE_EVENT,
@@ -73,6 +72,7 @@ from flashdreams.serving.webrtc.messages import (
     make_chunk_done_payload,
     make_error_payload,
     make_event_ack_payload,
+    parse_event_payload,
 )
 from flashdreams.serving.webrtc.runtime import (
     WebRTCControlSignal,
@@ -86,6 +86,7 @@ from flashdreams.serving.webrtc.services import (
     ThreadSafeWebRTCOutputBridge,
     WebRTCActivationPolicy,
     WebRTCChunkDelivery,
+    WebRTCInputOverflowError,
     WebRTCInputSource,
     WebRTCManagerLifecycle,
     WebRTCOutputSink,
@@ -111,6 +112,7 @@ DEFAULT_CLIENT_LIVENESS_TIMEOUT_S = 10.0
 # How often the liveness watchdog wakes to re-check the elapsed-since-last-message.
 _CLIENT_LIVENESS_CHECK_INTERVAL_S = 1.0
 _DEFAULT_PERF_LOG_INTERVAL_CHUNKS = 5
+_MAX_CONTROL_MESSAGE_CHARACTERS = 64 * 1024
 _MAX_SESSION_USER_EVENTS = 1024
 """Maximum unconsumed raw events kept for an ``InferenceSession`` step."""
 _RELEASE_USER_EVENT_TYPES = frozenset({"key_up"})
@@ -658,7 +660,11 @@ class ManagedWebRTCSession:
     input_source: WebRTCInputSource | None = None
     transport: WebRTCTransportService | None = None
     reservation: Any | None = None
-    pending_action_arrivals: deque[float] = field(default_factory=deque)
+    # ponytail: cap latency samples at 4096; use a count/oldest-time accumulator
+    # if exact metrics under overload are needed.
+    pending_action_arrivals: deque[float] = field(
+        default_factory=lambda: deque(maxlen=4096)
+    )
     inference_session: Any | None = None
     """Active ``InferenceSession``; ``None`` means call ``runtime.generate_chunk``."""
     session_steps_completed: int = 0
@@ -675,6 +681,10 @@ class ManagedWebRTCSession:
         if self.closed:
             return
         self.closed = True
+        if self.input_source is not None:
+            self.input_source.reset(start_v=asyncio.get_running_loop().time())
+        if self.transport is not None:
+            self.transport.disconnect("session closed")
 
         current_task = asyncio.current_task()
         if (
@@ -1071,31 +1081,22 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         self,
         *,
         managed_session: ManagedWebRTCSession,
-        payload: dict[str, Any],
+        payload: Mapping[str, object],
     ) -> bool:
         """Dispatch an optional model event message to runtimes that support it."""
         channel = managed_session.control_channel
-        event_id = str(payload.get("event_id", payload.get("id", ""))).strip()
-        state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
-        clear_states = {"clear", "release", "off", "none"}
-        if not event_id and state not in clear_states:
+        try:
+            event_id, state = parse_event_payload(payload)
+        except ValueError as exc:
             if channel is not None:
-                self._send_json(
-                    channel,
-                    make_error_payload(
-                        (
-                            "Event payload must include non-empty 'event_id' "
-                            "unless state clears the active event."
-                        ),
-                    ),
-                )
+                self._send_json(channel, make_error_payload(str(exc)))
             return False
 
         if managed_session.inference_session is not None:
             # On the session branch a text event is just another user event:
             # the mapping turns it into a session-global conditioning update
             # applied by the next step, so there is no separate runtime call.
-            clears = state in clear_states
+            clears = state in CLEAR_EVENT_STATES
             try:
                 event_payload = self._validate_user_event_payload(
                     managed_session=managed_session,
@@ -1715,12 +1716,35 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
     async def _client_liveness_watchdog(
         self, *, managed_session: ManagedWebRTCSession
     ) -> None:
-        await self._lifecycle.watch_client_liveness(
-            is_closed=lambda: managed_session.closed,
-            last_message_at=lambda: managed_session.last_client_message_at,
-            close_session=self.close_active_session,
-            check_interval_s=_CLIENT_LIVENESS_CHECK_INTERVAL_S,
-        )
+        def last_message_at() -> float:
+            if managed_session.input_source is not None:
+                managed_session.input_source.check_pending_events(
+                    now_s=asyncio.get_running_loop().time()
+                )
+            return managed_session.last_client_message_at
+
+        try:
+            await self._lifecycle.watch_client_liveness(
+                is_closed=lambda: managed_session.closed,
+                last_message_at=last_message_at,
+                close_session=self.close_active_session,
+                check_interval_s=_CLIENT_LIVENESS_CHECK_INTERVAL_S,
+            )
+        except WebRTCInputOverflowError as exc:
+            await self._close_overloaded_input_session(managed_session, exc)
+
+    async def _close_overloaded_input_session(
+        self, managed_session: ManagedWebRTCSession, exc: WebRTCInputOverflowError
+    ) -> None:
+        channel = managed_session.control_channel
+        if channel is not None and not managed_session.closed:
+            self._send_json(channel, make_error_payload(str(exc)))
+        if managed_session.transport is not None:
+            managed_session.transport.disconnect(str(exc))
+        async with self._session_lock:
+            if self._active_session is managed_session:
+                self._active_session = None
+            await managed_session.close()
 
     async def shutdown(self) -> None:
         await self.close_active_session()
@@ -1765,19 +1789,18 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         channel = managed_session.control_channel
         if channel is None or managed_session.closed:
             return
-        managed_session.last_client_message_at = asyncio.get_running_loop().time()
-        if managed_session.transport is not None:
-            managed_session.transport.mark_client_message(
-                managed_session.last_client_message_at
-            )
-
         if not isinstance(raw_message, str):
             self._send_json(channel, make_error_payload("Expected text payload."))
+            return
+        if len(raw_message) > _MAX_CONTROL_MESSAGE_CHARACTERS:
+            self._send_json(
+                channel, make_error_payload("Control payload is too large.")
+            )
             return
 
         try:
             payload = json.loads(raw_message)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):
             self._send_json(channel, make_error_payload("Invalid JSON payload."))
             return
 
@@ -1788,30 +1811,35 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             return
         if self._is_filtered_key_action(payload):
             return
-        if managed_session.input_source is not None:
-            await self._handle_shared_datachannel_payload(
-                managed_session=managed_session,
-                payload=payload,
-            )
-            return
         message_type = str(payload.get("type", "")).strip().lower()
-        if message_type == MESSAGE_TYPE_HEARTBEAT:
-            return
-        if message_type == MESSAGE_TYPE_DISCONNECT:
+        if managed_session.input_source is not None:
+            try:
+                managed_session.input_source.check_pending_events(
+                    now_s=asyncio.get_running_loop().time()
+                )
+                accepted = await self._handle_shared_datachannel_payload(
+                    managed_session=managed_session,
+                    payload=payload,
+                )
+            except WebRTCInputOverflowError as exc:
+                await self._close_overloaded_input_session(managed_session, exc)
+                return
+        elif message_type == MESSAGE_TYPE_HEARTBEAT:
+            accepted = True
+        elif message_type == MESSAGE_TYPE_DISCONNECT:
             logger.info("Client requested disconnect; closing active session.")
             await self.close_active_session()
             return
-        if message_type == MESSAGE_TYPE_EVENT:
-            handled = await self._handle_event_message(
+        elif message_type == MESSAGE_TYPE_EVENT:
+            accepted = await self._handle_event_message(
                 managed_session=managed_session,
                 payload=payload,
             )
-            if handled:
+            if accepted:
                 # Text events intentionally count as first interaction: a client may
                 # want the model to generate an idle-camera chunk with updated text.
                 managed_session.first_action_received.set()
-            return
-        if message_type != MESSAGE_TYPE_ACTION:
+        elif message_type != MESSAGE_TYPE_ACTION:
             self._send_json(
                 channel,
                 make_error_payload(
@@ -1820,57 +1848,63 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 ),
             )
             return
+        else:
+            action_payload = payload.get("action", payload)
+            if not isinstance(action_payload, dict):
+                self._send_json(
+                    channel, make_error_payload("'action' must be an object.")
+                )
+                return
 
-        action_payload = payload.get("action", payload)
-        if not isinstance(action_payload, dict):
-            self._send_json(channel, make_error_payload("'action' must be an object."))
-            return
+            event = str(action_payload.get("event", "")).strip().lower()
+            key = action_payload.get("key")
+            if event != "step":
+                if event not in ("keydown", "keyup"):
+                    self._send_json(
+                        channel,
+                        make_error_payload(
+                            f"Unsupported event={event!r}; expected 'keydown' or 'keyup'.",
+                        ),
+                    )
+                    return
+                if not isinstance(key, str) or not key.strip():
+                    self._send_json(
+                        channel,
+                        make_error_payload(
+                            "Action payload must include a non-empty string 'key'."
+                        ),
+                    )
+                    return
+                key = key.strip()
 
-        event = str(action_payload.get("event", "")).strip().lower()
-
-        if event == "step":
+            # Stamp arrival on the same monotonic clock as the realtime window.
             arrival_t = asyncio.get_running_loop().time()
+            if event != "step":
+                if managed_session.inference_session is not None:
+                    try:
+                        self._record_user_event(
+                            managed_session=managed_session,
+                            timestamp_s=arrival_t,
+                            event_type="key_down" if event == "keydown" else "key_up",
+                            payload={"key": key},
+                        )
+                    except Exception as exc:
+                        self._send_json(channel, make_error_payload(str(exc)))
+                        if event != "keyup":
+                            return
+                legacy_resampler = managed_session.legacy_segment_resampler
+                if legacy_resampler is not None:
+                    legacy_resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
             managed_session.pending_action_arrivals.append(arrival_t)
             managed_session.first_action_received.set()
-            return
-        if event not in ("keydown", "keyup"):
-            self._send_json(
-                channel,
-                make_error_payload(
-                    f"Unsupported event={event!r}; expected 'keydown' or 'keyup'.",
-                ),
-            )
-            return
-        key = str(action_payload.get("key", "")).strip()
-        if not key:
-            self._send_json(
-                channel,
-                make_error_payload("Action payload must include non-empty 'key'."),
-            )
-            return
+            accepted = True
 
-        # Stamp arrival on the same monotonic clock that seeds the realtime
-        # window clock so user-input windows can be compared directly.
-        arrival_t = asyncio.get_running_loop().time()
-        if managed_session.inference_session is not None:
-            try:
-                self._record_user_event(
-                    managed_session=managed_session,
-                    timestamp_s=arrival_t,
-                    event_type="key_down" if event == "keydown" else "key_up",
-                    payload={"key": key},
+        if accepted and not managed_session.closed:
+            managed_session.last_client_message_at = asyncio.get_running_loop().time()
+            if managed_session.transport is not None:
+                managed_session.transport.mark_client_message(
+                    managed_session.last_client_message_at
                 )
-            except Exception as exc:
-                self._send_json(channel, make_error_payload(str(exc)))
-                if event != "keyup":
-                    return
-        legacy_resampler = managed_session.legacy_segment_resampler
-        if legacy_resampler is not None:
-            legacy_resampler.on_edge(arrival_t=arrival_t, event=event, key=key)
-        managed_session.pending_action_arrivals.append(arrival_t)
-        # Releases the generation worker, which blocks on this until the
-        # user actually interacts. Idempotent once already set.
-        managed_session.first_action_received.set()
 
     def _is_filtered_key_action(self, payload: dict[str, Any]) -> bool:
         if str(payload.get("type", "")).strip().lower() != MESSAGE_TYPE_ACTION:
@@ -1893,20 +1927,20 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
         *,
         managed_session: ManagedWebRTCSession,
         payload: dict[str, Any],
-    ) -> None:
+    ) -> bool:
         channel = managed_session.control_channel
         input_source = managed_session.input_source
         if channel is None or input_source is None:
-            return
+            return False
         message_type = str(payload.get("type", "")).strip().lower()
         if message_type == MESSAGE_TYPE_HEARTBEAT:
-            return
+            return True
         if message_type == MESSAGE_TYPE_DISCONNECT:
             logger.info("Client requested disconnect; closing active session.")
             if managed_session.transport is not None:
                 managed_session.transport.disconnect("client disconnected")
             await self.close_active_session()
-            return
+            return False
         if message_type == MESSAGE_TYPE_EVENT:
             handled = self._record_shared_event_payload(
                 managed_session=managed_session,
@@ -1914,43 +1948,31 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
             )
             if handled:
                 managed_session.first_action_received.set()
-            return
+            return handled
         result = input_source.handle_browser_payload(
             payload,
             timestamp_s=asyncio.get_running_loop().time(),
         )
         if result.kind == "error":
             self._send_json(channel, make_error_payload(result.error or "Bad input."))
-            return
+            return False
         if result.activated:
             managed_session.first_action_received.set()
+        return True
 
     def _record_shared_event_payload(
         self,
         *,
         managed_session: ManagedWebRTCSession,
-        payload: dict[str, Any],
+        payload: Mapping[str, object],
     ) -> bool:
         channel = managed_session.control_channel
         input_source = managed_session.input_source
         if channel is None or input_source is None:
             return False
-        event_id = str(payload.get("event_id", payload.get("id", ""))).strip()
-        state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
-        clear_states = {"clear", "release", "off", "none"}
-        if not event_id and state not in clear_states:
-            self._send_json(
-                channel,
-                make_error_payload(
-                    (
-                        "Event payload must include non-empty 'event_id' "
-                        "unless state clears the active event."
-                    ),
-                ),
-            )
-            return False
-        clears = state in clear_states
         try:
+            event_id, state = parse_event_payload(payload)
+            clears = state in CLEAR_EVENT_STATES
             event_payload = self._validate_user_event_payload(
                 managed_session=managed_session,
                 event_type="text_event",
@@ -1967,6 +1989,8 @@ class BaseWebRTCSessionManager(Generic[_RuntimeT, _RuntimeConfigT]):
                 payload=event_payload,
                 source_event_id=source_event_id,
             )
+        except WebRTCInputOverflowError:
+            raise
         except Exception as exc:
             self._send_json(channel, make_error_payload(str(exc)))
             return False
