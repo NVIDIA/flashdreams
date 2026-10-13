@@ -39,7 +39,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-
 _PRINTABLE_KEY_NAMES = {
     "space": " ",
     "apostrophe": "'",

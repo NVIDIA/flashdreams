@@ -3816,6 +3816,7 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         """
         super().__init__(width=width, height=height)
         self._window_resize_requested: tuple[int, int] | None = None
+        self._fullscreen_size: tuple[int, int] | None = None
 
     def is_finished(self) -> bool:
         """Return whether the root menu requested application shutdown."""
@@ -3826,11 +3827,17 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
     ) -> Tensor | None:
         """Draw the HUD and return the generated world frame beneath it."""
         for event in events.get_events():
-            if isinstance(event, OptimalWindowSizeUserInputEvent):
-                self._window_resize_requested = (event.width, event.height)
+            if isinstance(event, FullscreenEnabledOptimalWindowSizeUserInputEvent):
+                self._fullscreen_size = event.width, event.height
+                self.state.resize(event.width, event.height)
+                self._window_resize_requested = self._fullscreen_size
         presentation_size = (
-            self.state.width,
-            self.state.height,
+            self._fullscreen_size
+            or self.state.presentation_size
+            or (
+                self.state.width,
+                self.state.height,
+            )
         )
         if self.get_ui_loop_size() != presentation_size:
             if self._window_resize_requested == presentation_size:

@@ -21,23 +21,13 @@ class KeyboardInputState(Enum):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class OptimalWindowSizeUserInputEvent(UserInputEvent):
-    """Client's maximum usable window dimensions in pixels."""
+class FullscreenEnabledOptimalWindowSizeUserInputEvent(UserInputEvent):
+    """Native fullscreen dimensions supplied when the session opens."""
 
     width: int
-    """Maximum window width."""
+    """Fullscreen window width."""
     height: int
-    """Maximum window height."""
-
-    @classmethod
-    def get_type_name(cls) -> str:
-        """Return the event type name."""
-        return "optimal_window_size"
-
-
-@dataclass(frozen=True, slots=True, eq=False)
-class FullscreenEnabledOptimalWindowSizeUserInputEvent(OptimalWindowSizeUserInputEvent):
-    """Acknowledged fullscreen mode and its usable dimensions."""
+    """Fullscreen window height."""
 
     @classmethod
     def get_type_name(cls) -> str:
