@@ -5,8 +5,8 @@
 
 from __future__ import annotations
 
-import ctypes
 import queue
+import sys
 import threading
 from collections.abc import Callable, Sequence
 from types import SimpleNamespace
@@ -24,13 +24,11 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
-    FullscreenDisabledOptimalWindowSizeUserInputEvent,
     FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
-    OptimalWindowSizeUserInputEvent,
 )
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -41,87 +39,59 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_x11_fullscreen_waits_for_window_manager_acknowledgement(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    presenter = object.__new__(native_window_module._SlangPyNativeWindowPresenter)
-    presenter._closed = False
-    presenter._width, presenter._height = 1920, 1080
-    xlib = Mock()
-    xlib.XInternAtom.side_effect = (
-        lambda display, name, only_existing: 42
-        if name == b"_NET_WM_STATE_FULLSCREEN"
-        else 43
-    )
-    xlib.XDefaultRootWindow.return_value = 1
-    xlib.XSendEvent.return_value = 1
-    properties = {
-        "_NET_SUPPORTED": [42],
-        "_NET_WM_STATE": [],
-        "_NET_WORKAREA": [0, 0, 1920, 1040],
-        "_NET_FRAME_EXTENTS": [8, 8, 30, 8],
-    }
-    monkeypatch.setattr(native_window_module.sys, "platform", "linux")
-    monkeypatch.setattr(presenter, "_x11_window", lambda: (1, 2, xlib))
-    monkeypatch.setattr(
-        native_window_module,
-        "_x11_property",
-        lambda lib, display, window, name: properties.get(name, []),
-    )
-    assert presenter.request_fullscreen(True)
-    message = ctypes.cast(
-        xlib.XSendEvent.call_args.args[-1],
-        ctypes.POINTER(native_window_module._X11ClientMessage),
-    ).contents
-    assert message.window == 2
-    assert tuple(message.data) == (1, 42, 0, 1, 0)
-    assert presenter.fullscreen_size(True) is None
-    properties["_NET_WM_STATE"] = [42]
-    assert presenter.fullscreen_size(True) == (1920, 1080)
-    presenter._window = Mock()
-    assert presenter.resize(640, 480) == (1920, 1080)
-    presenter._window.resize.assert_not_called()
-    assert presenter.request_fullscreen(False)
-    assert presenter.fullscreen_size(False) is None
-    properties["_NET_WM_STATE"] = []
-    assert presenter.fullscreen_size(False) == (1904, 1002)
-    properties["_NET_SUPPORTED"] = []
-    assert not presenter.request_fullscreen(True)
-
-
-@pytest.mark.parametrize("enabled", [True, False])
-def test_fullscreen_events_acknowledge_only_accepted_changes(enabled: bool) -> None:
+@pytest.mark.parametrize("fullscreen", [False, True])
+def test_fullscreen_creation_reports_size_on_first_poll(fullscreen: bool) -> None:
     presenter = _Presenter()
-    presenter.request_fullscreen = Mock(return_value=False)
-    presenter.fullscreen_size = Mock(return_value=None)
-    clock = [1_000_000]
-    window = NativeWindowClientWindow(
-        presenter_factory=_presenter_factory(presenter), clock_ns=lambda: clock[0]
+    presenter.size = (1920, 1080)
+    factory = Mock(return_value=presenter)
+    window = NativeWindowClientWindow(fullscreen=fullscreen, presenter_factory=factory)
+    for _ in range(2):
+        window.open(_session_desc())
+        events = window.get_user_input_events().get_events()
+        if fullscreen:
+            assert len(events) == 1
+            event = events[0]
+            assert isinstance(event, FullscreenEnabledOptimalWindowSizeUserInputEvent)
+            assert (event.width, event.height) == presenter.size
+        else:
+            assert events == []
+        assert window.get_user_input_events().get_events() == []
+    factory.assert_called_once_with(
+        width=2, height=2, title="FlashDreams", fullscreen=fullscreen
     )
-    window.open(_session_desc())
-    window.request_fullscreen(enabled)
-    assert window.get_user_input_events().get_events() == []
-    presenter.fullscreen_size.assert_not_called()
-
-    presenter.request_fullscreen.return_value = True
-    window.request_fullscreen(enabled)
-    assert window.get_user_input_events().get_events() == []
-    presenter.fullscreen_size.return_value = (1920, 1080)
-    clock[0] += 5_000_000
-    events = window.get_user_input_events().get_events()
-    assert len(events) == 1
-    event = events[0]
-    assert isinstance(event, OptimalWindowSizeUserInputEvent)
-    assert isinstance(
-        event,
-        FullscreenEnabledOptimalWindowSizeUserInputEvent
-        if enabled
-        else FullscreenDisabledOptimalWindowSizeUserInputEvent,
-    )
-    assert (event.width, event.height) == (1920, 1080)
-    assert event.get_timestamp() == 5000
-    assert window.get_user_input_events().get_events() == []
     window.close()
+
+
+@pytest.mark.parametrize("fullscreen", [False, True])
+def test_presenter_uses_slangpy_creation_mode(
+    fullscreen: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    modes = SimpleNamespace(normal=object(), fullscreen=object())
+    native_window = Mock(width=1920, height=1080)
+    spy = SimpleNamespace(Window=Mock(return_value=native_window), WindowMode=modes)
+    monkeypatch.setitem(sys.modules, "slangpy", spy)
+    presentation = Mock(size=(1920, 1080))
+    context = Mock(return_value=presentation)
+    monkeypatch.setattr(native_window_module, "_PresentationContext", context)
+    presenter = native_window_module._SlangPyNativeWindowPresenter(
+        width=640, height=480, title="Test", fullscreen=fullscreen
+    )
+    spy.Window.assert_called_once_with(
+        width=640,
+        height=480,
+        title="Test",
+        mode=modes.fullscreen if fullscreen else modes.normal,
+        resizable=False,
+    )
+    context.assert_called_once_with(
+        spy=spy, window=native_window, width=1920, height=1080
+    )
+    assert presenter.resize(320, 240) == (1920, 1080)
+    if fullscreen:
+        native_window.resize.assert_not_called()
+    else:
+        native_window.resize.assert_called_once_with(320, 240)
+    presenter.close()
 
 
 def _session_desc() -> SessionDesc:
@@ -238,8 +208,6 @@ class _Presenter:
         self.size = (2, 2)
         self.cursor_options: list[tuple[bool, bool]] = []
         self.should_close = False
-        self.request_fullscreen = Mock(return_value=False)
-        self.fullscreen_size = Mock(return_value=None)
 
     def configure_cursor(
         self, *, hide_cursor: bool, lock_cursor_to_window: bool
@@ -324,6 +292,7 @@ def test_slangpy_presenter_configures_acknowledged_window_extent() -> None:
     presenter._closed = False
     presenter._window = window
     presenter._presentation = presentation
+    presenter._fullscreen = False
     presenter._width = 2
     presenter._height = 2
     presenter._pending_resize = None

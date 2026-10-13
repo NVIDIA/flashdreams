@@ -86,7 +86,6 @@ from flashdreams.api_v2.loop import ILoop, invoke_async
 from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
-    FullscreenDisabledOptimalWindowSizeUserInputEvent,
     FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     GameWheelUserInputEvent,
@@ -3817,8 +3816,6 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         """
         super().__init__(width=width, height=height)
         self._window_resize_requested: tuple[int, int] | None = None
-        self._fullscreen_size: tuple[int, int] | None = None
-        self._windowed_max_size: tuple[int, int] | None = None
 
     def is_finished(self) -> bool:
         """Return whether the root menu requested application shutdown."""
@@ -3829,27 +3826,12 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
     ) -> Tensor | None:
         """Draw the HUD and return the generated world frame beneath it."""
         for event in events.get_events():
-            if isinstance(event, FullscreenEnabledOptimalWindowSizeUserInputEvent):
-                self._fullscreen_size = event.width, event.height
-                self.state.resize(event.width, event.height)
-                self._window_resize_requested = self._fullscreen_size
-            elif isinstance(event, FullscreenDisabledOptimalWindowSizeUserInputEvent):
-                self._fullscreen_size = None
-                self._windowed_max_size = event.width, event.height
-                self._window_resize_requested = None
+            if isinstance(event, OptimalWindowSizeUserInputEvent):
+                self._window_resize_requested = (event.width, event.height)
         presentation_size = (
-            self._fullscreen_size
-            or self.state.presentation_size
-            or (
-                self.state.width,
-                self.state.height,
-            )
+            self.state.width,
+            self.state.height,
         )
-        if self._fullscreen_size is None and self._windowed_max_size is not None:
-            presentation_size = (
-                min(presentation_size[0], self._windowed_max_size[0]),
-                min(presentation_size[1], self._windowed_max_size[1]),
-            )
         if self.get_ui_loop_size() != presentation_size:
             if self._window_resize_requested == presentation_size:
                 self.resize_ui_loop(*presentation_size)

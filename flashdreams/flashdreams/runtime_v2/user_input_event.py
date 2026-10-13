@@ -46,18 +46,6 @@ class FullscreenEnabledOptimalWindowSizeUserInputEvent(OptimalWindowSizeUserInpu
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class FullscreenDisabledOptimalWindowSizeUserInputEvent(
-    OptimalWindowSizeUserInputEvent
-):
-    """Acknowledged windowed mode and its maximum usable dimensions."""
-
-    @classmethod
-    def get_type_name(cls) -> str:
-        """Return the event type name."""
-        return "fullscreen_disabled_optimal_window_size"
-
-
-@dataclass(frozen=True, slots=True, eq=False)
 class NumeralKeypadUserInputEvent(UserInputEvent):
     """User input event for a numeral keypad."""
 

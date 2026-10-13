@@ -37,11 +37,6 @@ class IClientWindow(InputSource, OutputSink, ABC):
         pass
 
     # Optional to implement
-    def request_fullscreen(self, is_fullscreen_enabled: bool) -> None:
-        """Request fullscreen; unsupported clients may ignore the request."""
-        pass
-
-    # Optional to implement
     def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
         """Resize this client window without replacing it.
 

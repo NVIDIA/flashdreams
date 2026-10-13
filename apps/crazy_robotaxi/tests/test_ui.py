@@ -60,7 +60,6 @@ from omnidreams_game_engine.types import CameraCalibration
 
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.runtime_v2.user_input_event import (
-    FullscreenDisabledOptimalWindowSizeUserInputEvent,
     FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
@@ -71,9 +70,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 pytestmark = pytest.mark.ci_cpu
 
 
-@pytest.mark.parametrize("windowed_max_size", [(1920, 1040), (300, 200)])
 def test_taxi_ui_uses_acknowledged_fullscreen_dimensions(
-    windowed_max_size: tuple[int, int],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     loop = CrazyRobotaxiImGuiUILoop(width=320, height=240)
@@ -82,8 +79,6 @@ def test_taxi_ui_uses_acknowledged_fullscreen_dimensions(
     loop._presentation_manager = Mock()
     loop._presentation_manager.presented_frames.return_value = ()
     monkeypatch.setattr(TaxiHudState, "draw", Mock())
-    loop.request_fullscreen(True)
-    loop.flush_ui_loop_requests()
     loop.step_ui(object(), 0, UserInputEvents([]))
     assert loop.get_ui_loop_size() == (320, 240)
 
@@ -107,25 +102,6 @@ def test_taxi_ui_uses_acknowledged_fullscreen_dimensions(
     loop.step_ui(object(), 2, UserInputEvents([]))
     assert loop.get_ui_loop_size() == (1920, 1080)
     assert loop.flush_ui_loop_requests() is None
-    loop.step_ui(
-        object(),
-        3,
-        UserInputEvents(
-            [
-                FullscreenDisabledOptimalWindowSizeUserInputEvent(
-                    timestamp=np.uint64(1),
-                    width=windowed_max_size[0],
-                    height=windowed_max_size[1],
-                )
-            ]
-        ),
-    )
-    requests = loop.flush_ui_loop_requests()
-    restored_size = min(640, windowed_max_size[0]), min(480, windowed_max_size[1])
-    assert requests is not None and requests.new_window_size == restored_size
-    loop.step_ui(object(), 4, UserInputEvents([]))
-    assert loop.get_ui_loop_size() == restored_size
-    assert (loop.state.width, loop.state.height) == restored_size
     loop.close()
 
 

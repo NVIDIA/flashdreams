@@ -686,8 +686,6 @@ class CrazyRobotaxiSession(ISession):
                 width=self._session_desc.video_width,
                 height=self._session_desc.video_height,
             )
-        if self._config.fullscreen:
-            ui_loop.request_fullscreen(True)
         model_loop = self.register_model_loop(
             CrazyRobotaxiModelLoop,
             state=ModelState(

@@ -11,8 +11,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
-from unittest.mock import Mock
 
 import pytest
 import torch
@@ -472,30 +470,6 @@ class FakeUILoop(IUILoop["FakeSession"]):
 
     def reset(self) -> None:
         return
-
-
-def test_fullscreen_request_validation_coalescing_and_dispatch() -> None:
-    from flashdreams.runtime_v2.null_client_window import NullClientWindow
-    from flashdreams.runtime_v2.session_runner import _apply_window_requests
-
-    ui = FakeUILoop()
-    ui._ui_loop_requests = None
-    for invalid in (None, 0, 1, "true"):
-        with pytest.raises(TypeError, match="is_fullscreen_enabled must be a bool"):
-            ui.request_fullscreen(cast(bool, invalid))
-    window = NullClientWindow()
-    fullscreen_request = Mock()
-    window.request_fullscreen = fullscreen_request
-    for enabled in (True, False):
-        ui.request_fullscreen(not enabled)
-        ui.request_fullscreen(enabled)
-        requests = ui.flush_ui_loop_requests()
-        assert requests is not None and requests.fullscreen is enabled
-        _apply_window_requests(window, requests)
-        fullscreen_request.assert_called_once_with(enabled)
-        fullscreen_request.reset_mock()
-        assert ui.flush_ui_loop_requests() is None
-        NullClientWindow().request_fullscreen(enabled)
 
 
 class FakeSession(ISession):

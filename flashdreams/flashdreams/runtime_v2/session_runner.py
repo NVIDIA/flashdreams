@@ -413,8 +413,6 @@ def _apply_window_requests(window: IClientWindow, request: UILoopRequests) -> No
         window.request_lock_cursor_to_window(request.lock_cursor_to_window)
     if request.new_window_size is not None:
         window.request_new_window_size(request.new_window_size)
-    if request.fullscreen is not None:
-        window.request_fullscreen(request.fullscreen)
 
 
 def _open_chunk_trace(path_value: object) -> _ChunkTraceLog:
