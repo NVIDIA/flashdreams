@@ -95,13 +95,15 @@ def test_taxi_ui_uses_acknowledged_fullscreen_dimensions(
     )
     assert loop.get_ui_loop_size() == (1920, 1080)
     assert (loop.state.width, loop.state.height) == (1920, 1080)
-    assert loop.state.presentation_size == (320, 240)
+    assert loop.state.presentation_size == (1920, 1080)
     assert loop.flush_ui_loop_requests() is None
 
     loop.state.presentation_size = (640, 480)
     loop.step_ui(object(), 2, UserInputEvents([]))
-    assert loop.get_ui_loop_size() == (1920, 1080)
-    assert loop.flush_ui_loop_requests() is None
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None and requests.new_window_size == (640, 480)
+    loop.step_ui(object(), 3, UserInputEvents([]))
+    assert loop.get_ui_loop_size() == (640, 480)
     loop.close()
 
 

@@ -482,11 +482,12 @@ class _SlangPyNativeWindowPresenter:
         self._window.cursor_mode = cursor_mode
 
     def resize(self, width: int, height: int) -> tuple[int, int]:
-        """Resize a windowed surface, preserving fullscreen monitor dimensions."""
+        """Request a native resize and return the last acknowledged size.
+        Allowed to resize fullscreen windows.
+        """
         if self._closed:
             raise RuntimeError("Cannot resize a closed native window.")
-        if not self._fullscreen:
-            self._window.resize(width, height)
+        self._window.resize(width, height)
         return self.size
 
     def set_input_callbacks(
