@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Wan 2.x VAE: streaming causal encode / decode.
 
@@ -1292,12 +1280,18 @@ class WanVAEEncoderConfig(EncoderConfig):
     )
 
     checkpoint_path: str = AVAILABLE_WAN_VAE_CHECKPOINT_PATHS["vae"]
+    """Checkpoint for the Wan VAE encoder."""
+
     dtype: torch.dtype = torch.bfloat16
+    """Parameter and activation precision of the Wan VAE encoder."""
+
     use_cuda_graph: bool = True
     """Wrap the encoder forward in a CUDA graph for replay."""
 
     use_compile: bool = False
-    """``torch.compile(mode="max-autotune-no-cudagraphs")``. Off by default:
+    """Compile the encoder with ``torch.compile``; can increase peak VRAM usage.
+
+    Uses ``mode="max-autotune-no-cudagraphs"``. Off by default:
     Inductor autotune workspaces can add several GiB of transient VRAM per
     unique input shape, surfacing as 'illegal memory access' on smaller GPUs
     with the full-channel ``vae`` checkpoint."""

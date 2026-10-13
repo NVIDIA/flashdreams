@@ -21,7 +21,7 @@ are where they are.
 
 The model side has a mental model of its own, warmup, CUDA-graph capture, the
 autoregressive-step body, ring attention, finalize, described in the
-[inference pipeline overview](docs/source/developer_guides/inference_pipeline_overview.rst).
+[inference pipeline overview](docs/source/documentation/inferencing_api/guides/stream_inference_pipeline.md).
 That covers what happens inside one generation step; this covers what drives the
 steps.
 

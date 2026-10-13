@@ -10,6 +10,7 @@ presentation almost never waits for a current-chunk BEV.
 
 import concurrent.futures
 import contextlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -161,7 +162,7 @@ class _LudusConditionRasterizerImpl:
         self._all_cameras: list[FThetaCamera | OrthographicCamera] = []
         self._all_camera_map: dict[str, int] = {}
         self._sensor_to_rig: dict[str, Tensor] = {}
-        self._selected_camera_name: str | None = None
+        self._camera_names: tuple[str, ...] = ()
         self._bev_camera_id: int | None = None
         self._bev_sensor_to_rig: Tensor | None = None
         self._physx_debug_scene = LudusPhysxDebugSceneBuffer(
@@ -202,7 +203,7 @@ class _LudusConditionRasterizerImpl:
         self._all_cameras = list(clipgt_scene.cameras)
         self._all_camera_map = dict(clipgt_scene.camera_name_to_id)
         self._sensor_to_rig = dict(clipgt_scene.sensor_to_rig)
-        self._selected_camera_name = scene.selected_camera.clipgt_name
+        self._camera_names = tuple(camera.clipgt_name for camera in scene.cameras)
 
         if self._bev is not None and self._bev.enabled:
             bev_camera = _build_bev_camera(self._bev, self._device)
@@ -269,11 +270,13 @@ class _LudusConditionRasterizerImpl:
         dynamic_actors: tuple[DynamicActorTrajectory, ...] = (),
         physics_debug_frames: tuple[PhysicsDebugFrame, ...] = (),
     ) -> RasterChunk:
-        """Render a chunk of frames from the scene's selected camera.
+        """Render a chunk of frames from every camera in the scene's rig.
 
         When BEV is enabled (see :class:`BevConfig`) the rasterizer also
         renders a top-down map for each frame and attaches it to
-        :attr:`PresentedFrame.bev_host_uint8`.
+        :attr:`PresentedFrame.bev_host_uint8`. The minimap is a property of the
+        rig rather than of a camera, so it is rendered once per frame whatever
+        the rig's size.
 
         Args:
             rig_poses_world: Rig-to-world poses [num_frames, 4, 4].
@@ -285,31 +288,16 @@ class _LudusConditionRasterizerImpl:
         if dynamic_actors:
             self._replace_dynamic_actor_scene(dynamic_actors)
 
-        if (
-            self._scene_data is None
-            or self._scene_id is None
-            or self._selected_camera_name is None
-        ):
+        if self._scene_data is None or self._scene_id is None or not self._camera_names:
             raise RuntimeError("load_scene() must be called before render_chunk().")
-
-        camera_name = self._selected_camera_name
-        if camera_name not in self._all_camera_map:
-            available = sorted(self._all_camera_map.keys())
-            raise RuntimeError(
-                f"Camera {camera_name!r} not found. Available: {available}"
-            )
 
         rig_poses_torch = torch.from_numpy(
             np.ascontiguousarray(rig_poses_world, dtype=np.float32)
         ).to(device=self._device)
-        rgb_frames = self._render_one_camera(
+        rgb_views = self._render_rig(
             rig_poses=rig_poses_torch,
             timestamps_us=timestamps_us,
             scene_id=self._scene_id,
-            camera_id=self._all_camera_map[camera_name],
-            sensor_to_rig=self._sensor_to_rig[camera_name],
-            camera_type=CAMERA_TYPE_REGULAR,
-            resolution=(self._raster.height, self._raster.width),
         )
 
         bev_frames = self.render_bev_frames(
@@ -323,7 +311,7 @@ class _LudusConditionRasterizerImpl:
         )
         return self.build_chunk(
             timestamps_us=timestamps_us,
-            rgb_frames=rgb_frames,
+            rgb_views=rgb_views,
             bev_frames=bev_frames,
             physics_debug_frames=physics_debug_frames,
             physx_frames=physx_frames,
@@ -352,42 +340,56 @@ class _LudusConditionRasterizerImpl:
         rig_poses_world: npt.NDArray[np.float32],
         timestamps_us: npt.NDArray[np.int64],
         dynamic_actors: tuple[DynamicActorTrajectory, ...] = (),
-    ) -> tuple[npt.NDArray[np.int64], Tensor, _RenderedCameraFrames]:
-        """Render only the main camera frames needed for model conditioning."""
+    ) -> tuple[npt.NDArray[np.int64], Tensor, tuple[_RenderedCameraFrames, ...]]:
+        """Render only the rig's camera frames needed for model conditioning."""
         if dynamic_actors:
             self._replace_dynamic_actor_scene(dynamic_actors)
 
-        if (
-            self._scene_data is None
-            or self._scene_id is None
-            or self._selected_camera_name is None
-        ):
+        if self._scene_data is None or self._scene_id is None or not self._camera_names:
             raise RuntimeError("load_scene() must be called before render_chunk().")
 
-        camera_name = self._selected_camera_name
+        rig_poses_torch = torch.from_numpy(
+            np.ascontiguousarray(rig_poses_world, dtype=np.float32)
+        ).to(device=self._device)
+        rgb_views = self._render_rig(
+            rig_poses=rig_poses_torch,
+            timestamps_us=timestamps_us,
+            scene_id=self._scene_id,
+        )
+        return (
+            np.asarray(timestamps_us, dtype=np.int64),
+            rig_poses_torch,
+            rgb_views,
+        )
+
+    def _render_rig(
+        self,
+        *,
+        rig_poses: Tensor,
+        timestamps_us: npt.ArrayLike,
+        scene_id: int,
+    ) -> tuple[_RenderedCameraFrames, ...]:
+        """Render one chunk from each of the rig's cameras, in rig order."""
+        return tuple(
+            self._render_one_camera(
+                rig_poses=rig_poses,
+                timestamps_us=timestamps_us,
+                scene_id=scene_id,
+                camera_id=self._require_camera_id(camera_name),
+                sensor_to_rig=self._sensor_to_rig[camera_name],
+                camera_type=CAMERA_TYPE_REGULAR,
+                resolution=(self._raster.height, self._raster.width),
+            )
+            for camera_name in self._camera_names
+        )
+
+    def _require_camera_id(self, camera_name: str) -> int:
         if camera_name not in self._all_camera_map:
             available = sorted(self._all_camera_map.keys())
             raise RuntimeError(
                 f"Camera {camera_name!r} not found. Available: {available}"
             )
-
-        rig_poses_torch = torch.from_numpy(
-            np.ascontiguousarray(rig_poses_world, dtype=np.float32)
-        ).to(device=self._device)
-        rgb_frames = self._render_one_camera(
-            rig_poses=rig_poses_torch,
-            timestamps_us=timestamps_us,
-            scene_id=self._scene_id,
-            camera_id=self._all_camera_map[camera_name],
-            sensor_to_rig=self._sensor_to_rig[camera_name],
-            camera_type=CAMERA_TYPE_REGULAR,
-            resolution=(self._raster.height, self._raster.width),
-        )
-        return (
-            np.asarray(timestamps_us, dtype=np.int64),
-            rig_poses_torch,
-            rgb_frames,
-        )
+        return self._all_camera_map[camera_name]
 
     def render_bev_frames(
         self,
@@ -434,16 +436,21 @@ class _LudusConditionRasterizerImpl:
         timestamps_us: npt.NDArray[np.int64],
         physics_debug_frames: tuple[PhysicsDebugFrame, ...],
     ) -> _RenderedCameraFrames | None:
-        """Render exact PhysX collider snapshots with Ludus on CUDA."""
+        """Render exact PhysX collider snapshots with Ludus on CUDA.
+
+        The overlay is drawn from the presented camera alone. It debugs the
+        physics rather than the conditioning, so a wider rig gains nothing from
+        having it drawn again from every seat.
+        """
         if not physics_debug_frames:
             return None
         if len(physics_debug_frames) != len(timestamps_us):
             raise ValueError(
                 "physics_debug_frames must match the rendered timestamp count"
             )
-        if self._selected_camera_name is None:
+        if not self._camera_names:
             raise RuntimeError("load_scene() must be called before debug rendering.")
-        camera_name = self._selected_camera_name
+        camera_name = self._camera_names[0]
         scene_id = self._physx_debug_scene.update(
             physics_debug_frames, np.asarray(timestamps_us, dtype=np.int64)
         )
@@ -451,7 +458,7 @@ class _LudusConditionRasterizerImpl:
             rig_poses=rig_poses_torch,
             timestamps_us=timestamps_us,
             scene_id=scene_id,
-            camera_id=self._all_camera_map[camera_name],
+            camera_id=self._require_camera_id(camera_name),
             sensor_to_rig=self._sensor_to_rig[camera_name],
             camera_type=CAMERA_TYPE_REGULAR,
             resolution=(self._raster.height, self._raster.width),
@@ -487,12 +494,14 @@ class _LudusConditionRasterizerImpl:
         self,
         *,
         timestamps_us: npt.NDArray[np.int64],
-        rgb_frames: _RenderedCameraFrames,
+        rgb_views: Sequence[_RenderedCameraFrames],
         bev_frames: _RenderedCameraFrames | None,
         physics_debug_frames: tuple[PhysicsDebugFrame, ...] = (),
         physx_frames: _RenderedCameraFrames | None = None,
     ) -> RasterChunk:
         """Wrap rendered camera tensors in lazy frame objects."""
+        if not rgb_views:
+            raise ValueError("A raster chunk needs at least one camera's frames.")
         if physics_debug_frames and len(physics_debug_frames) != len(timestamps_us):
             raise ValueError(
                 "physics_debug_frames must match the rendered timestamp count"
@@ -515,10 +524,13 @@ class _LudusConditionRasterizerImpl:
             frames = [
                 PresentedFrame(
                     timestamp_us=int(timestamps_us[idx]),
-                    rgb_host_uint8=_LazyRasterFrame(
-                        rgb_frames.frames_hwc_uint8,
-                        idx,
-                        source_event=rgb_frames.ready_event,
+                    view_rgb_host_uint8=tuple(
+                        _LazyRasterFrame(
+                            view.frames_hwc_uint8,
+                            idx,
+                            source_event=view.ready_event,
+                        )
+                        for view in rgb_views
                     ),
                     depth_host_f32=None,
                     bev_host_uint8=(
@@ -547,14 +559,14 @@ class _LudusConditionRasterizerImpl:
             ]
             return RasterChunk(frames=tuple(frames))
 
-        rgb_host_frames = _rendered_frames_to_numpy(rgb_frames)
+        rgb_host_views = [_rendered_frames_to_numpy(view) for view in rgb_views]
         bev_host_frames = (
             _rendered_frames_to_numpy(bev_frames) if bev_frames is not None else None
         )
         frames = [
             PresentedFrame(
                 timestamp_us=int(timestamps_us[idx]),
-                rgb_host_uint8=rgb_host_frames[idx],
+                view_rgb_host_uint8=tuple(view[idx] for view in rgb_host_views),
                 depth_host_f32=None,
                 bev_host_uint8=(
                     bev_host_frames[bev_frame_indices[idx]]
@@ -707,7 +719,7 @@ class LudusConditionRasterizer:
         (
             chunk_timestamps_us,
             rig_poses_torch,
-            rgb_frames,
+            rgb_views,
         ) = exec_.submit(
             impl.render_rgb_frames,
             rig_poses_world,
@@ -734,7 +746,7 @@ class LudusConditionRasterizer:
             )
         return impl.build_chunk(
             timestamps_us=chunk_timestamps_us,
-            rgb_frames=rgb_frames,
+            rgb_views=rgb_views,
             bev_frames=lagged_bev,
             physics_debug_frames=physics_debug_frames,
             physx_frames=physx_frames,

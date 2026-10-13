@@ -81,7 +81,7 @@ integration intentionally exposes no text prompt. It also does not implement
 the upstream 360P checkpoint, quantization, or multi-GPU inference.
 
 For usage, see the [Action2V adapter README](apps/action2v/README.md) and the
-[Waypoint user guide](../../docs/source/models/waypoint.rst). For tested
+[Waypoint user guide](../../docs/source/models/waypoint.md). For tested
 hardware, parity results, performance, and exact commands, see
 [VALIDATION.md](VALIDATION.md).
 

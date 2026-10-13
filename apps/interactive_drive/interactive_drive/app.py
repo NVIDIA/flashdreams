@@ -18,12 +18,15 @@ from torch import Tensor
 
 from flashdreams.api_v2.loop import IModelLoop, invoke_async
 from flashdreams.api_v2.session import ISession
+from flashdreams.core.distributed.parallel import ParallelContext
 from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 from .core import (
+    HUD_DESIGN_SIZE,
+    VIEW_MODES,
     BackendFactory,
     DriveInputState,
     DriveTelemetry,
@@ -35,6 +38,7 @@ from .core import (
     ViewMode,
     _InteractiveDriveApplicationBase,
     _output_cuda_device,
+    view_modes_for,
 )
 from .scene_loader import load_scene_bundle
 
@@ -56,11 +60,20 @@ class InteractiveDriveUIState:
 
     model_loop: IModelLoop[InteractiveDriveModelState]
     title: str
-    prompt: str
+    prompt: str | None
+    """The wording a restart carries, which is ``--prompt`` or nothing.
+
+    Nothing rather than a stand-in sentence: a restart carrying any prompt
+    replaces whatever the scene conditions on itself, which for one backend is
+    a prompt file in the archive and for another is the sample's per-camera
+    captions.
+    """
     scene_options: tuple[InteractiveDriveSceneOption, ...]
     current_scene_index: int = 0
     current_variant_index: int = 0
     view_mode: ViewMode = "rgb"
+    view_modes: tuple[ViewMode, ...] = VIEW_MODES
+    """Which streams the View button cycles through. See :func:`view_modes_for`."""
     viewport_width: int = 1280
     viewport_height: int = 704
     world_model_device: str = "cuda:0"
@@ -69,6 +82,14 @@ class InteractiveDriveUIState:
     postprocess_device: str = "cuda:0"
     postprocess_enabled: bool = False
     show_postprocess_toggle: bool = False
+    show_bev: bool = True
+    """Whether a top-down view is among the presented frames at all.
+
+    The map panel reads the second one, which is the overhead camera only for a
+    backend whose rig the app's rasterizer built. For anything else that index
+    is another of the drive's own cameras, so the panel has to be left out
+    rather than shown empty.
+    """
     status: str = (
         "W/S drive, Space brakes, A/D steer; gamepads and wheels are supported."
     )
@@ -95,6 +116,18 @@ class InteractiveDriveUIState:
         self.telemetry = telemetry
 
 
+def _hud_scale(viewport_width: int, viewport_height: int) -> float:
+    """How far to shrink the HUD for a viewport smaller than it was drawn for.
+
+    The panels are fixed pixel sizes, so a model generating a smaller frame than
+    this app's own default gets a HUD covering most of its picture. Never scaled
+    up, because the sizes are a considered layout rather than a ratio, and
+    floored so the text stays legible.
+    """
+    width, height = HUD_DESIGN_SIZE
+    return max(0.6, min(1.0, viewport_width / width, viewport_height / height))
+
+
 class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
     """Composite the driving frame with immediate Dear ImGui controls."""
 
@@ -108,14 +141,19 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
         command = state.drive_input.command()
         telemetry = state.telemetry
         self._ensure_sprites()
+        scale = _hud_scale(state.viewport_width, state.viewport_height)
+        # Style rather than IO: imgui 1.92 dropped io.font_global_scale for
+        # per-font scaling, and this is the global knob that replaced it.
+        imgui.get_style().font_scale_main = scale
+        panel = 354.0 * scale
         imgui.set_next_window_pos(
-            imgui.ImVec2(float(max(12, state.viewport_width - 366)), 12.0),
+            imgui.ImVec2(float(max(12, state.viewport_width - panel - 12)), 12.0),
             imgui.Cond_.once,
         )
         imgui.set_next_window_size(
             imgui.ImVec2(
-                354.0,
-                float(max(480, min(540, state.viewport_height - 24))),
+                panel,
+                float(min(540.0 * scale, state.viewport_height - 24)),
             ),
             imgui.Cond_.once,
         )
@@ -142,7 +180,7 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
             imgui.image(
                 "steering-wheel",
                 self._wheel_pixels(command.steer),
-                size=(138.0, 138.0),
+                size=(138.0 * scale, 138.0 * scale),
             )
             imgui.same_line()
             imgui.image(
@@ -150,7 +188,7 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
                 state.sprites[
                     "brake_pressed" if command.brake > 0.05 else "brake_unpressed"
                 ],
-                size=(64.0, 138.0),
+                size=(64.0 * scale, 138.0 * scale),
             )
             imgui.same_line()
             imgui.image(
@@ -160,7 +198,7 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
                     if command.throttle > 0.05
                     else "throttle_unpressed"
                 ],
-                size=(64.0, 138.0),
+                size=(64.0 * scale, 138.0 * scale),
             )
             imgui.separator()
             self._draw_runtime_config(imgui)
@@ -199,12 +237,19 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
         finally:
             imgui.end()
 
+        if not state.show_bev:
+            return self.presented_model_frame()
+
+        map_width, map_height = 350.0 * scale, 258.0 * scale
         imgui.set_next_window_pos(
-            imgui.ImVec2(12.0, float(max(12, state.viewport_height - 282))),
+            imgui.ImVec2(
+                12.0,
+                float(max(12, state.viewport_height - map_height - 24)),
+            ),
             imgui.Cond_.once,
         )
         imgui.set_next_window_size(
-            imgui.ImVec2(350.0, 258.0),
+            imgui.ImVec2(map_width, map_height),
             imgui.Cond_.once,
         )
         imgui.begin("Map")
@@ -217,7 +262,7 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
                 imgui.image(
                     "bev-minimap",
                     bev_frame.permute(1, 2, 0),
-                    size=(318.0, 210.0),
+                    size=(318.0 * scale, 210.0 * scale),
                 )
             else:
                 imgui.text("Waiting for BEV output.")
@@ -274,19 +319,15 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
         )
 
     def _restart(self) -> None:
-        prompt = self.state.prompt.strip()
-        if not prompt:
-            self.state.set_status("The current scene does not provide a prompt.")
-            return
         self.state.set_status("Restart queued.")
         invoke_async(
             self.state.model_loop,
-            lambda model_state, prompt=prompt: model_state.restart(prompt),
+            lambda model_state, prompt=self.state.prompt: model_state.restart(prompt),
         )
 
     def _toggle_view(self) -> None:
         state = self.state
-        views: tuple[ViewMode, ...] = ("rgb", "hdmap", "physx")
+        views = state.view_modes
         state.set_view_mode(views[(views.index(state.view_mode) + 1) % len(views)])
         invoke_async(
             state.model_loop,
@@ -330,6 +371,7 @@ class InteractiveDriveSession(ISession):
         title: str,
         scene_options: tuple[InteractiveDriveSceneOption, ...],
         owns_backend: bool = True,
+        parallel_context: ParallelContext | None = None,
     ) -> None:
         self._backend_factory = backend_factory
         self._config = config
@@ -338,10 +380,21 @@ class InteractiveDriveSession(ISession):
         self._title = title
         self._scene_options = scene_options
         self._owns_backend = owns_backend
+        self._parallel_context = parallel_context
 
     @property
     def session_desc(self) -> SessionDesc:
         return self._desc
+
+    @property
+    def parallel_context(self) -> ParallelContext | None:
+        """The mesh the runtime keeps in step, or ``None`` for one card.
+
+        Read before initialization, which is why the integration declares it in
+        its defaults rather than the backend reporting it: there is no backend
+        to ask yet.
+        """
+        return self._parallel_context
 
     def init(self) -> None:
         model_state = InteractiveDriveModelState(
@@ -350,6 +403,7 @@ class InteractiveDriveSession(ISession):
             desc=self._desc,
             scene_loader=self._scene_loader,
             owns_backend=self._owns_backend,
+            parallel_context=self._parallel_context,
             view_mode=self._config.view_mode,
             postprocess_enabled=self._config.app.postprocess.is_enabled(),
         )
@@ -380,11 +434,12 @@ class InteractiveDriveSession(ISession):
             state=InteractiveDriveUIState(
                 model_loop=model_loop,
                 title=self._title,
-                prompt=self._config.app.prompt_override or "Drive through the scene.",
+                prompt=self._config.app.prompt_override,
                 scene_options=self._scene_options,
                 current_scene_index=current_scene_index,
                 current_variant_index=current_variant_index,
                 view_mode=self._config.view_mode,
+                view_modes=view_modes_for(self._config.app.physics),
                 viewport_width=self._desc.video_width,
                 viewport_height=self._desc.video_height,
                 world_model_device=self._config.app.world_model_device,
@@ -393,6 +448,7 @@ class InteractiveDriveSession(ISession):
                 postprocess_device=self._config.app.postprocess_device,
                 postprocess_enabled=self._config.app.postprocess.is_enabled(),
                 show_postprocess_toggle=self._config.app.postprocess.is_enabled(),
+                show_bev=self._config.app.bev.enabled,
             ),
             width=self._desc.video_width,
             height=self._desc.video_height,
@@ -432,7 +488,7 @@ class InteractiveDriveApplication(_InteractiveDriveApplicationBase):
             view_mode=self._config.view_mode,
             no_ui=self._config.no_ui,
         )
-        if not self._config.no_ui:
+        if self._bev and not self._config.no_ui:
             self._config = replace(
                 self._config,
                 app=replace(
@@ -520,6 +576,7 @@ class InteractiveDriveApplication(_InteractiveDriveApplicationBase):
             title=self._title,
             scene_options=options,
             owns_backend=backend is None,
+            parallel_context=self._parallel_context,
         )
 
 

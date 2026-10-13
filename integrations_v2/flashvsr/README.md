@@ -37,6 +37,16 @@ The shared app README documents controls, presentation modes, the
 `--video-path` and `--max-chunks` application arguments, the Big Buck Bunny
 fallback, and its CPU tests.
 
+## Upstream licenses
+
+This integration follows [OpenImagingLab/FlashVSR](https://github.com/OpenImagingLab/FlashVSR),
+whose source license is Apache-2.0. Its separately downloaded
+[FlashVSR-v1.1 checkpoint](https://huggingface.co/JunhaoZhuang/FlashVSR-v1.1/blob/27561b186ded3402d7c975f4fd722e2885b6135f/README.md)
+also declares Apache-2.0. The GPLv3
+[`1038lab/ComfyUI-FlashVSR`](https://github.com/1038lab/ComfyUI-FlashVSR/blob/8877fdd593ea93b27353956dc69edf423c561fee/LICENSE) wrapper is a
+separate project, not a declared dependency of this integration. See
+[THIRD-PARTY-NOTICES](../../THIRD-PARTY-NOTICES) for adapted-source provenance.
+
 ## Install
 
 The plugin is registered as a `uv` workspace member in the repo-root
