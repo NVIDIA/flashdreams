@@ -31,6 +31,7 @@ from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
 )
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
+from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.presentation_manager import (
     _PRESENTATION_DRAIN_MARGIN,
     PresentationManager,
@@ -779,35 +780,54 @@ def test_run_session_profiles_input_through_window_write(tmp_path) -> None:
     phases = {record["phase"] for record in records}
     assert {
         "input_to_ui_step",
-        "input_to_window_write",
+        "window_write_completed",
         "profile_summary",
     } <= phases
-    output_record = next(
-        record for record in records if record["phase"] == "input_to_window_write"
+    input_record = next(
+        record for record in records if record["phase"] == "input_to_ui_step"
     )
-    assert output_record["input_type"] == "keyboard"
+    output_record = next(
+        record
+        for record in records
+        if record["phase"] == "window_write_completed"
+        and record["generation"] == input_record["generation"]
+        and record["window_write_index"] == input_record["window_write_index"]
+    )
+    assert (input_record["input_type"], output_record["input_count"]) == ("keyboard", 1)
 
 
-def test_run_session_keeps_profile_separate_from_chunk_trace(tmp_path) -> None:
+@pytest.mark.parametrize("output_kind", ["chunk_trace", "metrics", "mp4"])
+def test_run_session_keeps_profile_separate_from_other_outputs(
+    tmp_path, output_kind: str
+) -> None:
     log = CallLog()
     shared_path = tmp_path / "runtime.jsonl"
     session_desc = replace(
         _session_desc(),
         metadata={
-            "trace_chunk_lifecycle": True,
+            "trace_chunk_lifecycle": output_kind == "chunk_trace",
             "trace_chunk_lifecycle_path": str(shared_path),
         },
     )
 
-    with pytest.raises(ValueError, match="must use distinct paths"):
+    window = (
+        Mp4ClientWindow(shared_path)
+        if output_kind == "mp4"
+        else RecordingClientWindow(log, [])
+    )
+    metrics = MetricsOutputSink(shared_path) if output_kind == "metrics" else None
+    with pytest.raises(ValueError, match="distinct output path"):
         run_session(
             FakeSession(session_desc, log),
-            RecordingClientWindow(log, []),
+            window,
+            metrics_output_sink=metrics,
             profiler=RuntimeProfiler(shared_path),
             steps=1,
         )
 
-    assert log.calls == ["window.close", "session.close"]
+    assert log.calls == (
+        ["session.close"] if output_kind == "mp4" else ["window.close", "session.close"]
+    )
     assert not shared_path.exists()
 
 

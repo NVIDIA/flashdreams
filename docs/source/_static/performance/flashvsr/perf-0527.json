@@ -1,0 +1,8 @@
+[
+  {"device": "384x384", "flashdreams": 74.7, "official": 130.5},
+  {"device": "672x384", "flashdreams": 114.5, "official": 235.7},
+  {"device": "384x672", "flashdreams": 111.2, "official": 181.3},
+  {"device": "640x480", "flashdreams": 132.5, "official": 255.7},
+  {"device": "768x416", "flashdreams": 135.5, "official": 215.9},
+  {"device": "1280x704", "flashdreams": 372.5, "official": 528.2}
+]

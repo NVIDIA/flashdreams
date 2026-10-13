@@ -325,15 +325,13 @@ def _validate_profile_path(parsed: argparse.Namespace) -> None:
     """Keep the profile separate from artifacts written by the same run."""
     if parsed.profile_path is None:
         return
-    profile_path = parsed.profile_path.expanduser().resolve()
+    profiler = RuntimeProfiler(parsed.profile_path)
     other_paths = [parsed.stats_path]
     if parsed.mode == "mp4":
         other_paths.append(parsed.output_path)
-    if any(
-        path is not None and path.expanduser().resolve() == profile_path
-        for path in other_paths
-    ):
-        raise ValueError("--profile-path must use a distinct output path.")
+    for path in other_paths:
+        if path is not None:
+            profiler.validate_output_path(path)
 
 
 def _session_desc(

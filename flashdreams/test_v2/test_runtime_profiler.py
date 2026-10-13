@@ -106,21 +106,35 @@ def test_profile_correlates_claimed_input_with_first_following_write(tmp_path) -
     profiler.close()
     profiler.close()
     records = [json.loads(line) for line in path.read_text().splitlines()]
-    output_record = next(
-        record for record in records if record["phase"] == "input_to_window_write"
-    )
-    assert output_record == {
-        "artifact_type": "flashdreams.runtime_v2.input_latency_profile",
-        "schema_version": 1,
-        "phase": "input_to_window_write",
-        "time_ns": 9_000_000,
-        "generation": 2,
-        "claimed_ui_step": 9,
-        "presented_ui_step": 10,
-        "input_type": "keyboard",
-        "input_timestamp_us": 1_000,
-        "duration_s": 0.007,
-    }
+    observations = [
+        record
+        for record in records
+        if record["phase"] in ("input_to_ui_step", "window_write_completed")
+    ]
+    assert observations == [
+        {
+            "artifact_type": "flashdreams.runtime_v2.input_latency_profile",
+            "schema_version": 2,
+            "phase": "input_to_ui_step",
+            "time_ns": 5_000_000,
+            "generation": 2,
+            "window_write_index": 0,
+            "step": 9,
+            "input_type": "keyboard",
+            "input_timestamp_us": 1_000,
+            "duration_s": 0.003,
+        },
+        {
+            "artifact_type": "flashdreams.runtime_v2.input_latency_profile",
+            "schema_version": 2,
+            "phase": "window_write_completed",
+            "time_ns": 9_000_000,
+            "generation": 2,
+            "window_write_index": 0,
+            "presented_ui_step": 10,
+            "input_count": 1,
+        },
+    ]
     assert sum(record["phase"] == "profile_summary" for record in records) == 2
     session_record = records[0]
     assert session_record["measurement_endpoints"] == {
@@ -219,25 +233,28 @@ def test_profile_summary_bounds_quantile_storage(tmp_path) -> None:
         time_ns=0,
     )
 
-    for index in range(1_100):
-        profiler.ui_step_started(
-            _input(index),
-            generation=0,
-            step=index,
-            time_ns=index * 1_000 + 1,
-        )
+    index = 0
+    for batch_size in (1_100, 3, 2_200, 1):
+        for _ in range(batch_size):
+            profiler.ui_step_started(
+                _input(index),
+                generation=0,
+                step=index,
+                time_ns=index * 1_000 + 1,
+            )
+            index += 1
         profiler.window_write_completed(
             generation=0,
-            ui_step=index,
-            time_ns=index * 1_000 + 2,
+            ui_step=index - 1,
+            time_ns=(index - 1) * 1_000 + 2,
         )
 
     for summary, maximum in zip(
         profiler.summary().values(),
-        (1e-9, 2e-9),
+        (1e-9, 0.002199002),
         strict=True,
     ):
-        assert summary["count"] == 1_100
+        assert summary["count"] == 3_304
         assert summary["quantile_sample_count"] == 1_024
         assert summary["quantiles_approximate"] is True
         assert summary["max_s"] == pytest.approx(maximum)

@@ -223,7 +223,9 @@ class CosmosTransformerConfig(TransformerConfig):
     """Sink-token count (pre-patchify T)."""
 
     early_short_history_block_count: int | None = None
-    """Number of initial blocks limited to one chunk of visual history."""
+    """Number of initial blocks limited to one chunk of visual history.
+    ``None`` disables this policy.
+    """
 
     compile_network: bool = True
     """``torch.compile`` the network."""

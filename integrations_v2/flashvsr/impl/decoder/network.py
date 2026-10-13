@@ -12,6 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Modified for FlashDreams from OpenImagingLab/FlashVSR TCDecoder helpers.
+# Apache-2.0 source: examples/WanVSR/utils/TCDecoder.py; parity comparison
+# b527c6f285fb30df530f5febc8b45764a789c961. See THIRD-PARTY-NOTICES.
 
 """FlashDreams-backed FlashVSR TCDecoder candidate.
 

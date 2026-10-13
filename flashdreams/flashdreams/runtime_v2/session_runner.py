@@ -19,6 +19,7 @@ from flashdreams.api_v2.loop import (
     ModelInferenceState,
     UILoopRequests,
 )
+from flashdreams.api_v2.output_sink import FileOutputSink
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.coordination import StepAgreement
 from flashdreams.runtime_v2.event_buffer import EventBuffer
@@ -94,7 +95,8 @@ def run_session(
         ``None`` when the application run should end.
 
     Raises:
-        ValueError: ``steps`` is negative, or ``timeout_seconds`` is invalid.
+        ValueError: ``steps`` is negative, ``timeout_seconds`` is invalid, or
+            the profile targets another output artifact.
         BaseException: A loop's failure if one was queued, otherwise this
             function's own, otherwise the first cleanup failure. The rest are
             logged.
@@ -142,7 +144,14 @@ def run_session(
     try:
         session_desc = session.session_desc
         if profiler is not None:
-            _validate_profile_path(session_desc, profiler.path)
+            if metrics_output_sink is not None:
+                profiler.validate_output_path(metrics_output_sink.path)
+            if isinstance(window, FileOutputSink):
+                profiler.validate_output_path(window.path)
+            if session_desc.metadata.get(_TRACE_METADATA_KEY) is True:
+                trace_path = session_desc.metadata.get(_TRACE_PATH_METADATA_KEY)
+                if isinstance(trace_path, str | Path):
+                    profiler.validate_output_path(Path(trace_path).expanduser())
         tick_seconds = 1.0 / session_desc.frames_per_second_for_ui
         stop = session._shutdown_event
         presentation_manager = session._presentation_manager
@@ -440,22 +449,6 @@ def run_session(
     if primary_failure is not None:
         raise primary_failure
     return next_session_desc
-
-
-def _validate_profile_path(session_desc: SessionDesc, profile_path: Path) -> None:
-    """Keep the profile separate from an enabled chunk lifecycle trace."""
-    metadata = session_desc.metadata
-    if metadata.get(_TRACE_METADATA_KEY) is not True:
-        return
-    trace_path = metadata.get(_TRACE_PATH_METADATA_KEY)
-    if (
-        isinstance(trace_path, str | Path)
-        and Path(trace_path).expanduser().resolve()
-        == profile_path.expanduser().resolve()
-    ):
-        raise ValueError(
-            "Runtime profile and chunk lifecycle trace must use distinct paths."
-        )
 
 
 def _apply_window_requests(window: IClientWindow, request: UILoopRequests) -> None:

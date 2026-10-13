@@ -38,7 +38,7 @@ Start here, then use the narrower docs for the task in front of you:
 - `skills/` contains repo-authored Agent Skills. Use `skills/README.md` for opt-in setup and skill authoring rules.
 - `README.md` covers user-facing setup, requirements, supported models, and first-run commands.
 - `CONTRIBUTING.md` covers PR process, DCO sign-off, coding conventions, test markers, and dependency rules.
-- `docs/README.md` covers Sphinx docs build and hosting. `tests/README.md` covers local, Docker, and CI-oriented test entry points.
+- `docs/README.md` covers the Zensical docs build and hosting. `tests/README.md` covers local, Docker, and CI-oriented test entry points.
 
 ## Repo Map
 
@@ -71,8 +71,8 @@ uv run pytest -m ci_cpu
 uv run pytest -m "not manual"
 ./tests/run_tests_local.sh [target]
 ./tests/run_tests_docker.sh [target]
-uv run --group docs sphinx-build -b html docs/source docs/_build/html
-uv run --group docs sphinx-autobuild -E docs/source docs/_build/html --port 8000
+uv run --only-group docs zensical build --clean -f docs/zensical.toml
+uv run --only-group docs zensical serve -f docs/zensical.toml
 ```
 
 Use `--no-instantiate` before GPU work to inspect the resolved runner config without constructing models or loading checkpoints.
@@ -81,7 +81,7 @@ Use `--no-instantiate` before GPU work to inspect the resolved runner config wit
 
 - Inspect available runners with `uv run flashdreams-run --help`, then inspect a specific runner with `uv run flashdreams-run --no-instantiate <runner-name>`.
 - Prefer CPU checks first: config imports, checkpoint key-remap shape/bijection tests on CPU or meta tensors, docs builds, `pytest -m ci_cpu`, and static assertions about runner names and pipeline wiring.
-- For interactive V2 host-side input latency, capture `--profile-path artifacts/<run>.jsonl` and read `docs/source/developer_guides/latency_tuning.rst` for the two measurement boundaries.
+- For interactive V2 host-side input latency, capture `--profile-path artifacts/<run>.jsonl` and read `docs/source/documentation/inferencing_api/guides/latency_tuning.md` for the two measurement boundaries.
 - Avoid `ci_gpu`, generation, `torchrun`, Docker GPU tests, large Hugging Face downloads, rollout parity, CUDA graph, WebRTC runtime, and quality-regression tests on CPU-only hosts unless the user requests them or the test explicitly skips cleanly.
 
 ## Testing Guidance
@@ -117,11 +117,11 @@ Because of this direction, tests in `apps/<name>/tests/` must not import from `i
 
 ## Troubleshooting Links
 
-- Setup and requirements: `README.md`, `docs/source/quickstart/installation.rst`
-- CLI details: `docs/source/api/cli.rst`
-- Integration/plugin layout: `docs/source/api/integrations.rst`
-- New integrations: `docs/source/developer_guides/new_integration.rst`
-- Docs and CPU autodoc: `docs/README.md`
+- Setup and requirements: `README.md`, `docs/source/quickstart/index.md`
+- CLI details: `docs/source/documentation/cli.md`
+- Integration/plugin layout: `docs/source/documentation/demo_api/guides/integrate_model.md`
+- New integrations: `docs/source/documentation/inferencing_api/guides/create_model.md`
+- Docs build and hosting: `docs/README.md`
 - Tests and quality regressions: `tests/README.md`
 - Security reports: `SECURITY.md`
 

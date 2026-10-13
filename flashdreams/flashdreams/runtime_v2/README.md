@@ -350,8 +350,11 @@ event-to-window-write latency. Each input source supplies the monotonic origin
 for its session-relative event timestamps. Replacement sessions append distinct
 segments with measurement endpoints and runtime settings to the same JSONL
 artifact. The
-[latency tuning guide](../../../docs/source/developer_guides/latency_tuning.rst)
+[latency tuning guide](../../../docs/source/documentation/inferencing_api/guides/latency_tuning.md)
 defines the JSONL records and host-side boundaries.
+
+File-backed windows expose their output `path` through `FileOutputSink` so the
+runtime can reject a profile targeting the same file before opening either writer.
 
 `SlangPyUILoop` is the alternative for SlangPy's retained
 widget subset. `ImGuiUILoop` exposes the complete ImGui API. Both produce a

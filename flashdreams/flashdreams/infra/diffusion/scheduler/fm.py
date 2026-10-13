@@ -44,7 +44,7 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
     )
 
     num_inference_steps: int = 4
-    """Must equal ``len(denoising_timesteps)``."""
+    """Number of denoising steps; must equal ``len(denoising_timesteps)``."""
 
     shift: float = 8.0
     """Schedule warp factor."""
@@ -75,7 +75,9 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
     recipes."""
 
     timestep_dtype: torch.dtype = torch.float32
-    """Dtype of ``denoising_step_list``. Set to an integer dtype (e.g.
+    """Dtype of ``denoising_step_list``.
+
+    Set to an integer dtype (e.g.
     ``torch.int64``) when the network's time embedding is sensitive to the
     fractional part of the warped timestep — upstream Wan stores
     ``scheduler.timesteps`` as ``int64`` and lets the embedding upcast to

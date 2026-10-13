@@ -41,6 +41,11 @@ class MetricsOutputSink(OutputSink):
         self._written = False
         self._step_result_index = 0
 
+    @property
+    def path(self) -> Path:
+        """Return the benchmark output path."""
+        return self._path
+
     def open(self, session_desc: SessionDesc) -> None:
         """Start a new benchmark record."""
         self._session_desc = session_desc

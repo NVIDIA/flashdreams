@@ -12,6 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Modified for FlashDreams from Robbyant LingBot-World v1 camera helpers.
+# Apache-2.0 source: wan/utils/cam_utils.py; comparison revision
+# a43bec7f8091c83e9b30b16b912f6fc906236fa6. See THIRD-PARTY-NOTICES.
 
 """Camera-pose math: SE(3) helpers, relative poses, and Plücker rays."""
 

@@ -21,7 +21,6 @@ import json
 import random
 import statistics
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
@@ -31,32 +30,21 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 _ARTIFACT_TYPE = "flashdreams.runtime_v2.input_latency_profile"
 """Artifact type for V2 host-side input-latency records."""
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 """Input-latency artifact schema version."""
 
 _SUMMARY_SAMPLE_LIMIT = 1_024
-"""Maximum observations retained for session quantiles."""
-
-
-@dataclass(frozen=True, slots=True)
-class _ClaimedInput:
-    received_at_ns: int
-    claimed_at_ns: int
-    claim_duration_s: float
-    timestamp_us: int
-    event_type: str
-    generation: int
-    ui_step: int
+"""Maximum observations retained in each pending or session quantile reservoir."""
 
 
 class _MetricAccumulator:
     """Keep exact counts and maxima with bounded quantile samples."""
 
-    def __init__(self) -> None:
+    def __init__(self, random_source: random.Random) -> None:
         self._count = 0
         self._maximum: float | None = None
         self._samples: list[float] = []
-        self._random = random.Random(0)
+        self._random = random_source
 
     def add(self, value: float) -> None:
         """Add one sample using deterministic reservoir sampling."""
@@ -68,6 +56,32 @@ class _MetricAccumulator:
         replacement = self._random.randrange(self._count)
         if replacement < _SUMMARY_SAMPLE_LIMIT:
             self._samples[replacement] = value
+
+    def add_batch(
+        self, *, count: int, maximum_s: float, samples_s: list[float]
+    ) -> None:
+        """Merge a batch's count, maximum, and uniform quantile reservoir."""
+        if count == 1:
+            self.add(samples_s[0])
+            return
+        total_count = self._count + count
+        if total_count <= _SUMMARY_SAMPLE_LIMIT:
+            self._samples.extend(samples_s)
+        else:
+            # Select quotas from the full populations, then from their reservoirs.
+            old_count = sum(
+                index < self._count
+                for index in self._random.sample(
+                    range(total_count), _SUMMARY_SAMPLE_LIMIT
+                )
+            )
+            self._samples = self._random.sample(
+                self._samples, old_count
+            ) + self._random.sample(samples_s, _SUMMARY_SAMPLE_LIMIT - old_count)
+        self._count = total_count
+        self._maximum = (
+            maximum_s if self._maximum is None else max(self._maximum, maximum_s)
+        )
 
     def summary(self) -> dict[str, float | int | bool]:
         """Return bounded-memory summary statistics."""
@@ -91,9 +105,9 @@ class RuntimeProfiler:
 
     One runtime UI thread owns an instance. Input timestamps and runtime
     observations share ``time.monotonic_ns`` through the source-provided session
-    origin. Each claimed input remains pending through the first subsequent
-    client-window write. Reopening the profiler appends an independent session
-    segment to the same artifact.
+    origin. Each claim is written immediately and identifies the next window
+    write in its generation. Bounded timestamp samples provide session summaries.
+    Reopening the profiler appends an independent session segment to the artifact.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -102,14 +116,38 @@ class RuntimeProfiler:
         self._output: IO[str] | None = None
         self._input_timestamp_origin_ns: int | None = None
         self._input_generation: int | None = None
-        self._pending_inputs: list[_ClaimedInput] = []
-        self._samples = _metric_accumulators()
+        self._window_write_index = 0
+        self._pending_input_count = 0
+        self._earliest_pending_input_ns: int | None = None
+        self._latest_pending_input_ns: int | None = None
+        self._pending_input_times_ns: list[int] = []
+        self._random = random.Random(0)
+        self._samples = _metric_accumulators(self._random)
         self._opened_once = False
 
     @property
     def path(self) -> Path:
         """Return the profile output path."""
         return self._path
+
+    def validate_output_path(self, output_path: str | Path) -> None:
+        """Reject another artifact writer targeting the profile file.
+
+        Args:
+            output_path: Path as used by the other writer, with its own path
+                expansion already applied.
+
+        Raises:
+            ValueError: Both writers target the same file.
+        """
+        profile_path = self._path.resolve()
+        output_path = Path(output_path).resolve()
+        if profile_path == output_path or (
+            profile_path.exists()
+            and output_path.exists()
+            and profile_path.samefile(output_path)
+        ):
+            raise ValueError("Runtime profile must use a distinct output path.")
 
     def session_started(
         self,
@@ -128,8 +166,9 @@ class RuntimeProfiler:
         self._opened_once = True
         self._input_timestamp_origin_ns = input_timestamp_origin_ns
         self._input_generation = None
-        self._pending_inputs.clear()
-        self._samples = _metric_accumulators()
+        self._window_write_index = 0
+        self._clear_pending_inputs()
+        self._samples = _metric_accumulators(self._random)
         self._write(
             "session_started",
             _now_ns(time_ns),
@@ -162,8 +201,7 @@ class RuntimeProfiler:
         started_at_ns = _now_ns(time_ns)
         self._ensure_started()
         if generation != self._input_generation:
-            self._write_claims(self._pending_inputs)
-            self._pending_inputs.clear()
+            self._clear_pending_inputs()
             self._input_generation = generation
 
         origin_ns = self._input_timestamp_origin_ns
@@ -172,18 +210,34 @@ class RuntimeProfiler:
         for event in events.get_events():
             received_at_ns = origin_ns + int(event.get_timestamp()) * 1_000
             claim_duration_s = _elapsed_s(received_at_ns, started_at_ns)
-            self._pending_inputs.append(
-                _ClaimedInput(
-                    received_at_ns=received_at_ns,
-                    claimed_at_ns=started_at_ns,
-                    claim_duration_s=claim_duration_s,
-                    timestamp_us=int(event.get_timestamp()),
-                    event_type=event.get_type_name(),
-                    generation=generation,
-                    ui_step=step,
-                )
+            self._write(
+                "input_to_ui_step",
+                started_at_ns,
+                generation=generation,
+                window_write_index=self._window_write_index,
+                step=step,
+                input_type=event.get_type_name(),
+                input_timestamp_us=int(event.get_timestamp()),
+                duration_s=claim_duration_s,
             )
             self._samples["input_to_ui_step_s"].add(claim_duration_s)
+            self._pending_input_count += 1
+            self._earliest_pending_input_ns = (
+                received_at_ns
+                if self._earliest_pending_input_ns is None
+                else min(self._earliest_pending_input_ns, received_at_ns)
+            )
+            self._latest_pending_input_ns = (
+                received_at_ns
+                if self._latest_pending_input_ns is None
+                else max(self._latest_pending_input_ns, received_at_ns)
+            )
+            if len(self._pending_input_times_ns) < _SUMMARY_SAMPLE_LIMIT:
+                self._pending_input_times_ns.append(received_at_ns)
+            else:
+                replacement = self._random.randrange(self._pending_input_count)
+                if replacement < _SUMMARY_SAMPLE_LIMIT:
+                    self._pending_input_times_ns[replacement] = received_at_ns
 
     def window_write_completed(
         self,
@@ -195,26 +249,30 @@ class RuntimeProfiler:
         """Finish pending input correlations at the next window write return."""
         completed_at_ns = _now_ns(time_ns)
         self._ensure_started()
-        pending = tuple(
-            observation
-            for observation in self._pending_inputs
-            if observation.generation == generation
-        )
-        self._pending_inputs.clear()
-        self._write_claims(pending)
-        for observation in pending:
-            duration_s = _elapsed_s(observation.received_at_ns, completed_at_ns)
-            self._samples["input_to_window_write_s"].add(duration_s)
-            self._write(
-                "input_to_window_write",
-                completed_at_ns,
-                generation=generation,
-                claimed_ui_step=observation.ui_step,
-                presented_ui_step=ui_step,
-                input_type=observation.event_type,
-                input_timestamp_us=observation.timestamp_us,
-                duration_s=duration_s,
+        if generation != self._input_generation:
+            self._clear_pending_inputs()
+        earliest_ns = self._earliest_pending_input_ns
+        latest_ns = self._latest_pending_input_ns
+        if earliest_ns is not None and latest_ns is not None:
+            _elapsed_s(latest_ns, completed_at_ns)
+            self._samples["input_to_window_write_s"].add_batch(
+                count=self._pending_input_count,
+                maximum_s=_elapsed_s(earliest_ns, completed_at_ns),
+                samples_s=[
+                    _elapsed_s(received_at_ns, completed_at_ns)
+                    for received_at_ns in self._pending_input_times_ns
+                ],
             )
+        self._write(
+            "window_write_completed",
+            completed_at_ns,
+            generation=generation,
+            window_write_index=self._window_write_index,
+            presented_ui_step=ui_step,
+            input_count=self._pending_input_count,
+        )
+        self._clear_pending_inputs()
+        self._window_write_index += 1
 
     def summary(self) -> dict[str, dict[str, float | int | bool]]:
         """Return summary statistics for both host-side latency metrics."""
@@ -227,7 +285,6 @@ class RuntimeProfiler:
             return
         failure: BaseException | None = None
         try:
-            self._write_claims(self._pending_inputs)
             observed_at_ns = time.monotonic_ns()
             for metric, values in self._samples.items():
                 self._write(
@@ -238,7 +295,7 @@ class RuntimeProfiler:
                 )
         except BaseException as error:
             failure = error
-        self._pending_inputs.clear()
+        self._clear_pending_inputs()
         try:
             output.close()
         except BaseException as error:
@@ -250,20 +307,11 @@ class RuntimeProfiler:
         if failure is not None:
             raise failure
 
-    def _write_claims(
-        self,
-        observations: list[_ClaimedInput] | tuple[_ClaimedInput, ...],
-    ) -> None:
-        for observation in observations:
-            self._write(
-                "input_to_ui_step",
-                observation.claimed_at_ns,
-                generation=observation.generation,
-                step=observation.ui_step,
-                input_type=observation.event_type,
-                input_timestamp_us=observation.timestamp_us,
-                duration_s=observation.claim_duration_s,
-            )
+    def _clear_pending_inputs(self) -> None:
+        self._pending_input_count = 0
+        self._earliest_pending_input_ns = None
+        self._latest_pending_input_ns = None
+        self._pending_input_times_ns.clear()
 
     def _write(self, phase: str, time_ns: int, **fields: Any) -> None:
         output = self._output
@@ -294,10 +342,10 @@ def _elapsed_s(start_ns: int, end_ns: int) -> float:
     return (end_ns - start_ns) / 1_000_000_000
 
 
-def _metric_accumulators() -> dict[str, _MetricAccumulator]:
+def _metric_accumulators(random_source: random.Random) -> dict[str, _MetricAccumulator]:
     return {
-        "input_to_ui_step_s": _MetricAccumulator(),
-        "input_to_window_write_s": _MetricAccumulator(),
+        "input_to_ui_step_s": _MetricAccumulator(random_source),
+        "input_to_window_write_s": _MetricAccumulator(random_source),
     }
 
 
