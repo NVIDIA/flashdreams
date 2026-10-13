@@ -70,7 +70,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_taxi_ui_uses_acknowledged_fullscreen_dimensions(
+def test_taxi_ui_requests_fullscreen_dimensions_before_resizing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     loop = CrazyRobotaxiImGuiUILoop(width=320, height=240)
@@ -93,16 +93,22 @@ def test_taxi_ui_uses_acknowledged_fullscreen_dimensions(
             ]
         ),
     )
+    assert loop.get_ui_loop_size() == (320, 240)
+    assert (loop.state.width, loop.state.height) == (320, 240)
+    assert loop.state.presentation_size == (1920, 1080)
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None and requests.new_window_size == (1920, 1080)
+
+    loop.step_ui(object(), 2, UserInputEvents([]))
     assert loop.get_ui_loop_size() == (1920, 1080)
     assert (loop.state.width, loop.state.height) == (1920, 1080)
-    assert loop.state.presentation_size == (1920, 1080)
     assert loop.flush_ui_loop_requests() is None
 
     loop.state.presentation_size = (640, 480)
-    loop.step_ui(object(), 2, UserInputEvents([]))
+    loop.step_ui(object(), 3, UserInputEvents([]))
     requests = loop.flush_ui_loop_requests()
     assert requests is not None and requests.new_window_size == (640, 480)
-    loop.step_ui(object(), 3, UserInputEvents([]))
+    loop.step_ui(object(), 4, UserInputEvents([]))
     assert loop.get_ui_loop_size() == (640, 480)
     loop.close()
 

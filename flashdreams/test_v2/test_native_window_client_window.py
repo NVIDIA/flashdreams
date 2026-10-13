@@ -87,10 +87,7 @@ def test_presenter_uses_slangpy_creation_mode(
         spy=spy, window=native_window, width=1920, height=1080
     )
     assert presenter.resize(320, 240) == (1920, 1080)
-    if fullscreen:
-        native_window.resize.assert_not_called()
-    else:
-        native_window.resize.assert_called_once_with(320, 240)
+    native_window.resize.assert_called_once_with(320, 240)
     presenter.close()
 
 
