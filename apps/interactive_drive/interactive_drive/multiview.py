@@ -52,7 +52,7 @@ def sensor_layout(
     count = len(cameras) + auxiliary_count
     if bearings and len(cameras) == 1 and auxiliary_count == 1:
         return {0: (0, 0, 1, 2 / 3), 1: (0, 2 / 3, 1, 1 / 3)}
-    if not bearings or count <= 2:
+    if not bearings or count == 1:
         grid = PresentationLayout.grid(count)
         return {
             i: (
