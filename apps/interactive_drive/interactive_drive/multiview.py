@@ -164,8 +164,6 @@ class MultiviewUIState(InteractiveDriveUIState):
     """Camera metadata in model-channel order."""
     visible_count: int = 0
     """Number of cameras shown in overview mode; zero initializes to the full rig."""
-    camera_order: tuple[int, ...] = ()
-    """Camera selection priority; empty uses rig order, otherwise a full permutation."""
     focus_channel: int = -1
     """Single channel to enlarge, or -1 for the overview layout."""
     auxiliary_views: tuple[AuxiliaryView, ...] = ()
@@ -180,19 +178,12 @@ class MultiviewUIState(InteractiveDriveUIState):
             self.visible_count = len(self.cameras)
 
 
-def visible_channels(
-    cameras: tuple[CameraView, ...], count: int, order: tuple[int, ...] = ()
-) -> tuple[int, ...]:
-    """Select preferred cameras, retaining model-channel order for display."""
+def visible_channels(cameras: tuple[CameraView, ...], count: int) -> tuple[int, ...]:
+    """Preserve camera rig order when selecting a prefix for display."""
     validate_cameras(cameras)
     if not 1 <= count <= len(cameras):
         raise ValueError("Visible count must lie within the available camera count")
-    order = order or tuple(range(len(cameras)))
-    if sorted(order) != list(range(len(cameras))):
-        raise ValueError(
-            "Camera selection order must contain each channel exactly once"
-        )
-    return tuple(sorted(order[:count]))
+    return tuple(range(count))
 
 
 class MultiviewUILoop(InteractiveDriveUILoop):
@@ -249,24 +240,7 @@ class MultiviewUILoop(InteractiveDriveUILoop):
                 )
                 if changed:
                     state.bearing_layout = layout_index == 0
-                _, state.visible_count = imgui.slider_int(
-                    "Camera views", state.visible_count, 1, len(state.cameras)
-                )
-                if imgui.collapsing_header("Choose cameras"):
-                    order = list(state.camera_order or range(len(state.cameras)))
-                    for slot in range(state.visible_count):
-                        changed, channel = imgui.combo(
-                            f"Camera {slot + 1}",
-                            order[slot],
-                            [camera.label for camera in state.cameras],
-                        )
-                        if changed:
-                            other = order.index(channel)
-                            order[slot], order[other] = order[other], order[slot]
-                            state.camera_order = tuple(order)
-                    if imgui.button("Reset camera selection"):
-                        state.camera_order = ()
-            imgui.text_wrapped("Display only; all configured streams keep generating.")
+            imgui.text(f"Cameras: {len(state.cameras)}")
             self._draw_view_controls(imgui)
             imgui.separator()
             self._draw_drive_hud(imgui)
@@ -300,9 +274,7 @@ class MultiviewUILoop(InteractiveDriveUILoop):
             (state.focus_channel,)
             if state.focus_channel >= 0
             else (
-                *visible_channels(
-                    state.cameras, state.visible_count, state.camera_order
-                ),
+                *visible_channels(state.cameras, state.visible_count),
                 *range(len(state.cameras), len(metadata)),
             )
         )
@@ -310,7 +282,7 @@ class MultiviewUILoop(InteractiveDriveUILoop):
             rectangles = {state.focus_channel: (0, 0, 1, 1)}
         else:
             rectangles = sensor_layout(
-                tuple(state.cameras[i] for i in channels[: state.visible_count]),
+                state.cameras[: state.visible_count],
                 len(state.auxiliary_views),
                 bearings=state.bearing_layout,
             )

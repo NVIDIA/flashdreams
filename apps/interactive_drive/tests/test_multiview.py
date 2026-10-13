@@ -16,7 +16,6 @@ from interactive_drive.multiview import (
     MultiviewUILoop,
     MultiviewUIState,
     sensor_layout,
-    visible_channels,
 )
 
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -42,8 +41,6 @@ class RecordingUI:
         self.cursor_x, self.cursor_y = 11.0, 23.0
         self.tooltips = []
         self.rectangles = {}
-        self.picker_open = False
-        self.choices = {}
 
     def __getattr__(self, name):
         if name in {
@@ -96,12 +93,7 @@ class RecordingUI:
     def selectable(self, label, selected):
         return label in self.clicked, selected
 
-    def collapsing_header(self, label):
-        return self.picker_open
-
     def combo(self, label, index, options):
-        if label in self.choices:
-            return True, self.choices.pop(label)
         return False, index
 
     def slider_int(self, label, value, minimum, maximum):
@@ -157,6 +149,7 @@ def test_layout_keeps_camera_and_lidar_identity_focus_and_aspect(
     ui = RecordingUI()
     loop.step_ui(ui, 0, UserInputEvents([]))
     assert ui.panels == 0
+    assert ui.sliders == []
     shown = selection.get("visible_count", count)
     assert state.visible_count == shown
     assert list(ui.images) == [f"stream-{i}" for i in (*range(shown), count)]
@@ -425,71 +418,3 @@ def test_images_center_in_available_space_with_focused_caption(
     assert ui.image_sizes["stream-0"] == pytest.approx(size)
     assert ui.image_positions["stream-0"] == pytest.approx(position)
     assert ("Camera caption" in ui.labels) == focused
-
-
-@pytest.mark.parametrize("bearings", [False, True])
-def test_camera_picker_preserves_streams_bearings_and_auxiliary_channel(bearings):
-    cameras = tuple(
-        CameraView(name, name, yaw)
-        for name, yaw in (
-            ("Front", 0),
-            ("Rear", 180),
-            ("Right", -90),
-            ("Left", 90),
-            ("Front tele", 0),
-        )
-    )
-    state = MultiviewUIState(
-        model_loop=Mock(),
-        title="Sensors",
-        prompt="",
-        scene_options=(),
-        cameras=cameras,
-        visible_count=4,
-        bearing_layout=bearings,
-        auxiliary_views=(AuxiliaryView("lidar", "LiDAR"),),
-    )
-    loop = MultiviewUILoop(renderer=Mock())
-    loop.state = state
-    loop.get_ui_loop_size = Mock(return_value=(1920, 1080))
-    loop.presented_model_frame = Mock(
-        side_effect=lambda i: torch.full((3, 9, 16), i, dtype=torch.uint8)
-    )
-    ui = RecordingUI()
-    ui.picker_open = True
-    ui.choices = {"Camera 2": 3, "Camera 4": 4}
-    loop.step_ui(ui, 0, UserInputEvents([]))
-    assert state.camera_order == (0, 3, 2, 4, 1)
-    assert list(ui.images) == [f"stream-{i}" for i in (0, 2, 3, 4, 5)]
-    for i in (0, 2, 3, 4, 5):
-        assert torch.all(ui.images[f"stream-{i}"] == i)
-    if bearings:
-        left, right = ui.rectangles["Stream##3"], ui.rectangles["Stream##2"]
-        assert left[0] + left[2] / 2 < 800 < right[0] + right[2] / 2
-    else:
-        assert ui.rectangles["Stream##2"][0] > ui.rectangles["Stream##0"][0]
-        assert ui.rectangles["Stream##3"][0] > ui.rectangles["Stream##2"][0]
-    state.visible_count = 2
-    reduced = RecordingUI()
-    loop.step_ui(reduced, 1, UserInputEvents([]))
-    assert list(reduced.images) == ["stream-0", "stream-3", "stream-5"]
-    state.visible_count = 4
-    swapped = RecordingUI()
-    swapped.picker_open = True
-    swapped.choices = {"Camera 1": 3}
-    loop.step_ui(swapped, 2, UserInputEvents([]))
-    assert state.camera_order == (3, 0, 2, 4, 1)
-    assert list(swapped.images) == [f"stream-{i}" for i in (0, 2, 3, 4, 5)]
-    reset = RecordingUI()
-    reset.picker_open = True
-    reset.clicked.add("Reset camera selection")
-    loop.step_ui(reset, 3, UserInputEvents([]))
-    assert state.camera_order == ()
-    assert list(reset.images) == [f"stream-{i}" for i in (0, 1, 2, 3, 5)]
-
-
-@pytest.mark.parametrize("order", [(0, 0), (1,), (0, 2)])
-def test_camera_selection_rejects_invalid_channel_orders(order):
-    cameras = (CameraView("front", "Front"), CameraView("rear", "Rear", 180))
-    with pytest.raises(ValueError, match="each channel exactly once"):
-        visible_channels(cameras, 2, order)
