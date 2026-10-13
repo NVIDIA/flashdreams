@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      .stage {
+        position: absolute;
+        inset: 0;
+        background: #000;
+      }
+
+      .full-video {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .overlay-title {
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        z-index: 20;
+        max-width: calc(100% - 24px);
+        padding: 18px 26px;
+        border-radius: 14px;
+        background: rgba(0, 0, 0, 0.75);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        font-size: 99px;
+        font-weight: 850;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+        color: #fff;
+        text-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+        clip-path: inset(0 100% 0 0);
+      }
+
+      .slide-transition {
+        position: absolute;
+        top: 0;
+        right: -140px;
+        width: 140px;
+        height: 1080px;
+        z-index: 30;
+        background-image:
+          var(--noise-tile-soft),
+          linear-gradient(
+            90deg,
+            rgba(118, 185, 0, 0) 0%,
+            rgba(118, 185, 0, 0.34) 42%,
+            rgba(118, 185, 0, 0.88) 50%,
+            rgba(118, 185, 0, 0.34) 58%,
+            rgba(118, 185, 0, 0) 100%
+          );
+        background-size: 512px 512px, auto;
+        background-blend-mode: soft-light, normal;
+        filter: blur(1px);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="scene-interactive-world"
+      data-duration="16"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div id="stage" class="clip stage" data-start="0" data-duration="16" data-track-index="0"></div>
+
+      <div
+        id="interactive-title"
+        class="clip overlay-title"
+        data-start="0"
+        data-duration="16"
+        data-track-index="10"
+      >
+        Interact with the Generative World
+      </div>
+
+      <div
+        id="interactive-slide-transition"
+        class="clip slide-transition"
+        data-start="7.4"
+        data-duration="1.2"
+        data-track-index="20"
+      ></div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      tl.to("#interactive-title", {
+        clipPath: "inset(0 0% 0 0)",
+        duration: 0.9,
+        ease: "power2.out",
+      }, 0.25);
+
+      tl.fromTo(
+        "#interactive-slide-transition",
+        { x: 0 },
+        { x: -2200, duration: 0.9, ease: "power2.inOut" },
+        7.45
+      );
+
+      window.__timelines["scene-interactive-world"] = tl;
+    </script>
+  </body>
+</html>

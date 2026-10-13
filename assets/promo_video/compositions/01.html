@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      .opening-stage {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 36px;
+      }
+
+      .opening-logo {
+        width: 1728px;
+        height: auto;
+        filter: drop-shadow(0 10px 52px rgba(118, 185, 0, 0.22));
+      }
+
+      .opening-copy {
+        max-width: calc(100% - 96px);
+        text-align: center;
+        color: var(--fg-dim);
+        font-size: 72px;
+        font-weight: 500;
+        font-style: italic;
+        line-height: 1.08;
+        letter-spacing: -0.03em;
+        text-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+        min-height: 170px;
+        white-space: nowrap;
+      }
+
+      .typing-cursor {
+        display: inline-block;
+        margin-left: 6px;
+        color: var(--green);
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="scene-opening"
+      data-duration="5.5"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div
+        id="opening-stage"
+        class="clip opening-stage bg-green-glow"
+        data-start="0"
+        data-duration="5.5"
+        data-track-index="0"
+      >
+        <img
+          id="opening-logo"
+          class="opening-logo"
+          src="../assets/flashdreams-logo.svg"
+          alt="FlashDreams"
+        />
+        <div id="opening-copy" class="opening-copy">
+          <span id="typing-text"></span><span id="typing-cursor" class="typing-cursor">|</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const fullText =
+        "high-performance inference and serving infra\nfor interactive video and world models.";
+      const state = { chars: 0 };
+      const textNode = document.getElementById("typing-text");
+      const typingDuration = Math.max(1.0, fullText.length * 0.04);
+
+      tl.to(state, {
+        chars: fullText.length,
+        duration: typingDuration,
+        ease: "none",
+        onUpdate: () => {
+          textNode.innerHTML = fullText
+            .slice(0, Math.floor(state.chars))
+            .replace(/\n/g, "<br />");
+        },
+      }, 0.55);
+
+      tl.to("#typing-cursor", {
+        opacity: 0,
+        duration: 0.24,
+        repeat: Math.max(1, Math.floor(typingDuration / 0.24)),
+        yoyo: true,
+        ease: "none",
+      }, 0.55);
+
+      window.__timelines["scene-opening"] = tl;
+    </script>
+  </body>
+</html>
