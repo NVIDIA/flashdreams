@@ -15,7 +15,7 @@ from flashdreams.runtime_v2.selected_file import FileSelectionRequest
 
 _LOGGER = logging.getLogger(__name__)
 
-FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS = 300.0
+FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS = 30.0
 """Seconds to wait for the host to show a picker before answering ``UNAVAILABLE``.
 
 The deadline starts when a request is handed to the host. After the host reports

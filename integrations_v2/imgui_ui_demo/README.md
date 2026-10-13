@@ -14,7 +14,7 @@ Small ImGui applications for the FlashDreams v2 loop runtime:
   clicks on the same button while a picker is open are ignored;
   **Open A then B** queues both selectors one at a time. Closing the native
   window or dropping the WebRTC tab completes leftover and in-flight picks
-  as unavailable. A picker the host never shows within 300 seconds also
+  as unavailable. A picker the host never shows within 30 seconds also
   completes as unavailable; a picker that is shown stays open as long as the
   user wants.
 - `imgui-ui-query-string` sets background from a `?(r,g,b)` browser URL.
