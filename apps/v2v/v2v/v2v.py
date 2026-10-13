@@ -454,7 +454,23 @@ def _load_input_video(value: str | Path | None, max_frames: int | None) -> Loade
             "Install the flashdreams-v2v package."
         ) from error
 
-    reader = imageio_ffmpeg.read_frames(str(path), pix_fmt="rgb24")
+    output_params: list[str] = []
+    fps: float | None = None
+    if path.suffix.lower() == ".avif":
+        import av  # noqa: PLC0415
+
+        with av.open(str(path)) as container:
+            streams = container.streams.video
+            if not streams:
+                raise ValueError(f"Input video contains no video streams: {path}")
+            # AVIF image items have no duration; animation tracks are timed.
+            stream = next((s for s in streams if s.duration is not None), streams[0])
+            fps = float(stream.average_rate or 0.0)
+            output_params = ["-map", f"0:{stream.index}", "-vsync", "0"]
+
+    reader = imageio_ffmpeg.read_frames(
+        str(path), pix_fmt="rgb24", output_params=output_params
+    )
     try:
         metadata = next(reader)
         width, height = metadata["size"]
@@ -480,7 +496,7 @@ def _load_input_video(value: str | Path | None, max_frames: int | None) -> Loade
         spec=VideoSpec(
             height=height,
             width=width,
-            fps=float(metadata["fps"]),
+            fps=float(metadata["fps"]) if fps is None else fps,
             channels=3,
         ),
     )
