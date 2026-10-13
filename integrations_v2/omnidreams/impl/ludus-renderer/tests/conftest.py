@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import sys
 from pathlib import Path
@@ -38,8 +26,8 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def _cuda_and_plugin_available() -> tuple[bool, str]:
-    """Check whether CUDA is usable and the renderer plugin can be loaded."""
+def _cuda_available() -> tuple[bool, str]:
+    """Check CUDA without compiling the renderer plugin during collection."""
     try:
         import torch
     except ModuleNotFoundError:
@@ -48,18 +36,11 @@ def _cuda_and_plugin_available() -> tuple[bool, str]:
     if not torch.cuda.is_available():
         return False, "CUDA is not available"
 
-    try:
-        from ludus_renderer._ops._plugin import _get_plugin
-
-        _get_plugin()
-    except Exception as exc:
-        return False, f"ludus_renderer plugin failed to load: {exc}"
-
     return True, ""
 
 
 # Evaluate once at collection time.
-_GPU_OK, _GPU_SKIP_REASON = _cuda_and_plugin_available()
+_GPU_OK, _GPU_SKIP_REASON = _cuda_available()
 
 
 def pytest_collection_modifyitems(

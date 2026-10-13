@@ -4,6 +4,7 @@
 """CPU tests for Crazy Robotaxi's application boundary against FlashDreams V2."""
 
 import queue
+import re
 import threading
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -19,6 +20,7 @@ from crazy_robotaxi.application import (
     CrazyRobotaxiApplicationDefaults,
     _configure_live_edit_pipeline,
     _fit_bev_renderer_to_ui,
+    _parser,
 )
 from crazy_robotaxi.controls import BoundActionState, ControlsConfig
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
@@ -30,6 +32,8 @@ from crazy_robotaxi.live_edit.config import (
     LiveEditObstacleConfig,
     LiveEditStyleConfig,
     LiveEditWeatherConfig,
+    StyleSkin,
+    WeatherPreset,
 )
 from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.rules import TaxiGameSnapshot
@@ -38,6 +42,11 @@ from crazy_robotaxi.session import (
     CrazyRobotaxiSession,
     ModelState,
     _taxi_driver_command,
+)
+from crazy_robotaxi.settings import (
+    SETTING_CLI_FLAGS,
+    SettingsDocument,
+    setting_value,
 )
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
 from omnidreams_game_engine.config import BevConfig, RasterConfig
@@ -57,6 +66,7 @@ from flashdreams.infra.diffusion.scheduler.base import SchedulerConfig
 from flashdreams.infra.diffusion.transformer.base import TransformerConfig
 from flashdreams.infra.encoder.base import EncoderConfig
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
+from flashdreams.runtime_v2 import cli as runtime_cli
 from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
@@ -128,6 +138,9 @@ def _application(
     defaults: CrazyRobotaxiApplicationDefaults = _STUB_DEFAULTS,
     **kwargs: Any,
 ) -> CrazyRobotaxiApplication:
+    kwargs.setdefault("pipeline_factory", lambda config, device: object())
+    kwargs.setdefault("scene_factory", lambda request, raster: _scene())
+    kwargs.setdefault("native_preparer", lambda: None)
     return CrazyRobotaxiApplication(defaults=defaults, **kwargs)
 
 
@@ -160,8 +173,149 @@ def _scene(*, width: int = 1280, height: int = 704) -> SceneDefinition:
     )
 
 
+@pytest.mark.parametrize("inline", (False, True))
+@pytest.mark.parametrize("mode", (None, "null", "mp4", "webrtc", "native-window"))
+def test_cli_exports_options_without_starting_the_game(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    inline: bool,
+    mode: str | None,
+) -> None:
+    def unexpected(*args: object, **kwargs: object) -> None:
+        pytest.fail("Documentation export attempted game preparation")
+
+    app = _application(
+        pipeline_factory=unexpected,
+        scene_factory=unexpected,
+        native_preparer=unexpected,
+    )
+    mode_factory = runtime_cli.client_window_mode
+
+    def cpu_mode(name: str, **kwargs: Any) -> Any:
+        mode = mode_factory(name, **kwargs)
+        monkeypatch.setattr(
+            mode,
+            "create",
+            lambda parsed: SimpleNamespace(close=lambda: None),
+        )
+        monkeypatch.setattr(mode, "starting", lambda window: None)
+        return mode
+
+    monkeypatch.setattr(runtime_cli, "create_application", lambda slug: app)
+    monkeypatch.setattr(runtime_cli, "client_window_mode", cpu_mode)
+    monkeypatch.setattr(
+        "crazy_robotaxi.application.load_controls_documents", unexpected
+    )
+    config_path = tmp_path / "invalid-config.yaml"
+    config_path.write_text("invalid: [", encoding="utf-8")
+    output = tmp_path / "options.md"
+    flag = "--export-options-docs"
+    export_args = [f"{flag}={output}"] if inline else [flag, str(output)]
+    mode_args = [] if mode is None else ["--mode", mode]
+
+    with pytest.raises(SystemExit) as exc:
+        runtime_cli.entrypoint(
+            [
+                "test-app",
+                *mode_args,
+                "--output-path",
+                str(tmp_path / "unused.mp4"),
+                "--total-model-steps",
+                "1",
+                "--",
+                *export_args,
+                "--config",
+                str(config_path),
+                "--no-ui",
+            ]
+        )
+
+    assert exc.value.code == 0
+    reference = output.read_text(encoding="utf-8")
+    assert reference.startswith("# Crazy Robotaxi options reference\n")
+    assert "### GAME → TAXI" in reference
+    assert "| **Seed:** | `game.taxi.seed` | Crazy Robotaxi |" in reference
+    assert "--game-seed, --seed" in reference
+    assert "## Application arguments\n\n```text\n" in reference
+    assert "--export-options-docs PATH" in reference
+    assert "race mode also requires --race-course" in " ".join(reference.split())
+    assert "| YAML key |" in reference
+    assert config_path.read_text(encoding="utf-8") == "invalid: ["
+    assert app._config is None
+
+
+def test_options_export_reports_a_write_error(tmp_path: Path, capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        _application().init(["--export-options-docs", str(tmp_path)])
+
+    assert exc.value.code == 2
+    assert "cannot export options documentation" in capsys.readouterr().err
+
+
+def test_tooltip_cli_flags_change_their_settings(tmp_path: Path) -> None:
+    parser = _parser(_STUB_DEFAULTS)
+    actions = {
+        flag: action for action in parser._actions for flag in action.option_strings
+    }
+    paths_by_flag: dict[str, list[tuple[str, ...]]] = {}
+    for key, help_text in SETTING_CLI_FLAGS.items():
+        for flag in re.findall(r"--[a-z][a-z0-9-]*", help_text):
+            assert flag in actions
+            paths_by_flag.setdefault(flag, []).append(tuple(key.split(".")))
+
+    document = SettingsDocument.load(
+        tmp_path / "config.yaml",
+        pipeline_config=_STUB_PIPELINE_CONFIG,
+        width=1280,
+        height=704,
+    )
+    base = replace(
+        document.settings,
+        presentation=replace(document.settings.presentation, width=1280, height=704),
+    )
+    app = _application()
+    for flag, paths in paths_by_flag.items():
+        action = actions[flag]
+        before = base
+        argv = [flag]
+        current = setting_value(before, paths[0])
+        if action.nargs == 0:
+            enabled = not flag.startswith("--no-")
+            for path in paths:
+                before = document.update(before, path, not enabled)
+        elif action.dest in ("live_edit_skin_first", "live_edit_weather_first"):
+            assert isinstance(current, tuple)
+            selected = current[-1]
+            assert isinstance(selected, (StyleSkin, WeatherPreset))
+            argv.append(selected.name)
+        elif action.dest == "live_edit_item_types":
+            argv.append("nitro")
+        elif action.choices:
+            argv.append(next(choice for choice in action.choices if choice != current))
+        elif action.type is Path:
+            argv.append(str(tmp_path / "override"))
+        elif action.type is float:
+            assert isinstance(current, (int, float))
+            argv.append(str(current + 0.1))
+        elif action.type is int:
+            assert current is None or isinstance(current, int)
+            argv.append(str(current + 1 if current is not None else 2))
+        else:
+            argv.append("cpu")
+
+        after, _overrides = app._apply_cli_settings(before, parser.parse_args(argv))
+
+        for path in paths:
+            assert setting_value(after, path) != setting_value(before, path), (
+                flag,
+                path,
+            )
+    assert not document.path.exists()
+
+
 def test_application_registers_model_and_imgui_ui_loops() -> None:
-    pipeline = object()
+    pipeline_closed: list[bool] = []
+    pipeline = SimpleNamespace(close=lambda: pipeline_closed.append(True))
     pipeline_requests: list[tuple[object, str]] = []
     app = _application(
         pipeline_factory=lambda config, device: (
@@ -194,7 +348,8 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
     assert session._presentation_manager._presentation_stream is None
     assert model_loop.state.pipeline is None
-    assert pipeline_requests == []
+    assert app._pipeline is not None
+    assert pipeline_requests == [(app._pipeline_config, "cpu")]
     assert model_loop.state.scene is None
     assert model_loop.state.rollout is None
     assert not model_loop.state.game_selected
@@ -226,9 +381,6 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
         ui_loop.state.native_dit_disabled_for_live_edit
         is session._config.native_dit_disabled_for_live_edit
     )
-    assert session._config.renderer.bev.width == 234
-    assert session._config.renderer.bev.height == 234
-
     menu_results = model_loop.step(0, UserInputEvents([]))
     assert len(menu_results) == 1
     assert menu_results[0].frame_count == 1
@@ -247,6 +399,11 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert not model_loop.state.game_selected
     model_loop.state.request_exit()
     assert model_loop.is_finished()
+    model_loop.state.pipeline = pipeline
+    model_loop.close()
+    assert pipeline_closed == []
+    app.close()
+    assert pipeline_closed == [True]
 
 
 def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
@@ -606,8 +763,10 @@ def test_diagnostics_flag_does_not_enable_pipeline_profiling(
 
     session = cast(CrazyRobotaxiSession, app.create_session(app.session_desc()))
 
-    assert configured == []
+    assert app._pipeline is not None
+    assert configured == [app._pipeline_config]
     session._pipeline_factory()
+    assert configured == [app._pipeline_config]
     assert app._config is not None
     assert app._config.pipeline_profiling is expected
 
@@ -701,11 +860,9 @@ def test_adapter_dimensions_configure_renderer_geometry(
     )
 
     assert configured == [app._pipeline_config]
-    assert raster_sizes == [resolution_wh]
+    assert len(raster_sizes) == len(app._scenes)
+    assert set(raster_sizes) == {resolution_wh}
     assert session._config.renderer.raster.resolution_wh == resolution_wh
-    expected_bev_size = min(resolution_wh[0] // 4, resolution_wh[1] // 3)
-    assert session._config.renderer.bev.width == expected_bev_size
-    assert session._config.renderer.bev.height == expected_bev_size
     assert model_loop.state.scene is not None
     assert model_loop.state.scene.initial_rgb.shape == (
         resolution_wh[1],

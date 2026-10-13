@@ -56,7 +56,7 @@ export HF_HOME=~/.cache/huggingface  # default
 
 ```bash
 uv run --package flashdreams-causal-forcing flashdreams-run-v2 \
-  t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise --output-path artifacts/t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise.mp4 -- \
+  t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise --output-path artifacts/t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise.mp4 --timeout unbound -- \
   --prompt "A cat surfing." --total-blocks 21 --no-compile
 ```
 

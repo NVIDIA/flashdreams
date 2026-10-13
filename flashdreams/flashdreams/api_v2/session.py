@@ -10,6 +10,7 @@ from functools import cached_property
 from typing import Any, final
 
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
+from flashdreams.core.distributed.parallel import ParallelContext
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
@@ -27,6 +28,15 @@ class ISession(ABC):
     _registered_ui_loop: IUILoop[Any] | None = None
     _registered_model_loop: IModelLoop[Any] | None = None
     _registrations_frozen = False
+
+    @property
+    def parallel_context(self) -> ParallelContext | None:
+        """Return the model mesh before initialization, or ``None`` for a local session.
+
+        The runtime synchronizes model steps and inputs across this world.
+        Only rank zero owns a client window and output sinks.
+        """
+        return None
 
     @cached_property
     def _shutdown_event(self) -> threading.Event:

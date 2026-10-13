@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Flow-matching scheduler."""
 
@@ -44,7 +32,7 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
     )
 
     num_inference_steps: int = 4
-    """Must equal ``len(denoising_timesteps)``."""
+    """Number of denoising steps; must equal ``len(denoising_timesteps)``."""
 
     shift: float = 8.0
     """Schedule warp factor."""
@@ -75,11 +63,20 @@ class FlowMatchSchedulerConfig(SchedulerConfig):
     recipes."""
 
     timestep_dtype: torch.dtype = torch.float32
-    """Dtype of ``denoising_step_list``. Set to an integer dtype (e.g.
+    """Dtype of ``denoising_step_list``.
+
+    Set to an integer dtype (e.g.
     ``torch.int64``) when the network's time embedding is sensitive to the
     fractional part of the warped timestep — upstream Wan stores
     ``scheduler.timesteps`` as ``int64`` and lets the embedding upcast to
     ``float64`` internally."""
+
+    reference_sampling: bool = False
+    """Keep timesteps exact and recurrent samples in the network flow dtype.
+
+    LingBot's reference noise bank is FP32 while its network is BF16. This mode
+    preserves integer timestep values and rounds each ``x0`` before re-noising.
+    """
 
     enable_tqdm: bool = False
     """Whether to enable tqdm progress bar."""
@@ -217,10 +214,12 @@ class FlowMatchScheduler(Scheduler):
 
         Iteration 0 trusts ``initial_noise`` as the ``sigma=1`` sample;
         later iterations re-noise the previous ``x0`` estimate to the new
-        sigma before the network forward. Schedule arithmetic auto-promotes
-        to fp32; the result is cast back to ``initial_noise.dtype``.
+        sigma before the network forward. By default the result is cast back
+        to ``initial_noise.dtype`` after every step; reference sampling casts
+        each ``x0`` to the network flow dtype.
         """
         input_dtype = initial_noise.dtype
+        reference_sampling = self.config.reference_sampling
         sigmas = self.denoising_sigmas
         timesteps = self.denoising_step_list
 
@@ -234,17 +233,30 @@ class FlowMatchScheduler(Scheduler):
             sigma = sigmas[i]
             # Schedule buffers are pinned to fp32 (to preserve integer
             # timestep values under a stray `module.to(bf16)`), but the
-            # network expects timesteps in the input dtype so that
-            # downstream modulation / Linear layers stay consistent.
-            timestep = timesteps[i].to(dtype=input_dtype)
+            # By default the network expects timesteps in the input dtype.
+            # Reference sampling preserves configured integer values rather
+            # than rounding them through bf16.
+            timestep = (
+                timesteps[i]
+                if reference_sampling
+                else timesteps[i].to(dtype=input_dtype)
+            )
             if i > 0:
                 assert clean is not None
-                noise = torch.empty_like(noisy).normal_(generator=rng)
-                noisy = ((1.0 - sigma) * clean + sigma * noise).to(input_dtype)
+                if reference_sampling:
+                    noise = torch.empty_like(clean).normal_(generator=rng)
+                    state_dtype = clean.dtype
+                else:
+                    noise = torch.empty_like(noisy).normal_(generator=rng)
+                    state_dtype = input_dtype
+                noisy = ((1.0 - sigma) * clean + sigma * noise).to(state_dtype)
             flow = predict_flow(noisy, timestep)
-            clean = noisy - sigma * flow
+            if reference_sampling:
+                clean = (noisy - sigma * flow).to(flow.dtype)
+            else:
+                clean = noisy - sigma * flow
         assert clean is not None, "denoising_step_list is empty"
-        return clean.to(input_dtype)
+        return clean if reference_sampling else clean.to(input_dtype)
 
     def add_noise(
         self,

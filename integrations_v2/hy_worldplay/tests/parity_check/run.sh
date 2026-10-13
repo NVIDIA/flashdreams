@@ -1,18 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 # Pull HY-WorldPlay and run the upstream WAN-5B benchmark. Idempotent:
 # re-running skips clone / checkout / downloads when already in place,
@@ -115,7 +103,7 @@ fi
 # resolve to the same ``${SCRIPT_DIR}/.venv``.
 #
 # The lightweight sync below covers the *native* plugin path only.
-# Vendor's ``wan/generate.py`` additionally requires four heavy deps
+# Vendor's ``wan/generate.py`` additionally requires five heavy deps
 # (kept out of the sub-venv's ``pyproject.toml`` because their resolution
 # toll on the repo-root lock was deemed too high once parity closed).
 # This script ``uv pip install``s them on demand below unless
@@ -124,12 +112,12 @@ echo "[setup] ensuring Python deps via uv sync (isolated venv)"
 ( cd "${SCRIPT_DIR}" && uv sync )
 
 if [[ "${SKIP_HEAVY_DEPS:-0}" != "1" ]]; then
-    echo "[setup] installing vendor-only heavy deps (sageattention, cloudpickle, accelerate, transformers==4.57.6, torchvision==0.26.0)"
+    echo "[setup] installing vendor-only heavy deps (sageattention, cloudpickle, accelerate>=1.15, transformers==4.57.6, torchvision==0.26.0)"
     echo "        set SKIP_HEAVY_DEPS=1 to skip if you only need the native plugin"
     ( cd "${SCRIPT_DIR}" && uv pip install \
         sageattention \
         cloudpickle \
-        "accelerate>=0.30" \
+        "accelerate>=1.15" \
         "transformers==4.57.6" \
         "torchvision==0.26.0" --no-deps )
 else

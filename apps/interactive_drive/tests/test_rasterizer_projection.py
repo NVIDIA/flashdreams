@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """CPU regression tests for the interactive-driving BEV projection."""
 
@@ -35,6 +23,7 @@ def test_ludus_uses_configured_cuda_device(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     devices: list[torch.device] = []
+    native_preparations: list[None] = []
 
     class _FakeContext:
         def __init__(self, *, device: torch.device) -> None:
@@ -56,6 +45,11 @@ def test_ludus_uses_configured_cuda_device(
     monkeypatch.setattr(rasterizer_module, "LudusCudaTimestampedContext", _FakeContext)
     monkeypatch.setattr(
         rasterizer_module,
+        "prepare_ludus",
+        lambda: native_preparations.append(None),
+    )
+    monkeypatch.setattr(
+        rasterizer_module,
         "LudusPhysxDebugSceneBuffer",
         lambda *_args, **_kwargs: SimpleNamespace(),
     )
@@ -66,6 +60,7 @@ def test_ludus_uses_configured_cuda_device(
 
     assert rasterizer._device == torch.device("cuda:1")
     assert devices == [torch.device("cuda:1")]
+    assert native_preparations == [None]
 
 
 def test_bev_pose_discards_driving_pitch_and_roll() -> None:

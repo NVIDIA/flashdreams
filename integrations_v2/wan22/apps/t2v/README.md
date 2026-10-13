@@ -15,7 +15,7 @@ T2V for the prompt “A cat surfing”:
 
 ```bash
 uv run --package flashdreams-wan22 flashdreams-run-v2 \
-  t2v-wan22-ti2v-5b --output-path clip.mp4 -- \
+  t2v-wan22-ti2v-5b --output-path clip.mp4 --timeout unbound -- \
   --prompt "A cat surfing" \
   --image-path integrations_v2/wan22/apps/t2v/assets/fastvideo-causal-wan22-cat-surfing-first-frame.png \
   --no-compile

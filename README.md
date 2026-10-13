@@ -91,7 +91,7 @@ For example, the Self-Forcing T2V v2 application is:
 ```bash
 uv run --project integrations_v2/self_forcing \
     flashdreams-run-v2 t2v-self-forcing-wan2.1-t2v-1.3b \
-    --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 -- \
+    --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 --timeout unbound -- \
     --prompt "A cat surfing." --total-blocks 7
 ```
 
@@ -168,7 +168,10 @@ FlashDreams is released under the [Apache License 2.0](LICENSE). Third-party
 components and their licenses are listed in
 [`THIRD-PARTY-NOTICES`](THIRD-PARTY-NOTICES) and [`NOTICE`](NOTICE). The
 repository is REUSE-compliant; see [`REUSE.toml`](REUSE.toml) and
-[`LICENSES/`](LICENSES/).
+[`LICENSES/`](LICENSES/). The independently packaged
+[Ludus renderer](integrations_v2/omnidreams/impl/ludus-renderer/LICENSE) retains its own Apache license file;
+[upstream cudaraster terms](integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/LICENSE)
+and per-file exceptions are described in the third-party notices.
 
 ## Citation
 
