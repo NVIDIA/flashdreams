@@ -37,8 +37,9 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
 ```
 
 Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
-connecting remotely. Choose **TAXI** or **RACE**, then a map; race mode also asks
-for a course. **CONTROLS** and **OPTIONS** are available from the mode menu.
+connecting remotely. Choose **TAXI**, **RACE**, or **FREE-ROAM**, then a map;
+race mode also asks for a course. **CONTROLS** and **OPTIONS** are available from
+the mode menu.
 The application prepares maps and loads the world model before showing the
 menus. The first launch downloads missing model assets and may take time to
 compile and autotune kernels.
@@ -311,14 +312,6 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
 
 Race times are stored per map and course. Use `--race-times PATH` to choose a
 different leaderboard file.
-
-## Free-Roam mode
-
-Choose **FREE-ROAM** from the mode menu, then select any map to drive without
-fares, checkpoints, a timer, or a score. The menu and driving HUD use a
-`#0062FF` blue accent. Free-Roam also works with
-`--game-mode free-roam --map PATH` and supports the usual driving controls and
-optional live-edit abilities.
 
 ## Optional live-edit abilities
 
