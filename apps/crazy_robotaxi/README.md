@@ -1,9 +1,13 @@
 # Crazy Robotaxi
 
 Crazy Robotaxi is an interactive FlashDreams V2 application built on the
-OmniDreams world model and `omnidreams-game-engine`. Drive a taxi through
+OmniDreams world model and `omnidreams-game-engine`. Drive the player vehicle through
 authored maps, collect fares, or race against the clock using a keyboard,
 gamepad, or steering wheel.
+
+See [Crazy Robotaxi architecture](ARCHITECTURE.md) for how the game turns
+authored maps and simulated motion into HD-map conditioning for OmniDreams,
+illustrated with conditioning and generated views plus gameplay screenshots.
 
 ## Requirements
 
