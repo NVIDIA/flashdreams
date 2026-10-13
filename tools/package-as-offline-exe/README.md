@@ -12,8 +12,8 @@ complete `flashdreams-run-v2` command:
 
 ```bash
 uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
-  --noconsole --output artifacts/taxi-omnidreams-bundle \
-  ::: flashdreams-run-v2 crazy-robotaxi-omnidreams-fast-perf \
+  --output artifacts/taxi-omnidreams-bundle \
+  ::: flashdreams-run-v2 crazy-robotaxi-omnidreams-fast-perf-responsive \
   --mode native-window
 ```
 
