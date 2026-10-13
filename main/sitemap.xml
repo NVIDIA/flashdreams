@@ -58,6 +58,9 @@
         <loc>https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/local_benchmarks/</loc>
       </url>
       <url>
+        <loc>https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/profiling/</loc>
+      </url>
+      <url>
         <loc>https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/</loc>
       </url>
       <url>
@@ -77,6 +80,9 @@
       </url>
       <url>
         <loc>https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/guides/latency_tuning/</loc>
+      </url>
+      <url>
+        <loc>https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/guides/profiling/</loc>
       </url>
       <url>
         <loc>https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/guides/stream_inference_pipeline/</loc>
