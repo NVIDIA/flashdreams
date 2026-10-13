@@ -66,6 +66,11 @@ class IClientWindow(InputSource, OutputSink, ABC):
         :meth:`InputSource.get_user_input_events`. The default has no
         selector and returns ``UNAVAILABLE``.
 
+        Do not block. Answer ``UNAVAILABLE`` when the host rejects the request,
+        fails, or does not show a picker within a bounded time. Once a picker
+        is shown, wait for the user without a deadline, and never close that
+        picker from here.
+
         Args:
             request: Selector request queued by the UI loop.
 

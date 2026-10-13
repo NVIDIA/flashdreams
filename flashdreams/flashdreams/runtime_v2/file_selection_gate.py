@@ -8,11 +8,20 @@ from __future__ import annotations
 import logging
 import threading
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from flashdreams.runtime_v2.selected_file import FileSelectionRequest
 
 _LOGGER = logging.getLogger(__name__)
+
+FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS = 300.0
+"""Seconds to wait for the host to show a picker before answering ``UNAVAILABLE``.
+
+The deadline starts when a request is handed to the host. After the host reports
+that the picker is presented, the user may take as long as they want. The
+deadline does not close a picker that is already open.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,14 +58,25 @@ class QueuedFileSelection:
         )
 
 
-class FileSelectionGate:
-    """Admit one client file selector at a time.
+@dataclass(frozen=True, slots=True)
+class FileSelectionAdmission:
+    """What the window should do with one submitted file-selector request."""
 
-    A duplicate ``request_id`` that is already active or queued is ignored.
-    A different id waits until :meth:`complete` for the active request.
-    Callers emit a selected-files event only after :meth:`complete` claims
-    the slot. :meth:`drain` finishes the current client generation so late
-    in-flight work cannot complete a later request that reused the id.
+    started: QueuedFileSelection | None = None
+    """Request to hand to the host now, or ``None`` when it is not starting."""
+
+    unavailable: bool = False
+    """Answer this submit with ``UNAVAILABLE`` and do not open another picker."""
+
+
+class FileSelectionGate:
+    """Run one file picker at a time; later requests wait in a queue.
+
+    - A repeated ``request_id`` is ignored.
+    - :meth:`complete` frees the slot and says whether to deliver the result.
+    - :meth:`expire_presentation` answers a picker that never appeared, but
+      keeps the slot until the host finishes, so two pickers never overlap.
+    - :meth:`drain` drops everything, so late results cannot match new requests.
     """
 
     def __init__(self) -> None:
@@ -65,16 +85,20 @@ class FileSelectionGate:
         self._active: QueuedFileSelection | None = None
         self._queued: deque[QueuedFileSelection] = deque()
         self._generation = 0
+        self._presented = False
+        self._answered = False
 
-    def submit(self, pending: QueuedFileSelection) -> QueuedFileSelection | None:
-        """Record ``pending`` and return it when it should start now.
+    def submit(self, pending: QueuedFileSelection) -> FileSelectionAdmission:
+        """Record ``pending`` and return whether it should start now.
 
         Args:
             pending: Request the window wants to show.
 
         Returns:
-            ``pending`` when no selector is active, otherwise ``None`` when the
-            id is a duplicate or the request was queued behind the active one.
+            An admission whose ``started`` request is handed to the host when
+            no selector is active. ``unavailable`` is set when a previous
+            picker was already answered but the host has not finished.
+            Otherwise the request was queued or ignored as a duplicate.
         """
         with self._lock:
             if self._contains(pending.request_id):
@@ -82,20 +106,67 @@ class FileSelectionGate:
                     "Ignoring duplicate file-selection request id %r.",
                     pending.request_id,
                 )
-                return None
+                return FileSelectionAdmission()
+            if self._active is not None and self._answered:
+                return FileSelectionAdmission(unavailable=True)
             stamped = replace(pending, generation=self._generation)
             if self._active is None:
                 self._active = stamped
-                return stamped
+                self._presented = False
+                self._answered = False
+                return FileSelectionAdmission(started=stamped)
             self._queued.append(stamped)
-            return None
+            return FileSelectionAdmission()
+
+    def mark_presented(self, request_id: str, generation: int) -> bool:
+        """Record that the host showed ``request_id``.
+
+        Returns:
+            ``True`` when this request is still waiting for that signal.
+        """
+        with self._lock:
+            if not self._is_active(request_id, generation) or self._answered:
+                return False
+            self._presented = True
+            return True
+
+    def may_show(self, request_id: str, generation: int) -> bool:
+        """Return whether the host should still be asked to show this request."""
+        with self._lock:
+            return self._is_active(request_id, generation) and not self._answered
+
+    def expire_presentation(
+        self, request_id: str, generation: int
+    ) -> tuple[QueuedFileSelection, ...]:
+        """Answer an unpresented request and every request waiting behind it.
+
+        The active slot stays occupied until :meth:`complete` so the window
+        does not open another picker while this host might still show one.
+
+        Returns:
+            Requests the window should answer as ``UNAVAILABLE``. Empty when
+            the request is no longer current or the host already presented it.
+        """
+        with self._lock:
+            if (
+                not self._is_active(request_id, generation)
+                or self._presented
+                or self._answered
+            ):
+                return ()
+            self._answered = True
+            expired = [self._active, *self._queued]
+            self._queued.clear()
+            return tuple(item for item in expired if item is not None)
 
     def complete(
         self, request_id: str, generation: int | None = None
     ) -> tuple[bool, QueuedFileSelection | None]:
-        """Claim ``request_id`` if it is still current and return the next start.
+        """Release ``request_id`` if it is still current and return the next start.
 
-        Callers emit a result only when this returns ``claimed=True``. Client-gone
+        Callers emit the host result only when this returns ``deliver=True``.
+        A request already answered by :meth:`expire_presentation` still releases
+        the slot, but its host result is not delivered. Client-gone
         :meth:`drain` wins the race against in-flight work.
 
         Args:
@@ -104,21 +175,26 @@ class FileSelectionGate:
                 match only the id.
 
         Returns:
-            ``(True, next)`` when this in-flight work still owned the slot.
+            ``(True, next)`` when the host result should be delivered.
             ``next`` is the request that should start now, or ``None`` if the
-            queue is empty. ``(False, None)`` when the id is not current.
+            queue is empty. ``(False, next)`` when the slot was released but
+            the app already has a result. ``(False, None)`` when the id is
+            not current.
         """
         with self._lock:
             if self._active is None or self._active.request_id != request_id:
                 return False, None
             if generation is not None and self._active.generation != generation:
                 return False, None
+            deliver = not self._answered
             self._active = None
+            self._presented = False
+            self._answered = False
             if not self._queued:
-                return True, None
+                return deliver, None
             nxt = self._queued.popleft()
             self._active = nxt
-            return True, nxt
+            return deliver, nxt
 
     def is_current(self, request_id: str, generation: int) -> bool:
         """Return whether ``request_id`` is still the active selector for ``generation``."""
@@ -130,14 +206,20 @@ class FileSelectionGate:
             )
 
     def drain(self) -> tuple[QueuedFileSelection, ...]:
-        """Return and drop remaining requests, then start a new client generation."""
+        """Return unanswered requests, then start a new client generation.
+
+        A request already answered by :meth:`expire_presentation` is dropped
+        here without being returned again.
+        """
         with self._lock:
             items: list[QueuedFileSelection] = []
-            if self._active is not None:
+            if self._active is not None and not self._answered:
                 items.append(self._active)
             items.extend(self._queued)
             self._active = None
             self._queued.clear()
+            self._presented = False
+            self._answered = False
             self._generation += 1
             return tuple(items)
 
@@ -149,3 +231,99 @@ class FileSelectionGate:
         if self._active is not None and self._active.request_id == request_id:
             return True
         return any(item.request_id == request_id for item in self._queued)
+
+    def _is_active(self, request_id: str, generation: int) -> bool:
+        return (
+            self._active is not None
+            and self._active.request_id == request_id
+            and self._active.generation == generation
+        )
+
+
+class FileSelectionPresentationTimer:
+    """Fail one request when the host does not show its picker in time."""
+
+    def __init__(
+        self,
+        gate: FileSelectionGate,
+        *,
+        timeout_seconds: float,
+        on_expired: Callable[[tuple[QueuedFileSelection, ...]], None],
+    ) -> None:
+        """Arm deadlines against ``gate``.
+
+        Args:
+            gate: Queue whose active request this timer watches.
+            timeout_seconds: Presentation deadline. Must be positive.
+            on_expired: Called with the requests to answer as ``UNAVAILABLE``.
+
+        Raises:
+            ValueError: ``timeout_seconds`` is not positive.
+        """
+        if timeout_seconds <= 0:
+            raise ValueError("presentation_timeout_seconds must be > 0.")
+        self._gate = gate
+        self._timeout_seconds = timeout_seconds
+        self._on_expired = on_expired
+        self._lock = threading.Lock()
+        self._timer: threading.Timer | None = None
+        self._token: tuple[str, int] | None = None
+
+    def arm(self, pending: QueuedFileSelection) -> None:
+        """Start the presentation deadline for ``pending``."""
+        self.cancel()
+        token = (pending.request_id, pending.generation)
+        timer = threading.Timer(
+            self._timeout_seconds,
+            self._fire,
+            args=token,
+        )
+        timer.daemon = True
+        with self._lock:
+            self._timer = timer
+            self._token = token
+        timer.start()
+
+    def presented(self, request_id: str, generation: int) -> None:
+        """Cancel the deadline when the host has shown this request."""
+        if self._gate.mark_presented(request_id, generation):
+            self._cancel_if(request_id, generation)
+
+    def finished(self, request_id: str, generation: int) -> None:
+        """Cancel the deadline because the host finished this request."""
+        self._cancel_if(request_id, generation)
+
+    def cancel(self) -> None:
+        """Cancel the current deadline, if one is armed."""
+        with self._lock:
+            timer = self._timer
+            self._timer = None
+            self._token = None
+        if timer is not None:
+            timer.cancel()
+
+    def _cancel_if(self, request_id: str, generation: int) -> None:
+        with self._lock:
+            if self._token != (request_id, generation):
+                return
+            timer = self._timer
+            self._timer = None
+            self._token = None
+        if timer is not None:
+            timer.cancel()
+
+    def _fire(self, request_id: str, generation: int) -> None:
+        with self._lock:
+            if self._token != (request_id, generation):
+                return
+            self._timer = None
+            self._token = None
+        expired = self._gate.expire_presentation(request_id, generation)
+        if not expired:
+            return
+        _LOGGER.warning(
+            "File selector %r was not presented within %g seconds.",
+            request_id,
+            self._timeout_seconds,
+        )
+        self._on_expired(expired)

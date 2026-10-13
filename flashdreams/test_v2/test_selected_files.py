@@ -130,10 +130,10 @@ def _queued(request_id: str) -> QueuedFileSelection:
 
 def test_file_selection_gate_ignores_duplicates_and_serves_one_at_a_time() -> None:
     gate = FileSelectionGate()
-    assert gate.submit(_queued("open-1")) is not None
-    assert gate.submit(_queued("open-1")) is None
-    assert gate.submit(_queued("open-2")) is None
-    assert gate.submit(_queued("open-2")) is None
+    assert gate.submit(_queued("open-1")).started is not None
+    assert gate.submit(_queued("open-1")).started is None
+    assert gate.submit(_queued("open-2")).started is None
+    assert gate.submit(_queued("open-2")).started is None
     assert gate.complete("open-2") == (False, None)
     claimed, nxt = gate.complete("open-1")
     assert claimed
@@ -144,8 +144,8 @@ def test_file_selection_gate_ignores_duplicates_and_serves_one_at_a_time() -> No
 
 def test_file_selection_gate_drain_returns_active_then_queued() -> None:
     gate = FileSelectionGate()
-    assert gate.submit(_queued("open-1")) is not None
-    assert gate.submit(_queued("open-2")) is None
+    assert gate.submit(_queued("open-1")).started is not None
+    assert gate.submit(_queued("open-2")).started is None
     claimed, nxt = gate.complete("open-1")
     assert claimed
     assert nxt is not None
@@ -155,11 +155,11 @@ def test_file_selection_gate_drain_returns_active_then_queued() -> None:
 
 def test_file_selection_gate_stale_complete_does_not_release_new_request() -> None:
     gate = FileSelectionGate()
-    first = gate.submit(_queued("open-1"))
+    first = gate.submit(_queued("open-1")).started
     assert first is not None
     stale_generation = first.generation
     gate.drain()
-    second = gate.submit(_queued("open-1"))
+    second = gate.submit(_queued("open-1")).started
     assert second is not None
     assert second.generation != stale_generation
     assert gate.complete("open-1", generation=stale_generation) == (False, None)
@@ -169,11 +169,37 @@ def test_file_selection_gate_stale_complete_does_not_release_new_request() -> No
 
 def test_file_selection_gate_complete_after_drain_is_not_claimed() -> None:
     gate = FileSelectionGate()
-    first = gate.submit(_queued("open-1"))
+    first = gate.submit(_queued("open-1")).started
     assert first is not None
     leftover = gate.drain()
     assert leftover[0].request_id == "open-1"
     assert gate.complete("open-1", first.generation) == (False, None)
+
+
+def test_file_selection_gate_holds_unpresented_request_until_host_finishes() -> None:
+    gate = FileSelectionGate()
+    active = gate.submit(_queued("open-1")).started
+    assert active is not None
+    assert gate.submit(_queued("open-2")).started is None
+    expired = gate.expire_presentation(active.request_id, active.generation)
+    assert [item.request_id for item in expired] == ["open-1", "open-2"]
+    assert gate.may_show(active.request_id, active.generation) is False
+    assert gate.is_current(active.request_id, active.generation)
+    refused = gate.submit(_queued("open-3"))
+    assert refused.started is None
+    assert refused.unavailable
+    assert gate.expire_presentation(active.request_id, active.generation) == ()
+    assert gate.complete(active.request_id, active.generation) == (False, None)
+    assert gate.submit(_queued("open-3")).started is not None
+
+
+def test_file_selection_gate_presented_request_does_not_expire() -> None:
+    gate = FileSelectionGate()
+    active = gate.submit(_queued("open-1")).started
+    assert active is not None
+    assert gate.mark_presented(active.request_id, active.generation)
+    assert gate.expire_presentation(active.request_id, active.generation) == ()
+    assert gate.complete(active.request_id, active.generation) == (True, None)
 
 
 def test_selected_file_policy_helpers() -> None:

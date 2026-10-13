@@ -572,6 +572,97 @@ async def test_file_upload_prefers_disallowed_suffix_over_body_limit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unsent_file_selector_times_out_and_releases_the_slot() -> None:
+    window = WebRTCClientWindow(presentation_timeout_seconds=0.05)
+    window.open(_session_desc())
+    try:
+        window.request_selected_files(_file_request("open-1"))
+        event = await _wait_selected_files_event(window)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.UNAVAILABLE
+        window.request_selected_files(_file_request("open-2"))
+        await _wait_file_armed(window, "open-2")
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_acknowledged_file_selector_waits_past_the_deadline() -> None:
+    window = WebRTCClientWindow(presentation_timeout_seconds=0.3)
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, channel, _ = await _connect_browser(window)
+        window.request_selected_files(_file_request("open-1"))
+        await _wait_file_armed(window, "open-1")
+        channel.send(json.dumps({"type": "file_selector_ack", "id": "open-1"}))
+        await asyncio.sleep(0.45)
+        assert window.get_user_input_events().get_events() == []
+        channel.send(
+            json.dumps(
+                {
+                    "type": "file_selector_result",
+                    "id": "open-1",
+                    "status": "cancelled",
+                }
+            )
+        )
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.CANCELLED
+        assert event.files == ()
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_sent_file_selector_without_ack_discards_a_late_result() -> None:
+    window = WebRTCClientWindow(presentation_timeout_seconds=0.2)
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, channel, _ = await _connect_browser(window)
+        window.request_selected_files(_file_request("open-1"))
+        await _wait_file_armed(window, "open-1")
+        for _ in range(50):
+            if any(
+                request_id == "open-1"
+                for request_id, _generation in window.server._file_selector_sent
+            ):
+                break
+            await asyncio.sleep(0.01)
+        assert any(
+            request_id == "open-1"
+            for request_id, _generation in window.server._file_selector_sent
+        )
+        event = await _wait_selected_files_event(window)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.UNAVAILABLE
+        window.request_selected_files(_file_request("open-2"))
+        refused = await _wait_selected_files_event(window)
+        assert refused.request_id == "open-2"
+        assert refused.status is SelectedFilesStatus.UNAVAILABLE
+        channel.send(
+            json.dumps(
+                {
+                    "type": "file_selector_result",
+                    "id": "open-1",
+                    "status": "cancelled",
+                }
+            )
+        )
+        await asyncio.sleep(0.05)
+        assert window.get_user_input_events().get_events() == []
+        window.request_selected_files(_file_request("open-3"))
+        await _wait_file_armed(window, "open-3")
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
 async def test_browser_file_selector_result_reports_status() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
@@ -658,6 +749,7 @@ async def test_browser_script_checks_type_and_size_before_upload() -> None:
             "fetch(`/api/files?request_id=${encodeURIComponent(requestId)}`" in script
         )
         assert "input.multiple" in script
+        assert "file_selector_ack" in script
     finally:
         window.close()
 

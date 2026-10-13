@@ -382,6 +382,12 @@ const openFileSelector = options => {
       hideFilePicker();
     },
   });
+  if (promptDialog === null || !promptDialog.open) {
+    completeFileSelection(requestId, "unavailable");
+    hideFilePicker();
+    return;
+  }
+  send({type: "file_selector_ack", id: requestId});
 };
 
 window.addEventListener("focus", updateCursorVisibility);

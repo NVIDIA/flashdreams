@@ -11,7 +11,9 @@ from numpy import uint64
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.runtime_v2.file_selection_gate import (
+    FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS,
     FileSelectionGate,
+    FileSelectionPresentationTimer,
     QueuedFileSelection,
 )
 from flashdreams.runtime_v2.selected_file import (
@@ -53,6 +55,9 @@ class WebRTCClientWindow(IClientWindow):
         host: str = "127.0.0.1",
         port: int = 0,
         startup_timeout_seconds: float = 10.0,
+        presentation_timeout_seconds: float = (
+            FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS
+        ),
     ) -> None:
         """Create the WebRTC backend.
 
@@ -63,11 +68,22 @@ class WebRTCClientWindow(IClientWindow):
             host: Interface on which the HTTP server listens.
             port: Listening port. Zero asks the operating system to choose one.
             startup_timeout_seconds: Maximum time to wait for server startup.
+            presentation_timeout_seconds: How long to wait for the browser to
+                show the picker prompt. After that acknowledgement, the user
+                may take as long as they want.
+
+        Raises:
+            ValueError: The presentation deadline is not positive.
         """
         self._input_events: deque[UserInputEvent] = deque()
         self._hide_cursor = False
         self._lock_cursor_to_window = False
         self._file_gate = FileSelectionGate()
+        self._presentation = FileSelectionPresentationTimer(
+            self._file_gate,
+            timeout_seconds=presentation_timeout_seconds,
+            on_expired=self._on_file_selection_unpresented,
+        )
         self._input_lock = threading.Lock()
         # Offset from the server's stable clock to the current session's clock.
         self._session_event_offset_us = uint64(0)
@@ -83,17 +99,23 @@ class WebRTCClientWindow(IClientWindow):
             nxt = None
             with self._input_lock:
                 if isinstance(event, SelectedFilesUserInputEvent):
+                    self._presentation.finished(event.request_id, event._generation)
                     claimed, nxt = self._file_gate.complete(
                         event.request_id, event._generation
                     )
-                    if not claimed:
-                        return
-                self._input_events.append(event)
+                    if claimed:
+                        self._input_events.append(event)
+                else:
+                    self._input_events.append(event)
             if nxt is not None:
                 self._start_file_selection(nxt)
 
         self.server.register_input_callback(handle_input)
         self.server.register_file_selection_current_callback(self._file_gate.is_current)
+        self.server.register_file_selection_may_show_callback(self._file_gate.may_show)
+        self.server.register_file_selection_presented_callback(
+            self._presentation.presented
+        )
         self.server.register_file_selection_invalidate_callback(
             self._invalidate_file_selections
         )
@@ -128,12 +150,61 @@ class WebRTCClientWindow(IClientWindow):
 
     def request_selected_files(self, request: FileSelectionRequest) -> None:
         """Ask the connected browser to open a file selector."""
-        started = self._file_gate.submit(QueuedFileSelection.from_request(request))
-        if started is not None:
-            self._start_file_selection(started)
+        admission = self._file_gate.submit(QueuedFileSelection.from_request(request))
+        if admission.unavailable:
+            self._append_unavailable(request.request_id, generation=0)
+            return
+        if admission.started is not None:
+            self._start_file_selection(admission.started)
+
+    def _on_file_selection_unpresented(
+        self, expired: tuple[QueuedFileSelection, ...]
+    ) -> None:
+        """Answer requests whose browser prompt was not shown in time.
+
+        A prompt that was never sent does not need to keep the picker slot.
+        A prompt that was sent might still appear, so that slot stays occupied
+        until the browser finishes and the late result is discarded.
+        """
+        if not expired:
+            return
+        timestamp = self.server.event_timestamp_us()
+        with self._input_lock:
+            for item in expired:
+                self._input_events.append(
+                    SelectedFilesUserInputEvent(
+                        timestamp=timestamp,
+                        request_id=item.request_id,
+                        status=SelectedFilesStatus.UNAVAILABLE,
+                        _generation=item.generation,
+                    )
+                )
+        active = expired[0]
+        if not self.server.drop_unsent_file_selector(
+            active.request_id, active.generation
+        ):
+            return
+        self._presentation.finished(active.request_id, active.generation)
+        _delivered, nxt = self._file_gate.complete(active.request_id, active.generation)
+        if nxt is not None:
+            self._start_file_selection(nxt)
+
+    def _append_unavailable(self, request_id: str, *, generation: int) -> None:
+        """Queue one unavailable file-selector result."""
+        timestamp = self.server.event_timestamp_us()
+        with self._input_lock:
+            self._input_events.append(
+                SelectedFilesUserInputEvent(
+                    timestamp=timestamp,
+                    request_id=request_id,
+                    status=SelectedFilesStatus.UNAVAILABLE,
+                    _generation=generation,
+                )
+            )
 
     def _invalidate_file_selections(self, deliver_unavailable: bool) -> None:
         """Finish this client generation; optionally report leftovers as unavailable."""
+        self._presentation.cancel()
         leftover = self._file_gate.drain()
         if not deliver_unavailable or not leftover:
             return
@@ -151,6 +222,7 @@ class WebRTCClientWindow(IClientWindow):
 
     def _start_file_selection(self, pending: QueuedFileSelection) -> None:
         """Arm the WebRTC server for one file-selector request."""
+        self._presentation.arm(pending)
         self.server.request_selected_files(
             pending.request_id,
             initial_path=pending.initial_path,

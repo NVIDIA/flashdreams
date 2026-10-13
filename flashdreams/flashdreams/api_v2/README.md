@@ -235,7 +235,9 @@ one. Using an id twice in one tick raises `ValueError`. `accept` is filename suf
 `max_file_bytes` is the size budget per file (`None` = the
 `MAX_SELECTED_FILE_BYTES` ceiling); `multiple` allows more than one file, with
 the whole set capped by `MAX_SELECTED_FILE_BATCH_BYTES`. Both caps live in
-`runtime_v2/selected_file.py`.
+`runtime_v2/selected_file.py`. The status is `UNAVAILABLE` when the client
+cannot show a picker, or does not show one within 300 seconds. Once a picker
+is shown, the user may take as long as they want.
 
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The
