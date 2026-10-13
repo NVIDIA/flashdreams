@@ -66,15 +66,6 @@ SPDX-FileCopyrightText = [
 ]
 SPDX-License-Identifier = "Apache-2.0"
 
-# --- Generated protobuf stubs. The .proto sources are authoritative; the
-#     *_pb2.py / *_pb2.pyi / *_pb2_grpc.py outputs inherit the same license
-#     because the regeneration script (compile_protos.sh) is project-owned. ---
-[[annotations]]
-path = "integrations_v2/omnidreams/impl/grpc/protos/*_pb2*"
-precedence = "aggregate"
-SPDX-FileCopyrightText = "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
-SPDX-License-Identifier = "Apache-2.0"
-
 # --- Binary assets (images, video clips, model snapshots, lock files) carry
 #     no inline header. They are NVIDIA-authored unless otherwise noted in
 #     NOTICE. ---

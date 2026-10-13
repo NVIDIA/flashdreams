@@ -13,16 +13,14 @@ readme = "README.md"
 # PyNvVideoCodec 2.1 currently publishes wheels through CPython 3.12.
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    # Core inference / serving deps consumed by ``omnidreams.impl.grpc`` and
-    # the model adapters for the reusable Interactive Drive application.
+    # Core inference / serving deps consumed by the model adapters for the
+    # reusable Interactive Drive and Crazy Robotaxi applications.
     "flashdreams[serving]",
     "flashdreams-interactive-drive-v2",
     "crazy-robotaxi",
     "mediapy>=1.1",
     "ludus-renderer",
     "imageio>=2.20",
-    "grpcio-tools>=1.50",
-    "grpcio>=1.50",
     "nvidia-cudnn-frontend==1.22.1",
     # Must match the cuDNN bundled by the Windows PyTorch cu130 wheel.
     "nvidia-cudnn-cu13==9.20.0.48; sys_platform == 'win32'",
@@ -64,9 +62,8 @@ ludus-renderer = { workspace = true }
 
 [project.optional-dependencies]
 # Slangpy runtime, only needed by the ``interactive-drive`` application.
-# gRPC server users do not need this and should not pay the presentation
-# install cost in their containers. Named after the consumer rather than
-# the abstract capability so the install command is self-documenting.
+# Other consumers do not need the presentation install cost. Named after the
+# consumer so the install command is self-documenting.
 interactive-drive = [
     "slangpy==0.42.0",
 ]
@@ -114,8 +111,6 @@ packages = [
     "omnidreams.impl.conditioning",
     "omnidreams.impl.conditioning.world_scenario",
     "omnidreams.impl.encoder",
-    "omnidreams.impl.grpc",
-    "omnidreams.impl.grpc.protos",
     "omnidreams.impl.native",
     "omnidreams.impl.scripts",
     "omnidreams.impl.tools",
