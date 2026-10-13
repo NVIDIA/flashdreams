@@ -543,6 +543,32 @@ async def test_file_upload_stops_once_the_batch_exceeds_its_cap(
 
 
 @pytest.mark.asyncio
+async def test_file_upload_over_the_batch_cap_still_reports_a_disallowed_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(webrtc_server, "MAX_SELECTED_FILE_BATCH_BYTES", 5)
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        window.request_selected_files(
+            _file_request("open-1", accept=(".bin",), multiple=True)
+        )
+        await _wait_file_armed(window, "open-1")
+        form = FormData()
+        for name in ("a.bin", "b.bin", "c.exe"):
+            form.add_field(
+                "file", b"xyz", filename=name, content_type="application/octet-stream"
+            )
+        async with ClientSession() as client:
+            async with client.post(_files_url(window, "open-1"), data=form) as response:
+                assert response.status == 204
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.DISALLOWED_TYPE
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
 async def test_file_upload_decodes_base64_transfer_encoding() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
@@ -607,6 +633,31 @@ async def test_unsent_file_selector_times_out_and_releases_the_slot() -> None:
         assert event.status is SelectedFilesStatus.UNAVAILABLE
         window.request_selected_files(_file_request("open-2"))
         await _wait_file_armed(window, "open-2")
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_timeout_racing_a_disconnect_still_answers_the_request() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        window.request_selected_files(_file_request("open-1"))
+        window.request_selected_files(_file_request("open-2"))
+        active = window._file_gate._active
+        assert active is not None
+        expired = window._file_gate.expire_presentation(active)
+        window._invalidate_file_selections(True)
+        window._on_file_selection_unpresented(expired)
+        events = window.get_user_input_events().get_events()
+        assert [
+            (event.request_id, event.status)
+            for event in events
+            if isinstance(event, SelectedFilesUserInputEvent)
+        ] == [
+            ("open-1", SelectedFilesStatus.UNAVAILABLE),
+            ("open-2", SelectedFilesStatus.UNAVAILABLE),
+        ]
     finally:
         window.close()
 

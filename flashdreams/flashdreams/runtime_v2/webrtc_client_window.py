@@ -85,6 +85,7 @@ class WebRTCClientWindow(IClientWindow):
             on_expired=self._on_file_selection_unpresented,
         )
         self._input_lock = threading.Lock()
+        self._session_file_generation = 0
         # Offset from the server's stable clock to the current session's clock.
         self._session_event_offset_us = uint64(0)
         self.server = WebRTCServer(
@@ -183,14 +184,16 @@ class WebRTCClientWindow(IClientWindow):
             self._start_file_selection(nxt)
 
     def _append_unavailable(self, request_id: str, *, generation: int) -> None:
-        """Queue one unavailable file-selector result for a current generation.
+        """Queue one unavailable file-selector result unless its session ended.
 
-        ``open`` drains the gate before it clears the queue under the same lock,
-        so checking the generation under that lock drops a retired result.
+        ``open`` drains the gate, then records the new session's first
+        generation and clears the queue under the same lock. A viewer
+        disconnect also drains the gate but keeps the session, so its results
+        are still delivered.
         """
         timestamp = self.server.event_timestamp_us()
         with self._input_lock:
-            if generation != self._file_gate.generation:
+            if generation < self._session_file_generation:
                 return
             self._input_events.append(
                 SelectedFilesUserInputEvent(
@@ -241,6 +244,7 @@ class WebRTCClientWindow(IClientWindow):
         session_event_offset_us = self.server.event_timestamp_us()
         with self._input_lock:
             self._input_events.clear()
+            self._session_file_generation = self._file_gate.generation
             self._session_event_offset_us = session_event_offset_us
 
     def get_user_input_events(self) -> UserInputEvents:

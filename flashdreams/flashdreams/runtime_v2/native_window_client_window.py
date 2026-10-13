@@ -400,6 +400,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._hide_cursor = False
         self._lock_cursor_to_window = False
         self._file_gate = FileSelectionGate()
+        self._session_file_generation = 0
         self._presentation = FileSelectionPresentationTimer(
             self._file_gate,
             timeout_seconds=presentation_timeout_seconds,
@@ -585,6 +586,7 @@ class NativeWindowClientWindow(IClientWindow):
                 raise
 
         self._invalidate_file_selections(deliver_unavailable=False)
+        self._session_file_generation = self._file_gate.generation
         self._session_started_ns = self._clock_ns()
         self._session_desc = session_desc
         self._window_size = presenter.size
@@ -668,6 +670,7 @@ class NativeWindowClientWindow(IClientWindow):
     def close(self) -> None:
         """Release SlangPy and the GLFW window on the runtime's UI thread."""
         self._invalidate_file_selections(deliver_unavailable=False)
+        self._session_file_generation = self._file_gate.generation
         presenter = self._presenter
         self._presenter = None
         self._session_started_ns = None
@@ -775,12 +778,14 @@ class NativeWindowClientWindow(IClientWindow):
     ) -> None:
         """Queue one selected-files event from any thread.
 
-        A result from a retired client generation is dropped. ``open`` drains
-        the gate before it replaces the queue, so reading the queue first makes
-        a stale result land only in the discarded queue.
+        A result from an ended session is dropped. ``open`` drains the gate and
+        records the new session's first generation before it replaces the
+        queue, so reading the queue first makes a stale result land only in the
+        discarded queue. A user closing the window also drains the gate, but
+        its results are still delivered with the close event.
         """
         input_events = self._input_events
-        if generation != self._file_gate.generation:
+        if generation < self._session_file_generation:
             return
         started_ns = self._session_started_ns
         elapsed_ns = 0 if started_ns is None else max(0, self._clock_ns() - started_ns)

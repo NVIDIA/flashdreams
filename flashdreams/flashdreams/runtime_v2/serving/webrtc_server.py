@@ -1115,6 +1115,7 @@ class WebRTCServer:
                 raise
             chosen: list[tuple[str, bytes]] = []
             total_bytes = 0
+            too_large = False
             while True:
                 part = await reader.next()
                 if part is None:
@@ -1124,7 +1125,7 @@ class WebRTCServer:
                 if part.name != "file":
                     await part.release()
                     continue
-                if not policy.multiple and chosen:
+                if not policy.multiple and (chosen or too_large):
                     await part.release()
                     continue
                 name = part.filename or "upload"
@@ -1132,23 +1133,23 @@ class WebRTCServer:
                     emit(SelectedFilesStatus.DISALLOWED_TYPE)
                     await _drain_multipart_reader(reader, part)
                     return web.Response(status=204)
+                if too_large:
+                    # Keep reading names so a disallowed type still wins.
+                    await part.release()
+                    continue
                 data = await _read_upload_part_bounded(part, max_bytes=policy.max_bytes)
-                if data is None:
-                    emit(SelectedFilesStatus.TOO_LARGE)
-                    await _drain_multipart_reader(reader)
-                    raise web.HTTPRequestEntityTooLarge(
-                        max_size=policy.max_bytes,
-                        actual_size=policy.max_bytes + 1,
-                    )
-                total_bytes += len(data)
-                if total_bytes > MAX_SELECTED_FILE_BATCH_BYTES:
-                    emit(SelectedFilesStatus.TOO_LARGE)
-                    await _drain_multipart_reader(reader)
-                    raise web.HTTPRequestEntityTooLarge(
-                        max_size=MAX_SELECTED_FILE_BATCH_BYTES,
-                        actual_size=total_bytes,
-                    )
+                if data is not None:
+                    total_bytes += len(data)
+                if data is None or total_bytes > MAX_SELECTED_FILE_BATCH_BYTES:
+                    too_large = True
+                    chosen.clear()
+                    continue
                 chosen.append((name, data))
+            if too_large:
+                emit(SelectedFilesStatus.TOO_LARGE)
+                raise web.HTTPRequestEntityTooLarge(
+                    max_size=policy.max_bytes, actual_size=policy.max_bytes + 1
+                )
             if not chosen:
                 emit(SelectedFilesStatus.UNAVAILABLE)
                 raise web.HTTPBadRequest(reason="File upload requires a file.")
