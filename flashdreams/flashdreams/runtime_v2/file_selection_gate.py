@@ -136,23 +136,23 @@ class FileSelectionGate:
             return self._is_active(request_id, generation) and not self._answered
 
     def expire_presentation(
-        self, request_id: str, generation: int
+        self, pending: QueuedFileSelection
     ) -> tuple[QueuedFileSelection, ...]:
         """Answer an unpresented request and every request waiting behind it.
 
         The active slot stays occupied until :meth:`complete` so the window
         does not open another picker while this host might still show one.
 
+        Args:
+            pending: The admitted request object, so a later pick that reuses
+                its id and generation does not match.
+
         Returns:
             Requests the window should answer as ``UNAVAILABLE``. Empty when
             the request is no longer current or the host already presented it.
         """
         with self._lock:
-            if (
-                not self._is_active(request_id, generation)
-                or self._presented
-                or self._answered
-            ):
+            if self._active is not pending or self._presented or self._answered:
                 return ()
             self._answered = True
             expired = [self._active, *self._queued]
@@ -195,6 +195,12 @@ class FileSelectionGate:
             nxt = self._queued.popleft()
             self._active = nxt
             return deliver, nxt
+
+    @property
+    def generation(self) -> int:
+        """Client generation that new requests are stamped with."""
+        with self._lock:
+            return self._generation
 
     def is_current(self, request_id: str, generation: int) -> bool:
         """Return whether ``request_id`` is still the active selector for ``generation``."""
@@ -267,21 +273,16 @@ class FileSelectionPresentationTimer:
         self._on_expired = on_expired
         self._lock = threading.Lock()
         self._timer: threading.Timer | None = None
-        self._token: tuple[str, int] | None = None
+        self._token: QueuedFileSelection | None = None
 
     def arm(self, pending: QueuedFileSelection) -> None:
         """Start the presentation deadline for ``pending``."""
         self.cancel()
-        token = (pending.request_id, pending.generation)
-        timer = threading.Timer(
-            self._timeout_seconds,
-            self._fire,
-            args=token,
-        )
+        timer = threading.Timer(self._timeout_seconds, self._fire, args=(pending,))
         timer.daemon = True
         with self._lock:
             self._timer = timer
-            self._token = token
+            self._token = pending
         timer.start()
 
     def presented(self, request_id: str, generation: int) -> None:
@@ -304,7 +305,12 @@ class FileSelectionPresentationTimer:
 
     def _cancel_if(self, request_id: str, generation: int) -> None:
         with self._lock:
-            if self._token != (request_id, generation):
+            token = self._token
+            if (
+                token is None
+                or token.request_id != request_id
+                or token.generation != generation
+            ):
                 return
             timer = self._timer
             self._timer = None
@@ -312,18 +318,18 @@ class FileSelectionPresentationTimer:
         if timer is not None:
             timer.cancel()
 
-    def _fire(self, request_id: str, generation: int) -> None:
+    def _fire(self, pending: QueuedFileSelection) -> None:
         with self._lock:
-            if self._token != (request_id, generation):
+            if self._token is not pending:
                 return
             self._timer = None
             self._token = None
-        expired = self._gate.expire_presentation(request_id, generation)
+        expired = self._gate.expire_presentation(pending)
         if not expired:
             return
         _LOGGER.warning(
             "File selector %r was not presented within %g seconds.",
-            request_id,
+            pending.request_id,
             self._timeout_seconds,
         )
         self._on_expired(expired)

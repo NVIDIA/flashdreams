@@ -518,6 +518,31 @@ async def test_file_upload_rejects_oversize() -> None:
 
 
 @pytest.mark.asyncio
+async def test_file_upload_stops_once_the_batch_exceeds_its_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(webrtc_server, "MAX_SELECTED_FILE_BATCH_BYTES", 5)
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        window.request_selected_files(_file_request("open-1", multiple=True))
+        await _wait_file_armed(window, "open-1")
+        form = FormData()
+        for name in ("a.bin", "b.bin", "c.bin"):
+            form.add_field(
+                "file", b"xyz", filename=name, content_type="application/octet-stream"
+            )
+        async with ClientSession() as client:
+            async with client.post(_files_url(window, "open-1"), data=form) as response:
+                assert response.status == 413
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.TOO_LARGE
+        assert event.files == ()
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
 async def test_file_upload_decodes_base64_transfer_encoding() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())

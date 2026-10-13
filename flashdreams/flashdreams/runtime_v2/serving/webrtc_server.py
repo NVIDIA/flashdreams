@@ -1114,6 +1114,7 @@ class WebRTCServer:
                 emit(SelectedFilesStatus.TOO_LARGE)
                 raise
             chosen: list[tuple[str, bytes]] = []
+            total_bytes = 0
             while True:
                 part = await reader.next()
                 if part is None:
@@ -1138,6 +1139,14 @@ class WebRTCServer:
                     raise web.HTTPRequestEntityTooLarge(
                         max_size=policy.max_bytes,
                         actual_size=policy.max_bytes + 1,
+                    )
+                total_bytes += len(data)
+                if total_bytes > MAX_SELECTED_FILE_BATCH_BYTES:
+                    emit(SelectedFilesStatus.TOO_LARGE)
+                    await _drain_multipart_reader(reader)
+                    raise web.HTTPRequestEntityTooLarge(
+                        max_size=MAX_SELECTED_FILE_BATCH_BYTES,
+                        actual_size=total_bytes,
                     )
                 chosen.append((name, data))
             if not chosen:

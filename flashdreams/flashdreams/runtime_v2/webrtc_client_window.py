@@ -152,7 +152,9 @@ class WebRTCClientWindow(IClientWindow):
         """Ask the connected browser to open a file selector."""
         admission = self._file_gate.submit(QueuedFileSelection.from_request(request))
         if admission.unavailable:
-            self._append_unavailable(request.request_id, generation=0)
+            self._append_unavailable(
+                request.request_id, generation=self._file_gate.generation
+            )
             return
         if admission.started is not None:
             self._start_file_selection(admission.started)
@@ -168,17 +170,8 @@ class WebRTCClientWindow(IClientWindow):
         """
         if not expired:
             return
-        timestamp = self.server.event_timestamp_us()
-        with self._input_lock:
-            for item in expired:
-                self._input_events.append(
-                    SelectedFilesUserInputEvent(
-                        timestamp=timestamp,
-                        request_id=item.request_id,
-                        status=SelectedFilesStatus.UNAVAILABLE,
-                        _generation=item.generation,
-                    )
-                )
+        for item in expired:
+            self._append_unavailable(item.request_id, generation=item.generation)
         active = expired[0]
         if not self.server.drop_unsent_file_selector(
             active.request_id, active.generation
@@ -190,9 +183,15 @@ class WebRTCClientWindow(IClientWindow):
             self._start_file_selection(nxt)
 
     def _append_unavailable(self, request_id: str, *, generation: int) -> None:
-        """Queue one unavailable file-selector result."""
+        """Queue one unavailable file-selector result for a current generation.
+
+        ``open`` drains the gate before it clears the queue under the same lock,
+        so checking the generation under that lock drops a retired result.
+        """
         timestamp = self.server.event_timestamp_us()
         with self._input_lock:
+            if generation != self._file_gate.generation:
+                return
             self._input_events.append(
                 SelectedFilesUserInputEvent(
                     timestamp=timestamp,

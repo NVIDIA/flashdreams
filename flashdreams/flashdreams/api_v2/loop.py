@@ -251,8 +251,15 @@ class ILoop(ABC, Generic[StateT]):
         """
         if step_completed:
             self.latest_result = result
+            self._pending_user_events.clear()
+        else:
+            # A file result arrives once, so keep it until a step can read it.
+            self._pending_user_events = [
+                event
+                for event in self._pending_user_events
+                if isinstance(event, SelectedFilesUserInputEvent)
+            ]
         self._step_index += 1
-        self._pending_user_events.clear()
 
     @final
     def _shutdown(self) -> None:

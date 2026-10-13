@@ -1232,6 +1232,30 @@ def test_native_window_unpresented_picker_does_not_keep_a_late_result(
     assert resumed[0].status is SelectedFilesStatus.CANCELLED
 
 
+def test_native_window_drops_a_result_from_a_retired_session() -> None:
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    retired = window._file_gate.generation
+    window.open(_session_desc())
+    window._enqueue_selected_files(
+        "open-1", generation=retired, status=SelectedFilesStatus.UNAVAILABLE
+    )
+    window._enqueue_selected_files(
+        "open-2",
+        generation=window._file_gate.generation,
+        status=SelectedFilesStatus.UNAVAILABLE,
+    )
+    events = window.get_user_input_events().get_events()
+    window.close()
+
+    assert [
+        event.request_id
+        for event in events
+        if isinstance(event, SelectedFilesUserInputEvent)
+    ] == ["open-2"]
+
+
 def test_native_window_presented_picker_waits_past_the_deadline(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

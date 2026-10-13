@@ -227,6 +227,9 @@ def _ask_open_filename_tkinter(
     on_presented: Callable[[], None] | None = None,
 ) -> tuple[str, ...]:
     """Open the Tk file dialog (native Explorer / macOS panel)."""
+    # ponytail: this runs on a worker thread, which macOS may abort for Tk.
+    # Upgrade path: launch ``osascript`` "choose file" through
+    # ``_run_desktop_chooser`` as Linux does.
     import tkinter as tk
     from tkinter import filedialog
 
@@ -452,7 +455,7 @@ class NativeWindowClientWindow(IClientWindow):
         if admission.unavailable:
             self._enqueue_selected_files(
                 request.request_id,
-                generation=0,
+                generation=self._file_gate.generation,
                 status=SelectedFilesStatus.UNAVAILABLE,
             )
             return
@@ -770,10 +773,18 @@ class NativeWindowClientWindow(IClientWindow):
         status: SelectedFilesStatus,
         files: tuple[SelectedFile, ...] = (),
     ) -> None:
-        """Queue one selected-files event from any thread."""
+        """Queue one selected-files event from any thread.
+
+        A result from a retired client generation is dropped. ``open`` drains
+        the gate before it replaces the queue, so reading the queue first makes
+        a stale result land only in the discarded queue.
+        """
+        input_events = self._input_events
+        if generation != self._file_gate.generation:
+            return
         started_ns = self._session_started_ns
         elapsed_ns = 0 if started_ns is None else max(0, self._clock_ns() - started_ns)
-        self._input_events.put(
+        input_events.put(
             SelectedFilesUserInputEvent(
                 timestamp=uint64(elapsed_ns // 1_000),
                 request_id=request_id,

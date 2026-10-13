@@ -119,6 +119,24 @@ def test_ui_loop_forwards_distinct_file_selection_ids() -> None:
     ]
 
 
+def test_ui_loop_keeps_file_results_until_a_step_runs() -> None:
+    loop = _ui_loop()
+    picked = SelectedFilesUserInputEvent(
+        timestamp=uint64(0),
+        request_id="open-1",
+        status=SelectedFilesStatus.CANCELLED,
+    )
+
+    loop._begin_run(UserInputEvents([picked]), generation=0)
+    loop._finish_run(None, step_completed=False)
+    loop._begin_run(UserInputEvents([]), generation=0)
+    assert loop.user_events.get_events() == [picked]
+
+    loop._finish_run([], step_completed=True)
+    loop._begin_run(UserInputEvents([]), generation=0)
+    assert loop.user_events.get_events() == []
+
+
 def _queued(request_id: str) -> QueuedFileSelection:
     return QueuedFileSelection(
         request_id=request_id,
@@ -181,14 +199,14 @@ def test_file_selection_gate_holds_unpresented_request_until_host_finishes() -> 
     active = gate.submit(_queued("open-1")).started
     assert active is not None
     assert gate.submit(_queued("open-2")).started is None
-    expired = gate.expire_presentation(active.request_id, active.generation)
+    expired = gate.expire_presentation(active)
     assert [item.request_id for item in expired] == ["open-1", "open-2"]
     assert gate.may_show(active.request_id, active.generation) is False
     assert gate.is_current(active.request_id, active.generation)
     refused = gate.submit(_queued("open-3"))
     assert refused.started is None
     assert refused.unavailable
-    assert gate.expire_presentation(active.request_id, active.generation) == ()
+    assert gate.expire_presentation(active) == ()
     assert gate.complete(active.request_id, active.generation) == (False, None)
     assert gate.submit(_queued("open-3")).started is not None
 
@@ -198,8 +216,20 @@ def test_file_selection_gate_presented_request_does_not_expire() -> None:
     active = gate.submit(_queued("open-1")).started
     assert active is not None
     assert gate.mark_presented(active.request_id, active.generation)
-    assert gate.expire_presentation(active.request_id, active.generation) == ()
+    assert gate.expire_presentation(active) == ()
     assert gate.complete(active.request_id, active.generation) == (True, None)
+
+
+def test_file_selection_gate_old_pick_cannot_expire_a_reused_id() -> None:
+    gate = FileSelectionGate()
+    old = gate.submit(_queued("open-1")).started
+    assert old is not None
+    assert gate.complete(old.request_id, old.generation) == (True, None)
+    new = gate.submit(_queued("open-1")).started
+    assert new is not None
+    assert (new.request_id, new.generation) == (old.request_id, old.generation)
+    assert gate.expire_presentation(old) == ()
+    assert gate.expire_presentation(new) == (new,)
 
 
 def test_selected_file_policy_helpers() -> None:

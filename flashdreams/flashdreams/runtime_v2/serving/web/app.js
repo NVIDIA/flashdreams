@@ -335,6 +335,10 @@ const openFileSelector = options => {
   if (typeof requestId !== "string" || !requestId) {
     return;
   }
+  // ponytail: replies carry only the request id, so a prompt left open across a
+  // session handoff can answer the next session's request for the same id.
+  // Upgrade path: echo the server's generation in replies and replace the old
+  // prompt when a newer generation arrives.
   if (pendingFileRequest !== null) {
     if (
       pendingFileRequest.id !== requestId
