@@ -5,6 +5,7 @@
 
 import json
 import math
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +65,12 @@ class MetricsOutputSink(OutputSink):
         """
         if self._session_desc is None:
             raise RuntimeError("MetricsOutputSink.open() must run before write().")
-        samples = _samples_from(result, self._step_result_index)
+        samples = _samples_from(
+            result.metrics,
+            step_index=result.step_index,
+            result_index=self._step_result_index,
+            metadata={"frame_count": result.frame_count},
+        )
         self._samples.extend(samples)
         self._steps.append(
             {
@@ -73,6 +79,23 @@ class MetricsOutputSink(OutputSink):
                 "frame_count": result.frame_count,
                 "sample_count": len(samples),
             }
+        )
+
+    def write_summary(self, metrics: dict[str, float]) -> None:
+        """Record measurements that belong to the session rather than one step.
+
+        They are written with no ``step_index``, which benchmark reports read as
+        a summary record.
+
+        Raises:
+            RuntimeError: Called before :meth:`open`.
+        """
+        if self._session_desc is None:
+            raise RuntimeError(
+                "MetricsOutputSink.open() must run before write_summary()."
+            )
+        self._samples.extend(
+            _samples_from(metrics, step_index=None, result_index=None, metadata={})
         )
 
     def close(self) -> None:
@@ -100,10 +123,16 @@ class MetricsOutputSink(OutputSink):
         )
 
 
-def _samples_from(result: StepResult, index: int) -> list[dict[str, Any]]:
-    """Return the finite numeric metrics from one result."""
+def _samples_from(
+    metrics: Mapping[str, object] | None,
+    *,
+    step_index: int | None,
+    result_index: int | None,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return the finite numeric metrics as samples."""
     samples: list[dict[str, Any]] = []
-    for name, value in (result.metrics or {}).items():
+    for name, value in (metrics or {}).items():
         if not name.strip():
             continue
         if isinstance(value, bool) or not isinstance(value, int | float):
@@ -117,9 +146,9 @@ def _samples_from(result: StepResult, index: int) -> list[dict[str, Any]]:
                 "value": sample_value,
                 "unit": unit,
                 "category": category,
-                "step_index": result.step_index,
-                "result_index": index,
-                "metadata": {"frame_count": result.frame_count},
+                "step_index": step_index,
+                "result_index": result_index,
+                "metadata": dict(metadata),
             }
         )
     return samples

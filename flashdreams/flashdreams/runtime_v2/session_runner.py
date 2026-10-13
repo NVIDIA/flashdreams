@@ -20,6 +20,7 @@ from flashdreams.api_v2.loop import (
     ModelInferenceState,
     UILoopRequests,
 )
+from flashdreams.api_v2.profiler import IProfiler
 from flashdreams.api_v2.session import ISession
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.coordination import StepAgreement
@@ -145,6 +146,18 @@ def _log_secondary_failure(message: str, error: BaseException) -> None:
     _LOGGER.error(message, exc_info=error)
 
 
+def _write_session_end(profiler: IProfiler, sink: MetricsOutputSink) -> None:
+    """Write what was measured after the last model record.
+
+    Its frames are shown after the record is written, so their frame rate and
+    input latency reach no step's record.
+    """
+    measured = profiler.collect_fps()
+    measured.update(profiler.collect_input_latency_ms())
+    if measured:
+        sink.write_summary(measured)
+
+
 def run_session(
     session: ISession,
     window: IClientWindow | None,
@@ -219,6 +232,9 @@ def run_session(
     stop: threading.Event | None = None
     presentation_manager = None
     trace_log: _ChunkTraceLog | None = None
+    # Input, presentation and cleanup report to the profiler the session gave
+    # its loops.
+    profiler = session._profiler
 
     def cleanup(action: Callable[[], None]) -> None:
         """Keep releasing resources after a cleanup failure."""
@@ -253,8 +269,15 @@ def run_session(
         def collect_input() -> None:
             if window is None or file_selections is None:
                 return
-            events = window.get_user_input_events().get_events()
-            event_buffer.append(UserInputEvents(file_selections.filter(events)))
+            events = UserInputEvents(
+                file_selections.filter(window.get_user_input_events().get_events())
+            )
+            received_ns = time.monotonic_ns()
+            # Before the model thread can read the batch, so no step consumes
+            # input the profiler has not seen arrive.
+            if count := len(events.get_events()):
+                profiler.input_received(received_ns, count)
+            event_buffer.append(events, received_ns)
 
         def run_ui_once(*, step_requested: bool = True) -> None:
             """Process UI lifecycle control and run a requested UI step."""
@@ -281,7 +304,11 @@ def run_session(
                         return
                 if loop_result.step_index is None or not step_requested:
                     return
-                raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
+                with ui_loop.profiler.range("ui.step"):
+                    raw_result = ui_loop.step(
+                        loop_result.step_index, ui_loop.user_events
+                    )
+                ui_loop.profiler.event("ui.step")
                 if not isinstance(raw_result, list) or any(
                     not isinstance(item, StepResult) for item in raw_result
                 ):
@@ -357,6 +384,9 @@ def run_session(
         if parallel is not None and parallel.world_size > 1:
             agreement = StepAgreement(parallel)
         session.init()
+        # A session may set its own profiler at the start of init().
+        profiler = session._profiler
+        presentation_manager.set_profiler(profiler)
         ui_loop, model_loop = session._take_loops()
         event_buffer.register(_UI_READER_ID)
         event_buffer.register(_MODEL_READER_ID)
@@ -457,7 +487,11 @@ def run_session(
         cleanup_failures.extend(session._shutdown_registered_loops())
         cleanup(event_buffer.clear)
         if metrics_output_sink is not None:
-            cleanup(metrics_output_sink.close)
+            sink = metrics_output_sink
+            cleanup(lambda: _write_session_end(profiler, sink))
+            cleanup(sink.close)
+        # Both loops have stopped, so nothing will close an input wait still open.
+        cleanup(profiler.reset_counts)
         if next_session_desc is None and window is not None:
             cleanup(window.close)
         cleanup(session.close)
