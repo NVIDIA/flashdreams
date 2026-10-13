@@ -24,9 +24,9 @@ import json
 import queue
 import subprocess
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
-from typing import Iterator
+from typing import ContextManager, Iterator
 
 import pytest
 import torch
@@ -920,8 +920,8 @@ def test_the_presenter_reports_to_the_profiler_it_was_configured_with() -> None:
         backpressure_mode=BackpressureMode.BLOCK,
         stop=threading.Event(),
         put_timeout=0.01,
-        profiler=configured,
     )
+    manager.set_profiler(configured)
     manager.publish(
         0,
         [
@@ -1011,6 +1011,47 @@ def test_the_application_runner_resets_the_profiler_it_created(
 
     assert created.calls.get("reset_counts", 0) >= 1
     assert "reset_counts" not in stray.calls
+
+
+class _StepCounter(_CallCounter):
+    """Also counts model steps."""
+
+    def range(self, name: str) -> ContextManager[None]:
+        if name.startswith("model.step"):
+            self._count("model.step")
+        return nullcontext()
+
+
+def test_a_session_that_sets_its_profiler_in_init_gets_every_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guide sets a session's own profiler at the start of ``init()``, so
+    input, presentation and cleanup must use it as well as the loops."""
+    red_screen = pytest.importorskip("red_screen")
+    from red_screen import app as red_screen_app
+
+    from flashdreams.runtime_v2 import application_runner
+
+    runner_profiler, own = _StepCounter(), _StepCounter()
+    monkeypatch.setattr(application_runner, "create_profiler", lambda: runner_profiler)
+
+    class Session(red_screen_app.RedScreenSession):
+        def init(self) -> None:
+            self._profiler = own
+            super().init()
+
+    monkeypatch.setattr(red_screen_app, "RedScreenSession", Session)
+    application_runner.ApplicationRunner(red_screen.create_app(), _KeyWindow()).run(
+        SessionDesc(
+            output_layout=VideoTensorLayout.bcthw, video_width=2, video_height=2
+        ),
+        steps=3,
+    )
+
+    for callback in ("model.step", "input_received", "step_presented", "reset_counts"):
+        assert own.calls.get(callback, 0) >= 1, callback
+    for callback in ("model.step", "input_received", "step_presented"):
+        assert callback not in runner_profiler.calls, callback
 
 
 class _BufferingLoop(IModelLoop[None]):
@@ -1218,3 +1259,89 @@ def test_profile_stops_before_writing_when_the_runner_is_missing(
     assert profiling_cli.main(["--", "slug"]) == 127
     assert "flashdreams-run-v2 not found" in capsys.readouterr().err
     assert not (tmp_path / "artifacts").exists()
+
+
+class _FixedRates(IProfiler):
+    """Reports one frame rate for every step."""
+
+    def collect_fps(self) -> dict[str, float]:
+        return {"model.frame_fps": 1.0}
+
+
+class _NoMetricsLoop(IModelLoop[None]):
+    """Returns results with ``metrics=None``, as V2V does."""
+
+    def __init__(self, profiler: IProfiler) -> None:
+        self.register_session_loop_objects(
+            state=None,
+            frequency=0,
+            shutdown_event=threading.Event(),
+            failure_queue=queue.Queue(),
+            profiler=profiler,
+        )
+
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        return [
+            StepResult(
+                step_index=step_index,
+                output=torch.zeros((1, 3, 1, 1, 1)),
+                frame_count=1,
+                output_layout=VideoTensorLayout.bcthw,
+                metrics=None,
+            )
+        ]
+
+    def reset(self) -> None:
+        pass
+
+
+def test_a_result_without_metrics_still_gets_the_measured_rates() -> None:
+    loop = _NoMetricsLoop(_FixedRates())
+    event_buffer = EventBuffer()
+    event_buffer.register(0)
+    published: list[StepResult] = []
+
+    loop._run_model_loop(
+        event_buffer=event_buffer,
+        reader_id=0,
+        publish=lambda _generation, results, _elapsed: published.extend(results),
+        max_steps=1,
+    )
+
+    assert loop._failure_queue.empty()
+    assert published[0].metrics == {"model.frame_fps": 1.0}
+
+
+def test_the_profiler_hears_of_input_before_the_model_can_read_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Otherwise a fast step can consume a batch the profiler has not seen
+    arrive, and its wait stays open until the session ends."""
+    red_screen = pytest.importorskip("red_screen")
+    order: list[str] = []
+    append = EventBuffer.append
+
+    def recording_append(self: EventBuffer, events: UserInputEvents, *args: int) -> int:
+        if events.get_events():
+            order.append("append")
+        return append(self, events, *args)
+
+    class Recorder(_CallCounter):
+        def input_received(self, received_ns: int, count: int) -> None:
+            order.append("input_received")
+
+    monkeypatch.setattr(EventBuffer, "append", recording_append)
+    app = red_screen.create_app()
+    app.init([])
+    try:
+        session = app.create_session(
+            SessionDesc(
+                output_layout=VideoTensorLayout.bcthw, video_width=2, video_height=2
+            )
+        )
+        session._profiler = Recorder()
+        run_session(session, _KeyWindow(), steps=2)
+    finally:
+        app.close()
+
+    assert order[:2] == ["input_received", "append"]

@@ -458,7 +458,14 @@ class IModelLoop(ILoop[StateT], ABC):
                     step_metrics.update(self.profiler.collect_input_latency_ms())
                     if step_metrics:
                         for channel in result:
-                            if channel.metrics is not None:
+                            if channel.metrics is None:
+                                # Profiling is on, so the result has measurements.
+                                # Set the field on the frozen result the way its
+                                # own __post_init__ does, keeping its output event.
+                                object.__setattr__(
+                                    channel, "metrics", dict(step_metrics)
+                                )
+                            else:
                                 channel.metrics.update(step_metrics)
                     with self.profiler.range("model.publish"):
                         publish(generation, result, unpublished_step_elapsed_s)

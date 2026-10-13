@@ -160,7 +160,6 @@ def run_session(
             trace_chunk_lifecycle=trace_chunk_lifecycle,
             frames_per_second=session_desc.frames_per_second_for_step,
             maximum_frames_per_second=session_desc.frames_per_second_for_ui,
-            profiler=profiler,
         )
 
         def expire_if_due() -> bool:
@@ -175,9 +174,12 @@ def run_session(
             if window is None:
                 return
             events = window.get_user_input_events()
-            received_ns = event_buffer.append(events)
+            received_ns = time.monotonic_ns()
+            # Before the model thread can read the batch, so no step consumes
+            # input the profiler has not seen arrive.
             if count := len(events.get_events()):
                 profiler.input_received(received_ns, count)
+            event_buffer.append(events, received_ns)
 
         def run_ui_once(*, step_requested: bool = True) -> None:
             """Process UI lifecycle control and run a requested UI step."""
@@ -282,6 +284,9 @@ def run_session(
         if parallel is not None and parallel.world_size > 1:
             agreement = StepAgreement(parallel)
         session.init()
+        # A session may set its own profiler at the start of init().
+        profiler = session._profiler
+        presentation_manager.set_profiler(profiler)
         ui_loop, model_loop = session._take_loops()
         event_buffer.register(_UI_READER_ID)
         event_buffer.register(_MODEL_READER_ID)

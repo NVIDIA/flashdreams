@@ -220,7 +220,6 @@ class PresentationManager:
         trace_chunk_lifecycle: bool = False,
         frames_per_second: int = 30,
         maximum_frames_per_second: int | None = None,
-        profiler: IProfiler | None = None,
     ) -> None:
         """Set presentation timing and backpressure mode.
 
@@ -235,7 +234,6 @@ class PresentationManager:
             frames_per_second: Initial video presentation rate.
             maximum_frames_per_second: Upper bound for presentation cadence;
                 ``None`` uses ``frames_per_second``.
-            profiler: Records presented frames; ``None`` records nothing.
         """
         self._reset_buffered_chunks()
         self._presentation_clock = _PresentationClock(
@@ -246,7 +244,10 @@ class PresentationManager:
         self._stop = stop
         self._put_timeout = put_timeout
         self._trace_chunk_lifecycle = trace_chunk_lifecycle
-        self._profiler = NullProfiler() if profiler is None else profiler
+
+    def set_profiler(self, profiler: IProfiler) -> None:
+        """Record presented frames to ``profiler``."""
+        self._profiler = profiler
 
     def publish(
         self,

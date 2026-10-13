@@ -49,14 +49,18 @@ class EventBuffer:
         with self._lock:
             self._reader_indexes.setdefault(reader_id, self._base_index)
 
-    def append(self, events: UserInputEvents) -> int:
+    def append(self, events: UserInputEvents, received_ns: int | None = None) -> int:
         """Add a batch of client input events.
+
+        Args:
+            received_ns: When the batch reached the runtime, as
+                ``time.monotonic_ns()``; ``None`` stamps it now.
 
         Returns:
             When the batch reached the runtime, as ``time.monotonic_ns()``.
         """
         received = events.get_events()
-        now_ns = time.monotonic_ns()
+        now_ns = time.monotonic_ns() if received_ns is None else received_ns
         with self._lock:
             self._events.extend(received)
             self._received_ns.extend([now_ns] * len(received))
