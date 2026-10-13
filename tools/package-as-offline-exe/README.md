@@ -1,7 +1,7 @@
 # Package a FlashDreams application for offline use
 
 `package_as_offline_exe.py` prepares an installed FlashDreams v2 application
-and creates a single executable with its offline cache in one folder.
+and creates a raw folder containing an executable, its runtime, and offline cache.
 Packaging is supported for applications running in `native-window` or `webrtc`
 mode.
 
@@ -33,15 +33,14 @@ If `--output` is omitted, the default is
 `artifacts/<application-slug>-bundle`. The output directory must not already
 exist.
 
-The output is still a directory. `cache/` holds the downloaded model weights
-and prepared kernels. When a onefile bundle would exceed 1,700 files, the
-packager stores the largest cache directories in `cache-extras.zip`. The
-launcher extracts that archive into the writable runtime cache on first launch;
-subsequent launches reuse it. Preload may also produce sibling `artifacts/`
-assets. Pass `--unpack-dir` to the packaged executable to change where its
-cache is extracted.
-PyInstaller extracts the embedded runtime files to a temporary directory on
-each launch, which adds startup time.
+The executable embeds Python bytecode, which is read directly without extraction.
+`_internal/` contains the Python runtime, dependencies, and native libraries.
+The standard-library archive is also read in place. `cache/` holds downloaded
+model weights and prepared kernels. Preload may also produce sibling `artifacts/`
+assets. The packager uses PyInstaller's directory mode and does not extract
+runtime files to a temporary directory at launch or archive the cache.
+Deploy the complete folder as raw files.
+Pass `--unpack-dir` to change where the writable data cache is copied.
 
 
 The packager runs initialization and one model block. Preparation findings are
@@ -86,18 +85,17 @@ The generated directory has this shape:
 ```text
 <output>/
 |-- <application-slug>[.exe]
+|-- _internal/
 |-- cache/
-|-- cache-extras.zip        # when needed to meet the file limit
 |-- artifacts/             # when preload produces application assets
 |-- INSTALLER_OUTPUT.txt
 |-- PREPARATION_ISSUES.txt  # only when preload warnings are found
 `-- README.md
 ```
 
-The executable contains the Python runtime, application code, dependencies,
-native libraries, Ninja, and packaged GPU assets. The bundle has at most
-1,700 files; `cache-extras.zip` holds cache files moved out of the directory
-tree to meet that limit.
+The executable contains embedded Python bytecode. `_internal/` contains the
+Python runtime, supporting source files, dependencies, native libraries, Ninja,
+and packaged GPU assets.
 Native extensions are compiled during packaging and reused at runtime. The
 destination machine does not need CUDA Toolkit or Visual Studio Build Tools
 for those extensions, but it still needs a compatible NVIDIA GPU and driver.
@@ -130,12 +128,13 @@ Pass `--unpack-dir PATH` to the packaged executable to use
 `PATH/<application-slug>/cache` instead. `PATH` must be absolute. For example,
 `interactive-drive-omnidreams-fast-perf.exe --unpack-dir D:\FlashDreamsData`.
 `FLASHDREAMS_RUNTIME_CACHE_DIR` remains available to set the exact cache
-directory; the command-line option takes precedence. PyInstaller's onefile
-runtime files still extract to the OS temp directory on every launch, before
-the application can process `--unpack-dir`. On Windows, cache paths use the
+directory; the command-line option takes precedence. Python and runtime DLLs
+load directly from `_internal/`. Prepared C++, Triton, and PhysX extensions load from
+the bundled `cache/`, even when the writable cache is relocated.
+On Windows, cache paths use the
 extended-length path prefix so deep Hugging Face snapshots can be copied.
 
-Keep the executable with its sibling `cache/`, any `cache-extras.zip`, and any
-`artifacts/` assets. Pass `--unpack-dir` to move the writable cache.
+Keep the executable with its sibling `_internal/`, `cache/`, and any
+`artifacts/` assets. Pass `--unpack-dir` to move the writable data cache.
 
 Destination machine still needs a compatible NVIDIA driver to run the packaged application.

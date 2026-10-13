@@ -7,6 +7,7 @@ import runpy
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -53,4 +54,34 @@ for missing_stdout, missing_stderr in (
             if "runtime_log" in namespace:
                 namespace["runtime_log"].close()
 
-print("Launcher stream checks passed.")
+with TemporaryDirectory() as directory:
+    output = Path(directory).resolve() / "bundle"
+
+    def build_step(command, **options):
+        staging = Path(options["cwd"])
+        if command == ["build"]:
+            runtime = staging / ".build" / "dist" / "demo"
+            (runtime / "_internal").mkdir(parents=True)
+            (runtime / packager["_executable_name"]("demo")).touch()
+            (runtime / "_internal" / "python.dll").write_bytes(b"runtime")
+        else:
+            (staging / "cache" / "weights.bin").write_bytes(b"weights")
+        return SimpleNamespace(returncode=0)
+
+    with (
+        patch.dict(
+            packager["package"].__globals__,
+            {
+                "_application_module": lambda slug: "demo",
+                "_cache_environment": lambda *args, **kwargs: os.environ.copy(),
+                "_pyinstaller_command": lambda **kwargs: ["build"],
+            },
+        ),
+        patch("subprocess.run", side_effect=build_step),
+        patch("importlib.util.find_spec", return_value=SimpleNamespace()),
+    ):
+        packager["package"]("demo", ["--mode", "native-window"], output)
+    assert (output / "_internal" / "python.dll").read_bytes() == b"runtime"
+    assert (output / "cache" / "weights.bin").read_bytes() == b"weights"
+
+print("Launcher stream and bundle layout checks passed.")

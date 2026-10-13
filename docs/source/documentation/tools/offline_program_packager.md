@@ -7,7 +7,7 @@ title: 'Offline Program Packager'
 
 `tools/package-as-offline-exe/package_as_offline_exe.py` preloads an installed
 FlashDreams v2 application and creates a host-native executable with its Python
-runtime, dependencies, native libraries, and prepared caches in one folder.
+runtime, dependencies, native libraries, and prepared caches in one raw folder.
 The target machine does not need Python, `uv`, or network access.
 
 The packager supports `native-window` and `webrtc` applications. It is not a
@@ -79,32 +79,41 @@ uv run python tools/package-as-offline-exe/package_as_offline_exe.py --help
 
 <output>/
 |-- <application-slug>[.exe]
-|-- data/
+|-- _internal/
 |-- cache/
+|-- artifacts/             # when preload produces application assets
 |-- INSTALLER_OUTPUT.txt
 |-- PREPARATION_ISSUES.txt  # only when preload warnings are found
 `-- README.md
 
 ```
 
-`data/` contains the executable runtime. `cache/` contains the resources and
+The executable embeds Python bytecode, which is read without extraction.
+`_internal/` contains the executable runtime. `cache/` contains the resources and
 build artifacts prepared during initialization. `INSTALLER_OUTPUT.txt` records
 preload, validation, and PyInstaller output. `PREPARATION_ISSUES.txt` records
 work that the application attempted after its preparation phase.
 
 Distribute the complete folder, not only the executable: the launcher depends
-on its sibling `data/` and `cache/` directories.
+on its sibling `_internal/` and `cache/` directories. The packager uses
+PyInstaller's directory mode. Embedded bytecode and the standard-library archive
+are read directly. Python and DLLs are not extracted into temporary storage at
+launch, and the cache is not archived.
+Deploy the complete folder as raw files.
 
 ## Runtime cache
 
 The bundled cache is a read-only seed. On first launch, the application copies
 it to a writable per-user cache:
 
-- Windows: `%LOCALAPPDATA%\FlashDreams\<application-slug>\cache`
-- Linux: `$XDG_CACHE_HOME/flashdreams/<application-slug>`, or
-  `~/.cache/flashdreams/<application-slug>` when `XDG_CACHE_HOME` is unset
+- Windows: `%USERPROFILE%\flashdreams\unpacked\<application-slug>\cache`
+- Linux: `~/flashdreams/unpacked/<application-slug>/cache`
 
-Set `FLASHDREAMS_RUNTIME_CACHE_DIR` to choose another writable cache location.
+Pass `--unpack-dir PATH` to use `PATH/<application-slug>/cache`, or set
+`FLASHDREAMS_RUNTIME_CACHE_DIR` to choose the exact writable cache location.
+The command-line option takes precedence; paths must be absolute.
+Prepared C++, Triton, and PhysX extensions load from the original bundled `cache/`;
+Python and runtime libraries load from `_internal/`.
 
 Before distributing a bundle, test it on a clean target machine with networking
 disabled and empty user caches. Also confirm that every bundled model, asset,
