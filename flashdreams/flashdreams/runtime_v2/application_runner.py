@@ -158,10 +158,10 @@ class ApplicationRunner:
                     ):
                         break
                     session = self._application.create_session(next_session_desc)
-                    # The session runs with the system profiler unless it set
-                    # its own.
-                    if "_profiler" not in vars(session):
-                        session._profiler = profiler
+                    assert "_profiler" not in vars(session), (
+                        "The application runner owns the initial session profiler."
+                    )
+                    session._profiler = profiler
                     parallel = session.parallel_context
                     # Rates describe one session, not the run's whole sequence.
                     profiler.reset_counts()

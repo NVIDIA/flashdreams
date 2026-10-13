@@ -68,10 +68,11 @@ FlashVSR and SwiftVR use their own `generate` method, so their reports have no
 ## Using your own profiler
 
 A session runs with the profiler the application runner creates. To use your
-own, assign it to the session before `init()`, for example in its constructor:
+own, assign it at the start of `init()`, before registering a loop:
 
 ```python
-self._profiler = MyProfiler()
+def init(self):
+    self._profiler = MyProfiler()
 ```
 
 The session's loops get it as `self.profiler`, so a model loop can record its

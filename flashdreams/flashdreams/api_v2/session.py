@@ -59,7 +59,7 @@ class ISession(ABC):
     """The profiler this session's loops run with.
 
     The application runner assigns the system profiler when it creates the
-    session. Assign before :meth:`init` to run with a different one.
+    session. Assign in :meth:`init` before registering a loop to use a different one.
     """
 
     @abstractmethod

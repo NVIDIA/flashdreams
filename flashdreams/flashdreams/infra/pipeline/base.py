@@ -100,8 +100,7 @@ class StreamInferencePipelineCache(
     """AR step index of the most recent ``generate``."""
 
     event_profiler: EventProfiler | None = None
-    """Per-step CUDA-event timer for pipelines that time their own stages.
-    The shared path times stages through the pipeline's ``profiler`` instead."""
+    """Per-step profiler, populated only when profiling is on."""
 
 
 class StreamInferencePipeline(
@@ -263,6 +262,7 @@ class StreamInferencePipeline(
             )
         cache.final_state = final_state
 
+        # A caller hook, not a pipeline stage, so it sits outside both ranges.
         if on_diffusion_complete is not None:
             on_diffusion_complete()
 
