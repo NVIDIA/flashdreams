@@ -18,6 +18,9 @@ dependencies = [
 [project.scripts]
 crazy-robotaxi-map = "crazy_robotaxi.map_tool:main"
 
+[project.entry-points."flashdreams.client_windows_v2"]
+robotaxi-debug = "crazy_robotaxi.debug:RobotaxiDebugMode"
+
 [tool.uv.sources]
 flashdreams = { workspace = true }
 omnidreams-game-engine = { workspace = true }
