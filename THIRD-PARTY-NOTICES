@@ -218,7 +218,8 @@ Source-level redistributions
 
 The following third-party source is physically present in this repository
 (not just consumed at runtime). Each file retains its original copyright
-notice inline; license texts are reproduced under LICENSES/.
+notice inline; license texts are reproduced under LICENSES/ or in the
+credited source files.
 
 --------------------------------------------------------------------------------
 HPG-2011 NVIDIA CUDA Rasterizer port
@@ -366,5 +367,16 @@ Upstream: https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b
 Modified for FlashDreams Q/K/V and cached attention interfaces. The full
 upstream MIT notice is retained in the file. The comparison revision is
 not asserted to be the original-copy revision.
+
+--------------------------------------------------------------------------------
+Material for MkDocs KaTeX example
+--------------------------------------------------------------------------------
+
+Path:    docs/source/javascripts/katex.js
+License: MIT (full upstream notice retained in the source file).
+         Copyright (c) 2016-2024 Martin Donath <martin.donath@squidfunk.com>
+Upstream: https://github.com/squidfunk/mkdocs-material/blob/f0c99d89da61a247318f1a9471a082cfb981b3e0/docs/reference/math.md
+
+The initializer adapts the upstream example with formatting changes.
 
 ================================================================================

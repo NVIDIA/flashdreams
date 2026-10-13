@@ -27,6 +27,9 @@ and each file's license notice:
     retain their Apache-2.0 terms and upstream attributions, as listed
     in THIRD-PARTY-NOTICES.
 
+  * docs/source/javascripts/katex.js adapts the Material for MkDocs
+    example under MIT. The full upstream notice is retained in that file.
+
 Nested license files, relative to this repository root:
   integrations_v2/omnidreams/impl/ludus-renderer/LICENSE
   integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/LICENSE

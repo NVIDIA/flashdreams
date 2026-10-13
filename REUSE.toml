@@ -137,3 +137,10 @@ SPDX-FileCopyrightText = [
     "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
 ]
 SPDX-License-Identifier = "Apache-2.0 AND LicenseRef-Tencent-HunyuanVideo-1.5-Community AND LicenseRef-Tencent-HY-WorldPlay-Community"
+
+# --- Material for MkDocs KaTeX example retains its upstream MIT terms. ---
+[[annotations]]
+path = "docs/source/javascripts/katex.js"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright (c) 2016-2024 Martin Donath <martin.donath@squidfunk.com>"
+SPDX-License-Identifier = "MIT"
