@@ -86,19 +86,6 @@ def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
     assert selection.multiple is True
 
 
-def test_ui_loop_rejects_request_id_reused_in_one_tick() -> None:
-    loop = _ui_loop()
-    loop.file_selector("open-1")
-    with pytest.raises(ValueError, match="more than once this tick"):
-        loop.file_selector("open-1", open=True)
-
-    loop.flush_ui_loop_requests()
-    loop.file_selector("open-1", open=True)
-    requests = loop.flush_ui_loop_requests()
-    assert requests is not None
-    assert [item.request_id for item in requests.file_selections] == ["open-1"]
-
-
 def test_ui_loop_uses_home_when_initial_path_is_omitted() -> None:
     loop = _ui_loop()
     loop.file_selector("open-1", open=True)
@@ -182,16 +169,16 @@ def _statuses(events: list[UserInputEvent]) -> list[tuple[str, SelectedFilesStat
 def test_session_shows_one_picker_at_a_time() -> None:
     window = _PickerWindow()
     selections = _FileSelections(window, timeout_seconds=1.0, clock=_Clock())
-    assert selections.request(_request("open-1")) == []
-    assert selections.request(_request("open-1")) == []
-    busy = selections.request(_request("open-2"))
-    assert _statuses(busy) == [("open-2", SelectedFilesStatus.UNAVAILABLE)]
+    selections.request(_request("open-1"))
+    selections.request(_request("open-1"))
+    selections.request(_request("open-2"))
     assert window.started == ["open-1"]
+    busy = selections.filter([_result("open-2")])
+    assert _statuses(busy) == [("open-2", SelectedFilesStatus.UNAVAILABLE)]
 
-    assert selections.filter([_result("open-2")]) == []
     kept = selections.filter([_result("open-1")])
     assert _statuses(kept) == [("open-1", SelectedFilesStatus.CANCELLED)]
-    assert selections.request(_request("open-2")) == []
+    selections.request(_request("open-2"))
     assert window.started == ["open-1", "open-2"]
 
 
@@ -205,7 +192,7 @@ def test_session_times_out_unopened_picker_and_drops_its_late_result() -> None:
     kept = selections.filter([])
     assert _statuses(kept) == [("open-1", SelectedFilesStatus.UNAVAILABLE)]
     assert selections.filter([_result("open-1")]) == []
-    assert selections.request(_request("open-2")) == []
+    selections.request(_request("open-2"))
     assert window.started == ["open-1", "open-2"]
 
 
@@ -224,10 +211,15 @@ def test_session_opened_picker_waits_for_the_user_without_deadline() -> None:
 
 def test_session_passes_through_immediate_results_and_other_input() -> None:
     selections = _FileSelections(NullClientWindow(), clock=_Clock())
-    kept = selections.request(_request("open-1"))
-    assert _statuses(kept) == [("open-1", SelectedFilesStatus.UNAVAILABLE)]
+    selections.request(_request("open-1"))
     close = CloseUserInputEvent(timestamp=uint64(0))
-    assert selections.filter([close]) == [close]
+    kept = selections.filter([close])
+    assert _statuses(kept) == [("open-1", SelectedFilesStatus.UNAVAILABLE)]
+    assert kept[-1] is close
+    selections.request(_request("open-2"))
+    assert _statuses(selections.filter([])) == [
+        ("open-2", SelectedFilesStatus.UNAVAILABLE)
+    ]
 
 
 def test_selected_file_policy_helpers() -> None:

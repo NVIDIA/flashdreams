@@ -84,14 +84,15 @@ class _FileSelections:
         self._clock = clock
         self._active: FileSelectionRequest | None = None
         self._deadline: float | None = None
+        self._ready: list[UserInputEvent] = []
 
-    def request(self, request: FileSelectionRequest) -> list[UserInputEvent]:
-        """Start ``request`` and return any result known right away."""
+    def request(self, request: FileSelectionRequest) -> None:
+        """Start ``request``; a result known right away is held for :meth:`filter`."""
         active = self._active
         if active is not None:
-            if active.request_id == request.request_id:
-                return []
-            return [self._unavailable(request)]
+            if active.request_id != request.request_id:
+                self._ready.append(self._unavailable(request))
+            return
         self._active = request
         self._deadline = self._clock() + self._timeout_seconds
         try:
@@ -99,14 +100,13 @@ class _FileSelections:
         except Exception:
             _LOGGER.exception("File selector %r failed to start.", request.request_id)
             result = self._unavailable(request)
-        if result is None:
-            return []
-        self._active = None
-        return [result]
+        if result is not None:
+            self._active = None
+            self._ready.append(result)
 
     def filter(self, events: list[UserInputEvent]) -> list[UserInputEvent]:
         """Apply window file events and the deadline; return events for the loops."""
-        kept: list[UserInputEvent] = []
+        kept, self._ready = self._ready, []
         for event in events:
             active = self._active
             if isinstance(event, FileSelectorOpenedUserInputEvent):
@@ -295,9 +295,9 @@ def run_session(
 
                 request = ui_loop.flush_ui_loop_requests()
                 if request is not None:
-                    immediate = _apply_window_requests(window, request, file_selections)
-                    if immediate:
-                        event_buffer.append(UserInputEvents(immediate))
+                    _apply_window_requests(window, request)
+                    for item in request.file_selections:
+                        file_selections.request(item)
                     if request.new_session is not None:
                         next_session_desc = request.new_session
                         stop.set()
@@ -538,23 +538,14 @@ def run_session(
     return next_session_desc
 
 
-def _apply_window_requests(
-    window: IClientWindow,
-    request: UILoopRequests,
-    file_selections: _FileSelections,
-) -> list[UserInputEvent]:
-    """Apply UI window settings in request order; return immediate file results."""
+def _apply_window_requests(window: IClientWindow, request: UILoopRequests) -> None:
+    """Apply UI window settings in request order."""
     if request.hide_cursor is not None:
         window.request_hide_cursor(request.hide_cursor)
     if request.lock_cursor_to_window is not None:
         window.request_lock_cursor_to_window(request.lock_cursor_to_window)
     if request.new_window_size is not None:
         window.request_new_window_size(request.new_window_size)
-    return [
-        result
-        for item in request.file_selections
-        for result in file_selections.request(item)
-    ]
 
 
 def _open_chunk_trace(path_value: object) -> _ChunkTraceLog:

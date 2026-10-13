@@ -536,7 +536,6 @@ class IUILoop(ILoop[StateT], ABC):
         self._presentation_manager = presentation_manager
 
         self._ui_loop_requests: UILoopRequests | None = None
-        self._file_selector_ids: set[str] = set()
 
     @final
     def _set_model_loop(self, model_loop: IModelLoop[Any]) -> None:
@@ -648,9 +647,8 @@ class IUILoop(ILoop[StateT], ABC):
             TypeError: ``request_id`` or ``initial_path`` is not a string, or
                 ``open`` / ``accept`` / ``max_file_bytes`` / ``multiple`` has
                 the wrong type.
-            ValueError: ``request_id`` is empty or already used this tick,
-                ``initial_path`` is empty, or ``accept`` / ``max_file_bytes``
-                is invalid.
+            ValueError: ``request_id`` or ``initial_path`` is empty, or
+                ``accept`` / ``max_file_bytes`` is invalid.
         """
         if not isinstance(request_id, str):
             raise TypeError("request_id must be a string.")
@@ -658,10 +656,6 @@ class IUILoop(ILoop[StateT], ABC):
             raise ValueError("request_id must be a non-empty string.")
         if not isinstance(open, bool):
             raise TypeError("open must be a bool.")
-        if request_id in self._file_selector_ids:
-            raise ValueError(
-                f"request_id {request_id!r} is used more than once this tick."
-            )
         if open:
             if initial_path is None:
                 resolved_initial_path = str(Path.home())
@@ -690,7 +684,6 @@ class IUILoop(ILoop[StateT], ABC):
                     multiple=multiple,
                 )
             )
-        self._file_selector_ids.add(request_id)
         for event in self.user_events.get_events():
             if (
                 isinstance(event, SelectedFilesUserInputEvent)
@@ -708,7 +701,6 @@ class IUILoop(ILoop[StateT], ABC):
         """return UI loop requests and clear the internal state of requests."""
         requests = self._ui_loop_requests
         self._ui_loop_requests = None
-        self._file_selector_ids.clear()
         return requests
 
     @final
