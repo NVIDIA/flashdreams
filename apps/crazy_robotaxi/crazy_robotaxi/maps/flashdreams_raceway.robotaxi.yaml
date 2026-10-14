@@ -124,7 +124,7 @@ roads:
     to: top_straight_entry
     profile: raceway
     prompt_context: >-
-      The broad sweeper curves along a sunny waterfront with a marina,
+      The broad sweeper curves along a waterfront with a marina,
       sailboats, palms, promenade crowds, and the city skyline across the bay.
     bezier:
       - control_points:
@@ -216,20 +216,17 @@ spawns:
       Photorealistic forward-facing camera fixed above a pale silver taxi
       hood, with the curved bonnet and dark wiper recess visible across
       the lower fifth of the frame. A level horizon and calibrated wide-angle
-      lens overlook a broad, flat city racing circuit with dry dark asphalt
+      lens overlook a broad, flat city racing circuit with dark asphalt
       and white road markings. The motorsport venue features covered
       spectator grandstands, white and charcoal pit garages,
       glazed hospitality suites and a glass city skyline. Low pale concrete
       barriers and tall catch fencing separate spectators from the track.
-      Bright clear afternoon
-      daylight, natural colors and sharp surface textures remain consistent.
       Keep the hood fixed in frame, with no camera cuts,
       dashboard, text overlays or HUD.
     prompt_context: >-
       Photorealistic forward-facing camera fixed above a pale silver taxi
       hood, with the curved bonnet and dark wiper recess visible across
       the lower fifth. Level horizon and calibrated wide-angle lens.
-      A broad city racing circuit with dry dark asphalt, dashed white lane
-      dividers, pale concrete barriers and tall catch fencing. Bright clear
-      afternoon daylight and natural colors remain consistent. Spectators
+      A broad city racing circuit with dark asphalt, dashed white lane
+      dividers, pale concrete barriers and tall catch fencing. Spectators
       stay behind the fences. No camera cuts, dashboard or text overlays.

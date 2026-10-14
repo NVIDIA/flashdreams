@@ -418,10 +418,14 @@ Each spawn can define both a full `prompt` for normal play and a shorter
 `prompt_context` base for `--live-edit-dynamic-prompts`; selected dynamic
 fragments are appended only to the latter.
 The static `prompt` persists throughout driving: describe the camera,
-visual style, weather and regional scenery without fixing the current road
+visual style and regional scenery without fixing the current road
 placement, lane count, upcoming turn or landmark position. Spawn-specific
 geometry belongs in the initial image and its offline generation prompt;
 location-specific descriptions belong in the dynamic map fragments.
+Keep weather, haze, fog, lighting and time of day out of both map prompts and
+scenery fragments. Weather effects belong to the separate live-edit weather
+controls. The saved artwork-generation prompts record how the existing seed
+images were made; they are offline provenance, not runtime scenery prompts.
 
 The bundled maps each have a dedicated hood-view initial frame. FlashDreams
 Raceway shows grandstands, pit garages and a city skyline; Boulevard District
