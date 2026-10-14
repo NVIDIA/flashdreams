@@ -39,7 +39,7 @@ roads:
     to: timing_line
     profile: coastal_circuit
     prompt_context: >-
-      White pit garages with dark glass and a shaded spectator stand line
+      White pit garages with dark glass and a covered spectator stand line
       the inland edge of the straight. Turquoise water and a stone breakwater
       sit beyond the seaward fence. Palms rise behind the garages, and
       the broad asphalt straight remains clear all the way to the horizon.
@@ -83,8 +83,8 @@ roads:
     speed_limit_mps: 22.0
     prompt_context: >-
       Honey-colored sandstone outcrops and sparse coastal grass border
-      the fenced circuit. Wind-shaped pines cast soft shadows across the
-      asphalt, with blue sea visible through gaps beyond the barriers.
+      the fenced circuit. Wind-shaped pines stand beyond the barriers,
+      with blue sea visible through gaps between the trees.
     bezier:
       - control_points: [{x_m: 400, y_m: 195}, {x_m: 355, y_m: 240}]
         end: {x_m: 300, y_m: 240}
@@ -96,7 +96,7 @@ roads:
     prompt_context: >-
       A low grove of wind-shaped pines borders the level straight.
       Sandstone retaining walls sit behind the white barriers, and
-      patches of dry coastal grass alternate with shaded gravel runoff.
+      patches of coastal grass alternate with gravel runoff.
 
   - id: coastal_esses
     from: esses_entry
@@ -173,22 +173,19 @@ spawns:
       silver taxi hood, with the curved hood and dark wiper recess clearly
       visible across the lower fifth of the frame. The camera remains fixed
       to the car with a level horizon and a calibrated wide-angle lens. A flat
-      closed coastal racing circuit has dry dark asphalt, white road
+      closed coastal racing circuit has dark asphalt, white road
       markings, low white concrete barriers and fine catch fencing.
-      The coastal setting features white pit garages, shaded spectator
+      The coastal setting features white pit garages, covered spectator
       stands, palms, turquoise water, a stone breakwater, a white lighthouse,
       marina buildings, sandstone outcrops, wind-shaped pines, low coastal
-      scrub and grassy headlands. Warm late-afternoon daylight, a clear blue
-      sky, natural colors and light haze on the distant sea horizon remain
-      consistent. The track is clear of traffic and pedestrians; spectators
-      stay behind the fences. No text, logos, HUD or camera cuts.
+      scrub and grassy headlands. The track is clear of traffic and pedestrians;
+      spectators stay behind the fences. No text, logos, HUD or camera cuts.
     prompt_context: >-
       Photorealistic forward-facing camera fixed immediately above a pale
       silver taxi hood; the curved hood and dark wiper recess remain visible
       across the lower fifth of the frame. Level horizon, calibrated wide-angle
-      lens. A flat closed coastal racing circuit with dry dark asphalt,
+      lens. A flat closed coastal racing circuit with dark asphalt,
       dashed white lane dividers, solid white edge lines, low white concrete
-      barriers and fine catch fencing. Warm late-afternoon daylight, clear
-      blue sky, natural colors and light distant sea haze remain consistent.
+      barriers and fine catch fencing.
       The track is clear of traffic and pedestrians; spectators stay behind
       the fences. No text, logos, HUD or camera cuts.
