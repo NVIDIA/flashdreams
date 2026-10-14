@@ -433,11 +433,24 @@ shows a leafy residential boulevard with yellow traffic separation. Both
 frames use the compiled spawn's road projection, with map-relative assets
 also used by the map and course menus. Their spawn prompts match the scenery.
 
+**Harbor Market** adds a waterfront taxi district with a connected street grid,
+four-lane market avenue, ferry turnaround, two parking courts and 32 traffic
+vehicles. Red-brick market halls, green awnings, cafes and dockside workshops
+give each neighborhood its own dynamic prompt fragments.
+
+**Mesa Gardens** adds a desert resort taxi district with a curved outer loop,
+cross-town avenues, garden streets, two terminal turnarounds, a resort parking
+court and 28 traffic vehicles. Its fragments describe cream stucco shops,
+terracotta arcades, botanical gardens and desert landscaping. Both maps are
+available from the map menu for Taxi and Free Roam modes.
+
 To rebuild these frames from the saved artwork, run in the app environment:
 
 ```bash
 python apps/crazy_robotaxi/tools/compose_map_frames.py flashdreams_raceway
 python apps/crazy_robotaxi/tools/compose_map_frames.py boulevard_district
+python apps/crazy_robotaxi/tools/compose_map_frames.py harbor_market
+python apps/crazy_robotaxi/tools/compose_map_frames.py mesa_gardens
 ```
 
 The compositor projects semantic road surfaces and white/yellow markings,
