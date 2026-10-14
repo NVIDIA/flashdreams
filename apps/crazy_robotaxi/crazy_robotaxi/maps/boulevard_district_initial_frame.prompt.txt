@@ -1,0 +1,28 @@
+boulevard_district first-frame provenance
+
+Artwork generated with the built-in image_gen tool, using
+boulevard_district_spawn_geometry.png as the calibrated camera reference.
+Original artwork is retained at ../../tools/boulevard_district_artwork.png.
+
+The final 1280x704 seed is deterministically composited. The camera and road
+geometry come from this map's default compiled spawn. Generated asphalt is
+used only as texture. Road surfaces, curbs, white and yellow markings use
+canonical f-theta ground projection. Dashed dividers have 3-metre segments
+and 6-metre gaps along the semantic polylines; solid dividers stay continuous.
+Foreground scenery occludes disconnected distant ground surfaces. The silver
+hood is retained as a foreground layer occupying roughly the lower fifth.
+
+Rebuild in the app environment from the repository root:
+python apps/crazy_robotaxi/tools/compose_map_frames.py boulevard_district
+
+The script checks the visible white/yellow paint masks, writes the initial
+frame, and saves a cyan semantic alignment overlay plus raw geometry preview.
+
+Artwork-generation prompt:
+
+Use case: photorealistic-natural.
+Asset: Boulevard District driving-world-model first-frame artwork.
+Transform this calibrated road render into a beautiful realistic California suburban boulevard in clear daylight. Preserve a level forward-facing wide-lens view from just right of the center of a four-lane road, horizon at 49.3% of image height. Output 1280:704 landscape aspect ratio. Keep the geometry: flat straight four-lane boulevard, road edge meets left frame at 63% height and right at 71%; a cross street intersects about 65 metres ahead, visible only in the mid-distance. No median island, road narrowing, curve in foreground, bridge or overpass.
+Scenery: mature leafy street trees, a few tall palms and flowering jacarandas, well-kept detached stucco and craftsman homes behind small gardens, a couple of understated two-story neighborhood shops farther away. Sidewalks and low concrete curbs follow the exact road edge; no race barriers or safety fencing. Comfortable spacious real neighborhood, detailed natural foliage, soft angled late-morning sunlight, balanced exposure and crisp textures, blue sky with a few small clouds. A few pedestrians can be well back on sidewalks, but no cars or people on the road, no curbside parking bays or invented driveways. Keep the view to the distant intersection unobstructed; vegetation and buildings outside roadway only.
+This image will be composited with exact semantic geometry: deliberately leave the full asphalt road UNMARKED, with NO yellow/white road paint, crosswalk stripes, stop bars, lettering or arrows. Retain realistic dark asphalt grain and restrained dappled tree shadows. Side streets only at the existing distant crossing.
+Camera/hood: low forward-facing POV immediately above a pale silver car hood visible across the bottom 18% of the image; curved leading bonnet edge at approximately 82% image height in the center and descending gently toward bottom corners. Dark windshield-wiper recess along the bottom, no dashboard or interior. No steering wheel, driver, chase view or third-person car. No text, logos, watermark, HUD, motion blur or exaggerated color. A polished yet natural photographic neighborhood driving frame.
