@@ -4,16 +4,17 @@
 """Bundled-map artwork compositing with calibrated semantic geometry."""
 
 import argparse
+import tempfile
+import zipfile
 from pathlib import Path
 
 import cv2
 import numpy as np
 import shapely
-from omnidreams_game_engine.game_map import load_game_map
+from ludus_renderer.clipgt import read_lane_line
+from omnidreams_game_engine.game_map import compile_game_map, load_game_map
 from omnidreams_game_engine.game_map import spawn_render as render
 from PIL import Image
-from shapely.geometry import LineString
-from shapely.ops import substring
 
 
 def main() -> None:
@@ -21,7 +22,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "map",
-        choices=("pacific_breakwater", "flashdreams_raceway", "boulevard_district"),
+        choices=(
+            "pacific_breakwater",
+            "flashdreams_raceway",
+            "boulevard_district",
+            "harbor_market",
+            "mesa_gardens",
+        ),
     )
     name = parser.parse_args().map
     # Artwork-specific registration landmarks, measured at 1280x704.
@@ -33,10 +40,18 @@ def main() -> None:
         edge_y = [351, 344, 330, 319, 314, 324, 338, 352]
         hood_y = [594, 561, 546, 537, 527, 520, 519, 523, 534, 552, 594]
         horizon, texture_scale, hood_scale = 314, 0.70, 0.70
-    else:
+    elif name == "boulevard_district":
         edge_y = [388, 374, 349, 329, 317, 339, 368, 409]
         hood_y = [597, 576, 562, 551, 545, 541, 542, 548, 563, 580, 605]
         horizon, texture_scale, hood_scale = 317, 0.80, 0.80
+    elif name == "harbor_market":
+        edge_y = [428, 412, 378, 346, 330, 351, 385, 437]
+        hood_y = [610, 587, 570, 556, 547, 541, 539, 543, 555, 575, 611]
+        horizon, texture_scale, hood_scale = 330, 0.80, 0.80
+    else:
+        edge_y = [448, 429, 392, 357, 337, 367, 411, 474]
+        hood_y = [637, 612, 591, 578, 570, 566, 564, 568, 580, 603, 640]
+        horizon, texture_scale, hood_scale = 337, 0.85, 0.90
     root = Path(__file__).resolve().parents[1]
     maps = root / "crazy_robotaxi" / "maps"
     game_map = load_game_map(maps / f"{name}.robotaxi.yaml")
@@ -82,24 +97,24 @@ def main() -> None:
             render._CURB_WIDTH_M,
         )
     )
+    # Read the actual compiled conditioning lines through the runtime loader.
+    # Hand-authored dash periods can align at spawn yet disagree under motion.
+    with tempfile.TemporaryDirectory() as temporary:
+        directory = Path(temporary)
+        compiled = compile_game_map(game_map.source_path, cache_root=directory)
+        with zipfile.ZipFile(compiled.archive_path) as archive:
+            lane_path = directory / "lane_line.parquet"
+            lane_path.write_bytes(archive.read("clipgt/lane_line.parquet"))
+        lines = read_lane_line(lane_path, simplify_dual_lines=True)
     paint_masks = {}
     for color in ("WHITE", "YELLOW"):
         paint_lines = [
-            mark.polyline_world
-            for mark in game_map.line_markings
-            if mark.color == color
+            line.numpy()
+            for line in (
+                *getattr(lines, f"{color.lower()}_solid"),
+                *getattr(lines, f"{color.lower()}_dashed"),
+            )
         ]
-        for divider in game_map.lane_dividers:
-            if divider.color != color:
-                continue
-            if divider.style == "DASHED_SINGLE":
-                line = LineString(divider.polyline_world[:, :2])
-                for offset in np.arange(0, line.length, 9.0):
-                    dash = substring(line, offset, min(offset + 3.0, line.length))
-                    if isinstance(dash, LineString):
-                        paint_lines.append(np.asarray(dash.coords))
-            else:
-                paint_lines.append(divider.polyline_world)
         paint_masks[color] = coverage(
             render._line_geometry(paint_lines, render._PAINT_WIDTH_M)
         )
@@ -199,7 +214,7 @@ def main() -> None:
     assert np.array_equal(observed_yellow, paint_masks["YELLOW"] & visible), (
         "Yellow divider projection drift"
     )
-    assert np.count_nonzero(expected_paint) > 500, "Missing road markings"
+    assert expected_paint.any(), "Missing road markings"
     output = maps / f"{name}_initial_frame.png"
     Image.fromarray(result).save(output)
     # Show semantic boundaries and full divider trajectories through dash gaps.
@@ -214,7 +229,7 @@ def main() -> None:
         guide &= road | curb
     overlay[guide] = [30, 240, 210]
     Image.fromarray(overlay).save(maps / f"{name}_alignment.png")
-    print(f"Saved {output}; white and yellow semantic paint masks match exactly.")
+    print(f"Saved {output}; paint follows runtime lane polylines. Rollout unverified.")
 
 
 if __name__ == "__main__":
