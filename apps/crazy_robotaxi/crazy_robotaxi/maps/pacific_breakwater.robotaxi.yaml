@@ -169,23 +169,10 @@ spawns:
     distance_m: 250
     image: pacific_breakwater_initial_frame.png
     prompt: >-
-      Photorealistic forward-facing camera view immediately above a pale
-      silver taxi hood, with the curved hood and dark wiper recess clearly
-      visible across the lower fifth of the frame. The camera remains fixed
-      to the car with a level horizon and a calibrated wide-angle lens. A flat
-      closed coastal racing circuit has dark asphalt, white road
-      markings, low white concrete barriers and fine catch fencing.
-      The coastal setting features white pit garages, covered spectator
-      stands, palms, turquoise water, a stone breakwater, a white lighthouse,
-      marina buildings, sandstone outcrops, wind-shaped pines, low coastal
-      scrub and grassy headlands. The track is clear of traffic and pedestrians;
-      spectators stay behind the fences. No text, logos, HUD or camera cuts.
+      Onboard footage of a taxi driving through a coastal motor-racing circuit. Pit
+      garages, spectator stands, palms, marina buildings, a lighthouse, stone
+      breakwaters and rocky headlands. Asphalt, concrete barriers and catch fences.
+      Vehicle bonnet visible. The view follows the steering and movement of the car.
     prompt_context: >-
-      Photorealistic forward-facing camera fixed immediately above a pale
-      silver taxi hood; the curved hood and dark wiper recess remain visible
-      across the lower fifth of the frame. Level horizon, calibrated wide-angle
-      lens. A flat closed coastal racing circuit with dark asphalt,
-      dashed white lane dividers, solid white edge lines, low white concrete
-      barriers and fine catch fencing.
-      The track is clear of traffic and pedestrians; spectators stay behind
-      the fences. No text, logos, HUD or camera cuts.
+      Onboard footage of a taxi driving through a coastal motor-racing circuit. Vehicle
+      bonnet visible. The view follows the steering and movement of the car.

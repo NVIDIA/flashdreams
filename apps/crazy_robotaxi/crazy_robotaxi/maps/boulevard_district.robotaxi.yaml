@@ -421,20 +421,10 @@ spawns:
     distance_m: 128
     image: boulevard_district_initial_frame.png
     prompt: >-
-      Photorealistic forward-facing camera fixed above a pale silver taxi
-      hood, with the curved bonnet and dark wiper recess visible across
-      the lower fifth. A level horizon and calibrated wide-angle lens
-      capture a suburban district with asphalt and white and yellow
-      road markings.
-      Low concrete curbs and sidewalks border gardens, detached stucco
-      and craftsman homes, mature leafy trees, scattered palms and flowering
-      jacarandas. The neighborhood includes small two-story shops.
-      Keep the hood fixed in frame. No camera cuts, dashboard, racing
-      barriers, text overlays or HUD.
+      Onboard footage of a taxi driving through a suburban district. Stucco and
+      craftsman homes, small shops, gardens, mature trees, palms and jacarandas.
+      Asphalt, concrete curbs and sidewalks. Vehicle bonnet visible. The view follows
+      the steering and movement of the car.
     prompt_context: >-
-      Photorealistic forward-facing camera fixed above a pale silver taxi
-      hood, with the curved bonnet and dark wiper recess visible across
-      the lower fifth. Level horizon and calibrated wide-angle lens.
-      A suburban district with asphalt, low concrete curbs, sidewalks,
-      mature leafy trees and landscaped low-rise buildings.
-      No camera cuts, dashboard, racing barriers or text overlays.
+      Onboard footage of a taxi driving through a suburban district. Vehicle bonnet
+      visible. The view follows the steering and movement of the car.
