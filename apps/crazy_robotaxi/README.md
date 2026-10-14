@@ -523,6 +523,11 @@ the source YAML directly and compiles it as needed.
 Each spawn can define both a full `prompt` for normal play and a shorter
 `prompt_context` base for `--live-edit-dynamic-prompts`; selected dynamic
 fragments are appended only to the latter.
+The static `prompt` persists throughout driving: describe the camera,
+visual style, weather and regional scenery without fixing the current road
+placement, lane count, upcoming turn or landmark position. Spawn-specific
+geometry belongs in the initial image and its offline generation prompt;
+location-specific descriptions belong in the dynamic map fragments.
 
 The bundled maps each have a dedicated hood-view initial frame. FlashDreams
 Raceway shows grandstands, pit garages and a city skyline; Boulevard District
