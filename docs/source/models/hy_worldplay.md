@@ -85,8 +85,6 @@ under matched settings.
   milliseconds, at steady state (median of the post-warmup chunks), measured at num_chunk=8,
   704x1280, seed=0 on a single GB300. For an apples-to-apples comparison, both implementations are
   forced to use the cuDNN attention backend and torch.compile under matched runtime settings.
-  For the official HY-WorldPlay implementation, see
-  <a href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay/tests/parity_check">this instruction</a>.
 </figcaption>
 <script src="../_static/js/benchmark_chart.js"></script>
 

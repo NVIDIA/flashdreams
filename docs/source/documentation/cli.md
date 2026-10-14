@@ -124,8 +124,6 @@ callers need migration:
 | --- | --- |
 | LingBot scenarios in `configs/deterministic_quality_benchmarks.json` and `configs/one_minute_demo_benchmarks.json` | Use `cam2v-lingbot-world-fast-taehv-window15-sink3`. Move example inputs, block count, and seed after `--`; keep frame dimensions, FPS, MP4 path, and stats path before it. |
 | OmniDreams scenarios in those files, and built-in `omnidreams-sv-example-smoke` | `interactive-drive-omnidreams` is the current application, but it does not expose the old recorded-example UUID/replay arguments. Recreating the same conditioning and quality baseline needs a separate migration. |
-| HY-WorldPlay `tests/parity_check/bench.sh` and `bench_batch.sh` | `cam2v-hy-worldplay` accepts `--pose-path` and `--total-blocks`, but does not expose the old `--pose`, `--num-chunk`, or `--ckpt-path` flags. Reproduce the camera trajectory and checkpoint/noise settings before using it for parity comparisons. |
-| FlashVSR `scripts/benchmark_postprocess_multigpu.sh` | The script expects v1 runner flags, post-processing, and output filenames. The current Wan T2V application has no post-processing CLI option; changing the executable alone does not preserve this benchmark. |
 
 Some scenarios call `tools.benchmarks.strict_run`, whose default entry point is
 v1. A migrated scenario must explicitly pass `--entrypoint flashdreams-run-v2`
