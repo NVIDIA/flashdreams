@@ -59,8 +59,7 @@ dependencies = [
 # Mirrors nerfstudio's ``ns-train`` console script shape (one hyphenated
 # binary, tyro union over runners as direct subcommands).
 flashdreams-run = "flashdreams.scripts.cli:entrypoint"
-# The same idea on the v2 API, kept separate while both exist: v2 applications
-# implement a different contract, so one binary could not resolve both.
+# Application CLI for the v2 runtime and its registered model adapters.
 flashdreams-run-v2 = "flashdreams.runtime_v2.cli:entrypoint"
 flashdreams-benchmark = "tools.benchmarks.cli:main"
 # Wraps a runner in `nsys profile` with NVTX ranges enabled.
@@ -140,7 +139,6 @@ include = ["flashdreams*", "tools*"]
 exclude = ["tests", "flashdreams._pytest_plugins*"]
 
 [tool.setuptools.package-data]
-"flashdreams.serving.webrtc" = ["web/*.html", "web/*.css", "web/*.js", "web/assets/*.svg"]
 "flashdreams.runtime_v2.serving" = ["web/*.html", "web/*.js"]
 
 [dependency-groups]
