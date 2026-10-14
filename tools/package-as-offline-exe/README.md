@@ -13,8 +13,8 @@ complete `flashdreams-run-v2` command:
 ```bash
 uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
   --output artifacts/taxi-omnidreams-bundle \
-  ::: flashdreams-run-v2 crazy-robotaxi-omnidreams-fast-perf-responsive \
-  --mode native-window
+  ::: flashdreams-run-v2 crazy-robotaxi-omnidreams-fast-perf \
+  --mode native-window --fullscreen
 ```
 
 The command after `:::` must begin with `flashdreams-run-v2`, and its effective
