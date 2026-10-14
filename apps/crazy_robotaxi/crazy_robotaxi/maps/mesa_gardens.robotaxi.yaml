@@ -249,14 +249,12 @@ spawns:
   road: palm_avenue
   lane: 2
   distance_m: 60
-  prompt: Photorealistic forward-facing camera fixed above a pale silver taxi hood, with the curved bonnet
-    and dark wiper recess visible across the lower fifth. Level horizon and calibrated wide-angle lens.
-    A flat desert resort town with asphalt, white and yellow road markings, low concrete curbs and
-    sidewalks. The regional architecture includes cream stucco shops, terracotta arcades, low adobe garden
-    walls, resort hotels and a museum. Date palms, bougainvillea, agave, gravel gardens and rust-colored
-    mesas give the area its character. No dashboard, camera cuts, racing barriers or text overlays.
-  prompt_context: Photorealistic forward-facing camera fixed above a pale silver taxi hood, with the curved
-    bonnet and dark wiper recess visible across the lower fifth. Level horizon and calibrated wide-angle
-    lens. A flat desert resort town with asphalt, low concrete curbs, sidewalks, cream stucco and
-    adobe buildings, date palms and desert gardens. No dashboard, camera cuts, racing barriers or text overlays.
+  prompt: >-
+    Onboard footage of a taxi driving through a desert resort town. Cream stucco shops,
+    terracotta arcades, adobe garden walls, resort hotels and mesas. Date palms,
+    bougainvillea, agave and gravel gardens. Asphalt, concrete curbs and sidewalks.
+    Vehicle bonnet visible. The view follows the steering and movement of the car.
+  prompt_context: >-
+    Onboard footage of a taxi driving through a desert resort town. Vehicle bonnet
+    visible. The view follows the steering and movement of the car.
   image: mesa_gardens_initial_frame.png
