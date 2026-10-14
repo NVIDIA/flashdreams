@@ -270,16 +270,12 @@ spawns:
   road: row_1_0
   lane: 2
   distance_m: 45
-  prompt: Photorealistic forward-facing camera fixed above a pale silver taxi hood, with the curved bonnet
-    and dark wiper recess visible across the lower fifth. Level horizon and calibrated wide-angle lens.
-    A waterfront town with asphalt, white and yellow road markings, low concrete curbs and sidewalks.
-    The neighborhood features red-brick market halls, green awnings, small cafes, street trees, iron lamps,
-    dock cranes, ferry terminals, brick apartments, dockside workshops and visitor parking courts.
-    No dashboard, camera cuts,
-    racing barriers or text overlays.
-  prompt_context: Photorealistic forward-facing camera fixed above a pale silver taxi hood, with the curved
-    bonnet and dark wiper recess visible across the lower fifth. Level horizon and calibrated wide-angle
-    lens. A flat harbor town with asphalt, low concrete curbs, sidewalks, red-brick buildings, green
-    awnings and iron street lamps.
-    No dashboard, camera cuts, racing barriers or text overlays.
+  prompt: >-
+    Onboard footage of a taxi driving through a harbor market town. Brick market halls,
+    green awnings, cafes, street trees, iron lamps, dock cranes and ferry terminals.
+    Asphalt, concrete curbs and sidewalks. Vehicle bonnet visible. The view follows the
+    steering and movement of the car.
+  prompt_context: >-
+    Onboard footage of a taxi driving through a harbor market town. Vehicle bonnet
+    visible. The view follows the steering and movement of the car.
   image: harbor_market_initial_frame.png
