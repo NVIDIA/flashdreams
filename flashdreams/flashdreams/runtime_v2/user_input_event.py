@@ -21,6 +21,21 @@ class KeyboardInputState(Enum):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class FullscreenEnabledOptimalWindowSizeUserInputEvent(UserInputEvent):
+    """Native fullscreen dimensions supplied when the session opens."""
+
+    width: int
+    """Fullscreen window width."""
+    height: int
+    """Fullscreen window height."""
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "fullscreen_enabled_optimal_window_size"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class NumeralKeypadUserInputEvent(UserInputEvent):
     """User input event for a numeral keypad."""
 

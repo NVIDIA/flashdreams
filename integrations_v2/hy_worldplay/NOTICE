@@ -1,0 +1,31 @@
+FlashDreams HY-WorldPlay integration
+Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+NVIDIA modifications are licensed under Apache-2.0; see the Apache-2.0
+section of the bundled _licenses.txt.
+The following upstream portions retain their original terms:
+
+impl/_pose.py: pose parsing/action labels from hyvideo/generate.py use the
+Tencent HunyuanVideo-1.5 Community License Agreement; camera trajectories
+from hyvideo/generate_custom_trajectory.py use the Tencent HY-WorldPlay
+Community License Agreement.
+impl/_memory.py: FOV helpers from hyvideo/utils/retrieval_context.py use
+the Tencent HunyuanVideo-1.5 Community License Agreement; memory selection
+from wan/models/utils.py uses the Tencent HY-WorldPlay Community License
+Agreement. Modified by NVIDIA for FlashDreams interfaces, types and device
+handling. Source comparison:
+https://github.com/Tencent-Hunyuan/HY-WorldPlay/tree/1588e1336e842b03b0a7860c654ebd7c46bb065e
+Full terms, including acceptable-use policies, are maintained in the
+repository-root LICENSES/ directory. Standalone distributions include all
+four source licenses in _licenses.txt alongside this NOTICE.
+
+Tencent HY-WorldPlay is licensed under the Tencent HY-WorldPlay Community License Agreement, Copyright © 2025 Tencent. All Rights Reserved. The trademark rights of “Tencent Hunyuan” are owned by Tencent or its affiliate.
+
+Tencent Hunyuan is licensed under the Tencent Hunyuan Community License Agreement, Copyright © 2025 Tencent. All Rights Reserved. The trademark rights of “Tencent Hunyuan” are owned by Tencent or its affiliate.
+
+impl/_prope.py: MIT-licensed PRoPE helpers adapted for FlashDreams Q/K/V
+and cached attention interfaces. The original copyright and full MIT
+notice remain in the source file and the MIT section of _licenses.txt.
+Copyright (c) Authors of "PRoPE: Projective Positional Encoding for Multiview Transformers"
+Upstream:
+https://github.com/Tencent-Hunyuan/HY-WorldPlay/blob/1588e1336e842b03b0a7860c654ebd7c46bb065e/hyvideo/prope/camera_rope.py

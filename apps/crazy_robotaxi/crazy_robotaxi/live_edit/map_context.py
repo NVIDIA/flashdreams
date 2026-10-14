@@ -17,6 +17,7 @@ from omnidreams_game_engine.game_map.types import (
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinityResolver
 from omnidreams_game_engine.types import VehicleState
 
+from crazy_robotaxi.live_edit.config import LiveEditMapContextConfig
 from crazy_robotaxi.navigation import NavigationLane, TaxiNavigationMap
 
 _CURVE_THRESHOLD_RAD = math.radians(15.0)
@@ -64,10 +65,11 @@ def compose_map_suffix(
     node_phrase: str | None,
     node_context: str | None,
     curve: str | None,
-    motion: str,
+    motion: str | None,
 ) -> str:
     """Compose one normalized map/motion suffix in stable order."""
     curve_phrase = None if curve is None else f"The road curves {curve} ahead."
+    motion_phrase = None if motion is None else _MOTION_PHRASES[motion]
     return " ".join(
         part.strip()
         for part in (
@@ -75,7 +77,7 @@ def compose_map_suffix(
             node_phrase,
             node_context,
             curve_phrase,
-            _MOTION_PHRASES[motion],
+            motion_phrase,
         )
         if part is not None and part.strip()
     )
@@ -94,8 +96,13 @@ class MapPromptState:
 class MapContextTracker:
     """Classify map topology with chunk-level stability and hysteresis."""
 
-    def __init__(self, game_map: ResolvedGameMap) -> None:
+    def __init__(
+        self,
+        game_map: ResolvedGameMap,
+        config: LiveEditMapContextConfig,
+    ) -> None:
         self._game_map = game_map
+        self._config = config
         self._nodes = {node.node_id: node for node in game_map.topology.nodes}
         self._roads = {road.road_id: road for road in game_map.topology.roads}
         self._lanes = {lane.lane_id: lane for lane in game_map.lanes}
@@ -122,7 +129,7 @@ class MapContextTracker:
         self._outgoing_chunks = 0
         self._off_map_chunks = 0
         self._last_state = MapPromptState(
-            _MOTION_PHRASES["stationary"], None, None, "stationary"
+            self._compose_suffix(), None, None, "stationary"
         )
 
     def reset(self) -> None:
@@ -134,7 +141,7 @@ class MapContextTracker:
         self._outgoing_chunks = 0
         self._off_map_chunks = 0
         self._last_state = MapPromptState(
-            _MOTION_PHRASES["stationary"], None, None, "stationary"
+            self._compose_suffix(), None, None, "stationary"
         )
 
     def update(self, state: VehicleState) -> MapPromptState:
@@ -150,9 +157,7 @@ class MapContextTracker:
             self._off_map_chunks += 1
             if self._off_map_chunks < 2:
                 return self._last_state
-            result = MapPromptState(
-                _MOTION_PHRASES[self._motion], None, None, self._motion
-            )
+            result = MapPromptState(self._compose_suffix(), None, None, self._motion)
             self._last_state = result
             return result
         self._off_map_chunks = 0
@@ -193,12 +198,11 @@ class MapContextTracker:
             stop_at_branch=True,
         )
         result = MapPromptState(
-            suffix=compose_map_suffix(
+            suffix=self._compose_suffix(
                 road_context=road_context,
                 node_phrase=node_phrase,
                 node_context=None if node is None else node.prompt_context,
                 curve=curve,
-                motion=self._motion,
             ),
             road_id=road_id,
             node_id=None if node is None else node.node_id,
@@ -206,6 +210,28 @@ class MapContextTracker:
         )
         self._last_state = result
         return result
+
+    def _compose_suffix(
+        self,
+        *,
+        road_context: str | None = None,
+        node_phrase: str | None = None,
+        node_context: str | None = None,
+        curve: str | None = None,
+    ) -> str:
+        """Apply the configured fragment policy and compose one suffix."""
+        config = self._config
+        return compose_map_suffix(
+            road_context=(
+                road_context if config.include_current_road_context else None
+            ),
+            node_phrase=node_phrase if config.include_next_map_node_type else None,
+            node_context=(
+                node_context if config.include_next_map_node_context else None
+            ),
+            curve=(curve if config.include_upcoming_road_curve_direction else None),
+            motion=self._motion if config.include_taxi_motion_state else None,
+        )
 
     def _next_motion(self, speed_mps: float) -> str:
         if self._motion == "reverse":

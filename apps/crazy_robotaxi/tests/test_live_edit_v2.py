@@ -274,7 +274,7 @@ def test_live_edit_rules_preserve_actors_and_complete_frame_capture() -> None:
         LiveEditConfig(style=LiveEditStyleConfig(enabled=True)),
         LiveEditConfig(weather=LiveEditWeatherConfig(enabled=True)),
         LiveEditConfig(obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=1.0)),
-        LiveEditConfig(map_context=LiveEditMapContextConfig(enabled=True)),
+        LiveEditConfig(dynamic_prompts=LiveEditMapContextConfig(enabled=True)),
     ],
 )
 def test_prompt_live_edit_requires_python_dit(config: LiveEditConfig) -> None:
@@ -608,7 +608,7 @@ def test_map_only_postprocessing_returns_original_video() -> None:
         )
     )
     gameplay = LiveEditGameplay(
-        LiveEditConfig(map_context=LiveEditMapContextConfig(enabled=True)),
+        LiveEditConfig(dynamic_prompts=LiveEditMapContextConfig(enabled=True)),
         scene,
         (),
         vehicle=VehicleConfig(),
@@ -618,11 +618,40 @@ def test_map_only_postprocessing_returns_original_video() -> None:
     assert gameplay.postprocess_video(cast(Any, video), None) is video
 
 
-def test_map_context_cli_enables_live_edit_runtime() -> None:
+def test_dynamic_prompts_cli_enables_live_edit_runtime() -> None:
     parser = argparse.ArgumentParser()
     add_live_edit_args(parser)
 
-    config = live_edit_config_from_args(parser.parse_args(["--live-edit-map-context"]))
+    config = live_edit_config_from_args(
+        parser.parse_args(["--live-edit-dynamic-prompts"])
+    )
 
-    assert config.map_context.enabled
+    assert config.dynamic_prompts.enabled
     assert config.any_enabled
+
+
+def test_dynamic_prompt_defaults_are_disabled_with_all_fragments_included() -> None:
+    config = LiveEditMapContextConfig()
+
+    assert not config.enabled
+    assert config.include_current_road_context
+    assert config.include_next_map_node_type
+    assert config.include_next_map_node_context
+    assert config.include_upcoming_road_curve_direction
+    assert config.include_taxi_motion_state
+
+
+def test_dynamic_prompts_need_enabled_and_an_included_fragment() -> None:
+    inclusions_disabled = LiveEditMapContextConfig(
+        enabled=True,
+        include_current_road_context=False,
+        include_next_map_node_type=False,
+        include_next_map_node_context=False,
+        include_upcoming_road_curve_direction=False,
+        include_taxi_motion_state=False,
+    )
+    config = LiveEditConfig(dynamic_prompts=inclusions_disabled)
+
+    assert not inclusions_disabled.active
+    assert not config.any_enabled
+    assert not config.requires_python_dit

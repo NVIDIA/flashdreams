@@ -15,6 +15,31 @@ MESSAGE_TYPE_ERROR = "error"
 MESSAGE_TYPE_EVENT = "event"
 MESSAGE_TYPE_EVENT_ACK = "event_ack"
 MESSAGE_TYPE_HEARTBEAT = "heartbeat"
+CLEAR_EVENT_STATES = frozenset({"clear", "release", "off", "none"})
+
+
+def parse_event_payload(payload: Mapping[str, object]) -> tuple[str, str]:
+    """Validate event field types before normalizing the ID and state.
+
+    Raises:
+        ValueError: Fields have invalid types or a triggering event has no ID.
+    """
+    event_id = payload.get("event_id", payload.get("id", ""))
+    state = payload.get("state", "trigger")
+    if not isinstance(state, str):
+        raise ValueError("Event payload 'state' must be a string.")
+    if event_id is not None and not isinstance(event_id, str):
+        raise ValueError(
+            "Event payload 'event_id' must be a string or null for clearing."
+        )
+    event_id = "" if event_id is None else event_id.strip()
+    state = state.strip().lower() or "trigger"
+    if not event_id and state not in CLEAR_EVENT_STATES:
+        raise ValueError(
+            "Event payload must include non-empty 'event_id' "
+            "unless state clears the active event."
+        )
+    return event_id, state
 
 
 def make_error_payload(message: str) -> dict[str, str]:

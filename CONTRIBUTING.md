@@ -271,17 +271,19 @@ docs/source/                    # Zensical Markdown sources
   FlashDreams above. Use `pytest` and prefer existing fixtures over
   hand-rolled setup. See
   [Testing](#testing) for discovery and marker requirements.
-- Every source file added by a contribution must include the SPDX
-  header used elsewhere in the project:
+- Every source file added by a contribution must include this concise
+  two-line SPDX header:
 
   ```python
-  # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  # SPDX-FileCopyrightText: Copyright (c) <YEAR> <COPYRIGHT HOLDER>
   # SPDX-License-Identifier: Apache-2.0
   ```
 
-  External contributors should add their own copyright line *above* the
-  NVIDIA line if they wish to be attributed; both attributions are
-  retained.
+  Use the current calendar year and the name of the actual copyright
+  holder, which may be the contributor, their organization, or NVIDIA.
+  Preserve existing copyright notices when modifying a file; multiple
+  `SPDX-FileCopyrightText` lines are allowed. The longer Apache-2.0
+  boilerplate is accepted but not preferred.
 
 ## Testing
 

@@ -17,11 +17,8 @@ model. FlashDreams integrates the published BF16 checkpoint as an
 image-established, keyboard/mouse-controlled V2 application with deterministic
 per-action metrics and MP4, WebRTC, or native-window presentation.
 
-<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-    <source src="https://huggingface.co/Overworld/Waypoint-1.5-1B/resolve/main/assets/wp_1.5.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/waypoint/waypoint-1.5.avif" alt="" />
 </div>
 <figcaption class="tiny-figcaption">
   Upstream Waypoint 1.5 teaser from the
@@ -42,8 +39,10 @@ uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
   --example-data --seed 464
 ```
 
-- [Demo presets](#action2v-presets)
-- [Demo arguments](../demos/action2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#action2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/action2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -62,7 +61,7 @@ uv run --no-sync flashdreams-run-v2 action2v-waypoint-1-5-1b \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/waypoint">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/waypoint">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/waypoint/config.py">Pipeline configurations</a>
 </div>
 

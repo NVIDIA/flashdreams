@@ -9,24 +9,12 @@ title: 'Community'
 Use the issue tracker for work that needs a record. Use Discord for informal
 questions and conversation. Do not report security problems in public.
 
-### [Contribute](https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md)
-
-Development workflow, testing requirements, and contribution policy.
-
-### [Bugs and feature requests](https://github.com/NVIDIA/flashdreams/issues)
-
-Search existing issues, then open one with the command, expected result,
-actual result, stack trace, and environment.
-
-### [Discord](https://discord.gg/cMt2mHm4aN)
-
-Ask open-ended questions and share results in `#flashdreams` on the
-NVIDIA Omniverse server.
-
-### [Security](https://github.com/NVIDIA/flashdreams/blob/main/SECURITY.md)
-
-Follow the private disclosure process. Never file a public issue for a
-vulnerability.
+<div class="fd-card-grid fd-card-grid-four fd-overview-grid">
+  <a class="fd-card fd-model-card" href="https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md"><span class="fd-card-title">Contribute</span><span>Development workflow, testing requirements, and contribution policy.</span></a>
+  <a class="fd-card fd-model-card" href="https://github.com/NVIDIA/flashdreams/issues"><span class="fd-card-title">Bugs and feature requests</span><span>Search existing reports or open an issue with a reproducible example.</span></a>
+  <a class="fd-card fd-model-card" href="https://discord.gg/cMt2mHm4aN"><span class="fd-card-title">Discord</span><span>Ask questions and share results in #flashdreams on the NVIDIA Omniverse server.</span></a>
+  <a class="fd-card fd-model-card" href="https://github.com/NVIDIA/flashdreams/blob/main/SECURITY.md"><span class="fd-card-title">Security</span><span>Follow the private disclosure process for vulnerabilities.</span></a>
+</div>
 
 ## Before opening an issue
 

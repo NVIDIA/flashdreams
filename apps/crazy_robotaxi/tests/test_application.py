@@ -29,6 +29,7 @@ from crazy_robotaxi.headless_ui import CrazyRobotaxiHeadlessUILoop
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
+    LiveEditMapContextConfig,
     LiveEditObstacleConfig,
     LiveEditStyleConfig,
     LiveEditWeatherConfig,
@@ -444,6 +445,38 @@ def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
     assert model_loop.state.config.race_course_id == "grand-prix"
 
 
+def test_free_roam_cli_selection_starts_without_a_race_course(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "crazy_robotaxi.session.WorldModelRollout", lambda **_: SimpleNamespace()
+    )
+    app = _application(
+        pipeline_factory=lambda config, device: object(),
+        scene_factory=lambda request, raster: _scene(),
+    )
+    app.init(
+        [
+            "--device",
+            "cpu",
+            "--prewarm-blocks",
+            "0",
+            "--game-mode",
+            "free-roam",
+            "--map",
+            str(_DEMO_RACE_MAP),
+        ]
+    )
+
+    session = app.create_session(app.session_desc())
+    session.init()
+    ui_loop, model_loop = session._take_loops()
+    model_loop._run_message_batch()
+
+    assert ui_loop.state._menu_stage == "loading"
+    assert model_loop.state.game_selected
+    assert model_loop.state.config.game_mode == "free-roam"
+    assert model_loop.state.config.race_course_id is None
+
+
 def test_user_config_overrides_model_and_game_without_selecting_menus(
     tmp_path: Path,
 ) -> None:
@@ -748,6 +781,10 @@ def test_diagnostics_flag_does_not_enable_pipeline_profiling(
             LiveEditConfig(
                 obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=1.0)
             ),
+            "disabled",
+        ),
+        (
+            LiveEditConfig(dynamic_prompts=LiveEditMapContextConfig(enabled=True)),
             "disabled",
         ),
         (LiveEditConfig(coins=LiveEditCoinsConfig(enabled=True)), "required"),

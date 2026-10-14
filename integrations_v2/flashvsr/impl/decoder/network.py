@@ -1,5 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Modified for FlashDreams from OpenImagingLab/FlashVSR TCDecoder helpers.
+# Apache-2.0 source: examples/WanVSR/utils/TCDecoder.py; parity comparison
+# b527c6f285fb30df530f5febc8b45764a789c961. See THIRD-PARTY-NOTICES.
 
 """FlashDreams-backed FlashVSR TCDecoder candidate.
 

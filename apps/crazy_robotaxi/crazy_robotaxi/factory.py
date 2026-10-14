@@ -8,7 +8,6 @@ from __future__ import annotations
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
-from typing import Literal
 
 from omnidreams_game_engine.conditioning import LudusConditionRenderer
 from omnidreams_game_engine.config import BevConfig, RasterConfig, VehicleConfig
@@ -23,6 +22,8 @@ from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition, VehicleState
 
 from crazy_robotaxi.dynamics import TaxiVehicleConfig, integrate_taxi_vehicle
+from crazy_robotaxi.free_roam import FreeRoamGameRules
+from crazy_robotaxi.game_selection import GameMode
 from crazy_robotaxi.high_scores import RaceTimeStore
 from crazy_robotaxi.live_edit.config import LiveEditConfig
 from crazy_robotaxi.live_edit.nitro_ability import integrate_with_nitro
@@ -41,7 +42,7 @@ def build_taxi_engine(
     bev: BevConfig,
     frame_interval_s: float,
     device: str,
-    game_mode: Literal["taxi", "race"] = "taxi",
+    game_mode: GameMode = "taxi",
     race_course_id: str | None = None,
     race_times_path: Path | None = None,
     actor_controllers: tuple[PhysicsActorController, ...] = (),
@@ -91,7 +92,9 @@ def build_taxi_engine(
     frame_advance = (
         None if live_edit_gameplay is None else live_edit_gameplay.advance_frame
     )
-    if game_mode == "race":
+    if game_mode == "free-roam":
+        rules = FreeRoamGameRules(frame_advance=frame_advance)
+    elif game_mode == "race":
         courses = scene.game_map.race_courses
         if not courses:
             raise ValueError(f"Map {scene.game_map.map_id!r} defines no race courses")

@@ -9,7 +9,8 @@ House style distilled from `flashdreams/`. Match it when adding or editing Pytho
 
 ## File header
 
-Every `.py` file starts with the short SPDX header, then a blank line, then the module docstring, then a blank line, then imports.
+Every `.py` file starts with the concise two-line SPDX header, then a blank
+line, then the module docstring, then a blank line, then imports.
 
 ```python
 # SPDX-FileCopyrightText: Copyright (c) <YEAR> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
