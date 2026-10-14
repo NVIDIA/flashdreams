@@ -35,6 +35,8 @@ include = ["crazy_robotaxi*"]
 crazy_robotaxi = [
     "assets/*.npz",
     "maps/*.robotaxi.yaml",
+    "maps/*.png",
+    "maps/*.prompt.txt",
 ]
 
 [tool.uv]

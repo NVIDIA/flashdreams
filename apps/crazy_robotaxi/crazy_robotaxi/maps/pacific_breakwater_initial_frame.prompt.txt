@@ -1,0 +1,29 @@
+Pacific Breakwater initial frame provenance
+
+Artwork: built-in image_gen, using pacific_breakwater_spawn_geometry.png as
+the geometry reference. Original artwork is retained at
+../../tools/pacific_breakwater_artwork.png relative to this file.
+
+The final seed is a deterministic composite, not the untouched generated image.
+Rebuild from the repository root in the app Python environment:
+python apps/crazy_robotaxi/tools/compose_map_frames.py pacific_breakwater
+
+Road surfaces, curbs, and marking masks use the map's compiled spawn pose and
+canonical front-camera f-theta calibration at 1280x704. The hood occludes the
+bottom of the road naturally. Generated paint is removed before using the
+asphalt texture. Dashed white dividers follow the authored semantic polylines
+with 3-metre paint segments and 6-metre gaps; outer markings remain solid.
+Generated scenery is registered to the foreground pavement boundary. The
+script verifies visible white paint against the semantic mask and saves a
+cyan alignment overlay plus the raw semantic geometry preview.
+The artwork is appearance-only; its inferred road geometry is discarded.
+
+Original artwork-generation prompt (before deterministic compositing):
+
+Edit this exact input image as a photorealistic material pass. It is a calibrated 1280x704 front camera render for a driving simulator, and its pixel layout MUST remain fixed. Return the same composition/aspect ratio.
+Do NOT redesign the image or make a conventional racing photograph. Keep the underlying flat road plane, all white line positions, silhouette and camera projection exactly as drawn.
+The horizon and road vanishing point MUST remain at y=347/704 = 49.3% of the image height, x=640/1280 = 50% of width. Do not lift the horizon above the vertical midpoint.
+The asphalt region is authoritative. Its outside boundary hits the left frame at 60% of height, and right frame at 65.5%. The three continuous white road divider lines must remain EXACTLY in place with EXACTLY the same curvature, thickness, and endpoints. Keep those three lines SOLID white, do not convert to dashes. Preserve EVERY white stripe as painted in this input. White edge positions must stay unchanged. This is a broad four-lane road, viewed from just right of its center. No road turns visible, no added lanes, lines or intersections. No cross-track stripes.
+Replace flat gray with subtly textured photographic asphalt without changing its shape; replace blue with natural clear sky. Add coastal scenery ONLY to green regions, never to gray road or white markings: small white pit garages with glass and shaded spectators on left, sparse palms behind; low distant coastal landscape; turquoise sea and a stone breakwater on right with small white lighthouse. Barrier bases exactly follow the existing gray/green road boundaries, with fine transparent safety fencing above. Do not bring barriers inward. Keep the scale of roadside buildings small enough to preserve the huge wide-angle road foreground.
+Add a low silver taxi bonnet across only the bottom 18% of image, its curved leading edge peaking at y=580/704 =82.4%, and a slim dark wiper recess at the bottom. Hood clearly visible; no dashboard, driver, wheel or cockpit. Do not modify the road above this hood.
+Warm natural late-afternoon sun, realistic subdued materials, sharp static first frame, no text or logos, no gantry, no HUD. Exact geometry preservation takes priority over dramatic imagery.
