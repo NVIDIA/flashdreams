@@ -447,19 +447,21 @@ def _load_input_video(value: str | Path | None, max_frames: int | None) -> Loade
         else resolve_input_path(value, cache_dir=_INPUT_CACHE_DIR)
     )
     try:
+        import av  # noqa: PLC0415
         import imageio_ffmpeg  # noqa: PLC0415
     except ImportError as error:  # pragma: no cover - dependency gate
         raise ImportError(
-            "Decoding the v2v input needs imageio-ffmpeg. "
+            "Decoding the v2v input needs PyAV and imageio-ffmpeg. "
             "Install the flashdreams-v2v package."
         ) from error
 
     output_params: list[str] = []
     fps: float | None = None
-    if path.suffix.lower() == ".avif":
-        import av  # noqa: PLC0415
-
-        with av.open(str(path)) as container:
+    with av.open(str(path)) as container:
+        brands = container.metadata.get("major_brand", "") + container.metadata.get(
+            "compatible_brands", ""
+        )
+        if any(brands[i : i + 4] in {"avif", "avis"} for i in range(0, len(brands), 4)):
             streams = container.streams.video
             if not streams:
                 raise ValueError(f"Input video contains no video streams: {path}")
