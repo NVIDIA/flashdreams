@@ -7,16 +7,19 @@ Original artwork is retained at ../../tools/flashdreams_raceway_artwork.png.
 The final 1280x704 seed is deterministically composited. The camera and road
 geometry come from this map's default compiled spawn. Generated asphalt is
 used only as texture. Road surfaces, curbs, white and yellow markings use
-canonical f-theta ground projection. Dashed dividers have 3-metre segments
-and 6-metre gaps along the semantic polylines; solid dividers stay continuous.
+canonical f-theta ground projection. Paint polylines are read from the compiled archive with the runtime Ludus
+lane-line loader, including its 3-metre dash / 9-metre gap pattern, sampled
+endpoints and simplified solid groups.
 Foreground scenery occludes disconnected distant ground surfaces. The silver
 hood is retained as a foreground layer occupying roughly the lower fifth.
 
 Rebuild in the app environment from the repository root:
 python apps/crazy_robotaxi/tools/compose_map_frames.py flashdreams_raceway
 
-The script checks the visible white/yellow paint masks, writes the initial
+The script checks paint against runtime-loaded lane geometry, writes the initial
 frame, and saves a cyan semantic alignment overlay plus raw geometry preview.
+This is a static geometry check, not an Omnidreams motion validation.
+The previous compositor used 6-metre gaps; that did not match runtime.
 
 Artwork-generation prompt:
 

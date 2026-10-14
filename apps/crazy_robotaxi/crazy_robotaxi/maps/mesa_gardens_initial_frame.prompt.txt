@@ -1,0 +1,32 @@
+mesa_gardens first-frame provenance
+
+Artwork generated with the built-in image_gen tool, using
+mesa_gardens_spawn_geometry.png as the calibrated camera reference.
+Original artwork is retained at ../../tools/mesa_gardens_artwork.png.
+
+The final 1280x704 seed is deterministically composited. The camera and road
+geometry come from this map's default compiled spawn. Generated asphalt is
+used only as texture. Road surfaces, curbs, white and yellow markings use
+canonical f-theta ground projection. Paint polylines are read from the compiled archive with the runtime Ludus
+lane-line loader, including its 3-metre dash / 9-metre gap pattern, sampled
+endpoints and simplified solid groups.
+Foreground scenery occludes disconnected distant ground surfaces. The silver
+hood is retained as a foreground layer occupying roughly the lower fifth.
+
+Rebuild in the app environment from the repository root:
+python apps/crazy_robotaxi/tools/compose_map_frames.py mesa_gardens
+
+The script checks paint against runtime-loaded lane geometry, writes the initial
+frame, and saves a cyan semantic alignment overlay plus raw geometry preview.
+This is a static geometry check, not an Omnidreams motion validation.
+The previous compositor used 6-metre gaps; that did not match runtime.
+This offline artwork prompt is specific to the spawn; it is not used as the
+runtime static prompt, which must remain valid while the car moves and turns.
+
+Artwork-generation prompt:
+
+Use case: photorealistic-natural. Asset: Mesa Gardens taxi-map first-frame artwork.
+Transform the supplied calibrated road render into a beautiful realistic desert resort town in clear warm morning light. Keep the road projection, flat four-lane straight, wide front camera and level horizon at 49.3% image height. Output landscape 1280:704 aspect ratio. Camera is just right of road center. A cross street lies in the distance; no road turns or hills in the foreground.
+Setting: an attractive palm-lined Arizona/Palm Springs style avenue. Cream stucco shops, low adobe garden walls, terracotta-roofed arcades, small resort hotels and occasional flowering bougainvillea stand beyond pale sidewalks. Date palms, agave, flowering desert shrubs and gravel gardens provide distinctive landscaping. Low red sandstone mesas are distant background only; the road is level and the mountains never obstruct it. Airy human-scale architecture, no high-rise skyline, no dense forest, no ocean. Clear blue sky, softly angled warm sunlight, crisp natural colors and realistic asphalt grain.
+Compositing instructions: the semantic road and its markings will be added separately. Make the road entirely UNMARKED dark asphalt. NO yellow or white stripes, crosswalks, parking markings, stop bars, arrows, median islands or invented driveways. No vehicles or people on the road. Keep all scenery outside the curbs.
+Camera: forward hood-view from a pale silver taxi, curved hood visible across the bottom 18%, leading edge at about 82% image height at center and sloping gently down toward the lower corners. Slim black wiper recess at bottom. No driver, dashboard, wheel, cabin, chase perspective, text, logos, HUD, watermark or motion blur. Photographic, inviting, believable and polished.
