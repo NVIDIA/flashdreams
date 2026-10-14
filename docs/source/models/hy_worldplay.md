@@ -16,11 +16,8 @@ real-time interactive image-to-video (I2V) world model with action + camera-traj
 reconstituted-context memory. FlashDreams ships a native port of the distilled WAN-5B variant (Wan 2.2
 TI2V-5B backbone, 4-step distilled Euler).
 
-<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-    <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-2.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-2.avif" alt="" />
 </div>
 <figcaption class="tiny-figcaption">
   Generated with FlashDreams' native HY-WorldPlay Implementation.
@@ -38,8 +35,10 @@ uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay \
   --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
 ```
 
-- [Demo presets](#cam2v-presets)
-- [Demo arguments](../demos/cam2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#cam2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/cam2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -58,7 +57,7 @@ uv run --no-sync flashdreams-run-v2 cam2v-hy-worldplay \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/hy_worldplay">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/hy_worldplay/config.py">Pipeline configurations</a>
 </div>
 
@@ -96,30 +95,21 @@ under matched settings.
 
 ## Samples
 
-<div class="model-video-grid">
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-4.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
+<div class="model-media-grid">
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-4.avif" alt="" />
     <figcaption class="tiny-figcaption">
       Walking through a seaside village
     </figcaption>
   </div>
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-8.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-8.avif" alt="" />
     <figcaption class="tiny-figcaption">
       Walking through a snowy forest
     </figcaption>
   </div>
-  <div class="model-video-card">
-    <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-      <source src="https://research.nvidia.com/labs/sil/projects/flashdreams/assets/hy_worldplay/hy-worldplay-wan-i2v-5b-9.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
+  <div class="fd-card fd-model-card">
+    <img class="fd-card-preview" src="../_static/model_clips/hy_worldplay/hy-worldplay-wan-i2v-5b-9.avif" alt="" />
     <figcaption class="tiny-figcaption">
       Walking toward a castle
     </figcaption>

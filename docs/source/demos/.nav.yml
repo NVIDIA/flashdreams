@@ -1,8 +1,10 @@
 nav:
-  - index.md
-  - Crazy Robotaxi: crazy_robotaxi.md
-  - Interactive Drive: interactive_drive.md
-  - Action2V: action2v.md
-  - Cam2V: cam2v.md
-  - T2V: t2v.md
-  - V2V: v2v.md
+  - Overview: index.md
+  - Game-Like Experiences:
+      - Crazy Robotaxi: crazy_robotaxi.md
+      - Interactive Drive: interactive_drive.md
+  - Model Interfaces:
+      - Action2V: action2v.md
+      - Cam2V: cam2v.md
+      - T2V: t2v.md
+      - V2V: v2v.md

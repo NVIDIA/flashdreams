@@ -81,6 +81,154 @@ jobs:
       - name: Run CPU unit tests
         run: uv run --no-sync pytest -m ci_cpu -v
 
+      - name: Prepare FlashDreams wheel artifact
+        shell: bash
+        env:
+          BUILD_COMMAND: uv build --wheel --package flashdreams
+          BUILD_CONTAINER_IMAGE: nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
+        run: |
+          set -euo pipefail
+          BUILD_PYTHON_VERSION="$(uv run --no-sync python -VV 2>&1)"
+          UV_VERSION="$(uv --version)"
+          export BUILD_PYTHON_VERSION UV_VERSION
+
+          uv run --no-sync python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import sys
+          import zipfile
+          from email.parser import BytesParser
+          from email.policy import default
+          from pathlib import Path, PurePosixPath
+
+          dist = Path("dist")
+          wheels = sorted(dist.glob("*.whl"))
+          if len(wheels) != 1:
+              sys.exit(f"Expected exactly one wheel in {dist}, found {len(wheels)}")
+
+          wheel = wheels[0]
+          filename = re.fullmatch(
+              r"flashdreams-(?P<version>[^-]+)-py3-none-any\.whl", wheel.name
+          )
+          if filename is None:
+              sys.exit(f"Unexpected wheel filename: {wheel.name}")
+
+          with zipfile.ZipFile(wheel) as archive:
+              names = archive.namelist()
+              if len(names) != len(set(names)):
+                  sys.exit("Wheel contains duplicate archive members")
+              if corrupt_member := archive.testzip():
+                  sys.exit(f"Wheel contains a corrupt member: {corrupt_member}")
+
+              unsafe_members = [
+                  name
+                  for name in names
+                  if PurePosixPath(name).is_absolute()
+                  or ".." in PurePosixPath(name).parts
+              ]
+              if unsafe_members:
+                  sys.exit(f"Wheel contains unsafe member paths: {unsafe_members}")
+
+              native_suffixes = {".dll", ".dylib", ".exe", ".pyd", ".so"}
+              native_members = [
+                  name
+                  for name in names
+                  if native_suffixes.intersection(
+                      suffix.lower() for suffix in PurePosixPath(name).suffixes
+                  )
+              ]
+              if native_members:
+                  sys.exit(f"Pure-Python wheel contains native files: {native_members}")
+
+              metadata_paths = [
+                  name for name in names if name.endswith(".dist-info/METADATA")
+              ]
+              wheel_metadata_paths = [
+                  name for name in names if name.endswith(".dist-info/WHEEL")
+              ]
+              if len(metadata_paths) != 1 or len(wheel_metadata_paths) != 1:
+                  sys.exit("Wheel must contain exactly one METADATA and one WHEEL file")
+
+              metadata = BytesParser(policy=default).parsebytes(
+                  archive.read(metadata_paths[0])
+              )
+              wheel_metadata = BytesParser(policy=default).parsebytes(
+                  archive.read(wheel_metadata_paths[0])
+              )
+
+          canonical_name = re.sub(r"[-_.]+", "-", metadata.get("Name", "")).lower()
+          if canonical_name != "flashdreams":
+              sys.exit(f"Unexpected project name in wheel metadata: {canonical_name!r}")
+
+          version = metadata.get("Version", "")
+          if version != filename["version"]:
+              sys.exit(
+                  f"Wheel version mismatch: filename={filename['version']!r}, "
+                  f"metadata={version!r}"
+              )
+
+          tags = {tag.strip() for tag in wheel_metadata.get_all("Tag", [])}
+          if tags != {"py3-none-any"}:
+              sys.exit(f"Unexpected wheel tags: {sorted(tags)}")
+
+          with wheel.open("rb") as wheel_file:
+              digest = hashlib.file_digest(wheel_file, "sha256").hexdigest()
+
+          (dist / "SHA256SUMS").write_text(f"{digest}  {wheel.name}\n")
+
+          repository = os.environ["GITHUB_REPOSITORY"]
+          run_id = int(os.environ["GITHUB_RUN_ID"])
+          provenance = {
+              "schema_version": 1,
+              "repository": repository,
+              "source_commit": os.environ["GITHUB_SHA"],
+              "workflow": {
+                  "name": os.environ["GITHUB_WORKFLOW"],
+                  "event": os.environ["GITHUB_EVENT_NAME"],
+                  "ref": os.environ["GITHUB_REF"],
+                  "ref_name": os.environ["GITHUB_REF_NAME"],
+                  "run_id": run_id,
+                  "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                  "run_url": (
+                      f"{os.environ['GITHUB_SERVER_URL']}/{repository}/actions/runs/{run_id}"
+                  ),
+              },
+              "build": {
+                  "command": os.environ["BUILD_COMMAND"],
+                  "container_image": os.environ["BUILD_CONTAINER_IMAGE"],
+                  "runner_os": os.environ["RUNNER_OS"],
+                  "runner_arch": os.environ["RUNNER_ARCH"],
+                  "python_version": os.environ["BUILD_PYTHON_VERSION"],
+                  "uv_version": os.environ["UV_VERSION"],
+              },
+              "artifact": {
+                  "filename": wheel.name,
+                  "project": "flashdreams",
+                  "version": version,
+                  "wheel_tag": "py3-none-any",
+                  "size_bytes": wheel.stat().st_size,
+                  "sha256": digest,
+              },
+          }
+          (dist / "build-provenance.json").write_text(
+              json.dumps(provenance, indent=2, sort_keys=True) + "\n"
+          )
+          PY
+
+      - name: Upload FlashDreams wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flashdreams-wheel-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          path: |
+            dist/flashdreams-*.whl
+            dist/SHA256SUMS
+            dist/build-provenance.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
       # Documentation is built and deployed by `.github/workflows/doc.yml`.
 
   gpu:
@@ -241,4 +389,5 @@ jobs:
 
   # PyPI publication is intentionally disabled. Release wheels must pass the
   # qualified malware-scanning process before the exact scanned artifact is
-  # published. The cpu job above retains the ordinary wheel-build smoke test.
+  # published. The cpu job above preserves the exact candidate for controlled
+  # promotion after the complete workflow succeeds.
