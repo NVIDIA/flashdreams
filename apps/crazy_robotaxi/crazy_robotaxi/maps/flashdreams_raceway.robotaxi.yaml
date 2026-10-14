@@ -213,20 +213,10 @@ spawns:
     distance_m: 220
     image: flashdreams_raceway_initial_frame.png
     prompt: >-
-      Photorealistic forward-facing camera fixed above a pale silver taxi
-      hood, with the curved bonnet and dark wiper recess visible across
-      the lower fifth of the frame. A level horizon and calibrated wide-angle
-      lens overlook a broad, flat city racing circuit with dark asphalt
-      and white road markings. The motorsport venue features covered
-      spectator grandstands, white and charcoal pit garages,
-      glazed hospitality suites and a glass city skyline. Low pale concrete
-      barriers and tall catch fencing separate spectators from the track.
-      Keep the hood fixed in frame, with no camera cuts,
-      dashboard, text overlays or HUD.
+      Onboard footage of a taxi driving through a motor-racing circuit. Covered
+      spectator grandstands, pit garages, trees and city buildings. Asphalt, concrete
+      barriers and catch fences. Vehicle bonnet visible. The view follows the steering
+      and movement of the car.
     prompt_context: >-
-      Photorealistic forward-facing camera fixed above a pale silver taxi
-      hood, with the curved bonnet and dark wiper recess visible across
-      the lower fifth. Level horizon and calibrated wide-angle lens.
-      A broad city racing circuit with dark asphalt, dashed white lane
-      dividers, pale concrete barriers and tall catch fencing. Spectators
-      stay behind the fences. No camera cuts, dashboard or text overlays.
+      Onboard footage of a taxi driving through a motor-racing circuit. Vehicle bonnet
+      visible. The view follows the steering and movement of the car.
