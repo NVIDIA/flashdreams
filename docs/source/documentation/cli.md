@@ -29,6 +29,7 @@ uv run flashdreams-run-v2 <Demo Preset> <System Arguments> -- <Demo Arguments>
 | Argument | Description |
 | --- | --- |
 | `--output-path PATH` | MP4 destination. Required in MP4 mode. |
+| `--synthetic-input-file PATH` | Replay deterministic input from a [synthetic input file](synthetic_input.md). |
 
 ### WebRTC Specific
 
