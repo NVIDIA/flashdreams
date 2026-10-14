@@ -9,9 +9,8 @@ Use the Demo API to build user-facing applications, manage sessions, expose
 controls, route inputs and outputs, configure a model-backed demo, and launch it
 through `flashdreams-run-v2`.
 
-The current application protocol is `flashdreams.api_v2`. The separate
-`flashdreams.runtime.demo` API is experimental and provides higher-level
-scenario, presentation, replay, warmup, and benchmark utilities.
+Application protocols live in `flashdreams.api_v2`, and `flashdreams.runtime_v2`
+provides session execution, presentation, client windows, and metrics.
 
 ## Guides
 
