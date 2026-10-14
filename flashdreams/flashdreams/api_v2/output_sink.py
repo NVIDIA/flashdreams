@@ -4,7 +4,6 @@
 """Application output delivery protocol."""
 
 from abc import abstractmethod
-from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -44,15 +43,4 @@ class OutputSink(Protocol):
     @abstractmethod
     def close(self) -> None:
         """Finish pending writes and release resources."""
-        ...
-
-
-@runtime_checkable
-class FileOutputSink(OutputSink, Protocol):
-    """Output sink whose artifact is written to one filesystem path."""
-
-    @property
-    @abstractmethod
-    def path(self) -> Path:
-        """Return the path used by the sink to write its artifact."""
         ...

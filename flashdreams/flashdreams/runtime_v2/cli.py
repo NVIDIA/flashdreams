@@ -21,7 +21,6 @@ import os
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
-from pathlib import Path
 from typing import Any
 
 from flashdreams.api_v2.application import IApplication
@@ -45,7 +44,6 @@ from flashdreams.runtime_v2.client_window_factory import (
     client_window_mode,
 )
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
-from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -72,6 +70,10 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     parsed = parser.parse_args(own_args)
     if parsed.stats_path is not None:
         os.environ["FLASHDREAMS_SYNC_AND_PROFILE"] = "1"
+        # The stats file is the only reader of the frame rates and input
+        # latency, so asking for one asks for the others.
+        os.environ["FLASHDREAMS_FPS"] = "1"
+        os.environ["FLASHDREAMS_INPUT_LATENCY"] = "1"
     if parsed.preload_application and any(
         argument == "--mode" or argument.startswith("--mode=") for argument in own_args
     ):
@@ -97,7 +99,6 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     try:
         mode = client_window_mode(parsed.mode, modes=parsed._client_window_modes)
         mode.check_arguments(parsed)
-        _validate_profile_path(parsed)
     except ValueError as error:
         parser.error(str(error))
     if parsed.mode == "mp4" and parsed.presentation_mode is None:
@@ -119,18 +120,12 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         if worker or parsed.stats_path is None
         else MetricsOutputSink(parsed.stats_path)
     )
-    profiler = (
-        None
-        if worker or parsed.profile_path is None
-        else RuntimeProfiler(parsed.profile_path)
-    )
     completed = False
     try:
         ApplicationRunner(
             application,
             window,
             metrics_output_sink=metrics_output_sink,
-            profiler=profiler,
             application_flags=ApplicationFlags(
                 preload=parsed.preload_application,
                 skip_preload_validation=parsed.skip_preload_validation,
@@ -276,12 +271,6 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
     what the application generates.
     """
     parser.add_argument(
-        "--profile-path",
-        type=Path,
-        default=None,
-        help="Write host-side input-latency records as JSONL.",
-    )
-    parser.add_argument(
         "--pixel-width", type=int, default=None, help="Frame width to generate."
     )
     parser.add_argument(
@@ -319,19 +308,6 @@ def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
             "Whether the UI runs continuously or only for newly selected model frames."
         ),
     )
-
-
-def _validate_profile_path(parsed: argparse.Namespace) -> None:
-    """Keep the profile separate from artifacts written by the same run."""
-    if parsed.profile_path is None:
-        return
-    profiler = RuntimeProfiler(parsed.profile_path)
-    other_paths = [parsed.stats_path]
-    if parsed.mode == "mp4":
-        other_paths.append(parsed.output_path)
-    for path in other_paths:
-        if path is not None:
-            profiler.validate_output_path(path)
 
 
 def _session_desc(

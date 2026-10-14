@@ -70,68 +70,6 @@ Measure transfer and presentation separately when they are not represented by
 pipeline metrics. For interactive generation, also report estimated
 input-to-visible latency rather than only model FPS.
 
-### Host-side input latency
-
-Use `--profile-path` with a V2 application to write a JSONL profile:
-
-```bash
-uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-    interactive-drive-omnidreams-perf \
-    --mode native-window \
-    --profile-path artifacts/interactive-drive-input-latency.jsonl
-```
-
-Keep the profile file separate from model metrics, file-window output, and an
-enabled chunk lifecycle trace. Both CLI and programmatic runs check these paths
-before opening the artifacts.
-
-Replacement sessions append separate `session_started` and summary segments
-to the same artifact. Each `session_started` record identifies the concrete
-client-window type, output layout, UI and model rates, resolution, presentation
-mode, backpressure mode, and both measurement endpoints.
-
-The input source publishes the monotonic origin for its session-relative
-`UserInputEvent.timestamp` values. `run_session` then records two metrics:
-
-- `input_to_ui_step_s` ends when the IUILoop claims the event.
-- `input_to_window_write_s` ends when the first following client-window
-  `write` call returns.
-
-A source without a shared monotonic origin has
-`input_timestamp_origin_ns: null` and produces no input-latency observations.
-
-Schema version 2 writes an `input_to_ui_step` record as each event is claimed
-and one `window_write_completed` record per window write. Within a session
-segment, match records by `(generation, window_write_index)`. The completion's
-`input_count` gives the number of matching claims. For each matching claim,
-calculate the window-write latency in seconds as
-`(completion.time_ns - input_timestamp_origin_ns - input_timestamp_us * 1000) / 1e9`.
-The claim's `duration_s` already gives the UI-step latency.
-
-Claims awaiting a frame stay in the JSONL stream. The profiler retains at most
-1,024 pending timestamps and writes one completion record when the frame arrives.
-Generation changes and session closure leave unpresented claims unmatched.
-Start a separate correlation map at each `session_started` record.
-
-The native-window measurement ends when its window `write` returns, normally
-after the presenter call. The WebRTC measurement also ends when `write`
-returns. An active video track returns after host materialization and admission
-to the bounded two-frame sender queue. A server waiting for a video track
-returns after shape validation. Active-peer delivery, RTP transit, browser
-decode, compositor scheduling, and physical scanout require matching client
-telemetry.
-
-The final `profile_summary` records report an exact count and maximum.
-Median and p90 use every sample through 1,024 observations, then use a uniform
-bounded reservoir. Each window-write batch merges its sampled latencies into
-the session reservoir with weights based on the full input counts.
-`quantile_sample_count` and `quantiles_approximate` make that transition explicit
-in the artifact. The JSONL records retain every claim and completion for exact
-offline quantiles.
-
-JSONL writes add host overhead to the measured run. Keep profiling enabled for
-every run in a direct comparison. Use Nsight Systems for GPU stage attribution.
-
 ## 4. Change one bottleneck at a time
 
 Prefer the smallest option that addresses the measured hot stage:

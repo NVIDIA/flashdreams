@@ -19,12 +19,11 @@ from flashdreams.api_v2.loop import (
     ModelInferenceState,
     UILoopRequests,
 )
-from flashdreams.api_v2.output_sink import FileOutputSink
+from flashdreams.api_v2.profiler import IProfiler
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.coordination import StepAgreement
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
-from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 
@@ -53,12 +52,23 @@ def _log_secondary_failure(message: str, error: BaseException) -> None:
     _LOGGER.error(message, exc_info=error)
 
 
+def _write_session_end(profiler: IProfiler, sink: MetricsOutputSink) -> None:
+    """Write what was measured after the last model record.
+
+    Its frames are shown after the record is written, so their frame rate and
+    input latency reach no step's record.
+    """
+    measured = profiler.collect_fps()
+    measured.update(profiler.collect_input_latency_ms())
+    if measured:
+        sink.write_summary(measured)
+
+
 def run_session(
     session: ISession,
     window: IClientWindow | None,
     *,
     metrics_output_sink: MetricsOutputSink | None = None,
-    profiler: RuntimeProfiler | None = None,
     steps: int | None = None,
     timeout_seconds: float | None = None,
     completed_steps: list[int] | None = None,
@@ -71,16 +81,15 @@ def run_session(
     is not running, an unfinished UI ticks regardless of presentation mode so
     it can request another session.
 
-    Both loops, the metrics sink, the profiler, and the session are closed before
-    this returns or raises. A clean replacement request preserves the client
-    window. Every other exit closes it.
+    Both loops, the metrics sink, and the session are closed before this returns
+    or raises. The client window stays open only when a clean replacement was
+    requested; otherwise it is closed.
 
     Args:
         session: Session to run.
         window: Input and output on rank zero; ``None`` on model workers.
         metrics_output_sink: Sink for model measurements, if requested. Receives
             the model loop's results rather than the UI loop's.
-        profiler: Optional host-side input-latency profiler.
         steps: Maximum model steps before ending the session; ``None`` leaves
             session completion to the UI or client window.
             ``ApplicationRunner`` passes the remaining run budget here, not
@@ -95,8 +104,7 @@ def run_session(
         ``None`` when the application run should end.
 
     Raises:
-        ValueError: ``steps`` is negative, ``timeout_seconds`` is invalid, or
-            the profile targets another output artifact.
+        ValueError: ``steps`` is negative, or ``timeout_seconds`` is invalid.
         BaseException: A loop's failure if one was queued, otherwise this
             function's own, otherwise the first cleanup failure. The rest are
             logged.
@@ -112,12 +120,8 @@ def run_session(
 
     parallel = session.parallel_context
     worker = parallel is not None and parallel.world_size > 1 and not parallel.is_main
-    if worker and (
-        window is not None or metrics_output_sink is not None or profiler is not None
-    ):
-        raise ValueError(
-            "Model workers must not own a client window, metrics sink, or profiler."
-        )
+    if worker and (window is not None or metrics_output_sink is not None):
+        raise ValueError("Model workers must not own a client window or metrics sink.")
     if not worker and window is None:
         raise ValueError("The presenting rank requires a client window.")
     agreement: StepAgreement | None = None
@@ -133,6 +137,10 @@ def run_session(
     stop: threading.Event | None = None
     presentation_manager = None
     trace_log: _ChunkTraceLog | None = None
+    input_timestamp_origin_ns: int | None = None
+    # Input, presentation and cleanup report to the profiler the session gave
+    # its loops.
+    profiler = session._profiler
 
     def cleanup(action: Callable[[], None]) -> None:
         """Keep releasing resources after a cleanup failure."""
@@ -143,15 +151,6 @@ def run_session(
 
     try:
         session_desc = session.session_desc
-        if profiler is not None:
-            if metrics_output_sink is not None:
-                profiler.validate_output_path(metrics_output_sink.path)
-            if isinstance(window, FileOutputSink):
-                profiler.validate_output_path(window.path)
-            if session_desc.metadata.get(_TRACE_METADATA_KEY) is True:
-                trace_path = session_desc.metadata.get(_TRACE_PATH_METADATA_KEY)
-                if isinstance(trace_path, str | Path):
-                    profiler.validate_output_path(Path(trace_path).expanduser())
         tick_seconds = 1.0 / session_desc.frames_per_second_for_ui
         stop = session._shutdown_event
         presentation_manager = session._presentation_manager
@@ -176,7 +175,13 @@ def run_session(
         def collect_input() -> None:
             if window is None:
                 return
-            event_buffer.append(window.get_user_input_events())
+            events = window.get_user_input_events()
+            received_ns = time.monotonic_ns()
+            # Before the model thread can read the batch, so no step consumes
+            # input the profiler has not seen arrive.
+            if count := len(events.get_events()):
+                profiler.input_received(received_ns, count)
+            event_buffer.append(events, received_ns)
 
         def run_ui_once(*, step_requested: bool = True) -> None:
             """Process UI lifecycle control and run a requested UI step."""
@@ -184,7 +189,7 @@ def run_session(
             if ui_loop is None or window is None:
                 return
             events, generation = event_buffer.read(_UI_READER_ID)
-            input_claimed_at_ns = time.monotonic_ns() if profiler is not None else None
+            input_claimed_ns = time.monotonic_ns()
             result: list[StepResult] | None = None
             step_completed = False
             try:
@@ -192,6 +197,7 @@ def run_session(
                 if loop_result.stop_requested:
                     stop.set()
                     return
+
                 request = ui_loop.flush_ui_loop_requests()
                 if request is not None:
                     _apply_window_requests(window, request)
@@ -201,16 +207,19 @@ def run_session(
                         return
                 if loop_result.step_index is None:
                     return
-                if profiler is not None:
-                    profiler.ui_step_started(
-                        ui_loop.user_events,
-                        generation=generation,
-                        step=loop_result.step_index,
-                        time_ns=input_claimed_at_ns,
-                    )
+                profiler.ui_input_claimed(
+                    ui_loop.user_events,
+                    generation=generation,
+                    input_timestamp_origin_ns=input_timestamp_origin_ns,
+                    claimed_ns=input_claimed_ns,
+                )
                 if not step_requested:
                     return
-                raw_result = ui_loop.step(loop_result.step_index, ui_loop.user_events)
+                with ui_loop.profiler.range("ui.step"):
+                    raw_result = ui_loop.step(
+                        loop_result.step_index, ui_loop.user_events
+                    )
+                ui_loop.profiler.event("ui.step")
                 if not isinstance(raw_result, list) or any(
                     not isinstance(item, StepResult) for item in raw_result
                 ):
@@ -223,12 +232,7 @@ def run_session(
                 ui_loop._finish_run(result, step_completed=step_completed)
             if result:
                 window.write(result[0])
-                if profiler is not None:
-                    profiler.window_write_completed(
-                        generation=generation,
-                        ui_step=loop_result.step_index,
-                        time_ns=time.monotonic_ns(),
-                    )
+                profiler.window_write_completed(generation, time.monotonic_ns())
 
         def publish_model_results(
             generation: int,
@@ -292,24 +296,20 @@ def run_session(
         if parallel is not None and parallel.world_size > 1:
             agreement = StepAgreement(parallel)
         session.init()
+        # A session may set its own profiler at the start of init().
+        profiler = session._profiler
+        presentation_manager.set_profiler(profiler)
         ui_loop, model_loop = session._take_loops()
         event_buffer.register(_UI_READER_ID)
         event_buffer.register(_MODEL_READER_ID)
 
         if window is not None:
             window.open(session_desc)
-        if profiler is not None:
-            profiler.session_started(
-                input_timestamp_origin_ns=(
-                    window.input_timestamp_origin_ns
-                    if isinstance(window, TimestampedInputSource)
-                    else None
-                ),
-                session_desc=session_desc,
-                client_window_type=type(window).__name__,
-            )
+            if isinstance(window, TimestampedInputSource):
+                input_timestamp_origin_ns = window.input_timestamp_origin_ns
         if metrics_output_sink is not None:
             metrics_output_sink.open(session_desc)
+            metrics_output_sink.set_client_window_type(type(window).__name__)
         collect_input()
         tick_ui()
 
@@ -402,9 +402,11 @@ def run_session(
         cleanup_failures.extend(session._shutdown_registered_loops())
         cleanup(event_buffer.clear)
         if metrics_output_sink is not None:
-            cleanup(metrics_output_sink.close)
-        if profiler is not None:
-            cleanup(profiler.close)
+            sink = metrics_output_sink
+            cleanup(lambda: _write_session_end(profiler, sink))
+            cleanup(sink.close)
+        # Both loops have stopped, so nothing will close an input wait still open.
+        cleanup(profiler.reset_counts)
         if next_session_desc is None and window is not None:
             cleanup(window.close)
         cleanup(session.close)

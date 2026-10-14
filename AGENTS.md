@@ -77,11 +77,14 @@ uv run --only-group docs zensical serve -f docs/zensical.toml
 
 Use `--no-instantiate` before GPU work to inspect the resolved runner config without constructing models or loading checkpoints.
 
+Before performance work, collect an nsys report with `uv run flashdreams-profile` and read the timeline; see `docs/source/documentation/demo_api/guides/profiling.md`.
+
+For source-input latency, use the shared `IProfiler` and the two host checkpoints documented in that guide: UI claim and successful client-window write return.
+
 ## No-GPU Workflow
 
 - Inspect available runners with `uv run flashdreams-run --help`, then inspect a specific runner with `uv run flashdreams-run --no-instantiate <runner-name>`.
 - Prefer CPU checks first: config imports, checkpoint key-remap shape/bijection tests on CPU or meta tensors, docs builds, `pytest -m ci_cpu`, and static assertions about runner names and pipeline wiring.
-- For interactive V2 host-side input latency, capture `--profile-path artifacts/<run>.jsonl` and read `docs/source/documentation/inferencing_api/guides/latency_tuning.md` for the two measurement boundaries.
 - Avoid `ci_gpu`, generation, `torchrun`, Docker GPU tests, large Hugging Face downloads, rollout parity, CUDA graph, WebRTC runtime, and quality-regression tests on CPU-only hosts unless the user requests them or the test explicitly skips cleanly.
 
 ## Testing Guidance

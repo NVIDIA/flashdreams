@@ -5,6 +5,7 @@
 
 import json
 import math
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -40,11 +41,7 @@ class MetricsOutputSink(OutputSink):
         self._samples: list[dict[str, Any]] = []
         self._written = False
         self._step_result_index = 0
-
-    @property
-    def path(self) -> Path:
-        """Return the benchmark output path."""
-        return self._path
+        self._client_window_type: str | None = None
 
     def open(self, session_desc: SessionDesc) -> None:
         """Start a new benchmark record."""
@@ -53,6 +50,11 @@ class MetricsOutputSink(OutputSink):
         self._samples = []
         self._written = False
         self._step_result_index = 0
+        self._client_window_type = None
+
+    def set_client_window_type(self, name: str) -> None:
+        """Identify the window whose host write boundary the session measures."""
+        self._client_window_type = name
 
     def set_step_result_index(self, index: int) -> None:
         """Set the position of the next result in its model-step result list."""
@@ -69,7 +71,12 @@ class MetricsOutputSink(OutputSink):
         """
         if self._session_desc is None:
             raise RuntimeError("MetricsOutputSink.open() must run before write().")
-        samples = _samples_from(result, self._step_result_index)
+        samples = _samples_from(
+            result.metrics,
+            step_index=result.step_index,
+            result_index=self._step_result_index,
+            metadata={"frame_count": result.frame_count},
+        )
         self._samples.extend(samples)
         self._steps.append(
             {
@@ -78,6 +85,23 @@ class MetricsOutputSink(OutputSink):
                 "frame_count": result.frame_count,
                 "sample_count": len(samples),
             }
+        )
+
+    def write_summary(self, metrics: dict[str, float]) -> None:
+        """Record measurements that belong to the session rather than one step.
+
+        They are written with no ``step_index``, which benchmark reports read as
+        a summary record.
+
+        Raises:
+            RuntimeError: Called before :meth:`open`.
+        """
+        if self._session_desc is None:
+            raise RuntimeError(
+                "MetricsOutputSink.open() must run before write_summary()."
+            )
+        self._samples.extend(
+            _samples_from(metrics, step_index=None, result_index=None, metadata={})
         )
 
     def close(self) -> None:
@@ -91,8 +115,12 @@ class MetricsOutputSink(OutputSink):
             "schema_version": _SCHEMA_VERSION,
             "artifact_type": _ARTIFACT_TYPE,
             "session": {
+                "client_window_type": self._client_window_type,
                 "output_layout": session_desc.output_layout.value,
+                "frames_per_second_for_ui": session_desc.frames_per_second_for_ui,
                 "frames_per_second_for_step": session_desc.frames_per_second_for_step,
+                "presentation_mode": session_desc.presentation_mode.value,
+                "backpressure_mode": session_desc.backpressure_mode.value,
                 "video_width": session_desc.video_width,
                 "video_height": session_desc.video_height,
             },
@@ -105,10 +133,16 @@ class MetricsOutputSink(OutputSink):
         )
 
 
-def _samples_from(result: StepResult, index: int) -> list[dict[str, Any]]:
-    """Return the finite numeric metrics from one result."""
+def _samples_from(
+    metrics: Mapping[str, object] | None,
+    *,
+    step_index: int | None,
+    result_index: int | None,
+    metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return the finite numeric metrics as samples."""
     samples: list[dict[str, Any]] = []
-    for name, value in (result.metrics or {}).items():
+    for name, value in (metrics or {}).items():
         if not name.strip():
             continue
         if isinstance(value, bool) or not isinstance(value, int | float):
@@ -122,9 +156,9 @@ def _samples_from(result: StepResult, index: int) -> list[dict[str, Any]]:
                 "value": sample_value,
                 "unit": unit,
                 "category": category,
-                "step_index": result.step_index,
-                "result_index": index,
-                "metadata": {"frame_count": result.frame_count},
+                "step_index": step_index,
+                "result_index": result_index,
+                "metadata": dict(metadata),
             }
         )
     return samples

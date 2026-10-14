@@ -12,6 +12,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -31,13 +32,16 @@ from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
 )
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
-from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.presentation_manager import (
     _PRESENTATION_DRAIN_MARGIN,
     PresentationManager,
     _PresentationClock,
 )
-from flashdreams.runtime_v2.runtime_profiler import RuntimeProfiler
+from flashdreams.runtime_v2.profiler import (
+    CompositeProfiler,
+    FrameRateProfiler,
+    InputLatencyProfiler,
+)
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -664,7 +668,6 @@ class RecordingClientWindow(IClientWindow):
         self._hold_writes = hold_writes
         self._lock = threading.Lock()
         self.session_desc: SessionDesc | None = None
-        self._input_timestamp_origin_ns: int | None = None
         self.results: list[StepResult] = []
         self.cursor_requests: list[tuple[str, bool]] = []
 
@@ -678,10 +681,6 @@ class RecordingClientWindow(IClientWindow):
         self._log.record("window.request_lock_cursor_to_window")
         self.cursor_requests.append(("lock", lock_cursor_to_window))
 
-    @property
-    def input_timestamp_origin_ns(self) -> int | None:
-        return self._input_timestamp_origin_ns
-
     def get_user_input_events(self) -> UserInputEvents:
         self._log.record("window.get_user_input_events")
         with self._lock:
@@ -694,7 +693,6 @@ class RecordingClientWindow(IClientWindow):
         if self._fail_to_open:
             raise RuntimeError("open failed")
         self.session_desc = session_desc
-        self._input_timestamp_origin_ns = time.monotonic_ns()
 
     def write(self, result: StepResult) -> None:
         if self._hold_writes is not None:
@@ -738,6 +736,85 @@ def _key_event() -> UserInputEvents:
     )
 
 
+@pytest.mark.parametrize("fail_write", [False, True])
+@pytest.mark.parametrize("has_clock_origin", [False, True])
+def test_source_input_latency_waits_for_window_write_return(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fail_write: bool,
+    has_clock_origin: bool,
+) -> None:
+    from flashdreams.api_v2 import loop as loop_module
+    from flashdreams.runtime_v2 import profiler as profiler_module
+    from flashdreams.runtime_v2 import session_runner
+
+    origin_ns = 1 << 60
+    clock = [origin_ns + 2_000_000]
+    runtime_time = SimpleNamespace(
+        monotonic=time.monotonic, monotonic_ns=lambda: clock[0]
+    )
+    monkeypatch.setattr(session_runner, "time", runtime_time)
+    monkeypatch.setattr(profiler_module, "time", runtime_time)
+    monkeypatch.setattr(loop_module, "time", runtime_time)
+    profiler = CompositeProfiler((FrameRateProfiler(), InputLatencyProfiler()))
+    before_write: dict[str, float] = {}
+
+    class TimestampedWindow(RecordingClientWindow):
+        input_timestamp_origin_ns = origin_ns if has_clock_origin else None
+
+        def write(self, result: StepResult) -> None:
+            before_write.update(profiler.collect_input_latency_ms())
+            clock[0] += 5_000_000
+            if fail_write:
+                raise RuntimeError("window write failed")
+            super().write(result)
+
+    log = CallLog()
+    events = UserInputEvents(
+        [
+            KeyboardUserInputEvent(
+                timestamp=uint64(offset), key="w", state=KeyboardInputState.PRESSED
+            )
+            for offset in (0, 1)
+        ]
+    )
+    session = FakeSession(_session_desc(), log)
+    session._profiler = profiler
+    window = TimestampedWindow(log, [events])
+    path = tmp_path / "stats.json"
+    if fail_write:
+        with pytest.raises(RuntimeError, match="window write failed"):
+            run_session(
+                session, window, metrics_output_sink=MetricsOutputSink(path), steps=1
+            )
+    else:
+        run_session(
+            session, window, metrics_output_sink=MetricsOutputSink(path), steps=1
+        )
+    payload = json.loads(path.read_text())
+    measured = {sample["name"]: sample["value"] for sample in payload["samples"]}
+    if any(name.startswith("input.window_write") for name in before_write):
+        pytest.fail("Frame selection completed latency before window.write returned")
+    if has_clock_origin:
+        if before_write.get("input.ui_claim_avg_ms") != pytest.approx(1.9995):
+            pytest.fail(f"Source timestamps did not reach the UI claim: {before_write}")
+        if measured.get("input.ui_claim_avg_s") != pytest.approx(0.0019995):
+            pytest.fail(f"The final stats file lost claimed inputs: {measured}")
+        if not fail_write:
+            if measured.get("input.window_write_avg_s") != pytest.approx(0.0069995):
+                pytest.fail(f"Latency omitted time inside window.write: {measured}")
+            if measured.get("input.window_write_session_count") != 2:
+                pytest.fail(f"A claimed event was counted more than once: {measured}")
+    elif any(name.startswith("input.ui_claim") for name in measured):
+        pytest.fail("A source without a clock origin produced source latency")
+    if fail_write and any(name.startswith("input.window_write") for name in measured):
+        pytest.fail("A failed write produced completion measurements")
+    if payload["session"].get("client_window_type") != "TimestampedWindow":
+        pytest.fail("The stats file lost the window measurement context")
+    if log.calls[-2:] != ["window.close", "session.close"]:
+        pytest.fail(f"Session resources were not closed: {log.calls}")
+
+
 def _lifecycle_event(event_type: type[UserInputEvent]) -> UserInputEvents:
     return UserInputEvents([event_type(timestamp=uint64(0))])
 
@@ -761,74 +838,6 @@ def test_run_session_presents_every_step_in_order() -> None:
     assert window.results[-1] is session.ui_loop.latest_result[0]
     steps = [call for call in log.calls if call.startswith("session.step(")]
     assert steps == ["session.step(0)", "session.step(1)", "session.step(2)"]
-
-
-def test_run_session_profiles_input_through_window_write(tmp_path) -> None:
-    log = CallLog()
-    session = FakeSession(_session_desc(), log)
-    window = RecordingClientWindow(log, [_key_event()])
-    profile_path = tmp_path / "runtime.jsonl"
-
-    run_session(
-        session,
-        window,
-        profiler=RuntimeProfiler(profile_path),
-        steps=1,
-    )
-
-    records = [json.loads(line) for line in profile_path.read_text().splitlines()]
-    phases = {record["phase"] for record in records}
-    assert {
-        "input_to_ui_step",
-        "window_write_completed",
-        "profile_summary",
-    } <= phases
-    input_record = next(
-        record for record in records if record["phase"] == "input_to_ui_step"
-    )
-    output_record = next(
-        record
-        for record in records
-        if record["phase"] == "window_write_completed"
-        and record["generation"] == input_record["generation"]
-        and record["window_write_index"] == input_record["window_write_index"]
-    )
-    assert (input_record["input_type"], output_record["input_count"]) == ("keyboard", 1)
-
-
-@pytest.mark.parametrize("output_kind", ["chunk_trace", "metrics", "mp4"])
-def test_run_session_keeps_profile_separate_from_other_outputs(
-    tmp_path, output_kind: str
-) -> None:
-    log = CallLog()
-    shared_path = tmp_path / "runtime.jsonl"
-    session_desc = replace(
-        _session_desc(),
-        metadata={
-            "trace_chunk_lifecycle": output_kind == "chunk_trace",
-            "trace_chunk_lifecycle_path": str(shared_path),
-        },
-    )
-
-    window = (
-        Mp4ClientWindow(shared_path)
-        if output_kind == "mp4"
-        else RecordingClientWindow(log, [])
-    )
-    metrics = MetricsOutputSink(shared_path) if output_kind == "metrics" else None
-    with pytest.raises(ValueError, match="distinct output path"):
-        run_session(
-            FakeSession(session_desc, log),
-            window,
-            metrics_output_sink=metrics,
-            profiler=RuntimeProfiler(shared_path),
-            steps=1,
-        )
-
-    assert log.calls == (
-        ["session.close"] if output_kind == "mp4" else ["window.close", "session.close"]
-    )
-    assert not shared_path.exists()
 
 
 def test_run_session_opens_before_writing_and_closes_after() -> None:

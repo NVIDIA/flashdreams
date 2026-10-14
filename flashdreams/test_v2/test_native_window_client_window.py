@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 from collections.abc import Callable, Sequence
 from types import SimpleNamespace
@@ -23,6 +24,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
+    FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -35,6 +37,58 @@ if TYPE_CHECKING:
     import slangpy as spy
 
 pytestmark = pytest.mark.ci_cpu
+
+
+@pytest.mark.parametrize("fullscreen", [False, True])
+def test_fullscreen_creation_reports_size_on_first_poll(fullscreen: bool) -> None:
+    presenter = _Presenter()
+    presenter.size = (1920, 1080)
+    factory = Mock(return_value=presenter)
+    window = NativeWindowClientWindow(fullscreen=fullscreen, presenter_factory=factory)
+    for _ in range(2):
+        window.open(_session_desc())
+        events = window.get_user_input_events().get_events()
+        if fullscreen:
+            assert len(events) == 1
+            event = events[0]
+            assert isinstance(event, FullscreenEnabledOptimalWindowSizeUserInputEvent)
+            assert (event.width, event.height) == presenter.size
+        else:
+            assert events == []
+        assert window.get_user_input_events().get_events() == []
+    factory.assert_called_once_with(
+        width=2, height=2, title="FlashDreams", fullscreen=fullscreen
+    )
+    window.close()
+
+
+@pytest.mark.parametrize("fullscreen", [False, True])
+def test_presenter_uses_slangpy_creation_mode(
+    fullscreen: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    modes = SimpleNamespace(normal=object(), fullscreen=object())
+    native_window = Mock(width=1920, height=1080)
+    spy = SimpleNamespace(Window=Mock(return_value=native_window), WindowMode=modes)
+    monkeypatch.setitem(sys.modules, "slangpy", spy)
+    presentation = Mock(size=(1920, 1080))
+    context = Mock(return_value=presentation)
+    monkeypatch.setattr(native_window_module, "_PresentationContext", context)
+    presenter = native_window_module._SlangPyNativeWindowPresenter(
+        width=640, height=480, title="Test", fullscreen=fullscreen
+    )
+    spy.Window.assert_called_once_with(
+        width=640,
+        height=480,
+        title="Test",
+        mode=modes.fullscreen if fullscreen else modes.normal,
+        resizable=False,
+    )
+    context.assert_called_once_with(
+        spy=spy, window=native_window, width=1920, height=1080
+    )
+    assert presenter.resize(320, 240) == (1920, 1080)
+    native_window.resize.assert_called_once_with(320, 240)
+    presenter.close()
 
 
 def _session_desc() -> SessionDesc:
@@ -235,6 +289,7 @@ def test_slangpy_presenter_configures_acknowledged_window_extent() -> None:
     presenter._closed = False
     presenter._window = window
     presenter._presentation = presentation
+    presenter._fullscreen = False
     presenter._width = 2
     presenter._height = 2
     presenter._pending_resize = None

@@ -224,8 +224,25 @@ presentation-queue depth/publish-wait measurements under the reserved
 `runtime_` metric prefix. UI and window timings are not folded into a later
 model record because they describe a different frame.
 
-`--stats-path` also sets `FLASHDREAMS_SYNC_AND_PROFILE=1` before constructing the
-application, enabling synchronized per-stage pipeline profiling for the run.
+The `--stats-path` flag also turns on stage timings, frame rates and input
+latency, by setting `FLASHDREAMS_SYNC_AND_PROFILE=1`, `FLASHDREAMS_FPS=1` and
+`FLASHDREAMS_INPUT_LATENCY=1` before the application starts. The model records
+then include:
+
+- frame rates: `present.frame_fps`, `model.frame_fps`, `ui.step_fps` and
+  `pipeline.generate_fps`
+- input latency: `input.latency_ms`, split into `input.queue_ms` and
+  `input.present_ms`
+- source-input host latency: `input.ui_claim_ms` ends when the UI claims an
+  event, and `input.window_write_ms` ends at the next successful window write
+  return. Native-window and WebRTC supply the source clock origin.
+
+Each also has a session average (`_avg_fps` or `_avg_ms`). Model-input latency is
+available after frame selection. Source-input latency uses the event's timestamp
+and its named host checkpoint. These measurements appear on the next model
+record, independently of that record's step. What
+is measured after the last record is written when the session ends, with no
+`step_index`. To add your own numbers, return them in `StepResult.metrics`.
 
 ## Starting and stopping a run
 
@@ -344,17 +361,6 @@ enforces matching dimensions and device instead of silently repairing them.
 The default UI loop, `BlitModelOutputToScreenLoop`, composites every model
 channel in list order as if they were image layers and reshapes the result into
 the session's layout.
-
-`--profile-path artifacts/<run>.jsonl` records host-side event-to-IUILoop and
-event-to-window-write latency. Each input source supplies the monotonic origin
-for its session-relative event timestamps. Replacement sessions append distinct
-segments with measurement endpoints and runtime settings to the same JSONL
-artifact. The
-[latency tuning guide](../../../docs/source/documentation/inferencing_api/guides/latency_tuning.md)
-defines the JSONL records and host-side boundaries.
-
-File-backed windows expose their output `path` through `FileOutputSink` so the
-runtime can reject a profile targeting the same file before opening either writer.
 
 `SlangPyUILoop` is the alternative for SlangPy's retained
 widget subset. `ImGuiUILoop` exposes the complete ImGui API. Both produce a

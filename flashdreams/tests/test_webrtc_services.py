@@ -20,8 +20,10 @@ from flashdreams.runtime import (
     InferenceRuntime,
     InferenceSession,
     InputMapping,
+    KeyboardState,
     StepRequirements,
     StepResult,
+    UserInputs,
 )
 from flashdreams.runtime.demo import (
     DemoAdapter,
@@ -46,9 +48,11 @@ from flashdreams.runtime.demo import (
 from flashdreams.runtime.demo.timing import ResamplerRealtimeClock
 from flashdreams.serving.webrtc.server import SessionBusyError
 from flashdreams.serving.webrtc.services import (
+    WEBRTC_SKIPPED_INPUTS_METADATA_KEY,
     AsyncioBlockingPreparationService,
     ThreadSafeWebRTCOutputBridge,
     WebRTCActivationPolicy,
+    WebRTCInputOverflowError,
     WebRTCInputSource,
     WebRTCOfferRequest,
     WebRTCOutputSink,
@@ -174,6 +178,84 @@ async def test_webrtc_input_source_emits_typed_user_inputs() -> None:
     }
 
 
+@pytest.mark.parametrize("event", ["keydown", "keyup"])
+@pytest.mark.parametrize("key", [0, 1, False, True, None, [], {}, "", " "])
+def test_webrtc_input_source_rejects_non_string_or_empty_keys(
+    event: str, key: object
+) -> None:
+    source = WebRTCInputSource(resampler=_FakeResampler(dt=0.1, start_v=0.0))
+
+    result = source.handle_browser_message(
+        json.dumps({"type": "action", "action": {"event": event, "key": key}}),
+        timestamp_s=0.05,
+    )
+
+    assert result.kind == "error"
+    assert not source.activation_signal.is_set()
+    assert source.activation_timestamp_s is None
+    assert not source._events
+
+
+@pytest.mark.parametrize(
+    "event_payload",
+    [
+        {"event_id": []},
+        {"event_id": {}},
+        {"event_id": None},
+        {"id": 0},
+        {"event_id": "storm", "state": None},
+        {"event_id": "storm", "state": []},
+        {"event_id": "storm", "state": True},
+        {"event_id": [], "state": "clear"},
+    ],
+)
+def test_webrtc_input_source_rejects_malformed_events_before_activation(
+    event_payload: dict[str, object],
+) -> None:
+    source = WebRTCInputSource(resampler=_FakeResampler(dt=0.1, start_v=0.0))
+
+    result = source.handle_browser_message(
+        json.dumps({"type": "event", **event_payload}), timestamp_s=0.05
+    )
+
+    assert result.kind == "error"
+    assert result.error
+    assert not source.activation_signal.is_set()
+    assert source.activation_timestamp_s is None
+    assert not source._events
+    assert not source._event_sizes
+    assert source._pending_event_bytes == 0
+
+
+@pytest.mark.parametrize(
+    ("event_payload", "event_id", "state"),
+    [
+        ({"event_id": " storm "}, "storm", "trigger"),
+        ({"id": "storm", "state": " TRIGGER "}, "storm", "trigger"),
+        ({"event_id": "storm", "state": " "}, "storm", "trigger"),
+        ({"event_id": "storm", "state": "custom"}, "storm", "custom"),
+        ({"state": "clear"}, None, "clear"),
+        ({"event_id": None, "state": "release"}, None, "release"),
+        ({"id": None, "state": "off"}, None, "off"),
+        ({"event_id": "", "state": "none"}, None, "none"),
+    ],
+)
+def test_webrtc_input_source_preserves_event_defaults_alias_and_clears(
+    event_payload: dict[str, object], event_id: str | None, state: str
+) -> None:
+    source = WebRTCInputSource(resampler=_FakeResampler(dt=0.1, start_v=0.0))
+
+    result = source.handle_browser_payload(
+        {"type": "event", **event_payload}, timestamp_s=0.05
+    )
+
+    assert result.kind == "event" and result.activated
+    assert source.activation_signal.is_set()
+    assert len(source._events) == 1
+    assert source._events[0].payload == {"event_id": event_id, "state": state}
+    assert source._events[0].source_event_id == event_id
+
+
 @pytest.mark.asyncio
 async def test_webrtc_activation_anchors_to_first_input_event() -> None:
     resampler = _FakeResampler(dt=0.1, start_v=0.0)
@@ -197,6 +279,218 @@ async def test_webrtc_activation_anchors_to_first_input_event() -> None:
     assert result.activated
     assert source.activation_timestamp_s == pytest.approx(0.05)
     assert resampler.next_chunk_start_v == pytest.approx(0.05)
+
+
+@pytest.mark.asyncio
+async def test_webrtc_queue_reserves_releases_and_clears_then_recovers() -> None:
+    resampler = _FakeResampler(dt=0.1, start_v=0.0)
+    source = WebRTCInputSource(
+        resampler=resampler,
+        max_pending_events=4,
+        reserved_recovery_events=2,
+    )
+    keyboard = KeyboardState()
+    keyboard.apply_event(event="keydown", key="w")
+    for key in ("a", "d"):
+        result = source.handle_browser_payload(
+            {"type": "action", "event": "keydown", "key": key}, timestamp_s=0.01
+        )
+        assert result.kind == "action"
+    rejected = source.handle_browser_payload(
+        {"type": "action", "event": "keydown", "key": "w"}, timestamp_s=0.02
+    )
+    assert rejected.kind == "error"
+    assert len(source._events) == 2
+    assert (
+        source.handle_browser_payload(
+            {"type": "action", "event": "keyup", "key": "w"}, timestamp_s=0.03
+        ).kind
+        == "action"
+    )
+    assert (
+        source.handle_browser_payload(
+            {"type": "event", "state": "clear"}, timestamp_s=0.04
+        ).kind
+        == "event"
+    )
+
+    window = await source.next_realtime_window(
+        request=StepRequirements(step_index=0, input_frame_count=1),
+        clock=ResamplerRealtimeClock(resampler=resampler, now_fn=lambda: 0.1),
+    )
+    for event in window.window.inputs.events:
+        if event.event_type in {"key_down", "key_up"}:
+            keyboard.apply_event(
+                event="keydown" if event.event_type == "key_down" else "keyup",
+                key=event.payload["key"],
+            )
+    assert "w" not in keyboard.snapshot()
+    assert window.window.inputs.events[-1].payload == {
+        "event_id": None,
+        "state": "clear",
+    }
+    assert not source._events
+    assert not source._event_sizes
+    assert source._pending_event_bytes == 0
+    assert (
+        source.handle_browser_payload(
+            {"type": "action", "event": "keydown", "key": "w"}, timestamp_s=0.11
+        ).kind
+        == "action"
+    )
+
+
+def test_webrtc_queue_byte_budget_counts_utf8_and_reserves_recovery() -> None:
+    source = WebRTCInputSource(
+        resampler=_FakeResampler(dt=0.1, start_v=0.0),
+        max_pending_bytes=256,
+        reserved_recovery_bytes=64,
+    )
+    event_id = "é" * 32
+    assert (
+        source.handle_browser_payload(
+            {"type": "event", "event_id": event_id}, timestamp_s=0.01
+        ).kind
+        == "event"
+    )
+    expected_bytes = len(
+        json.dumps(
+            ["text_event", {"event_id": event_id, "state": "trigger"}, event_id],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    assert source._pending_event_bytes == expected_bytes
+    assert (
+        source.handle_browser_payload(
+            {"type": "event", "event_id": "another"}, timestamp_s=0.02
+        ).kind
+        == "error"
+    )
+    assert source._pending_event_bytes == expected_bytes
+    assert (
+        source.handle_browser_payload(
+            {"type": "action", "event": "keyup", "key": "w"}, timestamp_s=0.03
+        ).kind
+        == "action"
+    )
+    assert source._pending_event_bytes <= source.max_pending_bytes
+    for _ in range(10):
+        try:
+            source.handle_browser_payload(
+                {"type": "event", "state": "clear"}, timestamp_s=0.04
+            )
+        except WebRTCInputOverflowError:
+            break
+    else:
+        pytest.fail("Recovery input must not exceed the byte budget")
+    assert source._pending_event_bytes <= source.max_pending_bytes
+    assert len(source._events) < source.max_pending_events
+    source.reset(start_v=0.1)
+    assert source._pending_event_bytes == 0
+    assert not source._events
+    assert not source._event_sizes
+    assert not source.activation_signal.is_set()
+
+
+def test_webrtc_stalled_model_cannot_accumulate_unbounded_events() -> None:
+    source = WebRTCInputSource(resampler=_FakeResampler(dt=0.1, start_v=0.0))
+    accepted = 0
+    for _ in range(10000):
+        result = source.handle_browser_payload(
+            {"type": "action", "event": "keydown", "key": "w"}, timestamp_s=0.01
+        )
+        accepted += result.kind == "action"
+    assert accepted == source.max_pending_events - source.reserved_recovery_events
+    assert len(source._events) == accepted
+    assert len(source._event_sizes) == accepted
+    assert source._pending_event_bytes <= source.max_pending_bytes
+
+
+@pytest.mark.asyncio
+async def test_webrtc_expired_input_is_not_replayed_on_model_resume() -> None:
+    resampler = _FakeResampler(dt=0.1, start_v=0.0)
+    source = WebRTCInputSource(resampler=resampler, max_pending_age_s=1.0)
+    source.record_user_event(
+        timestamp_s=0.01, event_type="key_down", payload={"key": "w"}
+    )
+    with pytest.raises(WebRTCInputOverflowError, match="backlog expired"):
+        await source.next_realtime_window(
+            request=StepRequirements(step_index=0, input_frame_count=1),
+            clock=ResamplerRealtimeClock(resampler=resampler, now_fn=lambda: 1.1),
+        )
+    assert resampler.next_chunk_start_v == 0.0
+
+
+def test_webrtc_pending_age_checks_out_of_order_input() -> None:
+    source = WebRTCInputSource(
+        resampler=_FakeResampler(dt=0.1, start_v=0.0), max_pending_age_s=1.0
+    )
+    for timestamp_s in (1.0, 0.4):
+        source.record_user_event(
+            timestamp_s=timestamp_s, event_type="key_down", payload={"key": "w"}
+        )
+    with pytest.raises(WebRTCInputOverflowError, match="backlog expired"):
+        source.check_pending_events(now_s=1.5)
+
+
+@pytest.mark.asyncio
+async def test_webrtc_input_at_window_boundary_remains_pending() -> None:
+    resampler = _FakeResampler(dt=0.1, start_v=0.0)
+    source = WebRTCInputSource(resampler=resampler)
+    source.record_user_event(timestamp_s=0.1, event_type="key_up", payload={"key": "w"})
+    result = await source.next_realtime_window(
+        request=StepRequirements(step_index=0, input_frame_count=1),
+        clock=ResamplerRealtimeClock(resampler=resampler, now_fn=lambda: 0.1),
+    )
+    assert not result.window.inputs.events
+    assert len(source._events) == 1
+    assert source._pending_event_bytes > 0
+
+
+@pytest.mark.asyncio
+async def test_webrtc_catch_up_preserves_skipped_press_and_current_release() -> None:
+    resampler = _FakeResampler(dt=0.1, start_v=0.0)
+    source = WebRTCInputSource(resampler=resampler)
+    source.record_user_event(
+        timestamp_s=0.05, event_type="key_down", payload={"key": "w"}
+    )
+    source.record_user_event(
+        timestamp_s=0.45, event_type="key_up", payload={"key": "w"}
+    )
+
+    result = await source.next_realtime_window(
+        request=StepRequirements(step_index=0, input_frame_count=1),
+        clock=ResamplerRealtimeClock(resampler=resampler, now_fn=lambda: 0.5),
+    )
+
+    skipped = result.window.metadata[WEBRTC_SKIPPED_INPUTS_METADATA_KEY]
+    assert isinstance(skipped, UserInputs)
+    assert [event.event_type for event in skipped.events] == ["key_down"]
+    assert [event.event_type for event in result.window.inputs.events] == ["key_up"]
+    assert not source._events
+    assert source._pending_event_bytes == 0
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        {"max_pending_events": 32},
+        {"reserved_recovery_events": 0},
+        {"reserved_recovery_events": -1},
+        {"max_pending_events": True},
+        {"max_pending_bytes": 65536},
+        {"reserved_recovery_bytes": 0},
+        {"max_pending_age_s": 0},
+        {"max_pending_age_s": float("nan")},
+        {"max_pending_age_s": float("inf")},
+    ],
+)
+def test_webrtc_input_budgets_must_leave_bounded_recovery_capacity(
+    limits: dict[str, Any],
+) -> None:
+    with pytest.raises(ValueError):
+        WebRTCInputSource(resampler=_FakeResampler(dt=0.1, start_v=0.0), **limits)
 
 
 @pytest.mark.asyncio
