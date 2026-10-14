@@ -3,9 +3,10 @@
 
 """Client window composed with an additional input source."""
 
+from collections.abc import Callable
+
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.input_source import InputSource
-from flashdreams.api_v2.input_source import SessionInputSource
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -18,9 +19,14 @@ class CompositeClientWindow(IClientWindow):
         self,
         client_window: IClientWindow,
         input_source: InputSource,
+        *,
+        on_open: Callable[[], None] | None = None,
+        on_close: Callable[[], None] | None = None,
     ) -> None:
         self._client_window = client_window
         self._input_source = input_source
+        self._on_open = on_open
+        self._on_close = on_close
 
     @property
     def client_window(self) -> IClientWindow:
@@ -46,22 +52,22 @@ class CompositeClientWindow(IClientWindow):
         self._client_window.request_new_window_size(new_window_size)
 
     def open(self, session_desc: SessionDesc) -> None:
-        """Open the wrapped window and any session-aware input source."""
+        """Open the wrapped window, then start the additional input session."""
         self._client_window.open(session_desc)
-        if isinstance(self._input_source, SessionInputSource):
-            self._input_source.open()
+        if self._on_open is not None:
+            self._on_open()
 
     def write(self, result: StepResult) -> None:
         """Delegate output."""
         self._client_window.write(result)
 
     def close(self) -> None:
-        """Close the wrapped window and any session-aware input source."""
+        """Close the wrapped window and finish the additional input session."""
         try:
             self._client_window.close()
         finally:
-            if isinstance(self._input_source, SessionInputSource):
-                self._input_source.close()
+            if self._on_close is not None:
+                self._on_close()
 
 
 __all__ = ["CompositeClientWindow"]

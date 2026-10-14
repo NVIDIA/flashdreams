@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from flashdreams.runtime_v2.synthetic_input_source import SyntheticInputSource
 from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     ResetUserInputEvent,
@@ -59,7 +60,7 @@ def test_events_release_on_their_ui_poll_once_with_emission_timestamps(
     clock = _Clock(1_000_000)
     source = SyntheticInputSource(path, clock_ns=clock)
 
-    source.open()
+    source.start_session()
     clock.now_ns = 1_007_000
     first = source.get_user_input_events().get_events()
     clock.now_ns = 1_011_000
@@ -82,6 +83,39 @@ def test_events_release_on_their_ui_poll_once_with_emission_timestamps(
     assert third[1].key == "s"
     assert third[1].state is KeyboardInputState.RELEASED
     assert fourth == []
+
+
+def test_replacement_session_rebases_timestamps_without_replaying_events(
+    tmp_path: Path,
+) -> None:
+    clock = _Clock(1_000_000)
+    source = SyntheticInputSource(
+        _write_descriptor(
+            tmp_path,
+            _descriptor(
+                [
+                    {"on": "ui_loop", "at": 0, "event": {"type": "reset"}},
+                    {"on": "ui_loop", "at": 1, "event": {"type": "close"}},
+                ]
+            ),
+        ),
+        clock_ns=clock,
+    )
+
+    source.start_session()
+    clock.now_ns = 1_007_000
+    first = source.get_user_input_events().get_events()
+    source.end_session()
+    clock.now_ns = 2_000_000
+    source.start_session()
+    clock.now_ns = 2_011_000
+    second = source.get_user_input_events().get_events()
+
+    assert len(first) == 1
+    assert first[0].get_timestamp() == 7
+    assert len(second) == 1
+    assert isinstance(second[0], CloseUserInputEvent)
+    assert second[0].get_timestamp() == 11
 
 
 @pytest.mark.parametrize(

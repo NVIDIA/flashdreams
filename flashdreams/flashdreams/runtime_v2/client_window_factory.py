@@ -104,9 +104,12 @@ class _Mp4Mode(ClientWindowMode):
         output = Mp4ClientWindow(parsed_args.output_path)
         if parsed_args.synthetic_input_file is None:
             return output
+        source = SyntheticInputSource(parsed_args.synthetic_input_file)
         return CompositeClientWindow(
             output,
-            SyntheticInputSource(parsed_args.synthetic_input_file),
+            source,
+            on_open=source.start_session,
+            on_close=source.end_session,
         )
 
     def finished(self, client_window: IClientWindow) -> str | None:
