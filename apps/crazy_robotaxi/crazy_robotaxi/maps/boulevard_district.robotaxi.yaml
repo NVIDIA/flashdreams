@@ -424,20 +424,17 @@ spawns:
       Photorealistic forward-facing camera fixed above a pale silver taxi
       hood, with the curved bonnet and dark wiper recess visible across
       the lower fifth. A level horizon and calibrated wide-angle lens
-      capture a suburban district with dry asphalt and white and yellow
+      capture a suburban district with asphalt and white and yellow
       road markings.
       Low concrete curbs and sidewalks border gardens, detached stucco
       and craftsman homes, mature leafy trees, scattered palms and flowering
       jacarandas. The neighborhood includes small two-story shops.
-      Clear late-morning daylight,
-      soft tree shadows, blue sky and natural colors remain consistent.
       Keep the hood fixed in frame. No camera cuts, dashboard, racing
       barriers, text overlays or HUD.
     prompt_context: >-
       Photorealistic forward-facing camera fixed above a pale silver taxi
       hood, with the curved bonnet and dark wiper recess visible across
       the lower fifth. Level horizon and calibrated wide-angle lens.
-      A suburban district with dry asphalt, low concrete curbs, sidewalks,
-      mature leafy trees and landscaped low-rise buildings. Clear
-      late-morning daylight, soft tree shadows and natural colors remain
-      consistent. No camera cuts, dashboard, racing barriers or text overlays.
+      A suburban district with asphalt, low concrete curbs, sidewalks,
+      mature leafy trees and landscaped low-rise buildings.
+      No camera cuts, dashboard, racing barriers or text overlays.
