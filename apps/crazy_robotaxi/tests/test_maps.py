@@ -35,6 +35,8 @@ _MAP_FIXTURES = Path(__file__).parent / "maps"
         "boulevard_district.robotaxi.yaml",
         "flashdreams_raceway.robotaxi.yaml",
         "pacific_breakwater.robotaxi.yaml",
+        "harbor_market.robotaxi.yaml",
+        "mesa_gardens.robotaxi.yaml",
     ],
 )
 def test_shipped_map_is_valid(filename: str) -> None:
@@ -46,6 +48,36 @@ def test_shipped_map_is_valid(filename: str) -> None:
     assert game_map.lanes
     assert game_map.default_spawn.prompt_context
     assert game_map.default_spawn.prompt_context != game_map.default_spawn.prompt
+
+
+@pytest.mark.parametrize("name", ["harbor_market", "mesa_gardens"])
+def test_taxi_district_roads_are_reachable_from_spawn(name: str) -> None:
+    path = (
+        Path(__file__).parents[1] / "crazy_robotaxi" / "maps" / f"{name}.robotaxi.yaml"
+    )
+    game_map = load_game_map(path)
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+    reachable: set[str] = set()
+    pending = [game_map.default_spawn.lane_id]
+    while pending:
+        lane_id = pending.pop()
+        if lane_id not in reachable:
+            reachable.add(lane_id)
+            pending.extend(lanes[lane_id].successor_ids)
+
+    road_ids = {road.road_id for road in game_map.topology.roads}
+    assert road_ids <= {lanes[lane_id].element_id for lane_id in reachable}
+    # Parking access lanes end in free-drive areas; street lanes must continue.
+    assert all(
+        lane.successor_ids for lane in game_map.lanes if lane.element_id in road_ids
+    )
+    assert game_map.traffic
+    assert all(road.prompt_context for road in game_map.topology.roads)
+    header = load_game_map_header(path)
+    assert header.menu_thumbnail_path is not None
+    assert header.menu_thumbnail_path == path.with_name(f"{name}_initial_frame.png")
+    with Image.open(header.menu_thumbnail_path) as frame:
+        assert frame.size == (1280, 704)
 
 
 def test_prompt_context_is_trimmed_and_round_trips(tmp_path: Path) -> None:
