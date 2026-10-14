@@ -31,7 +31,11 @@ _MAP_FIXTURES = Path(__file__).parent / "maps"
 
 @pytest.mark.parametrize(
     "filename",
-    ["boulevard_district.robotaxi.yaml", "flashdreams_raceway.robotaxi.yaml"],
+    [
+        "boulevard_district.robotaxi.yaml",
+        "flashdreams_raceway.robotaxi.yaml",
+        "pacific_breakwater.robotaxi.yaml",
+    ],
 )
 def test_shipped_map_is_valid(filename: str) -> None:
     path = Path(__file__).parents[1] / "crazy_robotaxi" / "maps" / filename

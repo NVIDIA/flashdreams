@@ -1,0 +1,27 @@
+flashdreams_raceway first-frame provenance
+
+Artwork generated with the built-in image_gen tool, using
+flashdreams_raceway_spawn_geometry.png as the calibrated camera reference.
+Original artwork is retained at ../../tools/flashdreams_raceway_artwork.png.
+
+The final 1280x704 seed is deterministically composited. The camera and road
+geometry come from this map's default compiled spawn. Generated asphalt is
+used only as texture. Road surfaces, curbs, white and yellow markings use
+canonical f-theta ground projection. Dashed dividers have 3-metre segments
+and 6-metre gaps along the semantic polylines; solid dividers stay continuous.
+Foreground scenery occludes disconnected distant ground surfaces. The silver
+hood is retained as a foreground layer occupying roughly the lower fifth.
+
+Rebuild in the app environment from the repository root:
+python apps/crazy_robotaxi/tools/compose_map_frames.py flashdreams_raceway
+
+The script checks the visible white/yellow paint masks, writes the initial
+frame, and saves a cyan semantic alignment overlay plus raw geometry preview.
+
+Artwork-generation prompt:
+
+Use case: photorealistic-natural.
+Asset: FlashDreams Raceway initial driving frame artwork. Convert this exact calibrated map camera render into a refined photorealistic urban grand-prix circuit. Output landscape aspect 1280:704, level horizon at 49.3% height. Retain the exact road projection: exceptionally wide 25-metre asphalt pit straight extending to the horizon, camera just right of road center. Road boundary enters left frame at y=408/704 and right frame at y=439/704. Do not narrow the road or introduce a visible bend near the car.
+Set dressing: large contemporary covered grandstands with spectators on the LEFT, white and charcoal pit garages with glazed hospitality suites on the RIGHT, tall catch fences on low pale concrete walls exactly beyond the existing road edges. A restrained skyline of glass city towers beyond the circuit, a few trees between spectator structures. Bright clear afternoon daylight, attractive natural color, fine asphalt grain and believable construction details. Authentic motorsport atmosphere, no logos or readable text.
+Important compositing instructions: the road will be replaced with the exact semantic road later. Make the entire road unmarked dark asphalt, NO white/yellow paint, NO starting line, NO grid boxes, NO gantry, NO racing cars or people on asphalt. Keep road surface continuous and unobstructed. Scenery outside the roadway only.
+Camera: fixed hood-mounted forward POV with a wide calibrated lens. Add a curved pale silver taxi hood across the lower 18-20% of the image, its front edge near 82% height at image center, curving downward toward the bottom corners. Include a narrow black wiper recess along the bottom. Hood clearly visible. No dashboard, interior, driver, steering wheel, chase car or third-person view. No HUD, watermark, motion blur, dramatic grading. Highest priorities: roadway camera layout, visible hood, beautiful believable city racetrack.

@@ -40,8 +40,9 @@ roads:
     to: start_finish
     profile: raceway
     prompt_context: >-
-      The start-finish straight runs past packed grandstands, pit garages,
-      timing towers, sponsor gantries, and a black-and-white checkered line.
+      Covered grandstands full of spectators and glazed pit garages flank
+      the broad start-finish straight behind pale concrete walls and tall
+      catch fencing. Glass city towers rise beyond the circuit.
 
   - id: main_straight
     from: start_finish
@@ -210,12 +211,26 @@ spawns:
     road: start_finish_straight
     lane: 2
     distance_m: 220
-    image: package://omnidreams_game_engine/screenshot.jpg
+    image: flashdreams_raceway_initial_frame.png
     prompt: >-
-      A forward-facing view from a taxi on a wide closed Formula-style
-      road circuit in daylight, with varied-radius corners, technical
-      esses, hairpins, safety barriers, grandstands, sponsor banners,
-      and a clear start-finish straight.
+      Photorealistic forward-facing camera fixed above a pale silver taxi
+      hood, with the curved bonnet and dark wiper recess visible across
+      the lower fifth of the frame. A level horizon and calibrated wide-angle
+      lens overlook a broad, flat city racing circuit with dry dark asphalt
+      and dashed white lane dividers. Covered spectator grandstands line
+      one side of the starting straight; white and charcoal pit garages
+      with glazed hospitality suites line the other. Low pale concrete
+      barriers and tall catch fencing separate spectators from the track.
+      Glass city towers rise in the distance. Bright clear afternoon
+      daylight, natural colors and sharp surface textures remain consistent.
+      The circuit continues through varied-radius corners, technical esses
+      and hairpins. Keep the hood fixed in frame, with no camera cuts,
+      dashboard, text overlays or HUD.
     prompt_context: >-
-      A forward-facing view from a taxi on a wide road racing circuit
-      through a city in daylight.
+      Photorealistic forward-facing camera fixed above a pale silver taxi
+      hood, with the curved bonnet and dark wiper recess visible across
+      the lower fifth. Level horizon and calibrated wide-angle lens.
+      A broad city racing circuit with dry dark asphalt, dashed white lane
+      dividers, pale concrete barriers and tall catch fencing. Bright clear
+      afternoon daylight and natural colors remain consistent. Spectators
+      stay behind the fences. No camera cuts, dashboard or text overlays.
