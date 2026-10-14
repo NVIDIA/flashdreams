@@ -231,7 +231,7 @@ Pass `open=True` only when the user asks to open it on that tick (for ImGui,
 `SelectedFilesUserInputEvent` for that id, or `None`. Read `status`; use
 `files` only when the pick succeeded. Reuse that `request_id` so extra clicks
 do not stack pickers; use a different id for every other place that can open
-one. Using an id twice in one tick raises `ValueError`. `accept` is filename suffixes (empty = any type);
+one. `accept` is filename suffixes (empty = any type);
 `max_file_bytes` is the size budget per file (`None` = the
 `MAX_SELECTED_FILE_BYTES` ceiling); `multiple` allows more than one file, with
 the whole set capped by `MAX_SELECTED_FILE_BATCH_BYTES`. Both caps live in
