@@ -17,7 +17,7 @@ from typing import Literal, Union, get_args, get_origin, get_type_hints
 
 from numpy import uint64
 
-from flashdreams.api_v2.input_source import SessionInputSource
+from flashdreams.api_v2.input_source import InputSource
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.user_input_event import KeyboardInputState
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -31,7 +31,7 @@ class _ScheduledEvent:
     event: UserInputEvent
 
 
-class SyntheticInputSource(SessionInputSource):
+class SyntheticInputSource(InputSource):
     """Release descriptor events exactly once on their requested UI polls."""
 
     def __init__(
@@ -56,13 +56,11 @@ class SyntheticInputSource(SessionInputSource):
         self._next_event_index = 0
         self._poll = 0
 
-    def open(self) -> None:
-        """Start a new session-relative clock and replay cursor."""
+    def start_session(self) -> None:
+        """Start a new session-relative clock without resetting replay state."""
         self._session_started_ns = self._clock_ns()
-        self._next_event_index = 0
-        self._poll = 0
 
-    def close(self) -> None:
+    def end_session(self) -> None:
         """Clear the active session clock."""
         self._session_started_ns = None
 
@@ -70,7 +68,9 @@ class SyntheticInputSource(SessionInputSource):
         """Return events due on this UI poll, stamped at emission time."""
         started_ns = self._session_started_ns
         if started_ns is None:
-            raise RuntimeError("SyntheticInputSource.open() must run before polling.")
+            raise RuntimeError(
+                "SyntheticInputSource.start_session() must run before polling."
+            )
         elapsed_us = uint64(max(0, self._clock_ns() - started_ns) // 1_000)
         released: list[UserInputEvent] = []
         while (

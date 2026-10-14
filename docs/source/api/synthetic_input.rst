@@ -24,7 +24,9 @@ contain only ``version`` and ``events``. Version 1 supports ``ui_loop``
 scheduling. ``at`` is a zero-based input-poll index: ``0`` releases an event
 when the runtime first polls the client window after opening the session,
 before the first UI step. Events with the same ``at`` value retain their file
-order.
+order. The descriptor cursor and poll index are application-relative, so a
+replacement session continues from the next unreleased event. Event timestamps
+are session-relative and restart when a replacement session opens.
 
 Event payloads
 --------------

@@ -9,7 +9,7 @@ import pytest
 from numpy import uint64
 
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.api_v2.input_source import InputSource, SessionInputSource
+from flashdreams.api_v2.input_source import InputSource
 from flashdreams.runtime_v2.composite_client_window import CompositeClientWindow
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -53,17 +53,6 @@ class _InputSource(InputSource):
         return UserInputEvents([ResetUserInputEvent(timestamp=uint64(0))])
 
 
-class _SessionInputSource(_InputSource, SessionInputSource):
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-
-    def open(self) -> None:
-        self.calls.append("open")
-
-    def close(self) -> None:
-        self.calls.append("close")
-
-
 def test_the_composite_preserves_wrapped_input_before_additional_input() -> None:
     window = CompositeClientWindow(cast(IClientWindow, _Window()), _InputSource())
 
@@ -99,11 +88,16 @@ def test_the_composite_delegates_the_client_window_lifecycle() -> None:
     ]
 
 
-def test_the_composite_preserves_the_temporary_session_input_lifecycle() -> None:
-    source = _SessionInputSource()
-    window = CompositeClientWindow(cast(IClientWindow, _Window()), source)
+def test_the_composite_calls_additional_input_lifecycle_callbacks() -> None:
+    calls: list[str] = []
+    window = CompositeClientWindow(
+        cast(IClientWindow, _Window()),
+        _InputSource(),
+        on_open=lambda: calls.append("open"),
+        on_close=lambda: calls.append("close"),
+    )
 
     window.open(cast(SessionDesc, object()))
     window.close()
 
-    assert source.calls == ["open", "close"]
+    assert calls == ["open", "close"]
