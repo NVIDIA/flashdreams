@@ -411,6 +411,42 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
 Race times are stored per map and course. Use `--race-times PATH` to choose a
 different leaderboard file.
 
+### Pacific Breakwater
+
+Select **Pacific Breakwater** for a closed coastal circuit with waterfront
+straights, marina bends, technical esses and a cape hairpin. All four lanes
+follow the race direction, with no NPC traffic. Choose `coastal-sprint` for
+one lap or `coastal-grand-prix` for three laps.
+
+The bundled 1280x704 initial frame uses the compiled spawn's calibrated front
+camera, with a visible silver hood. Its road surface, curbs and white markings
+are projected directly from the semantic map. Generated scenery and asphalt
+texture are composited around that geometry; the generated road layout is
+discarded. Its generation prompt and compositing notes are saved beside the
+image as `pacific_breakwater_initial_frame.prompt.txt`.
+The full spawn prompt establishes the coastal setting for normal play; the
+shorter base and nine road fragments keep lighting and hood framing consistent
+while adding local landmarks with dynamic prompts enabled. The runtime supplies
+turn direction and vehicle motion.
+
+After changing this map or its spawn, rebuild the frame from the repository
+root with `python apps/crazy_robotaxi/tools/compose_map_frames.py pacific_breakwater`
+in the app environment. This uses the checked-in artwork and existing OpenCV,
+Pillow, NumPy and Shapely dependencies. The map-specific compositor checks
+visible paint pixels against the projected marking mask and saves a semantic
+geometry preview plus a cyan alignment overlay beside the seed image.
+Dash segments are 3 metres with 6-metre gaps along the semantic divider paths.
+
+```bash
+uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+  crazy-robotaxi-omnidreams --mode native-window -- \
+  --map apps/crazy_robotaxi/crazy_robotaxi/maps/pacific_breakwater.robotaxi.yaml \
+  --game-mode race --race-course coastal-sprint --live-edit-dynamic-prompts
+```
+
+`--live-edit-dynamic-prompts` activates the road fragments and disables native DiT
+acceleration, as described below. Omit it to use the full static spawn prompt.
+
 ## Optional live-edit abilities
 
 Live-edit features are disabled by default. Enable them on the **LIVE EDIT**
@@ -487,3 +523,22 @@ the source YAML directly and compiles it as needed.
 Each spawn can define both a full `prompt` for normal play and a shorter
 `prompt_context` base for `--live-edit-dynamic-prompts`; selected dynamic
 fragments are appended only to the latter.
+
+The bundled maps each have a dedicated hood-view initial frame. FlashDreams
+Raceway shows grandstands, pit garages and a city skyline; Boulevard District
+shows a leafy residential boulevard with yellow traffic separation. Both
+frames use the compiled spawn's road projection, with map-relative assets
+also used by the map and course menus. Their spawn prompts match the scenery.
+
+To rebuild these frames from the saved artwork, run in the app environment:
+
+```bash
+python apps/crazy_robotaxi/tools/compose_map_frames.py flashdreams_raceway
+python apps/crazy_robotaxi/tools/compose_map_frames.py boulevard_district
+```
+
+The compositor projects semantic road surfaces and white/yellow markings,
+retains the generated hood and scenery, and checks visible paint coverage.
+Each map's `*_alignment.png` shows the semantic lines in cyan;
+`*_spawn_geometry.png` and `*_initial_frame.prompt.txt` retain the geometry
+reference and generation provenance. Inspect the new frame after map edits.
