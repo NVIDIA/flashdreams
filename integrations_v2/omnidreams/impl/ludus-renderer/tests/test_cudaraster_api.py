@@ -2670,6 +2670,7 @@ def test_mixed_scale_overlap_respects_depth_order(harness: CudaRasterHarness) ->
     assert near_depth < far_depth
 
 
+
 def test_timestamped_context_batches_distinct_timestamps_exactly() -> None:
     """A multi-frame call must match independent native submissions bit-for-bit."""
     from ludus_renderer import (
