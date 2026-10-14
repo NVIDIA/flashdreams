@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import dataclasses
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated, Any, cast
@@ -62,6 +64,31 @@ def _install_launchable_runner(monkeypatch: pytest.MonkeyPatch) -> str:
         lambda _path: _LaunchCapability(),
     )
     return name
+
+
+def test_entrypoint_reports_empty_runner_registry() -> None:
+    for arguments, expected_code in (
+        (["--help"], 0),
+        (["-h"], 0),
+        ([], 2),
+        (["omnidreams"], 2),
+    ):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from flashdreams.scripts import cli; "
+                "cli.all_runners = lambda: {}; cli.entrypoint()",
+                *arguments,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        output = result.stdout + result.stderr
+        assert result.returncode == expected_code, output
+        assert "No v1 runners are registered" in output
+        assert "flashdreams-run-v2 --help" in output
 
 
 def test_entrypoint_resolves_runner_without_instantiating(
