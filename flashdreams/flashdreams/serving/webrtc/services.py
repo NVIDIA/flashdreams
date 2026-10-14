@@ -31,7 +31,6 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from flashdreams.demo.outputs import WebRTCOutputSink
-from flashdreams.infra.time import TimeWindow
 from flashdreams.runtime import (
     StepRequirements,
     StepResult,
@@ -56,7 +55,6 @@ from flashdreams.runtime.demo import (
     RunResult,
     RuntimeHost,
     SessionEdges,
-    SessionInfo,
     SingleSessionAdmissionPolicy,
     StepPipeline,
     UserInputWindow,
@@ -72,10 +70,12 @@ from flashdreams.runtime.demo.timing import (
 )
 
 from .messages import (
+    CLEAR_EVENT_STATES,
     MESSAGE_TYPE_ACTION,
     MESSAGE_TYPE_DISCONNECT,
     MESSAGE_TYPE_EVENT,
     MESSAGE_TYPE_HEARTBEAT,
+    parse_event_payload,
 )
 from .server import SessionBusyError
 
@@ -89,7 +89,6 @@ WebRTCMessageKind = Literal[
 
 WebRTCDropPolicy = Literal["none", "drop_newest", "drop_oldest"]
 
-_CLEAR_EVENT_STATES = frozenset({"clear", "release", "off", "none"})
 WEBRTC_SKIPPED_INPUTS_METADATA_KEY = "webrtc_skipped_inputs"
 WEBRTC_SKIPPED_WINDOW_METADATA_KEY = "webrtc_skipped_window"
 
@@ -440,6 +439,10 @@ class WebRTCActivationPolicy:
             anchor(activation_timestamp_s)
 
 
+class WebRTCInputOverflowError(RuntimeError):
+    """Unsafe input backlog requiring peer closure and a fresh session."""
+
+
 @dataclass(slots=True)
 class WebRTCInputSource:
     """Realtime source fed by browser data-channel events."""
@@ -452,6 +455,21 @@ class WebRTCInputSource:
     user_input_schema: UserInputSchema = field(
         default_factory=lambda: WEBRTC_USER_INPUT_SCHEMA
     )
+    max_pending_events: int = field(default=1024, kw_only=True)
+    """Total retained events, including recovery capacity."""
+
+    max_pending_bytes: int = field(default=1024 * 1024, kw_only=True)
+    """Maximum retained event data measured as serialized UTF-8 JSON bytes."""
+
+    max_pending_age_s: float = field(default=1800.0, kw_only=True)
+    """Maximum unconsumed input age before the peer must reconnect."""
+
+    reserved_recovery_events: int = field(default=32, kw_only=True)
+    """Queue slots unavailable to presses/updates, reserved for releases/clears."""
+
+    reserved_recovery_bytes: int = field(default=64 * 1024, kw_only=True)
+    """Byte capacity unavailable to presses/updates, reserved for recovery."""
+
     is_finite: bool = False
     is_deterministic: bool = False
     _activation_signal: "_ThreadSafeActivationSignal" = field(
@@ -464,6 +482,10 @@ class WebRTCInputSource:
         init=False,
         repr=False,
     )
+    _event_sizes: deque[int] = field(default_factory=deque, init=False, repr=False)
+    """Serialized sizes corresponding one-to-one with ``_events``."""
+
+    _pending_event_bytes: int = field(default=0, init=False, repr=False)
     _activation_timestamp_s: float | None = field(
         default=None,
         init=False,
@@ -471,6 +493,18 @@ class WebRTCInputSource:
     )
 
     def __post_init__(self) -> None:
+        for limit, reserved in (
+            (self.max_pending_events, self.reserved_recovery_events),
+            (self.max_pending_bytes, self.reserved_recovery_bytes),
+        ):
+            if (
+                type(limit) is not int
+                or type(reserved) is not int
+                or not 0 < reserved < limit
+            ):
+                raise ValueError("Input budgets require 0 < reserved < limit.")
+        if not math.isfinite(self.max_pending_age_s) or self.max_pending_age_s <= 0:
+            raise ValueError("max_pending_age_s must be finite and > 0.")
         if self.max_lag_s is not None and (
             not math.isfinite(self.max_lag_s) or self.max_lag_s < 0.0
         ):
@@ -497,6 +531,8 @@ class WebRTCInputSource:
         if self.legacy_segment_resampler is not None:
             self.legacy_segment_resampler.reset(start_v=start_v)
         self._events.clear()
+        self._event_sizes.clear()
+        self._pending_event_bytes = 0
         self._activation_timestamp_s = None
         self._activation_signal.clear()
 
@@ -533,7 +569,10 @@ class WebRTCInputSource:
         if message_type == MESSAGE_TYPE_DISCONNECT:
             return WebRTCMessageResult(kind="disconnect")
         if message_type == MESSAGE_TYPE_EVENT:
-            return self._record_text_event(payload, timestamp_s=timestamp_s)
+            try:
+                return self._record_text_event(payload, timestamp_s=timestamp_s)
+            except ValueError as exc:
+                return WebRTCMessageResult(kind="error", error=str(exc))
         if message_type == MESSAGE_TYPE_ACTION:
             action_payload = payload.get("action", payload)
             if not isinstance(action_payload, Mapping):
@@ -541,10 +580,13 @@ class WebRTCInputSource:
                     kind="error",
                     error="'action' must be an object.",
                 )
-            return self._record_action(
-                {str(key): value for key, value in action_payload.items()},
-                timestamp_s=timestamp_s,
-            )
+            try:
+                return self._record_action(
+                    {str(key): value for key, value in action_payload.items()},
+                    timestamp_s=timestamp_s,
+                )
+            except ValueError as exc:
+                return WebRTCMessageResult(kind="error", error=str(exc))
         return WebRTCMessageResult(
             kind="error",
             error=(
@@ -570,9 +612,49 @@ class WebRTCInputSource:
             source_event_id=source_event_id,
         )
         self.user_input_schema.validate_event(event)
+        self.check_pending_events(now_s=timestamp_s)
+        recovery = event_type == "key_up" or (
+            event_type == "text_event" and payload.get("state") in CLEAR_EVENT_STATES
+        )
+        count_limit = self.max_pending_events
+        byte_limit = self.max_pending_bytes
+        if not recovery:
+            count_limit -= self.reserved_recovery_events
+            byte_limit -= self.reserved_recovery_bytes
+        event_bytes = len(
+            json.dumps(
+                [event_type, dict(event.payload), source_event_id],
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        if (
+            len(self._events) >= count_limit
+            or self._pending_event_bytes + event_bytes > byte_limit
+        ):
+            reason = "Too much queued WebRTC input; wait for inference to catch up."
+            if recovery:
+                raise WebRTCInputOverflowError(
+                    "WebRTC input recovery capacity exhausted; reconnect."
+                )
+            raise ValueError(reason)
         self._events.append(event)
+        self._event_sizes.append(event_bytes)
+        self._pending_event_bytes += event_bytes
         if activate:
             self._activate(timestamp_s)
+
+    def check_pending_events(self, *, now_s: float) -> None:
+        """Raise before stale input can be replayed or keep a stalled peer alive."""
+        # ponytail: scan at most max_pending_events for out-of-order arrivals;
+        # index the oldest timestamp if larger queue limits become necessary.
+        if (
+            self._events
+            and now_s - min(event.timestamp_s for event in self._events)
+            >= self.max_pending_age_s
+        ):
+            raise WebRTCInputOverflowError("WebRTC input backlog expired; reconnect.")
 
     async def next_realtime_window(
         self,
@@ -587,6 +669,7 @@ class WebRTCInputSource:
 
         window_end_s = float(self.resampler.next_chunk_start_v) + chunk_duration_s
         await clock.wait_until_window_end(window_end_s)
+        self.check_pending_events(now_s=clock.now())
         pre_catch_up_start_s = float(self.resampler.next_chunk_start_v)
         catch_up = clock.catch_up(
             request=request,
@@ -626,7 +709,7 @@ class WebRTCInputSource:
             ),
             catch_up=catch_up,
         )
-        self._prune_events(before_s=start_s)
+        self._prune_events(before_s=end_s)
         return window
 
     def _record_action(
@@ -644,23 +727,24 @@ class WebRTCInputSource:
                 kind="error",
                 error=f"Unsupported event={event!r}; expected 'keydown' or 'keyup'.",
             )
-        key = str(payload.get("key", "")).strip()
-        if not key:
+        key = payload.get("key")
+        if not isinstance(key, str) or not key.strip():
             return WebRTCMessageResult(
                 kind="error",
-                error="Action payload must include non-empty 'key'.",
+                error="Action payload must include a non-empty string 'key'.",
             )
+        key = key.strip()
+        self.record_user_event(
+            timestamp_s=timestamp_s,
+            event_type="key_down" if event == "keydown" else "key_up",
+            payload={"key": key},
+        )
         if self.legacy_segment_resampler is not None:
             self.legacy_segment_resampler.on_edge(
                 arrival_t=timestamp_s,
                 event=event,
                 key=key,
             )
-        self.record_user_event(
-            timestamp_s=timestamp_s,
-            event_type="key_down" if event == "keydown" else "key_up",
-            payload={"key": key},
-        )
         return WebRTCMessageResult(kind="action", activated=True)
 
     def _activate(self, timestamp_s: float) -> None:
@@ -674,17 +758,8 @@ class WebRTCInputSource:
         *,
         timestamp_s: float,
     ) -> WebRTCMessageResult:
-        state = str(payload.get("state", "trigger")).strip().lower() or "trigger"
-        event_id = str(payload.get("event_id", payload.get("id", ""))).strip()
-        clears = state in _CLEAR_EVENT_STATES
-        if not event_id and not clears:
-            return WebRTCMessageResult(
-                kind="error",
-                error=(
-                    "Event payload must include non-empty 'event_id' unless state "
-                    "clears the active event."
-                ),
-            )
+        event_id, state = parse_event_payload(payload)
+        clears = state in CLEAR_EVENT_STATES
         active_event_id = None if clears else event_id
         self.record_user_event(
             timestamp_s=timestamp_s,
@@ -711,9 +786,14 @@ class WebRTCInputSource:
         )
 
     def _prune_events(self, *, before_s: float) -> None:
-        self._events = deque(
-            event for event in self._events if event.timestamp_s >= before_s
-        )
+        retained = [
+            (event, size)
+            for event, size in zip(self._events, self._event_sizes)
+            if event.timestamp_s >= before_s
+        ]
+        self._events = deque(event for event, _size in retained)
+        self._event_sizes = deque(size for _event, size in retained)
+        self._pending_event_bytes = sum(size for _event, size in retained)
 
 
 class ThreadSafeWebRTCOutputBridge:
@@ -1273,6 +1353,7 @@ __all__ = [
     "WEBRTC_SKIPPED_INPUTS_METADATA_KEY",
     "WEBRTC_SKIPPED_WINDOW_METADATA_KEY",
     "WebRTCActivationPolicy",
+    "WebRTCInputOverflowError",
     "WebRTCInputSource",
     "WebRTCMessageResult",
     "WebRTCOfferAnswerer",

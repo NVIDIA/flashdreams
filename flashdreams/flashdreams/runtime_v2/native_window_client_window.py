@@ -25,6 +25,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
+    FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -95,6 +96,7 @@ class NativeWindowClientWindow(IClientWindow):
         self,
         *,
         title: str = "FlashDreams",
+        fullscreen: bool = False,
         presenter_factory: Callable[..., _SlangPyNativeWindowPresenter] | None = None,
         clock_ns: Callable[[], int] = time.monotonic_ns,
     ) -> None:
@@ -102,15 +104,20 @@ class NativeWindowClientWindow(IClientWindow):
 
         Args:
             title: Native window title.
+            fullscreen: Whether to create the window in fullscreen mode.
             presenter_factory: Optional SlangPy-compatible presenter factory.
             clock_ns: Monotonic clock used for input timestamps.
 
         Raises:
             ValueError: ``title`` is empty.
+            TypeError: ``fullscreen`` is not a bool.
         """
         if not title.strip():
             raise ValueError("Native-window title must be non-empty.")
+        if not isinstance(fullscreen, bool):
+            raise TypeError("fullscreen must be a bool.")
         self.title = title
+        self._fullscreen = fullscreen
         self._presenter_factory = presenter_factory
         self._clock_ns = clock_ns
         self._session_started_ns: int | None = None
@@ -187,6 +194,7 @@ class NativeWindowClientWindow(IClientWindow):
                 width=session_desc.video_width,
                 height=session_desc.video_height,
                 title=self.title,
+                fullscreen=self._fullscreen,
             )
             try:
                 presenter.set_input_callbacks(
@@ -212,6 +220,16 @@ class NativeWindowClientWindow(IClientWindow):
         self._pending_printable_keys.clear()
         self._pressed_key_values.clear()
         self._presenter = presenter
+        if self._fullscreen:
+            presenter.process_events()
+            self._window_size = presenter.size
+            self._put_input(
+                FullscreenEnabledOptimalWindowSizeUserInputEvent(
+                    timestamp=uint64(0),
+                    width=self._window_size[0],
+                    height=self._window_size[1],
+                )
+            )
 
     def get_user_input_events(self) -> UserInputEvents:
         """Pump GLFW and return native input events not yet read."""
@@ -391,6 +409,7 @@ class _SlangPyNativeWindowPresenter:
         width: int,
         height: int,
         title: str,
+        fullscreen: bool = False,
     ) -> None:
         """Create a programmatically resizable SlangPy window and Vulkan surface.
 
@@ -398,6 +417,7 @@ class _SlangPyNativeWindowPresenter:
             width: Window width in pixels.
             height: Window height in pixels.
             title: Native window title.
+            fullscreen: Whether to create the window in fullscreen mode.
 
         Raises:
             RuntimeError: SlangPy is unavailable or cannot create the window.
@@ -414,18 +434,20 @@ class _SlangPyNativeWindowPresenter:
         self._width = int(width)
         self._height = int(height)
         self._closed = False
+        self._fullscreen = fullscreen
         self._window = spy.Window(
             width=self._width,
             height=self._height,
             title=title,
+            mode=spy.WindowMode.fullscreen if fullscreen else spy.WindowMode.normal,
             resizable=False,
         )
         try:
             self._presentation = _PresentationContext(
                 spy=spy,
                 window=self._window,
-                width=self._width,
-                height=self._height,
+                width=int(self._window.width),
+                height=int(self._window.height),
             )
         except BaseException:
             self._window.close()
@@ -460,7 +482,9 @@ class _SlangPyNativeWindowPresenter:
         self._window.cursor_mode = cursor_mode
 
     def resize(self, width: int, height: int) -> tuple[int, int]:
-        """Request a native resize and return the last acknowledged size."""
+        """Request a native resize and return the last acknowledged size.
+        Allowed to resize fullscreen windows.
+        """
         if self._closed:
             raise RuntimeError("Cannot resize a closed native window.")
         self._window.resize(width, height)

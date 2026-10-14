@@ -67,6 +67,10 @@ class ImGuiUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
     @final
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Render and composite one ImGui frame."""
+        # User choses when to resize the UI, UI
+        # must never resize the UI loop itself.
+        # User may want to stretch the UI to fill
+        # the overly-sized window.
         back_buffer: Tensor | None = None
 
         def draw(imgui: Any, index: int, current_events: UserInputEvents) -> None:

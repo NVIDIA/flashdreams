@@ -236,7 +236,7 @@ def _worker(rank, scenario, rendezvous, output):
                 if (
                     scenario == "stop_after_admission"
                     and rank == 0
-                    and ready_calls == 2
+                    and ready_calls == 3
                 ):
                     assert admitted
                     session._shutdown_event.set()
@@ -410,6 +410,13 @@ def test_worker_cli_constructs_no_io_and_shuts_down_distributed(
     from flashdreams.runtime_v2 import cli
 
     monkeypatch.setenv("WORLD_SIZE", "2")
+    # --stats-path sets these for the whole process; restore them afterwards.
+    for name in (
+        "FLASHDREAMS_SYNC_AND_PROFILE",
+        "FLASHDREAMS_FPS",
+        "FLASHDREAMS_INPUT_LATENCY",
+    ):
+        monkeypatch.setenv(name, "0")
     monkeypatch.setattr(cli, "get_global_rank_for_logging", lambda: 1)
     monkeypatch.setattr(cli, "registered_application_slugs", lambda: [])
     monkeypatch.setattr(
