@@ -231,7 +231,12 @@ Pass `open=True` only when the user asks to open it on that tick (for ImGui,
 `SelectedFilesUserInputEvent` for that id, or `None`. Read `status`; use
 `files` only when the pick succeeded. Reuse that `request_id` so extra clicks
 do not stack pickers; use a different id for every other place that can open
-one. `accept` is filename suffixes (empty = any type);
+one. Sharing an id between places is not supported: a pick made from one
+place would also be reported to the other. The app supplies the id because
+`file_selector` is called anew every tick, so nothing persists between the
+tick that opens a picker and the tick that receives its result; like an ImGui
+widget id, the stable `request_id` is what connects them. An id generated per
+call would differ on every tick. `accept` is filename suffixes (empty = any type);
 `max_file_bytes` is the size budget per file (`None` = the
 `MAX_SELECTED_FILE_BYTES` ceiling); `multiple` allows more than one file, with
 the whole set capped by `MAX_SELECTED_FILE_BATCH_BYTES`. Both caps live in

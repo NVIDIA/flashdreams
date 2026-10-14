@@ -613,9 +613,12 @@ class IUILoop(ILoop[StateT], ABC):
         Call every UI tick from each place in the UI that can open a picker.
         Pass ``open=True`` only on the tick that the user asks to open it, such
         as when an ImGui button returns ``True``. Use a different stable
-        ``request_id`` for each such place. One picker is open at a time:
-        another ``open=True`` for the open ``request_id`` is ignored, and one
-        for any other id completes as ``UNAVAILABLE``.
+        ``request_id`` for each such place. Sharing an id between places is
+        not supported: a pick made from one place would also be reported to
+        the other.
+        One picker is open at a time: another ``open=True`` for the open
+        ``request_id`` is ignored, and one for any other id completes as
+        ``UNAVAILABLE``.
 
         Example:
 
@@ -627,7 +630,9 @@ class IUILoop(ILoop[StateT], ABC):
 
         Args:
             request_id: Stable id for this place in the UI. Echoed on the
-                matching event.
+                matching event. Supplied by the app, like an ImGui widget id,
+                because it must stay the same across the ticks between
+                opening a picker and receiving its result.
             initial_path: Directory hint for the selector; ``None`` uses the
                 current user's home directory.
             open: Whether to start a selector this tick.
