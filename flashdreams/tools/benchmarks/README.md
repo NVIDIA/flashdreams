@@ -13,8 +13,10 @@ so their clips can be put side by side; a camera-to-video model is conditioned
 on a first frame that its prompt belongs to, so it is compared against runs of
 itself rather than against the text-to-video clips.
 
-The v1 demo suites that run through `flashdreams-run` are a separate workflow,
-in [the local benchmarks guide](../../../docs/source/documentation/demo_api/guides/local_benchmarks.md).
+Some older scenarios still invoke retired v1 model commands; see the
+[CLI migration notes](../../../docs/source/documentation/cli.md#legacy-runner-commands)
+for their current replacements and remaining gaps. Use the v2 suite below for
+current model comparisons.
 
 ## Set up
 

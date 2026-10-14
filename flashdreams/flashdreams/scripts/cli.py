@@ -10,14 +10,13 @@ nested field as a CLI flag.
 
 Usage::
 
-    flashdreams-run --help                            # list every runner
-    flashdreams-run wan21-t2v-1.3b-480p --help        # show overridable fields
-    flashdreams-run wan21-t2v-1.3b-480p --prompt "A cat surfing."
-    flashdreams-run wan21-i2v-14b-480p --prompt "..." --image-path frame.png
-    flashdreams-run --no-instantiate template-offline # resolve config only
-    flashdreams-run wan21-t2v-1.3b-480p --postprocess.preset flashvsr-v1.1-sparse-2.0
-    flashdreams-run omnidreams local-window
-    flashdreams-run t2v-causal-forcing --prompt "A forest waterfall."
+    flashdreams-run --help                          # list registered v1 runners
+    flashdreams-run <runner> --help                 # show overridable fields
+    flashdreams-run --no-instantiate <runner>       # resolve config only
+
+Current model applications register with ``flashdreams-run-v2`` instead.
+
+Multi-GPU usage::
 
     # Multi-GPU via context-parallelism (integration transformers auto-detect
     # CP size from the launcher's WORLD group). ``--no-python`` tells
@@ -180,6 +179,17 @@ def entrypoint(argv: list[str] | None = None) -> None:
         legacy_world_manifest,
         launch_overrides,
     ) = _prepare_cli_args(raw_args)
+    if not runners:
+        message = (
+            "No v1 runners are registered. Use flashdreams-run-v2 --help to list "
+            "current applications. For a v1 runner, install a plugin exposing "
+            "flashdreams.runner_configs or set FLASHDREAMS_RUNNER_CONFIGS."
+        )
+        if "-h" in normalized_args or "--help" in normalized_args:
+            print(message)
+            return
+        print(message, file=sys.stderr)
+        raise SystemExit(2)
     selected_runner_name = next(
         (value for value in normalized_args if value in runners),
         None,
