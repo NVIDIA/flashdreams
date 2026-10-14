@@ -20,35 +20,10 @@ Run the tool from the repository root. Use `:::` to separate packager options
 from the complete `flashdreams-run-v2` command:
 
 ```bash
-
 uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
-  --output artifacts/interactive-drive-omnidreams-bundle \
-  ::: flashdreams-run-v2 interactive-drive-omnidreams \
-  --mode native-window
-
-```
-
-For a browser application, package its normal WebRTC command:
-
-```bash
-
-uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
-  --output artifacts/interactive-drive-omnidreams-webrtc-bundle \
-  ::: flashdreams-run-v2 interactive-drive-omnidreams \
-  --mode webrtc --host 0.0.0.0 --port 8089
-
-```
-
-Arguments before the runtime command's `--` belong to FlashDreams. Arguments
-after it belong to the application and are embedded in the generated launcher:
-
-```bash
-
-uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
-  ::: flashdreams-run-v2 interactive-drive-omnidreams \
-  --mode native-window --timeout 120 \
-  -- --game-mode
-
+  --output artifacts/taxi-omnidreams-bundle \
+  ::: flashdreams-run-v2 crazy-robotaxi-omnidreams-fast-perf \
+  --mode native-window --fullscreen
 ```
 
 Do not pass `--preload-application`; the packager controls preparation and
@@ -64,6 +39,9 @@ validation. If `--output` is omitted, the destination is
 | `--skip-runtime-validation` | Initialize the application without validating one model block. |
 | `--hidden-import MODULE` | Add a PyInstaller hidden import; repeat as needed. |
 | `--collect-executable NAME` | Include an executable found on `PATH`; repeat as needed. |
+| `--noconsole` | Build without a console window on Windows (ignored on Linux). `stdout` and `stderr` are written to the writable runtime cache. |
+| 
+| `--working-dir PATH` | Defaults to the output directory (which must not already exist. Creates dir if missing and copy its contents into the bundle before preload. |
 
 Use `--help` for the authoritative option list:
 
