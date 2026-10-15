@@ -245,38 +245,9 @@ change while a non-base style is active. Style mode downloads its additional
 model assets on first use and caches them under
 `artifacts/crazy_robotaxi/live_edit`.
 
-### Dynamic Prompts
-
-Enable the master switch with `--live-edit-dynamic-prompts`, or disable it for
-the current run with `--no-live-edit-dynamic-prompts`. Choose the individual
-fragments in **LIVE EDIT → Dynamic Prompts** in Options or under
-`live_edit.dynamic_prompts` in YAML:
-
-| YAML key | Default | Prompt content |
-| --- | --- | --- |
-| `enabled` | `false` | Master switch for dynamic prompt updates. |
-| `include_current_road_context` | `true` | Authored description of the current road. |
-| `include_next_map_node_type` | `true` | Type and relative status of the current or next map node. |
-| `include_next_map_node_context` | `true` | Authored description of the current or next map node. |
-| `include_upcoming_road_curve_direction` | `true` | Whether the upcoming road curves left or right. |
-| `include_taxi_motion_state` | `true` | Forward, stationary, or reversing motion. |
-
-For example, keep road and node descriptions but omit curve and motion cues:
-
-```yaml
-live_edit:
-  dynamic_prompts:
-    enabled: true
-    include_upcoming_road_curve_direction: false
-    include_taxi_motion_state: false
-```
-
-Dynamic prompts are active only when the master switch and at least one
-fragment are enabled. When active, they use the spawn's shorter `prompt_context`
-as a base, falling back to its full `prompt` if no context is provided. With all
-fragments off, the normal spawn prompt and selected DiT backend are retained
-unless another feature requires the Python transformer.
-
+Dynamic prompts append selected descriptions of the current road, upcoming
+map node and curve, and taxi motion to the active prompt. Choose which fragments
+to include in **LIVE EDIT → Dynamic Prompts** in Options.
 Complete combined prompts are encoded and retained lazily, so the first visit
 to a new combination may pause briefly and sessions with many unique
 combinations retain more GPU memory.
