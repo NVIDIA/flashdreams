@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import stat
 import threading
 import time
 from collections import deque
@@ -118,9 +119,12 @@ def _selected_files_from_paths(
     sized: list[tuple[str, int]] = []
     for path in paths:
         try:
-            sized.append((path, Path(path).stat().st_size))
+            info = Path(path).stat()
         except OSError:
             return (), SelectedFilesStatus.UNAVAILABLE
+        if not stat.S_ISREG(info.st_mode):
+            return (), SelectedFilesStatus.UNAVAILABLE
+        sized.append((path, info.st_size))
     rejected = selected_files_policy_status(
         [(Path(path).name, size) for path, size in sized],
         accept=accept,
@@ -131,7 +135,8 @@ def _selected_files_from_paths(
     files: list[SelectedFile] = []
     for path, _size in sized:
         try:
-            data = Path(path).read_bytes()
+            with open(path, "rb") as stream:
+                data = stream.read(budget + 1)
         except OSError:
             return (), SelectedFilesStatus.UNAVAILABLE
         files.append(SelectedFile(name=Path(path).name, data=data))

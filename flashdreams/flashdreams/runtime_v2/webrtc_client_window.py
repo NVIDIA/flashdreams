@@ -73,9 +73,9 @@ class WebRTCClientWindow(IClientWindow):
 
         self.server.register_input_callback(handle_input)
         self.server.register_file_selector_callbacks(
-            opened=lambda request_id: self._file_selector_opened(int(request_id)),
-            completed=lambda request_id, status, files: self._complete_file_selector(
-                int(request_id), status, files
+            opened=lambda selector_id: self._file_selector_opened(int(selector_id)),
+            completed=lambda selector_id, status, files: self._complete_file_selector(
+                int(selector_id), status, files
             ),
         )
 

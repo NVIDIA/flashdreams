@@ -75,12 +75,12 @@ def _file_request(
     )
 
 
-def _files_url(window: WebRTCClientWindow, request_id: str) -> str:
-    return f"{window.server.url}api/files?request_id={request_id}"
+def _files_url(window: WebRTCClientWindow, token: str) -> str:
+    return f"{window.server.url}api/files?id={token}"
 
 
 async def _wait_file_armed(window: WebRTCClientWindow) -> str:
-    """Return the id the browser was sent once a selector is armed."""
+    """Return the token the browser was sent once a selector is armed."""
     for _ in range(100):
         if window.server._pending_file_requests:
             return next(iter(window.server._pending_file_requests))
@@ -89,12 +89,13 @@ async def _wait_file_armed(window: WebRTCClientWindow) -> str:
 
 
 def _arm(window: WebRTCClientWindow, request: FileSelectionRequest) -> str:
-    """Arm a selector as if the browser had been sent ``request``; return its id."""
+    """Arm a selector as if the browser had been sent ``request``; return its token."""
     selector_id = window._last_file_selector_id + 1
     window._last_file_selector_id = selector_id
     window._active_file_selector = (selector_id, request)
-    wire_id = str(selector_id)
+    wire_id = f"token-{selector_id}"
     window.server._pending_file_requests[wire_id] = webrtc_server._PendingFileSelection(
+        selector_id=str(selector_id),
         accept=request.accept,
         max_bytes=clamp_selected_file_max_bytes(request.max_bytes),
         multiple=request.multiple,
@@ -315,21 +316,15 @@ async def test_in_flight_upload_finishes_once_after_peer_loss(
 
 
 @pytest.mark.asyncio
-async def test_unsolicited_file_upload_is_rejected() -> None:
+async def test_upload_without_the_armed_token_is_rejected() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
-        form = FormData()
-        form.add_field(
-            "file",
-            b"hello",
-            filename="hello.txt",
-            content_type="text/plain",
-        )
-        async with ClientSession() as client:
-            async with client.post(_files_url(window, "1"), data=form) as response:
-                assert response.status == 409
+        assert await _post_selected_file(window, "1", b"hello", "hello.txt") == 409
+        _arm(window, _file_request("open-1"))
+        assert await _post_selected_file(window, "1", b"hello", "hello.txt") == 409
         assert window.get_user_input_events().get_events() == []
+        assert len(window.server._pending_file_requests) == 1
     finally:
         window.close()
 
@@ -361,13 +356,44 @@ async def test_browser_file_selector_sends_clamped_policy_without_host_path() ->
                 break
             await asyncio.sleep(0.01)
         payload = next(item for item in messages if item.get("type") == "file_selector")
+        token = payload.pop("id")
+        assert isinstance(token, str) and len(token) >= 16
+        assert token in window.server._pending_file_requests
         assert payload == {
             "type": "file_selector",
-            "id": "1",
             "accept": [".png", ".jpg"],
             "max_bytes": MAX_SELECTED_FILE_BYTES,
             "multiple": False,
         }
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_flushed_file_selector_closes_the_browser_prompt() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, channel, _ = await _connect_browser(window)
+        messages: list[dict[str, object]] = []
+
+        @channel.on("message")
+        def on_message(message: object) -> None:
+            if isinstance(message, str):
+                messages.append(json.loads(message))
+
+        window.request_file_selector(_file_request("open-1"))
+        await _wait_file_armed(window)
+        window.flush_file_selectors()
+        for _ in range(100):
+            if any(item.get("type") == "file_selector_cancel" for item in messages):
+                break
+            await asyncio.sleep(0.01)
+        assert {"type": "file_selector_cancel"} in messages
+        assert window.server._pending_file_requests == {}
     finally:
         if peer is not None:
             await peer.close()
@@ -639,9 +665,7 @@ async def test_browser_script_checks_type_and_size_before_upload() -> None:
         assert "file.size" in script
         assert '"too_large"' in script
         assert '"disallowed_type"' in script
-        assert (
-            "fetch(`/api/files?request_id=${encodeURIComponent(requestId)}`" in script
-        )
+        assert "fetch(`/api/files?id=${encodeURIComponent(requestId)}`" in script
         assert "input.multiple" in script
         assert "file_selector_ack" in script
         assert "event.stopImmediatePropagation();" in script

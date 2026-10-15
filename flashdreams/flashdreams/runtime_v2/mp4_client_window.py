@@ -58,6 +58,7 @@ class Mp4ClientWindow(IClientWindow):
 
     def open(self, session_desc: SessionDesc) -> None:
         """Prepare to write a session's output."""
+        self._input_events = []
         self._video_sink.open(session_desc)
 
     def write(self, result: StepResult) -> None:

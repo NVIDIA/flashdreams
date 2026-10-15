@@ -27,6 +27,7 @@ class NullClientWindow(IClientWindow):
     def open(self, session_desc: SessionDesc) -> None:
         """Accept a session without opening an output."""
         del session_desc
+        self._input_events = []
 
     def write(self, result: StepResult) -> None:
         """Discard one result."""

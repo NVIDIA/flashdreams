@@ -38,8 +38,9 @@ class IClientWindow(InputSource, OutputSink, ABC):
     A window does not describe the output shape. The session does, and the window
     is given that description in :meth:`OutputSink.open`.
 
-    One thread makes every call on a window, so an implementation needs no
-    locking except when its backend delivers input from another thread.
+    The runtime makes every call on a window from one thread. A window still
+    needs locking where its backend or file picker delivers input from another
+    thread, such as :meth:`_put_user_input_event`.
 
     Created by the runtime, never by an application.
     """
@@ -111,7 +112,8 @@ class IClientWindow(InputSource, OutputSink, ABC):
     def flush_file_selectors(self) -> None:
         """Forget the open picker without a result, for a session that ended.
 
-        A picker still on screen stays there; whatever it returns is dropped.
+        The window withdraws a picker still on screen where it can; whatever
+        that picker returns is dropped.
         """
         with _FILE_SELECTOR_LOCK:
             active = self._active_file_selector
@@ -136,14 +138,17 @@ class IClientWindow(InputSource, OutputSink, ABC):
 
     # Optional to implement
     def _cancel_active_file_selectors(self) -> None:
-        """Withdraw the picker that :meth:`flush_file_selectors` forgot."""
+        """Withdraw the picker that was flushed or that timed out."""
         pass
 
     # Optional to implement
     def _put_user_input_event(self, event: UserInputEvent) -> None:
         """Queue ``event`` for :meth:`InputSource.get_user_input_events`.
 
-        Only window code calls this. It may run on any thread.
+        Every window implements this, including one without a picker, or the
+        ``UNAVAILABLE`` answer to its requests is lost. Only window code calls
+        it. It may run on any thread and runs under the file-selector lock, so
+        it must not call back into file selection.
         """
         raise NotImplementedError(
             f"{type(self).__name__} must implement _put_user_input_event to "
@@ -172,14 +177,16 @@ class IClientWindow(InputSource, OutputSink, ABC):
                 return
             self._active_file_selector = None
             self._file_selector_deadline = None
-        self._put_user_input_event(
-            SelectedFilesUserInputEvent(
-                timestamp=uint64(0),
-                request_id=active[1].request_id,
-                status=status,
-                files=files,
+            # Queued under the lock so flush_file_selectors, which runs before
+            # the next session's open(), cannot slip in before the put.
+            self._put_user_input_event(
+                SelectedFilesUserInputEvent(
+                    timestamp=uint64(0),
+                    request_id=active[1].request_id,
+                    status=status,
+                    files=files,
+                )
             )
-        )
 
     @final
     def _expire_file_selectors(self) -> None:
@@ -202,8 +209,10 @@ class IClientWindow(InputSource, OutputSink, ABC):
             FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS,
         )
         self._complete_file_selector(active[0], SelectedFilesStatus.UNAVAILABLE)
+        self._cancel_active_file_selectors()
 
 
 # ponytail: one lock for every window keeps subclasses constructor-free; it only
-# guards a few assignments. Upgrade path: a per-window lock set in ``__init__``.
+# guards a few assignments and one event put. Upgrade path: a per-window lock
+# set in ``__init__``.
 _FILE_SELECTOR_LOCK = threading.Lock()

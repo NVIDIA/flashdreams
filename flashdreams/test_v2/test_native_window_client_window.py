@@ -821,6 +821,17 @@ def test_selected_files_from_paths_skips_unreadable_and_oversize(
     assert status is SelectedFilesStatus.DISALLOWED_TYPE
 
 
+@pytest.mark.skipif(not Path("/dev/zero").exists(), reason="needs /dev/zero")
+def test_selected_files_from_paths_rejects_a_non_regular_file(tmp_path: Path) -> None:
+    endless = tmp_path / "endless.bin"
+    endless.symlink_to("/dev/zero")
+    files, status = native_window_module._selected_files_from_paths(
+        (str(endless),), accept=(".bin",)
+    )
+    assert files == ()
+    assert status is SelectedFilesStatus.UNAVAILABLE
+
+
 def test_native_window_shown_picker_has_no_deadline(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -175,7 +175,7 @@ class SelectedFile:
     """One file chosen by a client file selector."""
 
     name: str
-    """File name shown to the application."""
+    """Base name of the chosen file, without any host path."""
 
     data: bytes
     """File contents."""

@@ -609,36 +609,70 @@ class IUILoop(ILoop[StateT], ABC):
     ) -> None:
         """Ask the client to show a file selector.
 
-        The result arrives on a later tick as one
+        The call only queues the request and returns nothing. The window sees
+        it after this step, so the result is never in :attr:`user_events`
+        during the step that asked. It arrives on a later tick as one
         :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`
-        in :attr:`user_events`, carrying ``request_id``. Read its ``status``;
-        use ``files`` only when the pick succeeded. One selector is open at a
-        time: a request made while one is open, or after another request in
-        the same tick, is ignored and gets no result.
+        carrying ``request_id``. The model loop's ``step`` receives the same
+        event.
+
+        One selector is open at a time. A call made while one is open, or
+        after another call in the same tick, is discarded: that ``request_id``
+        gets no event and nothing is logged. Every call that is not discarded
+        gets exactly one event. Use one stable ``request_id`` per control and
+        reuse it.
+
+        Read ``status`` first. ``files`` is empty unless it is ``OK``, and one
+        rejected file fails the whole set:
+
+        - ``OK``: ``files`` holds each chosen file as its base ``name`` and its
+          ``data`` bytes. There is no host path. Empty files are allowed.
+        - ``CANCELLED``: the user dismissed the selector.
+        - ``DISALLOWED_TYPE``: a file did not match ``accept``. Suffixes
+          compare case-insensitively, and this wins over ``TOO_LARGE``.
+        - ``TOO_LARGE``: a file exceeded ``max_file_bytes``, or the set
+          exceeded
+          :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BATCH_BYTES`.
+        - ``UNAVAILABLE``: the window has no picker (MP4, null), the picker
+          was not shown within
+          :data:`~flashdreams.runtime_v2.selected_file.FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS`,
+          the viewer left, the chooser failed, or a file could not be read.
+
+        Once the picker is shown there is no deadline. On WebRTC, shown means
+        the browser's "The app requested a file" prompt; its Select… button
+        opens the browser's file chooser.
 
         Example:
 
         .. code-block:: python
 
+            from flashdreams.runtime_v2.selected_file import SelectedFilesStatus
+            from flashdreams.runtime_v2.user_input_event import (
+                SelectedFilesUserInputEvent,
+            )
+
             if imgui.button("Open image"):
                 self.request_file_selector("open-image", accept=(".png",))
             for event in self.user_events.get_events():
-                if (
-                    isinstance(event, SelectedFilesUserInputEvent)
-                    and event.request_id == "open-image"
-                    and event.status is SelectedFilesStatus.OK
-                ):
+                if not isinstance(event, SelectedFilesUserInputEvent):
+                    continue
+                if event.request_id != "open-image":
+                    continue
+                if event.status is SelectedFilesStatus.OK:
                     image_bytes = event.files[0].data
+                else:
+                    self.state.message = f"No image: {event.status.value}"
 
         Args:
-            request_id: Names the place in the UI that asked, so its result
-                can be told apart from another place's. Echoed on the result.
-            initial_path: Directory hint for the selector; ``None`` uses the
-                current user's home directory.
+            request_id: Names the control that asked, so its result can be
+                told apart from another control's. Echoed on the result.
+            initial_path: Directory hint for the native selector; ``None``
+                uses the host user's home directory. The browser ignores it.
             accept: Filename suffixes such as ``.png``. Empty allows any type.
             max_file_bytes: Maximum size of each file in bytes, or ``None`` for
-                the ceiling. Larger values clamp to
-                :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BYTES`.
+                the ceiling. Larger values are clamped to
+                :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BYTES`
+                without notice.
             multiple: Whether the selector may return more than one file. The
                 whole set is also capped by
                 :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BATCH_BYTES`.

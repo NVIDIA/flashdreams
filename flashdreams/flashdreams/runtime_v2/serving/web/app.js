@@ -271,6 +271,9 @@ const startFileInput = pending => {
     hideFilePicker();
   };
   input.addEventListener("change", () => {
+    if (pendingFileRequest === null || pendingFileRequest.id !== requestId) {
+      return;
+    }
     const files = pending.multiple
       ? Array.from(input.files || [])
       : Array.from(input.files || []).slice(0, 1);
@@ -301,7 +304,7 @@ const startFileInput = pending => {
     for (const file of files) {
       body.append("file", file, file.name);
     }
-    fetch(`/api/files?request_id=${encodeURIComponent(requestId)}`, {
+    fetch(`/api/files?id=${encodeURIComponent(requestId)}`, {
       method: "POST",
       body,
     })
@@ -396,6 +399,10 @@ controls.addEventListener("message", event => {
     }
     if (payload?.type === "file_selector") {
       openFileSelector(payload);
+      return;
+    }
+    if (payload?.type === "file_selector_cancel") {
+      hideFilePicker();
       return;
     }
     if (payload?.type === "error") {

@@ -21,6 +21,7 @@ from flashdreams.api_v2.loop import (
     IModelLoop,
     IUILoop,
     ModelInferenceState,
+    UILoopRequests,
     invoke_async,
 )
 from flashdreams.api_v2.session import ISession
@@ -44,7 +45,7 @@ from flashdreams.runtime_v2.session_desc import (
     PresentationMode,
     SessionDesc,
 )
-from flashdreams.runtime_v2.session_runner import run_session
+from flashdreams.runtime_v2.session_runner import _apply_window_requests, run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
@@ -1419,6 +1420,20 @@ def test_run_session_forwards_file_selection_requests_to_the_window() -> None:
         )
     ]
     assert "window.request_file_selector" in log.calls
+
+
+def test_window_requests_skip_a_file_selector_for_a_replaced_session() -> None:
+    window = RecordingClientWindow(CallLog())
+    _apply_window_requests(
+        window,
+        UILoopRequests(
+            new_session=_session_desc(),
+            file_selection=FileSelectionRequest(
+                request_id="open-1", initial_path="/tmp"
+            ),
+        ),
+    )
+    assert window.file_selection_requests == []
 
 
 def test_run_session_delivers_an_immediate_file_selection_result() -> None:

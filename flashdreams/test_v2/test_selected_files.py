@@ -173,8 +173,16 @@ def test_window_times_out_unshown_picker_and_drops_its_late_result() -> None:
     window.now = FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS
     window._expire_file_selectors()
     assert _statuses(window) == [("open-1", SelectedFilesStatus.UNAVAILABLE)]
+    assert window.cancelled == 1
 
     window._complete_file_selector(window.started[0][0], SelectedFilesStatus.CANCELLED)
+    assert _statuses(window) == []
+
+
+def test_null_window_open_drops_a_result_left_by_the_previous_session() -> None:
+    window = NullClientWindow()
+    window.request_file_selector(_request("open-1"))
+    window.open(SessionDesc())
     assert _statuses(window) == []
 
 

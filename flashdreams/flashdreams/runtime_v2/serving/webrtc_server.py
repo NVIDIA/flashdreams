@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import secrets
 import socket
 import threading
 import time
@@ -309,6 +310,9 @@ class _VideoTrack(MediaStreamTrack):
 class _PendingFileSelection:
     """Accept suffixes and size budget for one armed file-selector request."""
 
+    selector_id: str
+    """Window selector this upload answers. Never sent to the browser."""
+
     accept: tuple[str, ...]
     """Filename suffixes the client may upload, empty for any type."""
 
@@ -471,7 +475,7 @@ class WebRTCServer:
         self._sent_cursor_options = cursor_options
 
     def request_file_selector(
-        self, request_id: str, request: FileSelectionRequest
+        self, selector_id: str, request: FileSelectionRequest
     ) -> None:
         """Ask the connected browser to open a file selector.
 
@@ -479,10 +483,11 @@ class WebRTCServer:
         Without a connected viewer the request completes as ``UNAVAILABLE``.
 
         Args:
-            request_id: Id the browser echoes back with this selector's result.
+            selector_id: Window selector reported back with this result.
             request: File selector to show.
         """
         policy = _PendingFileSelection(
+            selector_id=selector_id,
             accept=normalize_selected_file_accept(request.accept),
             max_bytes=clamp_selected_file_max_bytes(request.max_bytes),
             multiple=request.multiple,
@@ -490,30 +495,49 @@ class WebRTCServer:
         loop = self._loop
         if loop is None:
             raise RuntimeError("WebRTC server is not running.")
-        loop.call_soon_threadsafe(self._arm_file_selector, request_id, policy)
+        loop.call_soon_threadsafe(self._arm_file_selector, policy)
 
     def cancel_file_selectors(self) -> None:
-        """Forget every armed selector; a later upload for one is refused."""
+        """Forget every armed selector and close the viewer's prompt.
+
+        A later upload for a forgotten selector is refused.
+        """
+        loop = self._loop
+        if loop is None:
+            with self._file_selector_lock:
+                self._pending_file_requests.clear()
+            return
+        # On the event loop, after any arm still queued for a forgotten selector.
+        loop.call_soon_threadsafe(self._withdraw_file_selectors)
+
+    def _withdraw_file_selectors(self) -> None:
+        """Forget armed selectors and tell the viewer to close its prompt."""
         with self._file_selector_lock:
             self._pending_file_requests.clear()
+        channel = self._control_channel
+        if channel is not None and channel.readyState == "open":
+            channel.send(json.dumps({"type": "file_selector_cancel"}))
 
-    def _arm_file_selector(
-        self, request_id: str, policy: _PendingFileSelection
-    ) -> None:
-        """Send the selector to the browser and remember its upload policy."""
+    def _arm_file_selector(self, policy: _PendingFileSelection) -> None:
+        """Send the selector to the browser and remember its upload policy.
+
+        The browser gets an unguessable token instead of the selector id, so a
+        page that cannot read the data channel cannot answer the selector.
+        """
         channel = self._control_channel
         if channel is None or channel.readyState != "open":
             self._emit_selected_files(
-                request_id, status=SelectedFilesStatus.UNAVAILABLE
+                policy.selector_id, status=SelectedFilesStatus.UNAVAILABLE
             )
             return
+        token = secrets.token_urlsafe(16)
         with self._file_selector_lock:
-            self._pending_file_requests[request_id] = policy
+            self._pending_file_requests[token] = policy
         channel.send(
             json.dumps(
                 {
                     "type": "file_selector",
-                    "id": request_id,
+                    "id": token,
                     "accept": list(policy.accept),
                     "max_bytes": policy.max_bytes,
                     "multiple": policy.multiple,
@@ -521,21 +545,19 @@ class WebRTCServer:
             )
         )
 
-    def _take_pending_file_request(
-        self, request_id: str
-    ) -> _PendingFileSelection | None:
-        """Return and consume the policy for ``request_id``, if it was pending."""
+    def _take_pending_file_request(self, token: str) -> _PendingFileSelection | None:
+        """Return and consume the policy for ``token``, if it was pending."""
         with self._file_selector_lock:
-            return self._pending_file_requests.pop(request_id, None)
+            return self._pending_file_requests.pop(token, None)
 
     def _complete_abandoned_file_selectors(self) -> None:
         """Answer every armed pick as ``UNAVAILABLE`` because the viewer left."""
         with self._file_selector_lock:
-            abandoned = tuple(self._pending_file_requests)
+            abandoned = tuple(self._pending_file_requests.values())
             self._pending_file_requests.clear()
-        for request_id in abandoned:
+        for policy in abandoned:
             self._emit_selected_files(
-                request_id, status=SelectedFilesStatus.UNAVAILABLE
+                policy.selector_id, status=SelectedFilesStatus.UNAVAILABLE
             )
 
     def event_timestamp_us(self) -> np.uint64:
@@ -664,7 +686,7 @@ class WebRTCServer:
         opened: Callable[[str], None],
         completed: Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
     ) -> None:
-        """Register how armed file selectors report back, by request id.
+        """Register how armed file selectors report back, by selector id.
 
         Both run on the server thread.
 
@@ -891,14 +913,12 @@ class WebRTCServer:
             raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
         if self._timestamp_us() is None:
             raise web.HTTPConflict(reason="WebRTC server is not open.")
-        request_id = request.query.get("request_id")
-        if not isinstance(request_id, str) or not request_id:
-            raise web.HTTPBadRequest(reason="File upload requires request_id.")
-        policy = self._take_pending_file_request(request_id)
+        token = request.query.get("id")
+        if not isinstance(token, str) or not token:
+            raise web.HTTPBadRequest(reason="File upload requires an id.")
+        policy = self._take_pending_file_request(token)
         if policy is None:
-            raise web.HTTPConflict(
-                reason="No pending file selection for this request_id."
-            )
+            raise web.HTTPConflict(reason="No pending file selection for this id.")
 
         emitted = False
 
@@ -907,7 +927,7 @@ class WebRTCServer:
             files: tuple[SelectedFile, ...] = (),
         ) -> None:
             nonlocal emitted
-            self._emit_selected_files(request_id, status=status, files=files)
+            self._emit_selected_files(policy.selector_id, status=status, files=files)
             emitted = True
 
         try:
@@ -1307,19 +1327,20 @@ class WebRTCServer:
         elif event_type == "close":
             event = CloseUserInputEvent(timestamp=timestamp_us)
         elif event_type == "file_selector_ack":
-            request_id = payload.get("id")
-            if not isinstance(request_id, str) or not request_id:
+            token = payload.get("id")
+            if not isinstance(token, str) or not token:
                 raise ValueError(
                     "File selector acknowledgement requires a non-empty id."
                 )
             with self._file_selector_lock:
-                if request_id not in self._pending_file_requests:
-                    return
-            self._file_selector_callbacks_or_raise()[0](request_id)
+                policy = self._pending_file_requests.get(token)
+            if policy is None:
+                return
+            self._file_selector_callbacks_or_raise()[0](policy.selector_id)
             return
         elif event_type == "file_selector_result":
-            request_id = payload.get("id")
-            if not isinstance(request_id, str) or not request_id:
+            token = payload.get("id")
+            if not isinstance(token, str) or not token:
                 raise ValueError("File selector result requires a non-empty id.")
             try:
                 status = SelectedFilesStatus(payload.get("status"))
@@ -1330,9 +1351,10 @@ class WebRTCServer:
                     "File selector result must not set status ok; send files "
                     "with POST /api/files."
                 )
-            if self._take_pending_file_request(request_id) is None:
+            policy = self._take_pending_file_request(token)
+            if policy is None:
                 return
-            self._emit_selected_files(request_id, status=status)
+            self._emit_selected_files(policy.selector_id, status=status)
             return
         else:
             raise ValueError("Unsupported browser event type.")
@@ -1347,13 +1369,13 @@ class WebRTCServer:
 
     def _emit_selected_files(
         self,
-        request_id: str,
+        selector_id: str,
         *,
         status: SelectedFilesStatus,
         files: tuple[SelectedFile, ...] = (),
     ) -> None:
         """Report the result of one armed file selector to the window."""
-        self._file_selector_callbacks_or_raise()[1](request_id, status, files)
+        self._file_selector_callbacks_or_raise()[1](selector_id, status, files)
 
     def _file_selector_callbacks_or_raise(
         self,

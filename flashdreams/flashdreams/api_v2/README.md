@@ -226,18 +226,12 @@ description; the runtime cleans the current session and passes that description
 to `ApplicationRunner` unchanged. Remaining timeout and remaining model steps
 still apply to the replacement. To let the user pick a client file, call
 `request_file_selector(request_id, ...)` when they ask (for ImGui, when
-`imgui.button(...)` returns `True`). The result arrives on a later tick as one
-`SelectedFilesUserInputEvent` in the UI loop's events, carrying that
-`request_id`, so each place that can open a picker should pass its own id. Read
-`status`; use `files` only when the pick succeeded. `accept` is filename
-suffixes (empty = any type);
-`max_file_bytes` is the size budget per file (`None` = the
-`MAX_SELECTED_FILE_BYTES` ceiling); `multiple` allows more than one file, with
-the whole set capped by `MAX_SELECTED_FILE_BATCH_BYTES`. Both caps live in
-`runtime_v2/selected_file.py`. One picker is open at a time; a request made
-while another is open is ignored and gets no result. The status is
-`UNAVAILABLE` when the client cannot show a picker, or does not show one within
-30 seconds. Once a picker is shown, the user may take as long as they want.
+`imgui.button(...)` returns `True`), with one stable `request_id` per control.
+The result arrives on a later tick as one `SelectedFilesUserInputEvent`
+carrying that `request_id`; read its `status` before its `files`. One picker
+is open at a time, and a call made while one is open gets no event. The
+`request_file_selector` docstring is the full contract: timing, every status,
+size and type limits, and what WebRTC shows.
 
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The
