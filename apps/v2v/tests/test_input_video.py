@@ -3,7 +3,6 @@
 
 """CPU decoding checks for V2V input streams and timing."""
 
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -103,61 +102,37 @@ def test_load_input_video(
 def test_load_input_video_preserves_display_rotation(
     tmp_path: Path, rotation: int
 ) -> None:
-    source = tmp_path / "source.mp4"
     rotated = tmp_path / "rotated.mp4"
     image = np.zeros((32, 16, 3), dtype=np.uint8)
     image[:16, :8] = (255, 0, 0)
     image[16:, 8:] = (0, 255, 0)
-    writer = imageio_ffmpeg.write_frames(str(source), size=(16, 32), fps=12)
+    writer = imageio_ffmpeg.write_frames(
+        str(rotated),
+        size=(16, 32),
+        fps=12,
+        input_params=["-display_rotation", str(rotation), "-noautorotate"],
+    )
     try:
         next(writer)
         writer.send(image)
     finally:
         writer.close()
-    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-    subprocess.run(
-        [
-            ffmpeg,
-            "-y",
-            "-v",
-            "error",
-            "-display_rotation",
-            str(rotation),
-            "-i",
-            str(source),
-            "-c",
-            "copy",
-            str(rotated),
-        ],
-        check=True,
-        capture_output=True,
-    )
     with av.open(str(rotated)) as container:
         frame = next(container.decode(video=0))
         assert frame.rotation % 360 == rotation % 360
-    height, width = image.shape[:2]
-    if rotation % 180 == 90:
-        height, width = width, height
-    # Read raw pixels: FFmpeg's odd-angle warning can break imageio's log parser.
-    reference = subprocess.run(
-        [
-            ffmpeg,
-            "-v",
-            "error",
-            "-i",
-            str(rotated),
-            "-frames:v",
-            "1",
-            "-f",
-            "rawvideo",
-            "-pix_fmt",
-            "rgb24",
-            "pipe:1",
-        ],
-        check=True,
-        capture_output=True,
+    # Use an explicit odd-angle filter to avoid imageio's warning parser bug.
+    reader = imageio_ffmpeg.read_frames(
+        str(rotated),
+        pix_fmt="rgb24",
+        input_params=["-noautorotate"] if rotation % 90 else [],
+        output_params=["-vf", f"rotate={-rotation}*PI/180"] if rotation % 90 else [],
     )
-    expected = np.frombuffer(reference.stdout, dtype=np.uint8).reshape(height, width, 3)
+    try:
+        metadata = next(reader)
+        width, height = metadata["size"]
+        expected = np.frombuffer(next(reader), dtype=np.uint8).reshape(height, width, 3)
+    finally:
+        reader.close()
 
     video = _load_input_video(rotated, 1)
 
