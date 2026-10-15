@@ -21,7 +21,7 @@ pytestmark = pytest.mark.ci_cpu
 pytest.importorskip("aiohttp")
 pytest.importorskip("aiortc")
 
-from aiohttp import ClientSession
+from aiohttp import ClientSession, FormData, MultipartWriter, web
 from aiortc import (
     MediaStreamTrack,
     RTCDataChannel,
@@ -33,6 +33,12 @@ from av import VideoFrame
 from yarl import URL
 
 from flashdreams.api_v2.client_window import ClientWindowLink
+from flashdreams.runtime_v2.selected_file import (
+    MAX_SELECTED_FILE_BYTES,
+    FileSelectionRequest,
+    SelectedFilesStatus,
+    clamp_selected_file_max_bytes,
+)
 from flashdreams.runtime_v2.serving import webrtc_server
 from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
@@ -45,11 +51,108 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEvent,
     MouseUserInputEvent,
     QueryStringUserInputEvent,
+    SelectedFilesUserInputEvent,
     TouchUserInputEvent,
     XRControllerUserInputEvent,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
+
+
+def _file_request(
+    request_id: str,
+    initial_path: str = "/tmp",
+    *,
+    accept: tuple[str, ...] = (),
+    max_bytes: int | None = None,
+    multiple: bool = False,
+) -> FileSelectionRequest:
+    return FileSelectionRequest(
+        request_id=request_id,
+        initial_path=initial_path,
+        accept=accept,
+        max_bytes=max_bytes,
+        multiple=multiple,
+    )
+
+
+def _files_url(window: WebRTCClientWindow, token: str) -> str:
+    return f"{window.server.url}api/files?id={token}"
+
+
+async def _wait_file_armed(window: WebRTCClientWindow) -> str:
+    """Return the token the browser was sent once a selector is armed."""
+    for _ in range(100):
+        if window.server._pending_file_requests:
+            return next(iter(window.server._pending_file_requests))
+        await asyncio.sleep(0.01)
+    raise AssertionError("file selection was not armed")
+
+
+def _arm(window: WebRTCClientWindow, request: FileSelectionRequest) -> str:
+    """Arm a selector as if the browser had been sent ``request``; return its token."""
+    selector_id = window._last_file_selector_id + 1
+    window._last_file_selector_id = selector_id
+    window._active_file_selector = (selector_id, request)
+    wire_id = f"token-{selector_id}"
+    window.server._pending_file_requests[wire_id] = webrtc_server._PendingFileSelection(
+        selector_id=str(selector_id),
+        accept=request.accept,
+        max_bytes=clamp_selected_file_max_bytes(request.max_bytes),
+        multiple=request.multiple,
+    )
+    return wire_id
+
+
+async def _post_selected_file(
+    window: WebRTCClientWindow,
+    request_id: str,
+    data: bytes,
+    filename: str,
+) -> int:
+    form = FormData()
+    form.add_field(
+        "file",
+        data,
+        filename=filename,
+        content_type="application/octet-stream",
+    )
+    async with ClientSession() as client:
+        async with client.post(_files_url(window, request_id), data=form) as response:
+            return response.status
+
+
+@pytest.mark.asyncio
+async def test_file_upload_accepts_multiple_files() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer, _, _ = await _connect_browser(window)
+    try:
+        window.request_file_selector(_file_request("open-1", multiple=True))
+        wire_id = await _wait_file_armed(window)
+        form = FormData()
+        form.add_field(
+            "file",
+            b"one",
+            filename="a.bin",
+            content_type="application/octet-stream",
+        )
+        form.add_field(
+            "file",
+            b"two",
+            filename="b.bin",
+            content_type="application/octet-stream",
+        )
+        async with ClientSession() as client:
+            async with client.post(_files_url(window, wire_id), data=form) as response:
+                assert response.status == 204
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.OK
+        assert [chosen.name for chosen in event.files] == ["a.bin", "b.bin"]
+        assert [chosen.data for chosen in event.files] == [b"one", b"two"]
+    finally:
+        await peer.close()
+        window.close()
 
 
 def _session_desc(
@@ -140,6 +243,439 @@ async def test_browser_query_string_reaches_the_input_stream() -> None:
     finally:
         if peer is not None:
             await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_file_selector_without_a_viewer_is_unavailable() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        window.request_file_selector(_file_request("open-1"))
+        event = await _wait_selected_files_event(window)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.UNAVAILABLE
+        assert window.server._pending_file_requests == {}
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_peer_loss_completes_armed_file_selections_as_unavailable() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, _, _ = await _connect_browser(window)
+        window.request_file_selector(_file_request("open-1"))
+        await _wait_file_armed(window)
+        await peer.close()
+        peer = None
+
+        event = await _wait_selected_files_event(window)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.UNAVAILABLE
+        assert window.server._pending_file_requests == {}
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_in_flight_upload_is_unavailable_after_peer_loss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, _, _ = await _connect_browser(window)
+        window.request_file_selector(_file_request("open-1"))
+        wire_id = await _wait_file_armed(window)
+        original_multipart = web.Request.multipart
+        disconnected = False
+
+        async def multipart_after_disconnect(request: web.Request) -> Any:
+            nonlocal disconnected
+            if not disconnected:
+                disconnected = True
+                peer_connection = window.server._peer_connection
+                if peer_connection is not None:
+                    await window.server._release_peer_connection(peer_connection)
+            return await original_multipart(request)
+
+        monkeypatch.setattr(web.Request, "multipart", multipart_after_disconnect)
+        assert await _post_selected_file(window, wire_id, b"hello", "hello.txt") == 204
+        event = await _wait_selected_files_event(window)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.UNAVAILABLE
+        await asyncio.sleep(0.05)
+        assert window.get_user_input_events().get_events() == []
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_encoded_file_part_is_unavailable() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        wire_id = _arm(window, _file_request("open-1"))
+        with MultipartWriter("form-data") as body:
+            part = body.append(b"abc=\n")
+            part.set_content_disposition("form-data", name="file", filename="a.bin")
+            part.headers["Content-Transfer-Encoding"] = "quoted-printable"
+        async with ClientSession() as client:
+            async with client.post(_files_url(window, wire_id), data=body) as response:
+                assert response.status == 400
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.UNAVAILABLE
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_upload_without_the_armed_token_is_rejected() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        assert await _post_selected_file(window, "1", b"hello", "hello.txt") == 409
+        _arm(window, _file_request("open-1"))
+        assert await _post_selected_file(window, "1", b"hello", "hello.txt") == 409
+        assert window.get_user_input_events().get_events() == []
+        assert len(window.server._pending_file_requests) == 1
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_file_selector_sends_clamped_policy_without_host_path() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, channel, _ = await _connect_browser(window)
+        messages: list[dict[str, object]] = []
+
+        @channel.on("message")
+        def on_message(message: object) -> None:
+            if isinstance(message, str):
+                messages.append(json.loads(message))
+
+        window.request_file_selector(
+            _file_request(
+                "open-1",
+                "/home/secret",
+                accept=(".png", ".jpg"),
+                max_bytes=MAX_SELECTED_FILE_BYTES * 2,
+            )
+        )
+        for _ in range(100):
+            if any(item.get("type") == "file_selector" for item in messages):
+                break
+            await asyncio.sleep(0.01)
+        payload = next(item for item in messages if item.get("type") == "file_selector")
+        token = payload.pop("id")
+        assert isinstance(token, str) and len(token) >= 16
+        assert token in window.server._pending_file_requests
+        assert payload == {
+            "type": "file_selector",
+            "accept": [".png", ".jpg"],
+            "max_bytes": MAX_SELECTED_FILE_BYTES,
+            "multiple": False,
+        }
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_flushed_file_selector_closes_the_browser_prompt() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, channel, _ = await _connect_browser(window)
+        messages: list[dict[str, object]] = []
+
+        @channel.on("message")
+        def on_message(message: object) -> None:
+            if isinstance(message, str):
+                messages.append(json.loads(message))
+
+        window.request_file_selector(_file_request("open-1"))
+        await _wait_file_armed(window)
+        window.flush_file_selectors()
+        for _ in range(100):
+            if any(item.get("type") == "file_selector_cancel" for item in messages):
+                break
+            await asyncio.sleep(0.01)
+        assert {"type": "file_selector_cancel"} in messages
+        assert window.server._pending_file_requests == {}
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+async def _wait_selected_files_event(
+    window: WebRTCClientWindow,
+) -> SelectedFilesUserInputEvent:
+    events: list[object] = []
+    for _ in range(100):
+        events.extend(window.get_user_input_events().get_events())
+        if events:
+            break
+        await asyncio.sleep(0.01)
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    return event
+
+
+@pytest.mark.asyncio
+async def test_file_upload_without_file_is_unavailable() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        wire_id = _arm(window, _file_request("open-1"))
+        form = FormData()
+        form.add_field("not_file", "hello")
+        async with ClientSession() as client:
+            async with client.post(_files_url(window, wire_id), data=form) as response:
+                assert response.status == 400
+        event = await _wait_selected_files_event(window)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.UNAVAILABLE
+        assert event.files == ()
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_file_upload_rejects_oversize() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        wire_id = _arm(window, _file_request("open-1", max_bytes=1))
+        status = await _post_selected_file(window, wire_id, b"x" * 8192, "big.bin")
+        assert status == 413
+        event = await _wait_selected_files_event(window)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.TOO_LARGE
+        assert event.files == ()
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_file_upload_stops_once_the_batch_exceeds_its_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(webrtc_server, "MAX_SELECTED_FILE_BATCH_BYTES", 5)
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        wire_id = _arm(window, _file_request("open-1", multiple=True))
+        form = FormData()
+        for name in ("a.bin", "b.bin", "c.bin"):
+            form.add_field(
+                "file", b"xyz", filename=name, content_type="application/octet-stream"
+            )
+        async with ClientSession() as client:
+            async with client.post(_files_url(window, wire_id), data=form) as response:
+                assert response.status == 413
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.TOO_LARGE
+        assert event.files == ()
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_file_upload_over_the_batch_cap_still_reports_a_disallowed_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(webrtc_server, "MAX_SELECTED_FILE_BATCH_BYTES", 5)
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        wire_id = _arm(window, _file_request("open-1", accept=(".bin",), multiple=True))
+        form = FormData()
+        for name in ("a.bin", "b.bin", "c.exe"):
+            form.add_field(
+                "file", b"xyz", filename=name, content_type="application/octet-stream"
+            )
+        async with ClientSession() as client:
+            async with client.post(_files_url(window, wire_id), data=form) as response:
+                assert response.status == 204
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.DISALLOWED_TYPE
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_file_upload_prefers_disallowed_suffix_over_body_limit() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        wire_id = _arm(window, _file_request("open-1", accept=(".png",), max_bytes=1))
+        assert (
+            await _post_selected_file(
+                window, wire_id, b"x" * (2 * 1024 * 1024), "hello.txt"
+            )
+            == 204
+        )
+        event = await _wait_selected_files_event(window)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.DISALLOWED_TYPE
+        assert event.files == ()
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_ack_reports_the_file_selector_opened() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, channel, _ = await _connect_browser(window)
+        window.request_file_selector(_file_request("open-1"))
+        wire_id = await _wait_file_armed(window)
+        channel.send(json.dumps({"type": "file_selector_ack", "id": "other"}))
+        channel.send(json.dumps({"type": "file_selector_ack", "id": wire_id}))
+        for _ in range(100):
+            if window._file_selector_deadline is None:
+                break
+            await asyncio.sleep(0.01)
+        assert window._file_selector_deadline is None
+        assert window.get_user_input_events().get_events() == []
+        channel.send(
+            json.dumps(
+                {
+                    "type": "file_selector_result",
+                    "id": wire_id,
+                    "status": "cancelled",
+                }
+            )
+        )
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.CANCELLED
+        assert event.files == ()
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_file_selector_result_reports_status() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, channel, _ = await _connect_browser(window)
+        window.request_file_selector(_file_request("open-1"))
+        wire_id = await _wait_file_armed(window)
+        channel.send(
+            json.dumps(
+                {
+                    "type": "file_selector_result",
+                    "id": wire_id,
+                    "status": "cancelled",
+                }
+            )
+        )
+        event = await _wait_selected_files_event(window)
+        assert event.request_id == "open-1"
+        assert event.status is SelectedFilesStatus.CANCELLED
+        assert event.files == ()
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_file_selector_result_cannot_claim_ok() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    peer: RTCPeerConnection | None = None
+    try:
+        peer, channel, _ = await _connect_browser(window)
+        errors: list[dict[str, object]] = []
+
+        @channel.on("message")
+        def on_message(message: object) -> None:
+            if isinstance(message, str):
+                payload = json.loads(message)
+                if payload.get("type") == "error":
+                    errors.append(payload)
+
+        window.request_file_selector(_file_request("open-1"))
+        wire_id = await _wait_file_armed(window)
+        channel.send(
+            json.dumps(
+                {
+                    "type": "file_selector_result",
+                    "id": wire_id,
+                    "status": "ok",
+                }
+            )
+        )
+        for _ in range(100):
+            if errors:
+                break
+            await asyncio.sleep(0.01)
+        assert errors
+        assert "POST /api/files" in str(errors[0].get("message"))
+        assert window.get_user_input_events().get_events() == []
+        assert await _post_selected_file(window, wire_id, b"hello", "hello.txt") == 204
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.OK
+        assert event.files[0].data == b"hello"
+    finally:
+        if peer is not None:
+            await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_script_checks_type_and_size_before_upload() -> None:
+    window = WebRTCClientWindow()
+    try:
+        async with ClientSession() as client:
+            async with client.get(f"{window.server.url}app.js") as response:
+                script = await response.text()
+        assert "fileNameMatchesAccept" in script
+        assert "file.size" in script
+        assert '"too_large"' in script
+        assert '"disallowed_type"' in script
+        assert "fetch(`/api/files?id=${encodeURIComponent(requestId)}`" in script
+        assert "input.multiple" in script
+        assert "file_selector_ack" in script
+        assert "event.stopImmediatePropagation();" in script
+        assert "(promptDialog !== null && promptDialog.open)" in script
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_session_handoff_clears_pending_file_selection() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        wire_id = _arm(window, _file_request("open-1"))
+        window.open(_session_desc())
+        assert window.server._pending_file_requests == {}
+        assert await _post_selected_file(window, wire_id, b"hello", "hello.txt") == 409
+    finally:
         window.close()
 
 
@@ -422,6 +958,9 @@ def _link_server() -> tuple[webrtc_server.WebRTCServer, Mock, Mock]:
     server._link_lock = threading.Lock()
     server._links = ()
     server._pressed_link = None
+    server._file_selector_lock = threading.Lock()
+    server._pending_file_requests = {}
+    server._uploading_file_requests = {}
     channel = Mock(readyState="open")
     server._control_channel = channel
     server._loop = Mock(spec=asyncio.AbstractEventLoop)

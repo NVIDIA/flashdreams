@@ -330,6 +330,70 @@ Request a positive downstream client-window width and height.
 - `TypeError`: The size is not a pair of integers.
 - `ValueError`: Either dimension is not positive.
 
+#### `request_file_selector`
+
+```python
+def request_file_selector(self, request_id: str, initial_path: str | None=None, *, accept: Sequence[str]=(), max_file_bytes: int | None=None, multiple: bool=False) -> None
+```
+
+Ask the client to show a file selector. The call only queues the request; the
+result arrives on a later tick as one `SelectedFilesUserInputEvent` in
+`user_events`, carrying `request_id`. The model loop receives the same event.
+
+Every call gets exactly one event unless its session is replaced or shut down
+first. One selector is open at a time: a call made while one is open, including
+a second call in the same tick, is answered `BUSY`. Use one stable
+`request_id` per control.
+
+Read `status` (`SelectedFilesStatus`) before `files`; `files` is empty unless
+the status is `OK`:
+
+- `OK`: each `SelectedFile` has a base `name` (no host path) and its `data`
+  bytes.
+- `CANCELLED`: the user dismissed the selector.
+- `BUSY`: another selector was open, so this one was not shown.
+- `DISALLOWED_TYPE`: a file did not match `accept` (case-insensitive suffixes).
+- `TOO_LARGE`: a file exceeded `max_file_bytes`, or the set exceeded
+  `MAX_SELECTED_FILE_BATCH_BYTES` (256 MiB) or `MAX_SELECTED_FILE_COUNT` (256).
+- `UNAVAILABLE`: no picker (MP4, null), the picker was not shown within 30
+  seconds, the viewer left, the chooser failed, or a file could not be read.
+
+`accept` checks filename suffixes only, so validate `data` as untrusted input.
+`max_file_bytes` above `MAX_SELECTED_FILE_BYTES` (32 MiB) is clamped.
+`initial_path` is a directory hint for the native Tk dialog and is ignored by
+the browser.
+
+```python
+from flashdreams.runtime_v2.selected_file import SelectedFilesStatus
+from flashdreams.runtime_v2.user_input_event import SelectedFilesUserInputEvent
+
+if imgui.button("Open image"):
+    self.request_file_selector("open-image", accept=(".png",))
+for event in self.user_events.get_events():
+    if not isinstance(event, SelectedFilesUserInputEvent):
+        continue
+    if event.request_id != "open-image":
+        continue
+    if event.status is SelectedFilesStatus.OK:
+        image_bytes = event.files[0].data
+    else:
+        self.state.message = f"No image: {event.status.value}"
+```
+
+**Parameters**
+
+- `request_id`: Names the control that asked; echoed on the result.
+- `initial_path`: Native directory hint; `None` uses the host user's home.
+- `accept`: Filename suffixes such as `.png`. Empty allows any type.
+- `max_file_bytes`: Maximum size of each file, or `None` for the ceiling.
+- `multiple`: Whether the selector may return more than one file.
+
+**Raises**
+
+- `TypeError`: An argument has the wrong type.
+- `ValueError`: `request_id` or `initial_path` is empty, or `accept` /
+  `max_file_bytes` is invalid.
+
 #### `get_or_create_ui_loop_requests`
 
 ```python

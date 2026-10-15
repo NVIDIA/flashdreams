@@ -399,6 +399,8 @@ def run_session(
             cleanup(sink.close)
         # Both loops have stopped, so nothing will close an input wait still open.
         cleanup(profiler.reset_counts)
+        if window is not None:
+            cleanup(window.flush_file_selectors)
         if next_session_desc is None and window is not None:
             cleanup(window.close)
         cleanup(session.close)
@@ -455,6 +457,10 @@ def _apply_window_requests(window: IClientWindow, request: UILoopRequests) -> No
         window.request_new_window_size(request.new_window_size)
     if request.links is not None:
         window.request_links(request.links)
+    # A replaced session gets no results, so its requests are not shown.
+    if request.new_session is None:
+        for file_selection in request.file_selections:
+            window.request_file_selector(file_selection)
 
 
 def _open_chunk_trace(path_value: object) -> _ChunkTraceLog:

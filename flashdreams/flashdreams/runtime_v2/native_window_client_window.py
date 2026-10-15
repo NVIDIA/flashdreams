@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import logging
 import queue
+import stat
 import threading
 import time
 import webbrowser
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -22,6 +24,14 @@ from torch import Tensor
 
 from flashdreams.api_v2.client_window import ClientWindowLink, IClientWindow
 from flashdreams.api_v2.user_input_event import UserInputEvent
+from flashdreams.runtime_v2.selected_file import (
+    MAX_SELECTED_FILE_BYTES,
+    FileSelectionRequest,
+    SelectedFile,
+    SelectedFilesStatus,
+    clamp_selected_file_max_bytes,
+    selected_files_policy_status,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -39,6 +49,107 @@ if TYPE_CHECKING:
     import slangpy as spy
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _ask_open_filename(
+    *,
+    initial_dir: str,
+    accept: tuple[str, ...] = (),
+    multiple: bool = False,
+    on_presented: Callable[[], None] | None = None,
+) -> tuple[str, ...]:
+    """Return paths from the Tk file dialog, or an empty tuple when cancelled.
+
+    Tk shows Explorer on Windows, the macOS panel, and its own dialog on Linux.
+    ``on_presented`` runs just before the dialog opens. It does not mean a
+    remote host made that dialog visible.
+
+    Raises:
+        ImportError: This Python was built without Tk.
+        tkinter.TclError: Tk cannot open a dialog, such as without a display.
+    """
+    # ponytail: this runs on a worker thread, which macOS may abort for Tk.
+    # Upgrade path: launch ``osascript`` "choose file" as a separate process.
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    # ponytail: calling the Tk dialog is the presentation signal. Tk does not
+    # report when the dialog is actually visible. Upgrade path:
+    # IFileDialogEvents on Windows or NSOpenPanel visibility on macOS.
+    if on_presented is not None:
+        on_presented()
+    try:
+        kwargs: dict[str, Any] = {
+            "initialdir": initial_dir,
+            "title": "Select a file",
+        }
+        if accept:
+            kwargs["filetypes"] = [
+                ("Accepted", " ".join(f"*{suffix}" for suffix in accept))
+            ]
+        if multiple:
+            selected = filedialog.askopenfilenames(**kwargs)
+            return tuple(str(path) for path in selected if path)
+        selected = filedialog.askopenfilename(**kwargs)
+    finally:
+        root.destroy()
+    return (str(selected),) if selected else ()
+
+
+def _selected_files_from_paths(
+    paths: Sequence[str],
+    *,
+    accept: tuple[str, ...] = (),
+    max_bytes: int | None = None,
+) -> tuple[tuple[SelectedFile, ...], SelectedFilesStatus]:
+    """Load chosen files, or empty files and a failure status."""
+    budget = MAX_SELECTED_FILE_BYTES if max_bytes is None else max_bytes
+    rejected = selected_files_policy_status(
+        [(Path(path).name, None) for path in paths],
+        accept=accept,
+        max_bytes=budget,
+    )
+    if rejected is not None:
+        return (), rejected
+    sized: list[tuple[str, int]] = []
+    for path in paths:
+        try:
+            info = Path(path).stat()
+        except OSError:
+            return (), SelectedFilesStatus.UNAVAILABLE
+        if not stat.S_ISREG(info.st_mode):
+            return (), SelectedFilesStatus.UNAVAILABLE
+        sized.append((path, info.st_size))
+    rejected = selected_files_policy_status(
+        [(Path(path).name, size) for path, size in sized],
+        accept=accept,
+        max_bytes=budget,
+    )
+    if rejected is not None:
+        return (), rejected
+    files: list[SelectedFile] = []
+    for path, _size in sized:
+        try:
+            with open(path, "rb") as stream:
+                data = stream.read(budget + 1)
+        except OSError:
+            return (), SelectedFilesStatus.UNAVAILABLE
+        files.append(SelectedFile(name=Path(path).name, data=data))
+    rejected = selected_files_policy_status(
+        [(chosen.name, len(chosen.data)) for chosen in files],
+        accept=accept,
+        max_bytes=budget,
+    )
+    if rejected is not None:
+        return (), rejected
+    return tuple(files), SelectedFilesStatus.OK
+
 
 _PRINTABLE_KEY_NAMES = {
     "space": " ",
@@ -187,6 +298,48 @@ class NativeWindowClientWindow(IClientWindow):
             )
         self._window_size = presenter.resize(*new_window_size)
 
+    def _request_file_selector(
+        self, selector_id: int, request: FileSelectionRequest
+    ) -> None:
+        """Open the Tk file dialog on a worker thread so the window keeps presenting."""
+        # ponytail: Tk cannot close this dialog from another thread, so one
+        # left open after its session ended can sit beside a newer one; its
+        # result is dropped. Upgrade path: run the dialog in a child process.
+        threading.Thread(
+            target=self._complete_file_selection,
+            args=(selector_id, request),
+            name="flashdreams-file-picker",
+            daemon=True,
+        ).start()
+
+    def _complete_file_selection(
+        self, selector_id: int, request: FileSelectionRequest
+    ) -> None:
+        """Run the file dialog, then report it opened and its result."""
+        files: tuple[SelectedFile, ...] = ()
+        status = SelectedFilesStatus.UNAVAILABLE
+        try:
+            selected = _ask_open_filename(
+                initial_dir=request.initial_path or str(Path.home()),
+                accept=request.accept,
+                multiple=request.multiple,
+                on_presented=lambda: self._file_selector_opened(selector_id),
+            )
+        except Exception:
+            _LOGGER.exception(
+                "Native file picker failed for request id %r.", request.request_id
+            )
+        else:
+            if selected:
+                files, status = _selected_files_from_paths(
+                    selected if request.multiple else selected[:1],
+                    accept=request.accept,
+                    max_bytes=clamp_selected_file_max_bytes(request.max_bytes),
+                )
+            else:
+                status = SelectedFilesStatus.CANCELLED
+        self._complete_file_selector(selector_id, status, files)
+
     def open(self, session_desc: SessionDesc) -> None:
         """Open a session in the GLFW window on the runtime's UI thread.
 
@@ -251,6 +404,7 @@ class NativeWindowClientWindow(IClientWindow):
 
     def get_user_input_events(self) -> UserInputEvents:
         """Pump GLFW and return native input events not yet read."""
+        self._expire_file_selectors()
         presenter = self._presenter
         if presenter is not None:
             pending_before_poll = tuple(self._pending_printable_keys)
@@ -452,6 +606,12 @@ class NativeWindowClientWindow(IClientWindow):
             return
         self._close_event_enqueued = True
         self._put_input(CloseUserInputEvent(timestamp=uint64(0)))
+
+    def _put_user_input_event(self, event: UserInputEvent) -> None:
+        """Queue one event from a picker thread, bypassing the poll-time buffer."""
+        started_ns = self._session_started_ns
+        elapsed_ns = 0 if started_ns is None else max(0, self._clock_ns() - started_ns)
+        self._input_events.put(replace(event, timestamp=uint64(elapsed_ns // 1_000)))
 
 
 class _SlangPyNativeWindowPresenter:
