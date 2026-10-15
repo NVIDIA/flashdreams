@@ -12,15 +12,49 @@ import time
 import types
 from collections.abc import Callable
 from dataclasses import MISSING, dataclass, fields, replace
+from enum import Enum
 from pathlib import Path
-from typing import Literal, Union, get_args, get_origin, get_type_hints
+from typing import Literal, Union, cast, get_args, get_origin, get_type_hints
 
 from numpy import uint64
 
 from flashdreams.api_v2.input_source import InputSource
 from flashdreams.api_v2.user_input_event import UserInputEvent
-from flashdreams.runtime_v2.user_input_event import KeyboardInputState
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
+
+@dataclass(frozen=True, slots=True)
+class _DescriptorFieldSchema:
+    """Reflection-derived descriptor field contract."""
+
+    name: str
+    annotation: object
+    required: bool
+    default: object
+
+    @property
+    def value_type(self) -> str:
+        """Return the JSON-facing field type."""
+        return _describe_annotation(self.annotation)
+
+    @property
+    def accepted_values(self) -> tuple[object, ...]:
+        """Return finite accepted values, or an empty tuple when unconstrained."""
+        origin = get_origin(self.annotation)
+        if origin is Literal:
+            return get_args(self.annotation)
+        if isinstance(self.annotation, type) and issubclass(self.annotation, Enum):
+            return tuple(member.value for member in self.annotation)
+        return ()
+
+
+@dataclass(frozen=True, slots=True)
+class _DescriptorEventSchema:
+    """Reflection-derived descriptor contract for one event type."""
+
+    type_name: str
+    event_type: type[UserInputEvent]
+    fields: tuple[_DescriptorFieldSchema, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +123,9 @@ def _load_descriptor(path: Path) -> list[_ScheduledEvent]:
     try:
         contents = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise ValueError(f"Unable to read synthetic input descriptor {path}: {error}") from error
+        raise ValueError(
+            f"Unable to read synthetic input descriptor {path}: {error}"
+        ) from error
     if not isinstance(contents, dict) or set(contents) != {"version", "events"}:
         raise ValueError("Descriptor must contain exactly 'version' and 'events'.")
     if (
@@ -108,7 +144,9 @@ def _load_descriptor(path: Path) -> list[_ScheduledEvent]:
 def _decode_scheduled_event(raw_event: object) -> _ScheduledEvent:
     """Decode one flat schedule record."""
     if not isinstance(raw_event, dict) or set(raw_event) != {"on", "at", "event"}:
-        raise ValueError("Each descriptor event must contain exactly 'on', 'at', and 'event'.")
+        raise ValueError(
+            "Each descriptor event must contain exactly 'on', 'at', and 'event'."
+        )
     if raw_event["on"] != "ui_loop":
         raise ValueError("Descriptor event 'on' must be 'ui_loop'.")
     poll = raw_event["at"]
@@ -124,30 +162,93 @@ def _decode_event(raw_event: object) -> UserInputEvent:
     event_type_name = raw_event.get("type")
     if not isinstance(event_type_name, str):
         raise TypeError("Descriptor event type must be a string.")
+    schema = _descriptor_event_schema(event_type_name)
+    allowed_fields = {field.name for field in schema.fields}
+    if set(raw_event) - {"type"} - allowed_fields:
+        raise ValueError(f"Unexpected fields for {event_type_name!r} event.")
+    values: dict[str, object] = {"timestamp": uint64(0)}
+    for field in schema.fields:
+        if field.name not in raw_event:
+            if field.required:
+                raise ValueError(f"{event_type_name!r} event requires {field.name!r}.")
+            continue
+        values[field.name] = _decode_value(
+            raw_event[field.name], field.annotation, label=field.name
+        )
+    return schema.event_type(**values)
+
+
+def _descriptor_event_schemas() -> tuple[_DescriptorEventSchema, ...]:
+    """Return every registered event's descriptor schema in stable order."""
+    return tuple(
+        _descriptor_event_schema(type_name)
+        for type_name in sorted(UserInputEvent._type_name_owners)
+    )
+
+
+def _descriptor_event_schema(event_type_name: str) -> _DescriptorEventSchema:
+    """Derive one event's descriptor schema from its registered dataclass."""
     owner = UserInputEvent._type_name_owners.get(event_type_name)
     event_type = None if owner is None else pydoc.locate(owner)
-    if (
-        not isinstance(event_type, type)
-        or not issubclass(event_type, UserInputEvent)
-    ):
-        raise ValueError(f"Unsupported synthetic input event type: {event_type_name!r}.")
-    event_fields = {field.name: field for field in fields(event_type)}
-    allowed_fields = set(event_fields) - {"timestamp"}
-    if set(raw_event) - {"type"} != allowed_fields.intersection(raw_event):
-        raise ValueError(f"Unexpected fields for {event_type_name!r} event.")
-    hints = get_type_hints(event_type)
-    values: dict[str, object] = {"timestamp": uint64(0)}
-    for field_name, field in event_fields.items():
-        if field_name == "timestamp":
-            continue
-        if field_name not in raw_event:
-            if field.default is MISSING and field.default_factory is MISSING:
-                raise ValueError(f"{event_type_name!r} event requires {field_name!r}.")
-            continue
-        values[field_name] = _decode_value(
-            raw_event[field_name], hints[field_name], label=field_name
+    if not isinstance(event_type, type) or not issubclass(event_type, UserInputEvent):
+        raise ValueError(
+            f"Unsupported synthetic input event type: {event_type_name!r}."
         )
-    return event_type(**values)
+    hints = get_type_hints(event_type)
+    descriptor_fields: list[_DescriptorFieldSchema] = []
+    for field in fields(event_type):
+        if field.name == "timestamp":
+            continue
+        required = field.default is MISSING and field.default_factory is MISSING
+        default: object = None
+        if not required:
+            default = (
+                field.default
+                if field.default is not MISSING
+                else cast(Callable[[], object], field.default_factory)()
+            )
+        descriptor_fields.append(
+            _DescriptorFieldSchema(
+                name=field.name,
+                annotation=hints[field.name],
+                required=required,
+                default=default,
+            )
+        )
+    return _DescriptorEventSchema(
+        type_name=event_type_name,
+        event_type=event_type,
+        fields=tuple(descriptor_fields),
+    )
+
+
+def _describe_annotation(annotation: object) -> str:
+    """Describe a supported annotation using JSON-facing type names."""
+    origin = get_origin(annotation)
+    if origin is Literal:
+        values = get_args(annotation)
+        return _describe_annotation(type(values[0]))
+    if origin is tuple:
+        item_types = get_args(annotation)
+        if len(item_types) == 2 and item_types[1] is Ellipsis:
+            return f"array[{_describe_annotation(item_types[0])}]"
+        return "[" + ", ".join(_describe_annotation(item) for item in item_types) + "]"
+    if origin in {Union, types.UnionType}:
+        return " or ".join(
+            "null" if option is type(None) else _describe_annotation(option)
+            for option in get_args(annotation)
+        )
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
+        return "string"
+    if annotation is bool:
+        return "boolean"
+    if annotation is int:
+        return "integer"
+    if annotation is float:
+        return "number"
+    if annotation is str:
+        return "string"
+    raise TypeError(f"Unsupported descriptor field type: {annotation!r}.")
 
 
 def _decode_value(value: object, annotation: object, *, label: str) -> object:
@@ -162,7 +263,9 @@ def _decode_value(value: object, annotation: object, *, label: str) -> object:
             raise ValueError(f"{label} must be a JSON array.")
         item_types = get_args(annotation)
         if len(item_types) == 2 and item_types[1] is Ellipsis:
-            return tuple(_decode_value(item, item_types[0], label=label) for item in value)
+            return tuple(
+                _decode_value(item, item_types[0], label=label) for item in value
+            )
         if len(value) != len(item_types):
             raise ValueError(f"{label} must contain {len(item_types)} values.")
         return tuple(
@@ -198,11 +301,11 @@ def _decode_value(value: object, annotation: object, *, label: str) -> object:
         if not isinstance(value, str):
             raise ValueError(f"{label} must be a string.")
         return value
-    if annotation is KeyboardInputState:
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
         try:
-            return KeyboardInputState(value)
+            return annotation(value)
         except (TypeError, ValueError) as error:
-            raise ValueError(f"{label} must be a keyboard input state.") from error
+            raise ValueError(f"{label} has an unsupported value.") from error
     raise TypeError(f"Unsupported descriptor field type for {label}: {annotation!r}.")
 
 

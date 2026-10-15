@@ -29,6 +29,11 @@ from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
 )
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
+from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEvent,
+    ResetUserInputEvent,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -174,6 +179,58 @@ def test_internal_null_mode_discards_preload_output() -> None:
     assert isinstance(
         client_window_mode("null").create(argparse.Namespace()), NullClientWindow
     )
+
+
+def test_null_mode_composition_preserves_replay_across_replacement(
+    tmp_path: Path,
+) -> None:
+    descriptor = _write_descriptor(
+        tmp_path,
+        {
+            "version": 1,
+            "events": [
+                {"on": "ui_loop", "at": 0, "event": {"type": "reset"}},
+                {"on": "ui_loop", "at": 1, "event": {"type": "close"}},
+            ],
+        },
+    )
+    window = create_client_window(
+        _parsed(["--mode", "null", "--synthetic-input-file", str(descriptor)])
+    )
+
+    window.open(SessionDesc())
+    first = window.get_user_input_events().get_events()
+    window.open(SessionDesc())
+    second = window.get_user_input_events().get_events()
+    window.close()
+
+    assert isinstance(window, CompositeClientWindow)
+    assert isinstance(window.primary_window, NullClientWindow)
+    assert [type(event) for event in first] == [ResetUserInputEvent]
+    assert [type(event) for event in second] == [CloseUserInputEvent]
+
+
+def test_mp4_composition_preserves_the_repeated_open_error(tmp_path: Path) -> None:
+    descriptor = _write_descriptor(tmp_path, {"version": 1, "events": []})
+    window = create_client_window(
+        _parsed(
+            [
+                "--mode",
+                "mp4",
+                "--output-path",
+                str(tmp_path / "clip.mp4"),
+                "--synthetic-input-file",
+                str(descriptor),
+            ]
+        )
+    )
+
+    try:
+        window.open(SessionDesc())
+        with pytest.raises(RuntimeError, match="already open"):
+            window.open(SessionDesc())
+    finally:
+        window.close()
 
 
 @pytest.mark.parametrize("fullscreen", [False, True])
