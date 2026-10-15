@@ -19,21 +19,8 @@ in THIRD-PARTY-NOTICES:
         Zlib          (see LICENSES/Zlib.txt)
   - docs/source/javascripts/katex.js
         MIT, Copyright (c) 2016-2024 Martin Donath <martin.donath@squidfunk.com>
+        for upstream portions; Apache-2.0 for NVIDIA modifications
         (full upstream notice retained in the source file).
-  - integrations_v2/hy_worldplay/impl/_prope.py
-        MIT upstream portions and Apache-2.0 NVIDIA modifications
-        (see LICENSES/MIT.txt and the original notice in the source file).
-
-  - integrations_v2/hy_worldplay/impl/{_pose.py,_memory.py}
-        Tencent HunyuanVideo-1.5 and HY-WorldPlay community terms for
-        upstream portions; Apache-2.0 for NVIDIA modifications. See
-        LICENSES/LicenseRef-Tencent-HunyuanVideo-1.5-Community.txt and
-        LICENSES/LicenseRef-Tencent-HY-WorldPlay-Community.txt.
-
-Tencent HY-WorldPlay is licensed under the Tencent HY-WorldPlay Community License Agreement, Copyright © 2025 Tencent. All Rights Reserved. The trademark rights of “Tencent Hunyuan” are owned by Tencent or its affiliate.
-
-Tencent Hunyuan is licensed under the Tencent Hunyuan Community License Agreement, Copyright © 2025 Tencent. All Rights Reserved. The trademark rights of “Tencent Hunyuan” are owned by Tencent or its affiliate.
-
 Modified Cosmos-Drive-Dreams camera helpers and SwiftVR adaptations retain
 their Apache-2.0 terms and upstream copyrights.
 

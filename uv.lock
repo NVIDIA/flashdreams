@@ -28,7 +28,6 @@ members = [
     "flashdreams-cosmos-predict2",
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-flashvsr",
-    "flashdreams-hy-worldplay",
     "flashdreams-imgui-ui-demo",
     "flashdreams-interactive-drive-v2",
     "flashdreams-lingbot",
@@ -1245,36 +1244,6 @@ requires-dist = [
     { name = "flashdreams-v2v", editable = "apps/v2v" },
     { name = "ninja", specifier = ">=1.13.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "flashdreams-hy-worldplay"
-version = "0.1.0"
-source = { editable = "integrations_v2/hy_worldplay" }
-dependencies = [
-    { name = "diffusers" },
-    { name = "flashdreams" },
-    { name = "flashdreams-cam2v" },
-    { name = "flashdreams-wan22" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "diffusers", specifier = ">=0.34" },
-    { name = "flashdreams", editable = "flashdreams" },
-    { name = "flashdreams-cam2v", editable = "apps/cam2v" },
-    { name = "flashdreams-wan22", editable = "integrations_v2/wan22" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "scipy", specifier = ">=1.11" },
 ]
 provides-extras = ["dev"]
 

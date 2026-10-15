@@ -140,9 +140,11 @@ Pull requests without DCO sign-off will be asked to rebase before merge.
 This is a hard gate; please don't take a polite ping personally.
 
 NVIDIA contributors and external contributors follow the *same* DCO
-process. NVIDIA-internal IP review, where applicable, is handled by
-NVIDIA reviewers on your behalf — you do not need to engage with it as
-an outside contributor.
+process. NVIDIA reviewers follow the
+[NVIDIA IP review process](https://nv/ip_review_process) for ongoing project
+modifications and third-party contributions. Reviewers handle this internal
+process on your behalf — you do not need to engage with it as an outside
+contributor.
 
 ### Signing Your Work
 
@@ -390,7 +392,6 @@ Available integration packages:
 | `integrations_v2/cosmos_predict2` | `flashdreams-cosmos-predict2` |
 | `integrations_v2/fastvideo_causal_wan22` | `flashdreams-fastvideo-causal-wan22` |
 | `integrations_v2/flashvsr` | `flashdreams-flashvsr` |
-| `integrations_v2/hy_worldplay` | `flashdreams-hy-worldplay` |
 | `integrations_v2/lingbot` | `flashdreams-lingbot` |
 | `integrations_v2/omnidreams` | `flashdreams-omnidreams` |
 | `integrations_v2/self_forcing` | `flashdreams-self-forcing` |
