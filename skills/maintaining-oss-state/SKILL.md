@@ -120,9 +120,6 @@ Rules:
 
 - Vendored upstream under `integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/**`
   (carries its own BSD-3 / Zlib banners; `override` annotation in REUSE.toml).
-- Generated protobuf stubs under
-  `integrations_v2/omnidreams/impl/grpc/protos/*_pb2*` (regeneration
-  script is project-owned; aggregate annotation covers them).
 - Binary assets (`assets/**.png`, `.jpg`, `.jpeg`, `.webp`, `.mp4`,
   `.gif`, `.svg`) and lock files (`uv.lock`).
 - Documentation (`**.md`, `**.rst`, `docs/**`).
@@ -234,7 +231,7 @@ Optional integration: integrations/<name>
 
   <one block per integration that pulls in deps not used by the root
    package — currently omnidreams (mediapy, opencv-python-headless,
-   grpcio, shapely, ludus-renderer) and lingbot (aiohttp, aiortc,
+   shapely, ludus-renderer) and lingbot (aiohttp, aiortc,
    opencv-python-headless)>
 
 ================================================================================

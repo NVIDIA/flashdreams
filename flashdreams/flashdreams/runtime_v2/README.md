@@ -224,8 +224,20 @@ presentation-queue depth/publish-wait measurements under the reserved
 `runtime_` metric prefix. UI and window timings are not folded into a later
 model record because they describe a different frame.
 
-`--stats-path` also sets `FLASHDREAMS_SYNC_AND_PROFILE=1` before constructing the
-application, enabling synchronized per-stage pipeline profiling for the run.
+The `--stats-path` flag also turns on stage timings, frame rates and input
+latency, by setting `FLASHDREAMS_SYNC_AND_PROFILE=1`, `FLASHDREAMS_FPS=1` and
+`FLASHDREAMS_INPUT_LATENCY=1` before the application starts. The model records
+then include:
+
+- frame rates: `present.frame_fps`, `model.frame_fps`, `ui.step_fps` and
+  `pipeline.generate_fps`
+- input latency: `input.latency_ms`, split into `input.queue_ms` and
+  `input.present_ms`
+
+Each also has a session average (`_avg_fps` or `_avg_ms`). Input latency is left
+out until an input's frame has been shown, then appears on the next record. What
+is measured after the last record is written when the session ends, with no
+`step_index`. To add your own numbers, return them in `StepResult.metrics`.
 
 ## Starting and stopping a run
 

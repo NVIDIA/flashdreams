@@ -501,6 +501,332 @@ def _managed_session(
     return managed, video_track, peer, channel
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("input_path", ["legacy", "session", "shared"])
+@pytest.mark.parametrize(
+    ("raw_message", "accepted"),
+    [
+        (b"binary", False),
+        ("invalid JSON", False),
+        pytest.param("[" * 2000 + "]" * 2000, False, id="deeply-nested-json"),
+        ("[]", False),
+        ("{}", False),
+        ('{"type":"unknown"}', False),
+        ('{"type":"action","action":[]}', False),
+        ('{"type":"action","event":"invalid"}', False),
+        ('{"type":"action","event":"keydown","key":""}', False),
+        ('{"type":"action","event":"keydown"}', False),
+        *[
+            (
+                json.dumps(
+                    {"type": "action", "action": {"event": event, "key": key}}
+                    if nested
+                    else {"type": "action", "event": event, "key": key}
+                ),
+                False,
+            )
+            for event in ("keydown", "keyup")
+            for key in (0, 1, False, True, None, [], {}, "", " ", "0")
+            for nested in (False, True)
+        ],
+        ('{"type":"event"}', False),
+        *[
+            (json.dumps({"type": "event", field: value}), False)
+            for field in ("event_id", "id")
+            for value in (None, [], {}, 0, 0.5, False, True)
+        ],
+        *[
+            (
+                json.dumps({"type": "event", "event_id": "storm", "state": value}),
+                False,
+            )
+            for value in (None, [], {}, 0, 0.5, False, True)
+        ],
+        ('{"type":"event","event_id":[],"state":"clear"}', False),
+        ('{"type":"event","id":false,"state":"none"}', False),
+        ('{"type":"event","event_id":null,"id":"storm"}', False),
+        ('{"type":"heartbeat"}', True),
+        ('{"type":"action","event":"step"}', True),
+        ('{"type":"action","event":"keydown","key":"w"}', True),
+        ('{"type":"action","event":"keyup","key":"w"}', True),
+        ('{"type":"action","action":{"event":"keydown","key":" w "}}', True),
+        ('{"type":"action","action":{"event":"keyup","key":"ArrowUp"}}', True),
+        ('{"type":"event","event_id":"storm"}', True),
+        ('{"type":"event","id":"storm","state":" TRIGGER "}', True),
+        ('{"type":"event","event_id":" storm ","state":" "}', True),
+        ('{"type":"event","event_id":"storm","state":"custom"}', True),
+        ('{"type":"event","state":"clear"}', True),
+        ('{"type":"event","event_id":null,"state":"release"}', True),
+        ('{"type":"event","id":null,"state":"off"}', True),
+        ('{"type":"event","event_id":"","state":"none"}', True),
+    ],
+)
+async def test_only_accepted_messages_refresh_liveness(
+    input_path: str, raw_message: Any, accepted: bool
+) -> None:
+    runtime_calls: list[dict[str, Any]] = []
+    validation_calls: list[dict[str, Any]] = []
+    runtime = SimpleNamespace(
+        trigger_event=lambda **kwargs: runtime_calls.append(kwargs) or {},
+        validate_user_event=lambda **kwargs: validation_calls.append(kwargs),
+    )
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, _track, _peer, _channel = _managed_session(runtime)
+    managed.first_action_received.clear()
+    managed.transport = WebRTCTransportService(loop=asyncio.get_running_loop())
+    resampler = _RecordingLegacySegmentResampler()
+    managed.legacy_segment_resampler = resampler
+    if input_path == "session":
+        managed.inference_session = object()
+    elif input_path == "shared":
+        managed.input_source = WebRTCInputSource(
+            resampler=managed.resampler, legacy_segment_resampler=resampler
+        )
+
+    await manager._handle_datachannel_message(
+        managed_session=managed, raw_message=raw_message
+    )
+
+    assert (managed.last_client_message_at > 0) is accepted
+    if accepted:
+        assert (
+            managed.transport.last_client_message_at == managed.last_client_message_at
+        )
+    else:
+        assert managed.transport.last_client_message_at is None
+        assert not managed.first_action_received.is_set()
+        assert not managed.pending_action_arrivals
+        assert not managed.user_events
+        assert not resampler.edges
+        assert not runtime_calls
+        assert not validation_calls
+        if managed.input_source is not None:
+            assert not managed.input_source.activation_signal.is_set()
+            assert not managed.input_source._events
+
+
+@pytest.mark.asyncio
+async def test_oversized_control_message_is_rejected_before_parsing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, _track, _peer, channel = _managed_session(runtime)
+
+    def unexpected_parse(_message: str) -> None:
+        pytest.fail("Oversized control messages must not reach JSON parsing")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(manager_module.json, "loads", unexpected_parse)
+        await manager._handle_datachannel_message(
+            managed_session=managed,
+            raw_message="x" * (manager_module._MAX_CONTROL_MESSAGE_CHARACTERS + 1),
+        )
+
+    assert managed.last_client_message_at == 0
+    assert json.loads(channel.messages[0]) == {
+        "type": "error",
+        "message": "Control payload is too large.",
+    }
+
+
+@pytest.mark.asyncio
+async def test_latency_samples_are_bounded_without_dropping_model_input() -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, _track, _peer, _channel = _managed_session(runtime)
+    resampler = _RecordingLegacySegmentResampler()
+    managed.legacy_segment_resampler = resampler
+
+    for _ in range(4100):
+        await manager._handle_datachannel_message(
+            managed_session=managed,
+            raw_message='{"type":"action","event":"keydown","key":"w"}',
+        )
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message='{"type":"action","event":"keyup","key":"w"}',
+    )
+
+    assert len(managed.pending_action_arrivals) == 4096
+    assert len(resampler.edges) == 4101
+    assert resampler.edges[-1][1:] == ("keyup", "w")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rejected",
+    [
+        {"type": "action", "event": "keydown", "key": "a"},
+        {"type": "event", "event_id": "another"},
+    ],
+)
+async def test_shared_queue_rejection_has_no_input_or_liveness_side_effects(
+    rejected: dict[str, Any],
+) -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, _track, _peer, channel = _managed_session(runtime)
+    resampler = _RecordingLegacySegmentResampler()
+    source = WebRTCInputSource(
+        resampler=managed.resampler,
+        legacy_segment_resampler=resampler,
+        max_pending_events=3,
+        reserved_recovery_events=1,
+    )
+    managed.input_source = source
+    managed.transport = WebRTCTransportService(loop=asyncio.get_running_loop())
+    for payload in (
+        {"type": "action", "event": "keydown", "key": "w"},
+        {"type": "event", "event_id": "storm"},
+    ):
+        await manager._handle_datachannel_message(
+            managed_session=managed, raw_message=json.dumps(payload)
+        )
+    last_message_at = managed.last_client_message_at
+    pending_bytes = source._pending_event_bytes
+    channel.messages.clear()
+
+    await manager._handle_datachannel_message(
+        managed_session=managed, raw_message=json.dumps(rejected)
+    )
+
+    assert not managed.closed
+    assert managed.last_client_message_at == last_message_at
+    assert managed.transport.last_client_message_at == last_message_at
+    assert len(source._events) == 2
+    assert source._pending_event_bytes == pending_bytes
+    assert [edge[1:] for edge in resampler.edges] == [("keydown", "w")]
+    assert [json.loads(message)["type"] for message in channel.messages] == ["error"]
+    await manager._handle_datachannel_message(
+        managed_session=managed,
+        raw_message='{"type":"action","event":"keyup","key":"w"}',
+    )
+    assert len(source._events) == 3
+    assert resampler.edges[-1][1:] == ("keyup", "w")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "overflow_payload",
+    [
+        {"type": "action", "event": "keyup", "key": "w"},
+        {"type": "event", "state": "clear"},
+    ],
+)
+async def test_shared_recovery_overflow_closes_and_resets_the_peer(
+    overflow_payload: dict[str, Any],
+) -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, track, peer, channel = _managed_session(runtime)
+    resampler = _RecordingLegacySegmentResampler()
+    source = WebRTCInputSource(
+        resampler=managed.resampler,
+        legacy_segment_resampler=resampler,
+        max_pending_events=2,
+        reserved_recovery_events=1,
+    )
+    managed.input_source = source
+    managed.transport = WebRTCTransportService(loop=asyncio.get_running_loop())
+    manager._active_session = managed
+    for event in ("keydown", "keyup"):
+        await manager._handle_datachannel_message(
+            managed_session=managed,
+            raw_message=json.dumps({"type": "action", "event": event, "key": "w"}),
+        )
+    last_message_at = managed.last_client_message_at
+    released: list[bool] = []
+    managed.reservation = SimpleNamespace(release=lambda: released.append(True))
+    managed.generation_task = asyncio.create_task(asyncio.Event().wait())
+    generation_task = managed.generation_task
+
+    await asyncio.wait_for(
+        manager._handle_datachannel_message(
+            managed_session=managed,
+            raw_message=json.dumps(overflow_payload),
+        ),
+        timeout=1.0,
+    )
+
+    assert managed.closed and track.closed and peer.closed
+    assert not manager.has_active_session()
+    assert generation_task.cancelled()
+    assert released == [True]
+    assert not managed.transport.is_active()
+    assert managed.last_client_message_at == last_message_at
+    assert "recovery capacity exhausted" in json.loads(channel.messages[-1])["message"]
+    assert not source._events and not source._event_sizes
+    assert source._pending_event_bytes == 0
+    assert not resampler.edges
+    assert not source.activation_signal.is_set()
+    assert (
+        source.handle_browser_payload(
+            {"type": "action", "event": "keydown", "key": "w"},
+            timestamp_s=asyncio.get_running_loop().time(),
+        ).kind
+        == "action"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trigger", ["heartbeat", "watchdog"])
+async def test_shared_backlog_expires_despite_valid_heartbeats(trigger: str) -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(_BaseTestManager, runtime)
+    managed, track, peer, _channel = _managed_session(runtime)
+    source = WebRTCInputSource(resampler=managed.resampler, max_pending_age_s=1.0)
+    source.record_user_event(
+        timestamp_s=asyncio.get_running_loop().time() - 2.0,
+        event_type="key_down",
+        payload={"key": "w"},
+    )
+    managed.input_source = source
+    managed.transport = WebRTCTransportService(loop=asyncio.get_running_loop())
+    managed.last_client_message_at = asyncio.get_running_loop().time()
+    last_message_at = managed.last_client_message_at
+    manager._active_session = managed
+
+    if trigger == "heartbeat":
+        await manager._handle_datachannel_message(
+            managed_session=managed, raw_message='{"type":"heartbeat"}'
+        )
+    else:
+        await asyncio.wait_for(
+            manager._client_liveness_watchdog(managed_session=managed), timeout=1.0
+        )
+
+    assert managed.closed and track.closed and peer.closed
+    assert managed.last_client_message_at == last_message_at
+    assert not managed.transport.is_active()
+    assert "backlog expired" in (managed.transport.close_reason or "")
+    assert source._pending_event_bytes == 0
+    assert not source._events
+
+
+@pytest.mark.asyncio
+async def test_expired_old_peer_cannot_close_a_replacement_session() -> None:
+    runtime = SimpleNamespace()
+    manager = _make_manager(_BaseTestManager, runtime)
+    old, _track, _peer, _channel = _managed_session(runtime)
+    old.input_source = WebRTCInputSource(resampler=old.resampler, max_pending_age_s=1.0)
+    old.input_source.record_user_event(
+        timestamp_s=asyncio.get_running_loop().time() - 2.0,
+        event_type="key_down",
+        payload={"key": "w"},
+    )
+    replacement, _track, _peer, _channel = _managed_session(runtime)
+    manager._active_session = replacement
+
+    await manager._handle_datachannel_message(
+        managed_session=old, raw_message='{"type":"heartbeat"}'
+    )
+
+    assert old.closed
+    assert not replacement.closed
+    assert manager._active_session is replacement
+
+
 def test_record_user_event_rejects_full_queue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

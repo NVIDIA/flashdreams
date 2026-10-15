@@ -4,7 +4,7 @@
 """CPU tests for flashdreams-run-v2 parse and forwarding.
 
 Covers ``--timeout`` / ``--total-model-steps`` into ``ApplicationRunner.run``,
-and the application's preferred client-window mode when ``--mode`` is omitted.
+and application defaults and resolution of registered client-window modes.
 Leftover steps across replacements are covered in ``test_application_runner.py``.
 """
 
@@ -410,6 +410,122 @@ def test_application_default_and_explicit_override(
     )
 
 
+@pytest.mark.parametrize(
+    "requested,explicit",
+    [("webrtc", True), ("native-window", True), ("webrtc", False)],
+)
+def test_application_resolves_output_to_registered_input_window(
+    monkeypatch: pytest.MonkeyPatch, requested: str, explicit: bool
+) -> None:
+    application = _PreferredApplication(requested)
+    mode, runs = _install(monkeypatch, application)
+    resolved = []
+    created = []
+    create = mode.create
+
+    def resolve(name: str) -> str:
+        assert not application.initialized
+        resolved.append(name)
+        return mode.name
+
+    def create_window(args: argparse.Namespace) -> IClientWindow:
+        created.append(args)
+        return create(args)
+
+    monkeypatch.setattr(application, "resolve_client_window_mode", resolve)
+    monkeypatch.setattr(mode, "create", create_window)
+    arguments = [
+        "test-app",
+        "--test-output",
+        "plugin.mp4",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8089",
+        "--window-title",
+        "Controller demo",
+        "--fps",
+        "36",
+    ]
+    if explicit:
+        arguments.extend(["--mode", requested])
+
+    cli.entrypoint(arguments)
+
+    assert resolved == [requested]
+    assert mode.checked and mode.created
+    assert application.default_queries == (0 if explicit else 1)
+    assert created[0].mode == mode.name
+    assert created[0].host == "127.0.0.1"
+    assert created[0].port == 8089
+    assert created[0].window_title == "Controller demo"
+    assert runs[0][0].frames_per_second_for_step == 36
+
+
+@pytest.mark.parametrize("reject", [False, True])
+def test_invalid_mode_resolution_fails_before_initialization(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], reject: bool
+) -> None:
+    application = _Application()
+    mode, runs = _install(monkeypatch, application)
+
+    def resolve(name: str) -> str:
+        assert name == "webrtc"
+        if reject:
+            raise ValueError("Unsupported application output")
+        return "not-installed"
+
+    monkeypatch.setattr(application, "resolve_client_window_mode", resolve)
+
+    with pytest.raises(SystemExit) as error:
+        cli.entrypoint(["test-app", "--mode", "webrtc"])
+
+    assert error.value.code == 2
+    assert (
+        "Unsupported application output" if reject else "not-installed"
+    ) in capsys.readouterr().err
+    assert not application.initialized
+    assert not mode.created
+    assert not runs
+
+
+def test_preload_skips_application_mode_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = _PreferredApplication("test-window")
+    mode, runs = _install(monkeypatch, application)
+    monkeypatch.setattr(
+        application,
+        "resolve_client_window_mode",
+        lambda _: pytest.fail("Preload must not select application input"),
+    )
+
+    cli.entrypoint(["test-app", "--preload-application"])
+
+    assert application.default_queries == 0
+    assert not mode.checked and not mode.created
+    assert len(runs) == 1
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_resolved_mp4_preserves_runtime_output_policy(
+    monkeypatch: pytest.MonkeyPatch, bounded: bool
+) -> None:
+    application = _Application()
+    mode, runs = _install(monkeypatch, application)
+    monkeypatch.setattr(application, "resolve_client_window_mode", lambda _: mode.name)
+    arguments = ["test-app", "--mode", "mp4", "--test-output", "plugin.mp4"]
+    if bounded:
+        cli.entrypoint([*arguments, "--total-model-steps", "1"])
+        assert mode.created
+        assert runs[0][0].presentation_mode is PresentationMode.ON_DEMAND
+    else:
+        with pytest.raises(SystemExit) as error:
+            cli.entrypoint(arguments)
+        assert error.value.code == 2
+        assert not mode.created and not runs
+
+
 @pytest.mark.parametrize("preferred", ["test-window", "not-installed"])
 def test_invalid_default_or_arguments_fail_before_initialization(
     monkeypatch: pytest.MonkeyPatch, preferred: str
@@ -431,6 +547,11 @@ def test_application_help_does_not_resolve_or_validate_a_window(
 ) -> None:
     application = _PreferredApplication("not-installed")
     mode, runs = _install(monkeypatch, application)
+    monkeypatch.setattr(
+        application,
+        "resolve_client_window_mode",
+        lambda _: pytest.fail("Application help must not resolve a window"),
+    )
 
     with pytest.raises(SystemExit) as error:
         cli.entrypoint(["test-app", "--", "--help"])

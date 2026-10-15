@@ -9,6 +9,7 @@ import logging
 import queue
 import threading
 import time
+import webbrowser
 from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
@@ -19,12 +20,13 @@ import torch
 from numpy import uint64
 from torch import Tensor
 
-from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.client_window import ClientWindowLink, IClientWindow
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
+    FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -54,7 +56,14 @@ _PRINTABLE_KEY_NAMES = {
 }
 """Map SlangPy printable key names to browser-style key values."""
 
-_MODIFIER_KEY_NAMES = {
+_NAMED_KEY_NAMES = {
+    "escape": "Escape",
+    "enter": "Enter",
+    "keypad_enter": "Enter",
+    "left": "ArrowLeft",
+    "right": "ArrowRight",
+    "up": "ArrowUp",
+    "down": "ArrowDown",
     "left_alt": "Alt",
     "right_alt": "Alt",
     "left_control": "Control",
@@ -64,7 +73,7 @@ _MODIFIER_KEY_NAMES = {
     "left_super": "Meta",
     "right_super": "Meta",
 }
-"""Map physical SlangPy modifiers to browser ``KeyboardEvent.key`` values."""
+"""Map SlangPy navigation keys and modifiers to browser key values."""
 
 _STANDARD_GAMEPAD_BUTTON_BITS: tuple[int | None, ...] = (
     1,  # A
@@ -95,6 +104,7 @@ class NativeWindowClientWindow(IClientWindow):
         self,
         *,
         title: str = "FlashDreams",
+        fullscreen: bool = False,
         presenter_factory: Callable[..., _SlangPyNativeWindowPresenter] | None = None,
         clock_ns: Callable[[], int] = time.monotonic_ns,
     ) -> None:
@@ -102,15 +112,20 @@ class NativeWindowClientWindow(IClientWindow):
 
         Args:
             title: Native window title.
+            fullscreen: Whether to create the window in fullscreen mode.
             presenter_factory: Optional SlangPy-compatible presenter factory.
             clock_ns: Monotonic clock used for input timestamps.
 
         Raises:
             ValueError: ``title`` is empty.
+            TypeError: ``fullscreen`` is not a bool.
         """
         if not title.strip():
             raise ValueError("Native-window title must be non-empty.")
+        if not isinstance(fullscreen, bool):
+            raise TypeError("fullscreen must be a bool.")
         self.title = title
+        self._fullscreen = fullscreen
         self._presenter_factory = presenter_factory
         self._clock_ns = clock_ns
         self._session_started_ns: int | None = None
@@ -126,6 +141,12 @@ class NativeWindowClientWindow(IClientWindow):
         self._pressed_key_values: dict[str, str] = {}
         self._hide_cursor = False
         self._lock_cursor_to_window = False
+        self._links: tuple[ClientWindowLink, ...] = ()
+        self._pressed_link: ClientWindowLink | None = None
+
+    def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:
+        """Replace the clickable regions over the native window output."""
+        self._links = links
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor in the native window."""
@@ -147,6 +168,8 @@ class NativeWindowClientWindow(IClientWindow):
                 lock_cursor_to_window=lock_cursor_to_window,
             )
         self._lock_cursor_to_window = lock_cursor_to_window
+        if lock_cursor_to_window:
+            self._pressed_link = None
 
     def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
         """Resize the open native window without replacing it.
@@ -187,6 +210,7 @@ class NativeWindowClientWindow(IClientWindow):
                 width=session_desc.video_width,
                 height=session_desc.video_height,
                 title=self.title,
+                fullscreen=self._fullscreen,
             )
             try:
                 presenter.set_input_callbacks(
@@ -211,7 +235,19 @@ class NativeWindowClientWindow(IClientWindow):
         self._poll_input_events = None
         self._pending_printable_keys.clear()
         self._pressed_key_values.clear()
+        self._links = ()
+        self._pressed_link = None
         self._presenter = presenter
+        if self._fullscreen:
+            presenter.process_events()
+            self._window_size = presenter.size
+            self._put_input(
+                FullscreenEnabledOptimalWindowSizeUserInputEvent(
+                    timestamp=uint64(0),
+                    width=self._window_size[0],
+                    height=self._window_size[1],
+                )
+            )
 
     def get_user_input_events(self) -> UserInputEvents:
         """Pump GLFW and return native input events not yet read."""
@@ -294,6 +330,8 @@ class NativeWindowClientWindow(IClientWindow):
         self._poll_input_events = None
         self._pending_printable_keys.clear()
         self._pressed_key_values.clear()
+        self._links = ()
+        self._pressed_link = None
         if presenter is not None:
             presenter.close()
 
@@ -355,7 +393,10 @@ class NativeWindowClientWindow(IClientWindow):
         self._put_input(keyboard_event)
 
     def _on_mouse_event(self, event: spy.MouseEvent) -> None:
-        window_size = self._window_size
+        presenter = self._presenter
+        window_size = (
+            presenter.input_size if presenter is not None else self._window_size
+        )
         if window_size is None:
             return
         mouse_event = _mouse_event(
@@ -364,8 +405,39 @@ class NativeWindowClientWindow(IClientWindow):
             height=window_size[1],
             lock_cursor_to_window=self._lock_cursor_to_window,
         )
-        if mouse_event is not None:
-            self._put_input(mouse_event)
+        if mouse_event is None:
+            return
+        if (
+            not self._lock_cursor_to_window
+            and mouse_event.action == "button"
+            and mouse_event.button == 0
+        ):
+            x = float(event.pos.x) / window_size[0]
+            y = float(event.pos.y) / window_size[1]
+            link = next(
+                (
+                    candidate
+                    for candidate in self._links
+                    if candidate.bounds[0] <= x < candidate.bounds[2]
+                    and candidate.bounds[1] <= y < candidate.bounds[3]
+                ),
+                None,
+            )
+            if mouse_event.pressed:
+                self._pressed_link = link
+                if link is not None:
+                    return
+            elif self._pressed_link is not None:
+                pressed_link = self._pressed_link
+                self._pressed_link = None
+                if link is not None and link == pressed_link:
+                    try:
+                        if not webbrowser.open_new_tab(link.url):
+                            _LOGGER.warning("No browser could open link: %s", link.url)
+                    except (webbrowser.Error, OSError) as error:
+                        _LOGGER.warning("Could not open link %s: %s", link.url, error)
+                return
+        self._put_input(mouse_event)
 
     def _on_gamepad_event(self, event: spy.GamepadEvent) -> None:
         gamepad_event = _gamepad_connection_event(event)
@@ -391,13 +463,15 @@ class _SlangPyNativeWindowPresenter:
         width: int,
         height: int,
         title: str,
+        fullscreen: bool = False,
     ) -> None:
-        """Create a programmatically resizable SlangPy window and Vulkan surface.
+        """Create a resizable SlangPy window and Vulkan surface.
 
         Args:
             width: Window width in pixels.
             height: Window height in pixels.
             title: Native window title.
+            fullscreen: Whether to create the window in fullscreen mode.
 
         Raises:
             RuntimeError: SlangPy is unavailable or cannot create the window.
@@ -414,18 +488,20 @@ class _SlangPyNativeWindowPresenter:
         self._width = int(width)
         self._height = int(height)
         self._closed = False
+        self._fullscreen = fullscreen
         self._window = spy.Window(
             width=self._width,
             height=self._height,
             title=title,
-            resizable=False,
+            mode=spy.WindowMode.fullscreen if fullscreen else spy.WindowMode.normal,
+            resizable=True,
         )
         try:
             self._presentation = _PresentationContext(
                 spy=spy,
                 window=self._window,
-                width=self._width,
-                height=self._height,
+                width=int(self._window.width),
+                height=int(self._window.height),
             )
         except BaseException:
             self._window.close()
@@ -447,6 +523,11 @@ class _SlangPyNativeWindowPresenter:
         """Return the current presentation-surface size in pixels."""
         return self._width, self._height
 
+    @property
+    def input_size(self) -> tuple[int, int]:
+        """Return the acknowledged window size, including an unapplied resize."""
+        return self._pending_resize or self.size
+
     def configure_cursor(
         self, *, hide_cursor: bool, lock_cursor_to_window: bool
     ) -> None:
@@ -460,7 +541,9 @@ class _SlangPyNativeWindowPresenter:
         self._window.cursor_mode = cursor_mode
 
     def resize(self, width: int, height: int) -> tuple[int, int]:
-        """Request a native resize and return the last acknowledged size."""
+        """Request a native resize and return the last acknowledged size.
+        Allowed to resize fullscreen windows.
+        """
         if self._closed:
             raise RuntimeError("Cannot resize a closed native window.")
         self._window.resize(width, height)
@@ -825,9 +908,9 @@ def _runtime_key_name(value: spy.KeyCode) -> str:
     """Return the browser-style key value used by runtime input events."""
     name = value.name
     normalized = name.lower()
-    modifier = _MODIFIER_KEY_NAMES.get(normalized)
-    if modifier is not None:
-        return modifier
+    named_key = _NAMED_KEY_NAMES.get(normalized)
+    if named_key is not None:
+        return named_key
     printable = _PRINTABLE_KEY_NAMES.get(normalized)
     if printable is not None:
         return printable
