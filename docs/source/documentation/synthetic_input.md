@@ -8,7 +8,8 @@ title: 'Synthetic Input Files'
 
 # Synthetic Input Files
 
-MP4 runs can replay deterministic user input from a version 1 JSON file:
+Runs in any client-window mode can replay deterministic user input from a
+version 1 JSON file:
 
 ```json
 {
@@ -42,6 +43,7 @@ API defaults when omitted.
 
 | Type | Fields |
 | --- | --- |
+| `fullscreen_enabled_optimal_window_size` | Required `width` and `height` integers. |
 | `numeral_keypad` | Optional `value` integer. |
 | `keyboard` | Required `key` string and `state` of `"Pressed"` or `"Released"`. |
 | `close` | No additional fields. |

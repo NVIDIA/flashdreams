@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from flashdreams.runtime_v2 import client_window_factory
 from flashdreams.runtime_v2.cli import _parser
 from flashdreams.runtime_v2.client_window_factory import (
@@ -100,9 +101,7 @@ def test_an_mp4_run_can_replay_a_synthetic_input_file(tmp_path: Path) -> None:
         json.dumps(
             {
                 "version": 1,
-                "events": [
-                    {"on": "ui_loop", "at": 0, "event": {"type": "reset"}}
-                ],
+                "events": [{"on": "ui_loop", "at": 0, "event": {"type": "reset"}}],
             }
         ),
         encoding="utf-8",
@@ -122,13 +121,13 @@ def test_an_mp4_run_can_replay_a_synthetic_input_file(tmp_path: Path) -> None:
     )
 
     assert isinstance(window, CompositeClientWindow)
-    assert isinstance(window.client_window, Mp4ClientWindow)
-    assert window.client_window.path == tmp_path / "clip.mp4"
+    assert isinstance(window.primary_window, Mp4ClientWindow)
+    assert window.primary_window.path == tmp_path / "clip.mp4"
 
 
-def test_the_file_is_named_after_synthetic_input_is_composed(tmp_path: Path) -> None:
+def test_mode_hooks_continue_to_receive_the_primary_window(tmp_path: Path) -> None:
     mode = client_window_mode("mp4")
-    window = mode.create(
+    primary_window = mode.create(
         _parsed(
             [
                 "--mode",
@@ -146,7 +145,8 @@ def test_the_file_is_named_after_synthetic_input_is_composed(tmp_path: Path) -> 
         )
     )
 
-    assert mode.finished(window) == str(tmp_path / "clip.mp4")
+    assert isinstance(primary_window, Mp4ClientWindow)
+    assert mode.finished(primary_window) == str(tmp_path / "clip.mp4")
 
 
 def test_a_file_run_with_nowhere_to_write_says_so() -> None:
@@ -190,6 +190,22 @@ def test_a_native_window_mode_is_lazy_and_keeps_its_title(fullscreen: bool) -> N
     assert window._fullscreen is fullscreen
 
 
+def test_a_native_window_run_can_replay_synthetic_input(tmp_path: Path) -> None:
+    window = create_client_window(
+        _parsed(
+            [
+                "--mode",
+                "native-window",
+                "--synthetic-input-file",
+                str(_write_descriptor(tmp_path, {"version": 1, "events": []})),
+            ]
+        )
+    )
+
+    assert isinstance(window, CompositeClientWindow)
+    assert isinstance(window.primary_window, NativeWindowClientWindow)
+
+
 def test_an_installed_mode_owns_its_flashdreams_run_v2_arguments(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -213,6 +229,29 @@ def test_an_installed_mode_owns_its_flashdreams_run_v2_arguments(
     assert parsed.plugin_output == output
     assert isinstance(window, Mp4ClientWindow)
     assert window.path == output
+
+
+def test_an_installed_mode_can_replay_synthetic_input(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _installed_modes(monkeypatch, _EntryPoint("plugin-window", _PluginMode))
+    descriptor = _write_descriptor(tmp_path, {"version": 1, "events": []})
+
+    window = create_client_window(
+        _parsed(
+            [
+                "--mode",
+                "plugin-window",
+                "--plugin-output",
+                str(tmp_path / "plugin.mp4"),
+                "--synthetic-input-file",
+                str(descriptor),
+            ]
+        )
+    )
+
+    assert isinstance(window, CompositeClientWindow)
+    assert isinstance(window.primary_window, Mp4ClientWindow)
 
 
 def test_factory_modes_are_preserved_per_parser(
@@ -359,5 +398,24 @@ class TestWebRTC:
             assert isinstance(window, WebRTCClientWindow)
             assert window.metrics_snapshot()["webrtc_sender_queue_capacity_count"] == 2
             assert mode.starting(window) == f"Open {window.server.url} in a browser."
+        finally:
+            window.close()
+
+    def test_a_browser_run_can_replay_synthetic_input(self, tmp_path: Path) -> None:
+        from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
+
+        window = create_client_window(
+            _parsed(
+                [
+                    "--mode",
+                    "webrtc",
+                    "--synthetic-input-file",
+                    str(_write_descriptor(tmp_path, {"version": 1, "events": []})),
+                ]
+            )
+        )
+        try:
+            assert isinstance(window, CompositeClientWindow)
+            assert isinstance(window.primary_window, WebRTCClientWindow)
         finally:
             window.close()
