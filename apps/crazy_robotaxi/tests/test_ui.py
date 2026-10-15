@@ -74,9 +74,13 @@ pytestmark = pytest.mark.ci_cpu
 
 def test_taxi_ui_requests_fullscreen_dimensions_before_resizing(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     loop = CrazyRobotaxiImGuiUILoop(width=320, height=240)
-    loop.state = TaxiHudState(320, 240, None, presentation_size=(320, 240))
+    document = _settings_document(tmp_path / "config.yaml")
+    loop.state = TaxiHudState(
+        320, 240, None, presentation_size=(320, 240), settings_document=document
+    )
     loop._ui_loop_requests = None
     loop._presentation_manager = Mock()
     loop._presentation_manager.presented_frames.return_value = ()
@@ -105,6 +109,12 @@ def test_taxi_ui_requests_fullscreen_dimensions_before_resizing(
     assert loop.get_ui_loop_size() == (1920, 1080)
     assert (loop.state.width, loop.state.height) == (1920, 1080)
     assert loop.flush_ui_loop_requests() is None
+
+    loop.state._open_options()
+    loop.state._save_options()
+    assert loop.state.presentation_size == (1920, 1080)
+    assert "width: 1920" in document.path.read_text(encoding="utf-8")
+    assert "height: 1080" in document.path.read_text(encoding="utf-8")
 
     loop.state.presentation_size = (640, 480)
     loop.step_ui(object(), 3, UserInputEvents([]))
