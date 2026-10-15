@@ -29,6 +29,7 @@ import torch
 
 from flashdreams.api_v2.profiler import IProfiler
 from flashdreams.infra.profiler import EventProfiler
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _STAGE_PREFIX = "pipeline."
 _STAGES = ("latency", "queue", "present")
@@ -261,6 +262,10 @@ class InputLatencyProfiler(IProfiler):
     from the step returning to its frame being shown, and the rest is the step
     itself. Each key also has an ``_avg_ms`` form covering the session. Input read
     by a step that buffered its output counts once a later step shows it.
+
+    Source timestamps also measure the UI claim and the next successful window
+    write return. These host checkpoints are independent of model-frame selection.
+    Their pending state and exact mean/max accumulators use constant space.
     """
 
     def __init__(self) -> None:
@@ -271,6 +276,78 @@ class InputLatencyProfiler(IProfiler):
         self._since_read: dict[str, list[float]] = {name: [] for name in _STAGES}
         self._totals: dict[str, float] = dict.fromkeys(_STAGES, 0.0)
         self._count = 0
+        self._ui_generation: int | None = None
+        self._pending_ui_count = 0
+        self._pending_ui_sum_ns = 0
+        self._pending_ui_first_ns: int | None = None
+        self._pending_ui_last_ns: int | None = None
+        # Each host metric keeps (count, sum, maximum), with integer nanoseconds.
+        self._host_since_read: dict[str, tuple[int, int, int]] = {}
+        self._host_totals: dict[str, tuple[int, int, int]] = {}
+
+    def ui_input_claimed(
+        self,
+        events: UserInputEvents,
+        *,
+        generation: int,
+        input_timestamp_origin_ns: int | None,
+        claimed_ns: int,
+    ) -> None:
+        with self._lock:
+            if generation != self._ui_generation:
+                self._clear_pending_ui()
+                self._ui_generation = generation
+            if input_timestamp_origin_ns is None:
+                return
+            for event in events.get_events():
+                input_ns = input_timestamp_origin_ns + int(event.timestamp) * 1_000
+                if input_ns > claimed_ns:
+                    raise ValueError("Input timestamp is later than its UI claim.")
+                elapsed_ns = claimed_ns - input_ns
+                self._record_host_latency("ui_claim", 1, elapsed_ns, elapsed_ns)
+                self._pending_ui_count += 1
+                self._pending_ui_sum_ns += input_ns
+                first_ns = self._pending_ui_first_ns
+                self._pending_ui_first_ns = (
+                    input_ns if first_ns is None else min(first_ns, input_ns)
+                )
+                last_ns = self._pending_ui_last_ns
+                self._pending_ui_last_ns = (
+                    input_ns if last_ns is None else max(last_ns, input_ns)
+                )
+
+    def window_write_completed(self, generation: int, completed_ns: int) -> None:
+        with self._lock:
+            if generation == self._ui_generation and self._pending_ui_count:
+                first_ns = self._pending_ui_first_ns
+                last_ns = self._pending_ui_last_ns
+                if first_ns is not None and last_ns is not None:
+                    if completed_ns < last_ns:
+                        raise ValueError("Window write precedes its claimed input.")
+                    self._record_host_latency(
+                        "window_write",
+                        self._pending_ui_count,
+                        self._pending_ui_count * completed_ns - self._pending_ui_sum_ns,
+                        completed_ns - first_ns,
+                    )
+            self._clear_pending_ui()
+
+    def _clear_pending_ui(self) -> None:
+        self._pending_ui_count = 0
+        self._pending_ui_sum_ns = 0
+        self._pending_ui_first_ns = None
+        self._pending_ui_last_ns = None
+
+    def _record_host_latency(
+        self, name: str, count: int, total_ns: int, maximum_ns: int
+    ) -> None:
+        for metrics in (self._host_since_read, self._host_totals):
+            old_count, old_total, old_maximum = metrics.get(name, (0, 0, 0))
+            metrics[name] = (
+                old_count + count,
+                old_total + total_ns,
+                max(old_maximum, maximum_ns),
+            )
 
     def input_consumed(
         self, step: tuple[int, int], received_ns: Sequence[int], started_ns: int
@@ -312,6 +389,15 @@ class InputLatencyProfiler(IProfiler):
             if self._count:
                 for name, total in self._totals.items():
                     result[f"input.{name}_avg_ms"] = total / self._count
+            for name, (count, total_ns, maximum_ns) in self._host_since_read.items():
+                result[f"input.{name}_ms"] = total_ns / count / 1e6
+                result[f"input.{name}_max_ms"] = maximum_ns / 1e6
+                result[f"input.{name}_count"] = count
+            self._host_since_read.clear()
+            for name, (count, total_ns, maximum_ns) in self._host_totals.items():
+                result[f"input.{name}_avg_ms"] = total_ns / count / 1e6
+                result[f"input.{name}_session_max_ms"] = maximum_ns / 1e6
+                result[f"input.{name}_session_count"] = count
             return result
 
     def reset_counts(self) -> None:
@@ -321,6 +407,10 @@ class InputLatencyProfiler(IProfiler):
                 values.clear()
             self._totals = dict.fromkeys(_STAGES, 0.0)
             self._count = 0
+            self._ui_generation = None
+            self._clear_pending_ui()
+            self._host_since_read.clear()
+            self._host_totals.clear()
 
 
 class CompositeProfiler(IProfiler):
@@ -366,6 +456,26 @@ class CompositeProfiler(IProfiler):
     def step_presented(self, step: tuple[int, int]) -> None:
         for profiler in self._profilers:
             profiler.step_presented(step)
+
+    def ui_input_claimed(
+        self,
+        events: UserInputEvents,
+        *,
+        generation: int,
+        input_timestamp_origin_ns: int | None,
+        claimed_ns: int,
+    ) -> None:
+        for profiler in self._profilers:
+            profiler.ui_input_claimed(
+                events,
+                generation=generation,
+                input_timestamp_origin_ns=input_timestamp_origin_ns,
+                claimed_ns=claimed_ns,
+            )
+
+    def window_write_completed(self, generation: int, completed_ns: int) -> None:
+        for profiler in self._profilers:
+            profiler.window_write_completed(generation, completed_ns)
 
     def collect_input_latency_ms(self) -> dict[str, float]:
         latency_ms: dict[str, float] = {}

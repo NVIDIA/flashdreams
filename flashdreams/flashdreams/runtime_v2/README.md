@@ -233,9 +233,14 @@ then include:
   `pipeline.generate_fps`
 - input latency: `input.latency_ms`, split into `input.queue_ms` and
   `input.present_ms`
+- source-input host latency: `input.ui_claim_ms` ends when the UI claims an
+  event, and `input.window_write_ms` ends at the next successful window write
+  return. Native-window and WebRTC supply the source clock origin.
 
-Each also has a session average (`_avg_fps` or `_avg_ms`). Input latency is left
-out until an input's frame has been shown, then appears on the next record. What
+Each also has a session average (`_avg_fps` or `_avg_ms`). Model-input latency is
+available after frame selection. Source-input latency uses the event's timestamp
+and its named host checkpoint. These measurements appear on the next model
+record, independently of that record's step. What
 is measured after the last record is written when the session ends, with no
 `step_index`. To add your own numbers, return them in `StepResult.metrics`.
 

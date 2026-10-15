@@ -65,6 +65,50 @@ on screen back to the step that made it.
 FlashVSR and SwiftVR use their own `generate` method, so their reports have no
 `pipeline.*` ranges.
 
+## Measuring source-input host latency
+
+Run the demo with its existing `--stats-path artifacts/stats.json` option.
+This enables `InputLatencyProfiler` alongside stage timings and frame rates.
+Programmatic sessions can select the same backend through
+`FLASHDREAMS_INPUT_LATENCY=1`, then pass a `MetricsOutputSink` to the runner.
+
+The input source supplies the monotonic origin for `UserInputEvent.timestamp`,
+which counts microseconds from the session start. Native-window uses its input
+clock. WebRTC uses the server receipt clock and rebases it for each replacement
+session. A custom source exposes that origin through `TimestampedInputSource`.
+Sources without a shared clock origin leave the two source-input metrics absent.
+
+| Profiler metric | Host checkpoint |
+| --- | --- |
+| `input.ui_claim_ms` | The UI loop begins a run that claims the input. |
+| `input.window_write_ms` | The first successful `window.write` return after that claim, within the same reset generation. |
+
+Both metrics average all inputs completed since the previous collection.
+`_max_ms` and `_count` report that collection's maximum and count. The
+`_avg_ms`, `_session_max_ms` and `_session_count` forms cover the session.
+Integer timestamp sums preserve precision and keep pending storage constant
+even when many UI ticks produce no frame. A reset discards pending inputs from
+the preceding generation. A failed write leaves completion unreported.
+
+These samples reach the next model record or the final session summary. Their
+collection interval can span earlier model steps. `MetricsOutputSink` converts
+`_ms` names and values to `_s`, so the file contains `input.ui_claim_s` and
+`input.window_write_s`. Session metadata identifies the window type, both frame
+rates, resolution, presentation mode and backpressure mode. Reopening the stats
+sink keeps the existing behavior of retaining the final replacement session.
+
+The existing `input.latency_ms`, `input.queue_ms` and `input.present_ms` follow
+runtime receipt, model consumption and frame selection. Source-input host
+metrics use the separate checkpoints above. Selecting a model frame precedes
+the UI's actual window write. The UI may also write a held pre-input frame.
+
+Native-window completion includes the presenter call. WebRTC completion covers
+host-side output handling and sender-mailbox admission when a track exists.
+Transport delivery, browser decode, physical display and a causal response to
+the input require their own telemetry. Profiling adds host work, and
+`--stats-path` also enables synchronized CUDA stage timing. Compare runs with
+the same profiling settings.
+
 ## Using your own profiler
 
 A session runs with the profiler the application runner creates. To use your

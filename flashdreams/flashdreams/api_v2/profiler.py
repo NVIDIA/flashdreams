@@ -21,7 +21,10 @@ from __future__ import annotations
 from abc import ABC
 from collections.abc import Sequence
 from contextlib import nullcontext
-from typing import ContextManager
+from typing import TYPE_CHECKING, ContextManager
+
+if TYPE_CHECKING:
+    from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
 class IProfiler(ABC):
@@ -99,6 +102,32 @@ class IProfiler(ABC):
         """Note that the first frame of the step keyed ``(generation, step_index)``
         was picked to show."""
         del step
+
+    def ui_input_claimed(
+        self,
+        events: UserInputEvents,
+        *,
+        generation: int,
+        input_timestamp_origin_ns: int | None,
+        claimed_ns: int,
+    ) -> None:
+        """Record source-timestamped inputs claimed by the UI loop.
+
+        ``claimed_ns`` and the source's session origin use ``monotonic_ns``.
+        Event timestamps are microseconds from that origin. A missing origin
+        leaves source latency unmeasured. A new generation discards inputs
+        still waiting for a window write in the previous generation.
+        """
+        del events, generation, input_timestamp_origin_ns, claimed_ns
+
+    def window_write_completed(self, generation: int, completed_ns: int) -> None:
+        """Record a successful window write return at ``monotonic_ns``.
+
+        This completes inputs claimed before this write in its generation.
+        Frame selection, transport delivery and physical display are separate
+        boundaries. A failed write must not call this hook.
+        """
+        del generation, completed_ns
 
     def collect_input_latency_ms(self) -> dict[str, float]:
         """Return input latency since the previous call and over the session.
