@@ -112,7 +112,11 @@ class CompositeClientWindow(IClientWindow):
             raise CompositeClientWindowError("open", errors) from error
 
     def write(self, result: StepResult) -> None:
-        """Write to the primary window, then every secondary sink."""
+        """Write in order and stop at the first component failure.
+
+        Earlier components may already have received ``result`` when a later
+        component fails.
+        """
         self._primary_window.write(result)
         for sink in self._secondary_output_sinks:
             sink.write(result)

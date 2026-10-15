@@ -32,7 +32,9 @@ step. Events with the same `at` value retain their file order.
 
 The descriptor cursor and poll index are application-relative, so a replacement
 session continues from the next unreleased event. Event timestamps are
-session-relative and restart when a replacement session opens.
+session-relative and restart when a replacement session opens. Version 1
+delivers each descriptor event at most once for the application run; replacement
+sessions never rewind the cursor or poll index.
 
 ## Event payloads
 
