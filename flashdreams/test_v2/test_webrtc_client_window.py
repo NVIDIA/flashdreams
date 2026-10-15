@@ -417,18 +417,20 @@ def test_server_sends_initial_and_changed_cursor_options_only() -> None:
     loop.call_soon_threadsafe.assert_not_called()
 
 
-def _link_server() -> webrtc_server.WebRTCServer:
+def _link_server() -> tuple[webrtc_server.WebRTCServer, Mock, Mock]:
     server = webrtc_server.WebRTCServer.__new__(webrtc_server.WebRTCServer)
     server._link_lock = threading.Lock()
     server._links = ()
     server._pressed_link = None
-    server._control_channel = Mock(readyState="open")
+    channel = Mock(readyState="open")
+    server._control_channel = channel
     server._loop = Mock(spec=asyncio.AbstractEventLoop)
     server._hide_cursor = False
     server._lock_cursor_to_window = False
     server._event_origin_ns = time.monotonic_ns()
-    server._input_callback = Mock()
-    return server
+    input_callback = Mock()
+    server._input_callback = input_callback
+    return server, channel, input_callback
 
 
 def _link_pointer(kind: str, action: str, **extra: object) -> str:
@@ -444,24 +446,24 @@ def _link_pointer(kind: str, action: str, **extra: object) -> str:
 
 @pytest.mark.parametrize("kind", ["mouse", "touch"])
 def test_link_click_is_consumed_and_sends_only_one_browser_command(kind: str) -> None:
-    server = _link_server()
+    server, channel, input_callback = _link_server()
     link = ClientWindowLink(
         "Isaac Teleop", "https://localhost:48322/", (0.2, 0.2, 0.8, 0.8)
     )
     window = WebRTCClientWindow.__new__(WebRTCClientWindow)
     window.server = server
     window.request_links((link,))
-    server._control_channel.send.assert_not_called()
+    channel.send.assert_not_called()
     server._buffer_browser_message(_link_pointer(kind, "start"))
     window.request_links((link,))
     server._buffer_browser_message(_link_pointer(kind, "end"))
-    server._input_callback.assert_not_called()
-    server._control_channel.send.assert_called_once_with(
+    input_callback.assert_not_called()
+    channel.send.assert_called_once_with(
         json.dumps({"type": "open_url", "url": link.url})
     )
     server._buffer_browser_message(_link_pointer(kind, "end"))
-    assert server._control_channel.send.call_count == 1
-    assert server._input_callback.call_count == 1
+    assert channel.send.call_count == 1
+    assert input_callback.call_count == 1
 
 
 @pytest.mark.parametrize("kind", ["mouse", "touch"])
@@ -479,14 +481,14 @@ def test_link_click_is_consumed_and_sends_only_one_browser_command(kind: str) ->
 def test_link_misses_and_cancelled_gestures_do_not_open(
     kind: str, press: dict[str, object], release: dict[str, object], action: str
 ) -> None:
-    server = _link_server()
+    server, channel, _ = _link_server()
     server.configure_links(
         (ClientWindowLink("Link", "https://example.test", (0.2, 0.2, 0.8, 0.8)),)
     )
     server._buffer_browser_message(_link_pointer(kind, "start", **press))
     server._buffer_browser_message(_link_pointer(kind, action, **release))
     assert server._pressed_link is None
-    server._control_channel.send.assert_not_called()
+    channel.send.assert_not_called()
 
 
 @pytest.mark.parametrize("kind", ["mouse", "touch"])
@@ -494,7 +496,7 @@ def test_link_misses_and_cancelled_gestures_do_not_open(
     "boundary", ["links", "clear", "focus", "reset", "close", "lock", "session"]
 )
 def test_link_press_does_not_cross_state_changes(kind: str, boundary: str) -> None:
-    server = _link_server()
+    server, channel, _ = _link_server()
     link = ClientWindowLink("Link", "https://example.test", (0, 0, 1, 1))
     server.configure_links((link,))
     server._buffer_browser_message(_link_pointer(kind, "start"))
@@ -519,21 +521,21 @@ def test_link_press_does_not_cross_state_changes(kind: str, boundary: str) -> No
         assert server._links == ()
         server.configure_links((link,))
     server._buffer_browser_message(_link_pointer(kind, "end"))
-    server._control_channel.send.assert_not_called()
+    channel.send.assert_not_called()
 
 
 @pytest.mark.parametrize("kind", ["mouse", "touch"])
 def test_link_commands_are_not_replayed_after_channel_reopens(kind: str) -> None:
-    server = _link_server()
+    server, channel, _ = _link_server()
     server.configure_links(
         (ClientWindowLink("Link", "https://example.test", (0, 0, 1, 1)),)
     )
-    server._control_channel.readyState = "closed"
+    channel.readyState = "closed"
     server._buffer_browser_message(_link_pointer(kind, "start"))
     server._buffer_browser_message(_link_pointer(kind, "end"))
-    server._control_channel.readyState = "open"
+    channel.readyState = "open"
     server._buffer_browser_message(_link_pointer(kind, "end"))
-    server._control_channel.send.assert_not_called()
+    channel.send.assert_not_called()
 
 
 @pytest.mark.parametrize("value", [None, 1, "false", [], {}])
@@ -544,15 +546,15 @@ def test_link_commands_are_not_replayed_after_channel_reopens(kind: str) -> None
 def test_link_pointer_flags_require_booleans(
     kind: str, field: str, value: object
 ) -> None:
-    server = _link_server()
+    server, channel, input_callback = _link_server()
     with pytest.raises(ValueError, match="boolean"):
         server._buffer_browser_message(_link_pointer(kind, "end", **{field: value}))
-    server._input_callback.assert_not_called()
-    server._control_channel.send.assert_not_called()
+    input_callback.assert_not_called()
+    channel.send.assert_not_called()
 
 
 def test_secondary_mouse_and_touch_inputs_remain_ordinary_events() -> None:
-    server = _link_server()
+    server, channel, input_callback = _link_server()
     server.configure_links(
         (ClientWindowLink("Link", "https://example.test", (0, 0, 1, 1)),)
     )
@@ -560,28 +562,28 @@ def test_secondary_mouse_and_touch_inputs_remain_ordinary_events() -> None:
     server._buffer_browser_message(_link_pointer("mouse", "end", button=2))
     server._buffer_browser_message(_link_pointer("touch", "start", primary=False))
     server._buffer_browser_message(_link_pointer("touch", "end"))
-    assert server._input_callback.call_count == 4
-    server._control_channel.send.assert_not_called()
+    assert input_callback.call_count == 4
+    channel.send.assert_not_called()
 
 
 def test_primary_touch_link_tracks_its_id_and_consumes_moves() -> None:
-    server = _link_server()
+    server, channel, input_callback = _link_server()
     server.configure_links(
         (ClientWindowLink("Link", "https://example.test", (0, 0, 1, 1)),)
     )
     server._buffer_browser_message(_link_pointer("touch", "start"))
     server._buffer_browser_message(_link_pointer("touch", "move"))
-    server._input_callback.assert_not_called()
+    input_callback.assert_not_called()
     server._buffer_browser_message(_link_pointer("touch", "end", touch_id=8))
-    server._control_channel.send.assert_not_called()
+    channel.send.assert_not_called()
     server._buffer_browser_message(_link_pointer("touch", "end"))
-    assert server._control_channel.send.call_count == 1
-    assert server._input_callback.call_count == 1
+    assert channel.send.call_count == 1
+    assert input_callback.call_count == 1
 
 
 @pytest.mark.asyncio
 async def test_link_press_is_cleared_on_peer_release() -> None:
-    server = _link_server()
+    server, _, _ = _link_server()
     peer = Mock(connectionState="connected", close=AsyncMock())
     server._peer_connection = peer
     server._media_connected = threading.Event()

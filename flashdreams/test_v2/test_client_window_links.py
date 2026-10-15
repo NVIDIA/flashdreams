@@ -19,13 +19,15 @@ import shutil
 import subprocess
 from dataclasses import FrozenInstanceError
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
 from flashdreams.api_v2.client_window import ClientWindowLink, IClientWindow
-from flashdreams.api_v2.loop import IUILoop, UILoopRequests
+from flashdreams.api_v2.loop import UILoopRequests
+from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
+    BlitModelOutputToScreenLoop,
+)
 from flashdreams.runtime_v2.session_runner import _apply_window_requests
 
 pytestmark = pytest.mark.ci_cpu
@@ -34,21 +36,22 @@ pytestmark = pytest.mark.ci_cpu
 def test_link_requests_replace_and_clear_regions() -> None:
     link = ClientWindowLink("Isaac Teleop", "https://localhost:48322/", (0, 0, 1, 1))
     with pytest.raises(FrozenInstanceError):
-        link.url = "https://elsewhere.test/"
+        link.url = "https://elsewhere.test/"  # ty: ignore[invalid-assignment]
     requests = UILoopRequests()
-    loop = SimpleNamespace(get_or_create_ui_loop_requests=lambda: requests)
+    loop = BlitModelOutputToScreenLoop[object]()
+    loop._ui_loop_requests = requests
     window = Mock(spec=IClientWindow)
-    IUILoop.request_links(loop, (link,))
+    loop.request_links((link,))
     _apply_window_requests(window, requests)
     window.request_links.assert_called_once_with((link,))
-    IUILoop.request_links(loop, ())
+    loop.request_links(())
     _apply_window_requests(window, requests)
     window.request_links.assert_called_with(())
     for invalid in ([link], ("link",), None):
         with pytest.raises(TypeError):
-            IUILoop.request_links(loop, invalid)
+            loop.request_links(invalid)  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError):
-        IUILoop.request_links(loop, (link,) * 17)
+        loop.request_links((link,) * 17)
 
 
 @pytest.mark.parametrize(
