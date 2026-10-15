@@ -412,6 +412,18 @@ def _launcher_source(
         import shutil
         import sys
         from pathlib import Path
+        from tempfile import gettempdir
+
+        if sys.stdout is None or sys.stderr is None:
+            log_root = Path(gettempdir()) / "flashdreams" / {slug!r}
+            log_root.mkdir(parents=True, exist_ok=True)
+            runtime_log = (log_root / "runtime.log").open(
+                "a", encoding="utf-8", buffering=1
+            )
+            if sys.stdout is None:
+                sys.stdout = runtime_log
+            if sys.stderr is None:
+                sys.stderr = runtime_log
 
         def filesystem_path(path):
             if os.name != "nt":
@@ -493,15 +505,6 @@ def _launcher_source(
             cache_path = cache_root / relative_path
             cache_path.mkdir(parents=True, exist_ok=True)
             os.environ[name] = str(cache_path)
-
-        if sys.stdout is None or sys.stderr is None:
-            runtime_log = (cache_root / "runtime.log").open(
-                "a", encoding="utf-8", buffering=1
-            )
-            if sys.stdout is None:
-                sys.stdout = runtime_log
-            if sys.stderr is None:
-                sys.stderr = runtime_log
 
         if getattr(sys, "frozen", False):
             # Prepared native code must load from the deployed bundle.
@@ -637,6 +640,10 @@ def _bundle_readme_source(slug: str) -> str:
         `C:\\path\\to\\directory\\{slug}\\cache` instead. The unpack
         directory must be absolute. `{_RUNTIME_CACHE_ROOT_ENV}` still sets
         the exact cache directory when `--unpack-dir` is absent.
+
+        Without a console, stdout and stderr append to
+        `<Temp>/flashdreams/{slug}/runtime.log`, where `<Temp>` is the system
+        temporary directory (`%TEMP%` on Windows).
 
         ## Expected processes during runtime
 

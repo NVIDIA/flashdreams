@@ -28,6 +28,7 @@ for missing_stdout, missing_stderr in (
     stderr = None if missing_stderr else io.StringIO()
     with (
         TemporaryDirectory() as directory,
+        patch("tempfile.gettempdir", return_value=directory),
         patch.dict(os.environ),
         patch.object(sys, "argv", ["launcher.py"]),
         patch.object(sys, "stdout", stdout),
@@ -43,7 +44,7 @@ for missing_stdout, missing_stderr in (
             logger.info("launcher logging works")
             sys.stdout.write("launcher output works\n")
             if missing_stdout or missing_stderr:
-                log = Path(directory) / "cache" / "runtime.log"
+                log = Path(directory) / "flashdreams" / "demo" / "runtime.log"
                 contents = log.read_text(encoding="utf-8")
                 assert not missing_stderr or "launcher logging works" in contents
                 assert not missing_stdout or "launcher output works" in contents
