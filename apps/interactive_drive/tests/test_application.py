@@ -314,8 +314,10 @@ def test_control_sprites_load_at_hud_resolution() -> None:
     assert pedal.shape == (138, 64, 4)
 
 
+@pytest.mark.parametrize("channels", [1, 3])
 def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
     monkeypatch: pytest.MonkeyPatch,
+    channels: int,
 ) -> None:
     vehicle = SimpleNamespace(speed_mps=0.0, steer_rad=0.0)
     trajectory = SimpleNamespace(
@@ -380,12 +382,21 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
     )
     loop = InteractiveDriveModelLoop()
     loop.state = state
+    if channels > 1:
+        monkeypatch.setattr(
+            loop,
+            "_frame_chunk_tensors",
+            lambda chunk: [torch.full((2, 3, 1, 1), i) for i in range(channels)],
+        )
 
     results = loop.step(0, UserInputEvents([]))
 
-    assert len(results) == 2
-    assert results[1].frame_count == 2
-    output = results[1].read_output()
+    assert len(results) == channels + 1
+    for index, result in enumerate(results[:-1]):
+        assert result.frame_count == 2
+        assert result.read_output()[0, 0, 0, 0] == index
+    assert results[-1].frame_count == 2
+    output = results[-1].read_output()
     assert tuple(output.shape) == (2, 3, 2, 3)
     assert output[:, 0, 0, 0].tolist() == [17, 29]
     assert elapsed == [pytest.approx(123.0)]
@@ -1192,6 +1203,36 @@ def test_interactive_drive_owns_a_separate_session_and_ui_loop(
 
     session.init()
     assert isinstance(session.ui_loop, InteractiveDriveUILoop)
+
+
+def test_application_can_bind_custom_presentation_loops(tmp_path: Path) -> None:
+    class ModelLoop(InteractiveDriveModelLoop):
+        pass
+
+    class UILoop(InteractiveDriveUILoop):
+        pass
+
+    class Session(InteractiveDriveSession):
+        model_loop_type = ModelLoop
+        ui_loop_type = UILoop
+
+        def _create_ui_state(self, model_loop):
+            return replace(super()._create_ui_state(model_loop), title="Custom HUD")
+
+    class Application(InteractiveDriveApplication):
+        session_type = Session
+
+    scene = tmp_path / "local.usdz"
+    scene.touch()
+    app = Application()
+    app.init(["--scene", str(scene)])
+    session = app.create_session(app.session_desc())
+    assert isinstance(session, Session)
+    session.init()
+    assert isinstance(session.model_loop, ModelLoop)
+    assert isinstance(session.ui_loop, UILoop)
+    assert session.ui_loop.state.title == "Custom HUD"
+    assert session.model_loop.state.ui_loop is session.ui_loop
 
 
 def test_interactive_drive_hud_draws_imgui_controls_and_images(
