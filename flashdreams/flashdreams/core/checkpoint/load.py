@@ -9,11 +9,11 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import tempfile
 import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Literal, overload
 from urllib.parse import unquote, urlparse
 
@@ -1100,20 +1100,23 @@ def _save_to_local_cache(
         label=label,
         settings={"path": path},
     )
-    temporary_path = None
     try:
-        # A sibling temporary file keeps publication on the same filesystem.
-        temporary_fd, temporary_path = tempfile.mkstemp(
+        # A private sibling directory allows normal file-creation permissions
+        # while keeping publication on the same filesystem.
+        with tempfile.TemporaryDirectory(
             prefix=f".{os.path.basename(path)}.",
-            suffix=".part",
             dir=os.path.dirname(path) or ".",
-        )
-        os.close(temporary_fd)
-        if ext == ".safetensors":
-            save_safetensors(dict(state_dict), temporary_path)
-        else:
-            torch.save(state_dict, temporary_path)
-        os.replace(temporary_path, path)
+        ) as temporary_dir:
+            temporary_path = os.path.join(temporary_dir, f"checkpoint{ext}")
+            if ext == ".safetensors":
+                save_safetensors(dict(state_dict), temporary_path)
+            else:
+                torch.save(state_dict, temporary_path)
+            try:
+                shutil.copymode(path, temporary_path)
+            except FileNotFoundError:
+                pass
+            os.replace(temporary_path, path)
     except Exception as exc:
         _raise_local_cache_disk_error(
             exc,
@@ -1123,9 +1126,6 @@ def _save_to_local_cache(
             settings={"path": path},
         )
         raise
-    finally:
-        if temporary_path is not None:
-            Path(temporary_path).unlink(missing_ok=True)
 
 
 @overload

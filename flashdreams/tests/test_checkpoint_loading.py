@@ -8,7 +8,9 @@ from __future__ import annotations
 import importlib
 import io
 import json
+import os
 import pickle
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -134,7 +136,9 @@ def test_cache_write_failure_preserves_published_cache(
 
     def interrupted_save(_state_dict: object, path: str) -> None:
         temporary_path = Path(path)
-        assert temporary_path.parent == checkpoint_path.parent
+        assert (
+            temporary_path.parent.stat().st_dev == checkpoint_path.parent.stat().st_dev
+        )
         assert temporary_path != checkpoint_path
         temporary_path.write_bytes(b"partial checkpoint")
         if existing_cache:
@@ -178,6 +182,39 @@ def test_cache_write_publishes_complete_checkpoint(
     actual = checkpoint_load.load_single_checkpoint(str(checkpoint_path))
 
     torch.testing.assert_close(actual["weight"], expected["weight"])
+    assert list(tmp_path.iterdir()) == [checkpoint_path]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Requires POSIX file permissions.")
+@pytest.mark.parametrize("extension", [".pt", ".safetensors"])
+@pytest.mark.parametrize("existing_mode", [None, 0o600, 0o664])
+@pytest.mark.parametrize("umask", [0o022, 0o002, 0o077])
+def test_cache_write_preserves_permissions(
+    extension: str,
+    existing_mode: int | None,
+    umask: int,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Honor creation permissions and retain permissions on cache replacement."""
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+    monkeypatch.setenv("FLASHDREAMS_MIN_CACHE_FREE_GB", "0")
+    checkpoint_path = tmp_path / f"weights{extension}"
+    expected_mode = 0o600 if extension == ".safetensors" else 0o666 & ~umask
+    if existing_mode is not None:
+        checkpoint_path.write_bytes(b"previous cache")
+        checkpoint_path.chmod(existing_mode)
+        expected_mode = existing_mode
+
+    previous_umask = os.umask(umask)
+    try:
+        checkpoint_load._save_to_local_cache(
+            {"weight": torch.ones(2)}, str(checkpoint_path), extension
+        )
+    finally:
+        os.umask(previous_umask)
+
+    assert stat.S_IMODE(checkpoint_path.stat().st_mode) == expected_mode
     assert list(tmp_path.iterdir()) == [checkpoint_path]
 
 
