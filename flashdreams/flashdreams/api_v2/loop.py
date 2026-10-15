@@ -9,9 +9,10 @@ import queue
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, final
 
 import torch
@@ -25,9 +26,14 @@ from flashdreams.runtime_v2.profiler_utils import (
     bind_inference_profiler,
     unbind_inference_profiler,
 )
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    normalize_selected_file_accept,
+)
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
+    SelectedFilesUserInputEvent,
     UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -100,6 +106,9 @@ class UILoopRequests:
 
     links: tuple[ClientWindowLink, ...] | None = None
     """Replacement clickable regions, or ``None`` to leave them unchanged."""
+
+    file_selections: list[FileSelectionRequest] = field(default_factory=list)
+    """File-selector requests in call order. The window answers each one."""
 
 
 class ILoop(ABC, Generic[StateT]):
@@ -256,8 +265,16 @@ class ILoop(ABC, Generic[StateT]):
         """
         if step_completed:
             self.latest_result = result
+            self._pending_user_events.clear()
+        else:
+            # Input that reaches a run with no step is dropped, except a file
+            # result: it answers a request and arrives once.
+            self._pending_user_events = [
+                event
+                for event in self._pending_user_events
+                if isinstance(event, SelectedFilesUserInputEvent)
+            ]
         self._step_index += 1
-        self._pending_user_events.clear()
 
     @final
     def _shutdown(self) -> None:
@@ -604,6 +621,137 @@ class IUILoop(ILoop[StateT], ABC):
             raise ValueError("At most sixteen client-window links are supported.")
         self.get_or_create_ui_loop_requests().links = links
 
+    @final
+    def request_file_selector(
+        self,
+        request_id: str,
+        initial_path: str | None = None,
+        *,
+        accept: Sequence[str] = (),
+        max_file_bytes: int | None = None,
+        multiple: bool = False,
+    ) -> None:
+        """Ask the client to show a file selector.
+
+        The call only queues the request and returns nothing. The window sees
+        it after this step, so the result is never in :attr:`user_events`
+        during the step that asked. It arrives on a later tick as one
+        :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`
+        carrying ``request_id``. The model loop's ``step`` receives the same
+        event.
+
+        Every call gets exactly one event, unless the session ends first: a
+        session replaced or shut down before the answer gets none. One
+        selector is open at a time, so a call made while one is open, including
+        a second call in the same tick, is answered ``BUSY``. Use one stable
+        ``request_id`` per control and reuse it. A control that is already
+        waiting for its own result can get a ``BUSY`` for a repeat click
+        before that result.
+
+        For the full lifecycle, including session reset versus replacement,
+        see :class:`~flashdreams.api_v2.client_window.IClientWindow`.
+
+        Read ``status`` first. ``files`` is empty unless it is ``OK``, and one
+        rejected file fails the whole set:
+
+        - ``OK``: ``files`` holds each chosen file as its base ``name`` and its
+          ``data`` bytes. There is no host path. Empty files are allowed.
+        - ``CANCELLED``: the user dismissed the selector.
+        - ``BUSY``: another selector was open, so this one was not shown.
+        - ``DISALLOWED_TYPE``: a file did not match ``accept``. Suffixes
+          compare case-insensitively, and this wins over ``TOO_LARGE``.
+        - ``TOO_LARGE``: a file exceeded ``max_file_bytes``, or the set
+          exceeded
+          :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BATCH_BYTES`
+          or :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_COUNT`.
+        - ``UNAVAILABLE``: the window has no picker (MP4, null), the picker
+          was not shown within
+          :data:`~flashdreams.runtime_v2.selected_file.FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS`,
+          the viewer left, the chooser failed, or a file could not be read.
+
+        ``accept`` checks filename suffixes only, never contents, so validate
+        and decode ``data`` as untrusted input.
+
+        Once the picker is shown there is no deadline. On WebRTC, shown means
+        the browser's "The app requested a file" prompt; its Select… button
+        opens the browser's file chooser. The native window uses a Tk dialog,
+        which needs a Python with Tk and a display; without them the result is
+        ``UNAVAILABLE``. Tk cannot close its dialog from another thread, so one
+        left open when its session ends stays on screen, and whatever it
+        returns is dropped.
+
+        Example:
+
+        .. code-block:: python
+
+            from flashdreams.runtime_v2.selected_file import SelectedFilesStatus
+            from flashdreams.runtime_v2.user_input_event import (
+                SelectedFilesUserInputEvent,
+            )
+
+            if imgui.button("Open image"):
+                self.request_file_selector("open-image", accept=(".png",))
+            for event in self.user_events.get_events():
+                if not isinstance(event, SelectedFilesUserInputEvent):
+                    continue
+                if event.request_id != "open-image":
+                    continue
+                if event.status is SelectedFilesStatus.OK:
+                    image_bytes = event.files[0].data
+                else:
+                    self.state.message = f"No image: {event.status.value}"
+
+        Args:
+            request_id: Names the control that asked, so its result can be
+                told apart from another control's. Echoed on the result.
+            initial_path: Directory hint for the native selector; ``None``
+                uses the host user's home directory. The browser ignores it.
+            accept: Filename suffixes such as ``.png``. Empty allows any type.
+            max_file_bytes: Maximum size of each file in bytes, or ``None`` for
+                the ceiling. Larger values are clamped to
+                :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BYTES`
+                without notice.
+            multiple: Whether the selector may return more than one file. The
+                whole set is also capped by
+                :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BATCH_BYTES`.
+
+        Raises:
+            TypeError: ``request_id`` or ``initial_path`` is not a string, or
+                ``accept`` / ``max_file_bytes`` / ``multiple`` has the wrong
+                type.
+            ValueError: ``request_id`` or ``initial_path`` is empty, or
+                ``accept`` / ``max_file_bytes`` is invalid.
+        """
+        if not isinstance(request_id, str):
+            raise TypeError("request_id must be a string.")
+        if not request_id:
+            raise ValueError("request_id must be a non-empty string.")
+        if initial_path is None:
+            resolved_initial_path = str(Path.home())
+        else:
+            if not isinstance(initial_path, str):
+                raise TypeError("initial_path must be a string.")
+            if not initial_path:
+                raise ValueError("initial_path must be a non-empty string.")
+            resolved_initial_path = initial_path
+        suffixes = normalize_selected_file_accept(accept)
+        if max_file_bytes is not None:
+            if isinstance(max_file_bytes, bool) or not isinstance(max_file_bytes, int):
+                raise TypeError("max_file_bytes must be an integer.")
+            if max_file_bytes <= 0:
+                raise ValueError("max_file_bytes must be > 0.")
+        if not isinstance(multiple, bool):
+            raise TypeError("multiple must be a bool.")
+        self.get_or_create_ui_loop_requests().file_selections.append(
+            FileSelectionRequest(
+                request_id=request_id,
+                initial_path=resolved_initial_path,
+                accept=suffixes,
+                max_bytes=max_file_bytes,
+                multiple=multiple,
+            )
+        )
+
     def get_or_create_ui_loop_requests(self) -> UILoopRequests:
         if self._ui_loop_requests is None:
             self._ui_loop_requests = UILoopRequests()
@@ -699,6 +847,7 @@ def invoke_async(loop: ILoop[StateT], operation: Callable[[StateT], None]) -> No
 
 
 __all__ = [
+    "FileSelectionRequest",
     "ILoop",
     "IModelLoop",
     "IUILoop",

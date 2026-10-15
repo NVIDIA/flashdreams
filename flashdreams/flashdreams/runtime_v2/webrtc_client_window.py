@@ -10,6 +10,7 @@ from dataclasses import replace
 from numpy import uint64
 
 from flashdreams.api_v2.client_window import ClientWindowLink, IClientWindow
+from flashdreams.runtime_v2.selected_file import FileSelectionRequest
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -71,6 +72,12 @@ class WebRTCClientWindow(IClientWindow):
                 self._input_events.append(event)
 
         self.server.register_input_callback(handle_input)
+        self.server.register_file_selector_callbacks(
+            opened=lambda selector_id: self._file_selector_opened(int(selector_id)),
+            completed=lambda selector_id, status, files: self._complete_file_selector(
+                int(selector_id), status, files
+            ),
+        )
 
     def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:
         """Replace links opened locally by the browser viewing this window."""
@@ -104,6 +111,22 @@ class WebRTCClientWindow(IClientWindow):
         """
         self.server.request_new_window_size(new_window_size)
 
+    def _request_file_selector(
+        self, selector_id: int, request: FileSelectionRequest
+    ) -> None:
+        """Ask the connected browser to open a file selector."""
+        self.server.request_file_selector(str(selector_id), request)
+
+    def _cancel_active_file_selectors(self) -> None:
+        """Refuse a later upload for the selector that was forgotten."""
+        self.server.cancel_file_selectors()
+
+    def _put_user_input_event(self, event: UserInputEvent) -> None:
+        """Queue a file-selection event on the server's clock, like browser input."""
+        event = replace(event, timestamp=self.server.event_timestamp_us())
+        with self._input_lock:
+            self._input_events.append(event)
+
     def open(self, session_desc: SessionDesc) -> None:
         """Implement ``OutputSink.open`` by configuring WebRTC output.
 
@@ -122,6 +145,7 @@ class WebRTCClientWindow(IClientWindow):
         Returns:
             Buffered browser events in timestamp order, each returned once.
         """
+        self._expire_file_selectors()
         with self._input_lock:
             events = list(self._input_events)
             self._input_events.clear()
