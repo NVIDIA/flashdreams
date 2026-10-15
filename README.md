@@ -57,7 +57,7 @@ git clone https://github.com/NVIDIA/flashdreams.git
 cd flashdreams
 uv sync --extra runners
 export HF_TOKEN=<your-hf-token>
-uv run flashdreams-run --help
+uv run flashdreams-run-v2 --help
 ```
 
 Note for developers/maintainers you would want to run `uv sync --extra dev --extra runners` instead.

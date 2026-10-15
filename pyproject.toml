@@ -146,9 +146,6 @@ exclude = [
     "apps/omnidreams_game_engine/omnidreams_game_engine/scene_loader.py",
     "apps/omnidreams_game_engine/omnidreams_game_engine/simulation/components.py",
     "apps/omnidreams_game_engine/omnidreams_game_engine/simulation/game_physics.py",
-    # Bench / parity-debugging scaffolding for the hy_worldplay integration;
-    # not shipped product, mirrors the interactive_drive precedent above.
-    "integrations_v2/hy_worldplay/tests/parity_check/**",
 ]
 
 [tool.ty.rules]

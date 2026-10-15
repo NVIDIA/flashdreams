@@ -235,8 +235,7 @@ In order of cost:
 
 - Bench native vs upstream, **stack-matched** (both cuDNN SDPA + `torch.compile`), at the
   largest `num_chunk` the GPU allows, discarding warmup chunks. Scope = **DiT + VAE
-  enc/dec**, per-stage medians post-warmup. Harnesses: `tests/parity_check/bench.sh`
-  (matched) / `bench_batch.sh` (native-only sample loop).
+  enc/dec**, per-stage medians post-warmup.
 - Author a model-card page mirroring `docs/source/models/lingbot_world.md` (hero +
   gallery videos, perf table, methodology); register it in `docs/source/models/index.md`.
 

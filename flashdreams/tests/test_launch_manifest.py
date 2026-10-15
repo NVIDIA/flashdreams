@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import dataclasses
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated, Any, cast
@@ -13,7 +15,7 @@ import pytest
 from flashdreams.infra.runner import RunnerConfig
 from flashdreams.scripts import cli
 from flashdreams.serving import launch as launch_module
-from flashdreams.serving.launch import ResolvedLaunch
+from flashdreams.serving.launch import LaunchMode, LaunchOptions, ResolvedLaunch
 from flashdreams.serving.launch_manifest import load_launch_manifest
 
 pytestmark = pytest.mark.ci_cpu
@@ -64,22 +66,67 @@ def _install_launchable_runner(monkeypatch: pytest.MonkeyPatch) -> str:
     return name
 
 
-def test_entrypoint_routes_application_slug_through_unified_cli(
+def test_entrypoint_reports_empty_runner_registry() -> None:
+    for arguments, expected_code in (
+        (["--help"], 0),
+        (["-h"], 0),
+        ([], 2),
+        (["omnidreams"], 2),
+    ):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from flashdreams.scripts import cli; "
+                "cli.all_runners = lambda: {}; cli.entrypoint()",
+                *arguments,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        output = result.stdout + result.stderr
+        assert result.returncode == expected_code, output
+        assert "No v1 runners are registered" in output
+        assert "flashdreams-run-v2 --help" in output
+
+
+def test_entrypoint_resolves_runner_without_instantiating(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = _install_launchable_runner(monkeypatch)
+
+    def fail_setup(self: RunnerConfig) -> None:
+        pytest.fail("--no-instantiate must not construct the runner")
+
+    monkeypatch.setattr(_TestRunnerConfig, "setup", fail_setup)
+    cli.entrypoint([runner, "--no-instantiate"])
+
+    assert f"Resolved config for {runner!r}:" in capsys.readouterr().out
+
+
+def test_entrypoint_executes_runner_launch_capability(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from flashdreams.demo import application as application_module
+    runner = _install_launchable_runner(monkeypatch)
+    calls: list[str] = []
 
-    calls: list[list[str]] = []
-    monkeypatch.setattr(application_module, "entrypoint", calls.append)
-    monkeypatch.setattr(
-        application_module,
-        "registered_application_slugs",
-        lambda: ("t2v-fake",),
-    )
+    def resolve(
+        self: _LaunchCapability,
+        config: RunnerConfig,
+        *,
+        mode: LaunchMode,
+        options: LaunchOptions,
+    ) -> ResolvedLaunch:
+        return ResolvedLaunch(
+            mode=mode, label="test launch", launch=lambda: calls.append(mode)
+        )
 
-    cli.entrypoint(["t2v-fake", "--prompt", "A waterfall"])
+    monkeypatch.setattr(_LaunchCapability, "resolve", resolve)
+    cli.entrypoint([runner, "null"])
 
-    assert calls == [["t2v-fake", "--prompt", "A waterfall"]]
+    assert calls == ["null"]
 
 
 def test_launch_manifest_loads_strict_sections_and_relative_paths(
