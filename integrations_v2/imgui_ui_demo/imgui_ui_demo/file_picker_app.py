@@ -38,9 +38,13 @@ _FILE_SELECTION_STATUS_TEXT = {
     SelectedFilesStatus.CANCELLED: (
         "SelectedFilesStatus.CANCELLED: user dismissed the selector."
     ),
+    SelectedFilesStatus.BUSY: (
+        "SelectedFilesStatus.BUSY: another picker was already open."
+    ),
     SelectedFilesStatus.TOO_LARGE: (
-        "SelectedFilesStatus.TOO_LARGE: file exceeded this request's "
-        f"max_file_bytes={MAX_SELECTED_FILE_BYTES}."
+        "SelectedFilesStatus.TOO_LARGE: a file exceeded this request's "
+        f"max_file_bytes={MAX_SELECTED_FILE_BYTES}, or the set exceeded the "
+        "batch limits."
     ),
     SelectedFilesStatus.DISALLOWED_TYPE: (
         "SelectedFilesStatus.DISALLOWED_TYPE: suffix not in accept=('.bin', '.raw')."

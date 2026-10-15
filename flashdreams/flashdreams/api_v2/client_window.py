@@ -6,8 +6,9 @@
 import logging
 import threading
 import time
-from abc import ABC
+from abc import ABC, abstractmethod
 from collections.abc import Callable
+from dataclasses import replace
 from typing import final
 
 from numpy import uint64
@@ -17,6 +18,8 @@ from flashdreams.runtime_v2.selected_file import (
     FileSelectionRequest,
     SelectedFile,
     SelectedFilesStatus,
+    clamp_selected_file_max_bytes,
+    selected_files_policy_status,
 )
 from flashdreams.runtime_v2.user_input_event import SelectedFilesUserInputEvent
 
@@ -42,6 +45,40 @@ class IClientWindow(InputSource, OutputSink, ABC):
     needs locking where its backend or file picker delivers input from another
     thread, such as :meth:`_put_user_input_event`.
 
+    File selection lifecycle. This class holds the rules; a window only shows
+    a picker and reports what it returned.
+
+    - **Request.** The runtime calls :meth:`request_file_selector` on the UI
+      thread, once for each call an app made, except in a tick that also
+      replaces the session (that session gets no results). The first request
+      opens a picker
+      with a new internal ``selector_id``. A request made while a picker is
+      open is answered at once as ``BUSY``.
+    - **Showing.** :meth:`_request_file_selector` runs on the UI thread and
+      must not block. The window calls :meth:`_file_selector_opened` from any
+      thread once the picker is on screen, which ends its deadline.
+    - **Deadline.** A picker not shown within
+      :data:`FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS` completes as
+      ``UNAVAILABLE``. :meth:`_expire_file_selectors` checks it; a window with a
+      picker calls it each time its input is read, or that answer waits for the
+      next request.
+    - **Result.** The window calls :meth:`_complete_file_selector` from any
+      thread. This class checks the result against the request (non-``OK``
+      results carry no files; ``OK`` needs files that pass ``accept``, the
+      clamped size limits, and ``multiple``) and queues exactly one event
+      through :meth:`_put_user_input_event`. A result for a ``selector_id``
+      that is no longer active is dropped.
+    - **Withdrawal.** :meth:`_cancel_active_file_selectors` runs on the UI
+      thread after a timeout or a flush, so the window can close what it shows.
+    - **Session end.** When a session ends, for replacement or shutdown, the
+      runtime calls :meth:`flush_file_selectors`: the open picker is withdrawn
+      and its result is dropped. :meth:`OutputSink.open` drops events still
+      queued for the previous session. An in-session reset
+      (``ResetUserInputEvent``) does not flush; the picker stays open and its
+      result arrives after the reset.
+    - **Wrappers.** A window that wraps another forwards
+      :meth:`request_file_selector` and :meth:`flush_file_selectors` to it.
+
     Created by the runtime, never by an application.
     """
 
@@ -66,12 +103,6 @@ class IClientWindow(InputSource, OutputSink, ABC):
         """
         pass
 
-    # File selection. The public methods below hold the rules: one picker at a
-    # time, a deadline until the picker is shown, and one result per request.
-    # A window with a picker implements the ``_request_file_selector`` hook and
-    # reports through ``_file_selector_opened`` and ``_complete_file_selector``.
-    # A window that wraps another overrides the public methods to forward them.
-
     # Plain class defaults so subclasses need no constructor call; assigning
     # one on an instance shadows it for that window only.
     _active_file_selector: tuple[int, FileSelectionRequest] | None = None
@@ -84,10 +115,8 @@ class IClientWindow(InputSource, OutputSink, ABC):
 
         The result is one ``SelectedFilesUserInputEvent`` from
         :meth:`InputSource.get_user_input_events` carrying
-        ``request.request_id``. While a picker is open, another request is
-        ignored. A picker not shown within
-        :data:`FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS` completes as
-        ``UNAVAILABLE``; once shown, the user may take as long as they want.
+        ``request.request_id``. A request made while a picker is open is
+        answered as ``BUSY``. See the class docstring for the lifecycle.
 
         Args:
             request: Selector request queued by the UI loop.
@@ -95,6 +124,9 @@ class IClientWindow(InputSource, OutputSink, ABC):
         self._expire_file_selectors()
         with _FILE_SELECTOR_LOCK:
             if self._active_file_selector is not None:
+                self._put_user_input_event(
+                    _selected_files_event(request, SelectedFilesStatus.BUSY)
+                )
                 return
             selector_id = self._last_file_selector_id + 1
             self._last_file_selector_id = selector_id
@@ -141,19 +173,15 @@ class IClientWindow(InputSource, OutputSink, ABC):
         """Withdraw the picker that was flushed or that timed out."""
         pass
 
-    # Optional to implement
+    @abstractmethod
     def _put_user_input_event(self, event: UserInputEvent) -> None:
         """Queue ``event`` for :meth:`InputSource.get_user_input_events`.
 
-        Every window implements this, including one without a picker, or the
-        ``UNAVAILABLE`` answer to its requests is lost. Only window code calls
-        it. It may run on any thread and runs under the file-selector lock, so
-        it must not call back into file selection.
+        Required even for a window without a picker, which answers every
+        request through it. Only this class calls it. It may run on any thread
+        and runs under the file-selector lock, so it must not call back into
+        file selection.
         """
-        raise NotImplementedError(
-            f"{type(self).__name__} must implement _put_user_input_event to "
-            "report file selections."
-        )
 
     @final
     def _file_selector_opened(self, selector_id: int) -> None:
@@ -170,23 +198,22 @@ class IClientWindow(InputSource, OutputSink, ABC):
         status: SelectedFilesStatus,
         files: tuple[SelectedFile, ...] = (),
     ) -> None:
-        """Report the result for ``selector_id``; a stale id is dropped."""
+        """Report the result for ``selector_id``; a stale id is dropped.
+
+        A result that breaks the request's rules is reported by the status it
+        earns instead; see the class docstring.
+        """
         with _FILE_SELECTOR_LOCK:
             active = self._active_file_selector
             if active is None or active[0] != selector_id:
                 return
             self._active_file_selector = None
             self._file_selector_deadline = None
+            request = active[1]
+            status, files = _checked_result(request, status, files)
             # Queued under the lock so flush_file_selectors, which runs before
             # the next session's open(), cannot slip in before the put.
-            self._put_user_input_event(
-                SelectedFilesUserInputEvent(
-                    timestamp=uint64(0),
-                    request_id=active[1].request_id,
-                    status=status,
-                    files=files,
-                )
-            )
+            self._put_user_input_event(_selected_files_event(request, status, files))
 
     @final
     def _expire_file_selectors(self) -> None:
@@ -210,6 +237,50 @@ class IClientWindow(InputSource, OutputSink, ABC):
         )
         self._complete_file_selector(active[0], SelectedFilesStatus.UNAVAILABLE)
         self._cancel_active_file_selectors()
+
+
+def _selected_files_event(
+    request: FileSelectionRequest,
+    status: SelectedFilesStatus,
+    files: tuple[SelectedFile, ...] = (),
+) -> SelectedFilesUserInputEvent:
+    """Return the event answering ``request``."""
+    return SelectedFilesUserInputEvent(
+        timestamp=uint64(0),
+        request_id=request.request_id,
+        status=status,
+        files=files,
+    )
+
+
+def _checked_result(
+    request: FileSelectionRequest,
+    status: SelectedFilesStatus,
+    files: tuple[SelectedFile, ...],
+) -> tuple[SelectedFilesStatus, tuple[SelectedFile, ...]]:
+    """Return the status and files a window's result earns under ``request``."""
+    if status is SelectedFilesStatus.BUSY:
+        status = SelectedFilesStatus.UNAVAILABLE
+    if status is not SelectedFilesStatus.OK:
+        return status, ()
+    if not files or (len(files) > 1 and not request.multiple):
+        _LOGGER.warning("File selector %r returned no valid set.", request.request_id)
+        return SelectedFilesStatus.UNAVAILABLE, ()
+    files = tuple(replace(chosen, name=_base_name(chosen.name)) for chosen in files)
+    rejected = selected_files_policy_status(
+        [(chosen.name, len(chosen.data)) for chosen in files],
+        accept=request.accept,
+        max_bytes=clamp_selected_file_max_bytes(request.max_bytes),
+    )
+    if rejected is not None:
+        return rejected, ()
+    return status, files
+
+
+def _base_name(name: str) -> str:
+    """Return ``name`` without any POSIX or Windows directory part."""
+    base = name.replace("\\", "/").rsplit("/", 1)[-1]
+    return "upload" if base in ("", ".", "..") else base
 
 
 # ponytail: one lock for every window keeps subclasses constructor-free; it only

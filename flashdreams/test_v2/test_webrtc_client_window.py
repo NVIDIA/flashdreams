@@ -21,7 +21,7 @@ pytestmark = pytest.mark.ci_cpu
 pytest.importorskip("aiohttp")
 pytest.importorskip("aiortc")
 
-from aiohttp import ClientSession, FormData, web
+from aiohttp import ClientSession, FormData, MultipartWriter, web
 from aiortc import (
     MediaStreamTrack,
     RTCDataChannel,
@@ -282,7 +282,7 @@ async def test_peer_loss_completes_armed_file_selections_as_unavailable() -> Non
 
 
 @pytest.mark.asyncio
-async def test_in_flight_upload_finishes_once_after_peer_loss(
+async def test_in_flight_upload_is_unavailable_after_peer_loss(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     window = WebRTCClientWindow()
@@ -308,10 +308,31 @@ async def test_in_flight_upload_finishes_once_after_peer_loss(
         assert await _post_selected_file(window, wire_id, b"hello", "hello.txt") == 204
         event = await _wait_selected_files_event(window)
         assert event.request_id == "open-1"
-        assert event.status is SelectedFilesStatus.OK
+        assert event.status is SelectedFilesStatus.UNAVAILABLE
+        await asyncio.sleep(0.05)
+        assert window.get_user_input_events().get_events() == []
     finally:
         if peer is not None:
             await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_encoded_file_part_is_unavailable() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        wire_id = _arm(window, _file_request("open-1"))
+        with MultipartWriter("form-data") as body:
+            part = body.append(b"abc=\n")
+            part.set_content_disposition("form-data", name="file", filename="a.bin")
+            part.headers["Content-Transfer-Encoding"] = "quoted-printable"
+        async with ClientSession() as client:
+            async with client.post(_files_url(window, wire_id), data=body) as response:
+                assert response.status == 400
+        event = await _wait_selected_files_event(window)
+        assert event.status is SelectedFilesStatus.UNAVAILABLE
+    finally:
         window.close()
 
 
@@ -493,36 +514,6 @@ async def test_file_upload_over_the_batch_cap_still_reports_a_disallowed_type(
                 assert response.status == 204
         event = await _wait_selected_files_event(window)
         assert event.status is SelectedFilesStatus.DISALLOWED_TYPE
-    finally:
-        window.close()
-
-
-@pytest.mark.asyncio
-async def test_file_upload_decodes_base64_transfer_encoding() -> None:
-    window = WebRTCClientWindow()
-    window.open(_session_desc())
-    try:
-        wire_id = _arm(window, _file_request("open-1"))
-        boundary = "----flashdreams"
-        body = (
-            f"--{boundary}\r\n"
-            'Content-Disposition: form-data; name="file"; filename="seed.bin"\r\n'
-            "Content-Transfer-Encoding: base64\r\n"
-            "\r\n"
-            f"{base64.b64encode(b'abc').decode()}\r\n"
-            f"--{boundary}--\r\n"
-        ).encode()
-        async with ClientSession() as client:
-            async with client.post(
-                _files_url(window, wire_id),
-                data=body,
-                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-            ) as response:
-                assert response.status == 204
-        event = await _wait_selected_files_event(window)
-        assert event.status is SelectedFilesStatus.OK
-        assert event.files[0].name == "seed.bin"
-        assert event.files[0].data == b"abc"
     finally:
         window.close()
 

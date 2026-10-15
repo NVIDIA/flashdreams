@@ -32,6 +32,7 @@ from torch.nn import functional as F
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.selected_file import (
     MAX_SELECTED_FILE_BATCH_BYTES,
+    MAX_SELECTED_FILE_COUNT,
     FileSelectionRequest,
     SelectedFile,
     SelectedFilesStatus,
@@ -376,6 +377,7 @@ class WebRTCServer:
         self._hide_cursor = False
         self._lock_cursor_to_window = False
         self._pending_file_requests: dict[str, _PendingFileSelection] = {}
+        self._uploading_file_requests: dict[str, _PendingFileSelection] = {}
         self._file_selector_callbacks: (
             tuple[
                 Callable[[str], None],
@@ -553,8 +555,12 @@ class WebRTCServer:
     def _complete_abandoned_file_selectors(self) -> None:
         """Answer every armed pick as ``UNAVAILABLE`` because the viewer left."""
         with self._file_selector_lock:
-            abandoned = tuple(self._pending_file_requests.values())
+            abandoned = (
+                *self._pending_file_requests.values(),
+                *self._uploading_file_requests.values(),
+            )
             self._pending_file_requests.clear()
+            self._uploading_file_requests.clear()
         for policy in abandoned:
             self._emit_selected_files(
                 policy.selector_id, status=SelectedFilesStatus.UNAVAILABLE
@@ -919,6 +925,9 @@ class WebRTCServer:
         policy = self._take_pending_file_request(token)
         if policy is None:
             raise web.HTTPConflict(reason="No pending file selection for this id.")
+        # Tracked until it ends so a viewer that leaves mid-upload is answered.
+        with self._file_selector_lock:
+            self._uploading_file_requests[token] = policy
 
         emitted = False
 
@@ -940,6 +949,7 @@ class WebRTCServer:
                 emit(SelectedFilesStatus.TOO_LARGE)
                 raise
             chosen: list[tuple[str, bytes]] = []
+            file_count = 0
             total_bytes = 0
             too_large = False
             while True:
@@ -954,6 +964,13 @@ class WebRTCServer:
                 if not policy.multiple and (chosen or too_large):
                     await part.release()
                     continue
+                if not _identity_encoded(part):
+                    emit(SelectedFilesStatus.UNAVAILABLE)
+                    raise web.HTTPBadRequest(reason="File parts must not be encoded.")
+                file_count += 1
+                if file_count > MAX_SELECTED_FILE_COUNT:
+                    too_large = True
+                    chosen.clear()
                 name = part.filename or "upload"
                 if not selected_file_suffix_allowed(name, policy.accept):
                     emit(SelectedFilesStatus.DISALLOWED_TYPE)
@@ -1005,6 +1022,8 @@ class WebRTCServer:
                 emit(SelectedFilesStatus.TOO_LARGE)
             raise
         finally:
+            with self._file_selector_lock:
+                self._uploading_file_requests.pop(token, None)
             if not emitted:
                 emit(SelectedFilesStatus.UNAVAILABLE)
 
@@ -1485,6 +1504,13 @@ class WebRTCServer:
 
 _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 """Bytes read per multipart chunk while enforcing ``max_bytes``."""
+
+
+def _identity_encoded(part: BodyPartReader) -> bool:
+    """Return whether ``part`` carries its bytes as-is, as browsers send them."""
+    transfer = part.headers.get("Content-Transfer-Encoding", "").lower()
+    content = part.headers.get("Content-Encoding", "").lower()
+    return transfer in ("", "binary", "7bit", "8bit") and content in ("", "identity")
 
 
 async def _read_upload_part_bounded(

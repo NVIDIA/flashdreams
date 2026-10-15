@@ -1428,9 +1428,9 @@ def test_window_requests_skip_a_file_selector_for_a_replaced_session() -> None:
         window,
         UILoopRequests(
             new_session=_session_desc(),
-            file_selection=FileSelectionRequest(
-                request_id="open-1", initial_path="/tmp"
-            ),
+            file_selections=[
+                FileSelectionRequest(request_id="open-1", initial_path="/tmp")
+            ],
         ),
     )
     assert window.file_selection_requests == []

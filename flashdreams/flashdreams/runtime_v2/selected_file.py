@@ -15,6 +15,9 @@ MAX_SELECTED_FILE_BYTES = 32 * 1024 * 1024
 MAX_SELECTED_FILE_BATCH_BYTES = 8 * MAX_SELECTED_FILE_BYTES
 """Hard ceiling for the total bytes of one selected-files request."""
 
+MAX_SELECTED_FILE_COUNT = 256
+"""Hard ceiling for the number of files in one selected-files request."""
+
 FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS = 30.0
 """Seconds to wait for a client window to show a picker before ``UNAVAILABLE``.
 
@@ -98,42 +101,19 @@ class SelectedFilesStatus(Enum):
     """The user dismissed the selector."""
 
     TOO_LARGE = "too_large"
-    """The chosen set exceeded the size budget."""
+    """A file exceeded its size budget, or the set exceeded the batch size or
+    file-count ceiling."""
 
     DISALLOWED_TYPE = "disallowed_type"
     """A chosen file did not match ``accept``. Checked before size."""
 
+    BUSY = "busy"
+    """Another selector was already open, so this request was not shown. The
+    open selector keeps going and answers its own request."""
+
     UNAVAILABLE = "unavailable"
     """No pick was made: the client has no picker or left, the picker was not
     shown in time, or a chosen file was unreadable."""
-
-
-def selected_file_policy_status(
-    name: str,
-    size: int | None,
-    *,
-    accept: tuple[str, ...] = (),
-    max_bytes: int,
-) -> SelectedFilesStatus | None:
-    """Return why one chosen file is rejected, or ``None`` if it is allowed.
-
-    Type is checked before size. A too-large disallowed file is
-    ``DISALLOWED_TYPE``. Pass ``size=None`` to check only the name.
-
-    Args:
-        name: File name to match against ``accept``.
-        size: File size in bytes, or ``None`` to skip the size check.
-        accept: Filename suffixes such as ``.png``. Empty allows any type.
-        max_bytes: Maximum allowed size in bytes.
-
-    Returns:
-        ``DISALLOWED_TYPE``, ``TOO_LARGE``, or ``None`` when the file passes.
-    """
-    if not selected_file_suffix_allowed(name, accept):
-        return SelectedFilesStatus.DISALLOWED_TYPE
-    if size is not None and size > max_bytes:
-        return SelectedFilesStatus.TOO_LARGE
-    return None
 
 
 def selected_files_policy_status(
@@ -144,7 +124,7 @@ def selected_files_policy_status(
 ) -> SelectedFilesStatus | None:
     """Return why a chosen set is rejected, or ``None`` if every file is allowed.
 
-    Type is checked before size, across the whole set.
+    Type is checked before size and count, across the whole set.
 
     Args:
         files: ``(name, size)`` pairs. ``size`` of ``None`` skips that file's
@@ -158,6 +138,8 @@ def selected_files_policy_status(
     for name, _size in files:
         if not selected_file_suffix_allowed(name, accept):
             return SelectedFilesStatus.DISALLOWED_TYPE
+    if len(files) > MAX_SELECTED_FILE_COUNT:
+        return SelectedFilesStatus.TOO_LARGE
     total = 0
     for _name, size in files:
         if size is None:

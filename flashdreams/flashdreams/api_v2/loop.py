@@ -103,8 +103,8 @@ class UILoopRequests:
     new_window_size: tuple[int, int] | None = None
     """Requested downstream window size, or ``None`` to leave it unchanged."""
 
-    file_selection: FileSelectionRequest | None = None
-    """File selector to show, or ``None`` when none was requested."""
+    file_selections: list[FileSelectionRequest] = field(default_factory=list)
+    """File-selector requests in call order. The window answers each one."""
 
 
 class ILoop(ABC, Generic[StateT]):
@@ -263,7 +263,8 @@ class ILoop(ABC, Generic[StateT]):
             self.latest_result = result
             self._pending_user_events.clear()
         else:
-            # A file result arrives once, so keep it until a step can read it.
+            # Input that reaches a run with no step is dropped, except a file
+            # result: it answers a request and arrives once.
             self._pending_user_events = [
                 event
                 for event in self._pending_user_events
@@ -616,11 +617,16 @@ class IUILoop(ILoop[StateT], ABC):
         carrying ``request_id``. The model loop's ``step`` receives the same
         event.
 
-        One selector is open at a time. A call made while one is open, or
-        after another call in the same tick, is discarded: that ``request_id``
-        gets no event and nothing is logged. Every call that is not discarded
-        gets exactly one event. Use one stable ``request_id`` per control and
-        reuse it.
+        Every call gets exactly one event, unless the session ends first: a
+        session replaced or shut down before the answer gets none. One
+        selector is open at a time, so a call made while one is open, including
+        a second call in the same tick, is answered ``BUSY``. Use one stable
+        ``request_id`` per control and reuse it. A control that is already
+        waiting for its own result can get a ``BUSY`` for a repeat click
+        before that result.
+
+        For the full lifecycle, including session reset versus replacement,
+        see :class:`~flashdreams.api_v2.client_window.IClientWindow`.
 
         Read ``status`` first. ``files`` is empty unless it is ``OK``, and one
         rejected file fails the whole set:
@@ -628,19 +634,28 @@ class IUILoop(ILoop[StateT], ABC):
         - ``OK``: ``files`` holds each chosen file as its base ``name`` and its
           ``data`` bytes. There is no host path. Empty files are allowed.
         - ``CANCELLED``: the user dismissed the selector.
+        - ``BUSY``: another selector was open, so this one was not shown.
         - ``DISALLOWED_TYPE``: a file did not match ``accept``. Suffixes
           compare case-insensitively, and this wins over ``TOO_LARGE``.
         - ``TOO_LARGE``: a file exceeded ``max_file_bytes``, or the set
           exceeded
-          :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BATCH_BYTES`.
+          :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BATCH_BYTES`
+          or :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_COUNT`.
         - ``UNAVAILABLE``: the window has no picker (MP4, null), the picker
           was not shown within
           :data:`~flashdreams.runtime_v2.selected_file.FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS`,
           the viewer left, the chooser failed, or a file could not be read.
 
+        ``accept`` checks filename suffixes only, never contents, so validate
+        and decode ``data`` as untrusted input.
+
         Once the picker is shown there is no deadline. On WebRTC, shown means
         the browser's "The app requested a file" prompt; its Select… button
-        opens the browser's file chooser.
+        opens the browser's file chooser. The native window uses a Tk dialog,
+        which needs a Python with Tk and a display; without them the result is
+        ``UNAVAILABLE``. Tk cannot close its dialog from another thread, so one
+        left open when its session ends stays on screen, and whatever it
+        returns is dropped.
 
         Example:
 
@@ -704,15 +719,15 @@ class IUILoop(ILoop[StateT], ABC):
                 raise ValueError("max_file_bytes must be > 0.")
         if not isinstance(multiple, bool):
             raise TypeError("multiple must be a bool.")
-        requests = self.get_or_create_ui_loop_requests()
-        if requests.file_selection is None:
-            requests.file_selection = FileSelectionRequest(
+        self.get_or_create_ui_loop_requests().file_selections.append(
+            FileSelectionRequest(
                 request_id=request_id,
                 initial_path=resolved_initial_path,
                 accept=suffixes,
                 max_bytes=max_file_bytes,
                 multiple=multiple,
             )
+        )
 
     def get_or_create_ui_loop_requests(self) -> UILoopRequests:
         if self._ui_loop_requests is None:

@@ -118,8 +118,7 @@ def test_open_file_button_requests_a_client_file(label: str, request_id: str) ->
     requests = loop.flush_ui_loop_requests()
 
     assert requests is not None
-    selection = requests.file_selection
-    assert selection is not None
+    [selection] = requests.file_selections
     assert selection.request_id == request_id
     assert selection.accept == (".bin", ".raw")
     assert selection.max_bytes == MAX_SELECTED_FILE_BYTES
@@ -134,8 +133,7 @@ def test_open_files_button_requests_multiple_client_files() -> None:
     requests = loop.flush_ui_loop_requests()
 
     assert requests is not None
-    selection = requests.file_selection
-    assert selection is not None
+    [selection] = requests.file_selections
     assert selection.request_id == _OPEN_FILES_REQUEST_ID
     assert selection.accept == (".bin", ".raw")
     assert selection.max_bytes == MAX_SELECTED_FILE_BYTES

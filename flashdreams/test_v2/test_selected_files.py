@@ -19,12 +19,12 @@ from flashdreams.runtime_v2.selected_file import (
     FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS,
     MAX_SELECTED_FILE_BATCH_BYTES,
     MAX_SELECTED_FILE_BYTES,
+    MAX_SELECTED_FILE_COUNT,
     FileSelectionRequest,
     SelectedFile,
     SelectedFilesStatus,
     clamp_selected_file_max_bytes,
     normalize_selected_file_accept,
-    selected_file_policy_status,
     selected_file_suffix_allowed,
     selected_files_policy_status,
 )
@@ -74,8 +74,7 @@ def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
-    selection = requests.file_selection
-    assert selection is not None
+    [selection] = requests.file_selections
     assert selection.request_id == "open-1"
     assert selection.initial_path == "/tmp"
     assert selection.accept == (".png", ".JPG")
@@ -89,19 +88,20 @@ def test_ui_loop_uses_home_when_initial_path_is_omitted() -> None:
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
-    assert requests.file_selection is not None
-    assert requests.file_selection.initial_path == str(Path.home())
+    assert requests.file_selections[0].initial_path == str(Path.home())
 
 
-def test_ui_loop_keeps_the_first_file_selection_of_a_tick() -> None:
+def test_ui_loop_forwards_every_file_selection_of_a_tick() -> None:
     loop = _ui_loop()
     loop.request_file_selector("open-1", "/tmp")
     loop.request_file_selector("open-2", "/var")
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
-    assert requests.file_selection is not None
-    assert requests.file_selection.request_id == "open-1"
+    assert [item.request_id for item in requests.file_selections] == [
+        "open-1",
+        "open-2",
+    ]
 
 
 def test_ui_loop_keeps_file_results_until_a_step_runs() -> None:
@@ -157,7 +157,10 @@ def test_window_shows_one_picker_at_a_time() -> None:
     window.request_file_selector(_request("open-1"))
     window.request_file_selector(_request("open-2"))
     assert [request_id for _, request_id in window.started] == ["open-1"]
-    assert _statuses(window) == []
+    assert _statuses(window) == [
+        ("open-1", SelectedFilesStatus.BUSY),
+        ("open-2", SelectedFilesStatus.BUSY),
+    ]
 
     selector_id = window.started[0][0]
     window._complete_file_selector(selector_id, SelectedFilesStatus.CANCELLED)
@@ -165,6 +168,82 @@ def test_window_shows_one_picker_at_a_time() -> None:
     assert _statuses(window) == [("open-1", SelectedFilesStatus.CANCELLED)]
     window.request_file_selector(_request("open-2"))
     assert [request_id for _, request_id in window.started] == ["open-1", "open-2"]
+
+
+def test_window_checks_a_result_against_its_request() -> None:
+    def complete(
+        request: FileSelectionRequest,
+        status: SelectedFilesStatus,
+        files: tuple[SelectedFile, ...],
+    ) -> list[SelectedFilesUserInputEvent]:
+        window = _PickerWindow()
+        window.request_file_selector(request)
+        window._complete_file_selector(window.started[0][0], status, files)
+        events = window.get_user_input_events().get_events()
+        selected = [e for e in events if isinstance(e, SelectedFilesUserInputEvent)]
+        assert selected == events
+        return selected
+
+    png = FileSelectionRequest(
+        request_id="open-1", initial_path="/tmp", accept=(".png",), max_bytes=4
+    )
+    a = SelectedFile(name="a.png", data=b"1")
+    b = SelectedFile(name="b.png", data=b"2")
+    cases = [
+        (png, SelectedFilesStatus.OK, (), SelectedFilesStatus.UNAVAILABLE),
+        (png, SelectedFilesStatus.OK, (a, b), SelectedFilesStatus.UNAVAILABLE),
+        (
+            png,
+            SelectedFilesStatus.OK,
+            (SelectedFile(name="a.txt", data=b"1"),),
+            SelectedFilesStatus.DISALLOWED_TYPE,
+        ),
+        (
+            png,
+            SelectedFilesStatus.OK,
+            (SelectedFile(name="a.png", data=b"12345"),),
+            SelectedFilesStatus.TOO_LARGE,
+        ),
+        (png, SelectedFilesStatus.CANCELLED, (a,), SelectedFilesStatus.CANCELLED),
+        (png, SelectedFilesStatus.BUSY, (), SelectedFilesStatus.UNAVAILABLE),
+    ]
+    for request, status, files, expected in cases:
+        [event] = complete(request, status, files)
+        assert (event.status, event.files) == (expected, ())
+
+    many = FileSelectionRequest(request_id="open-1", initial_path="/tmp", multiple=True)
+    [event] = complete(many, SelectedFilesStatus.OK, (a, b))
+    assert (event.status, event.files) == (SelectedFilesStatus.OK, (a, b))
+
+    pathy = (
+        SelectedFile(name="../outside.png", data=b"1"),
+        SelectedFile(name="C:\\dir\\in.png", data=b"2"),
+        SelectedFile(name="..", data=b"3"),
+    )
+    [event] = complete(many, SelectedFilesStatus.OK, pathy)
+    assert [chosen.name for chosen in event.files] == [
+        "outside.png",
+        "in.png",
+        "upload",
+    ]
+
+
+def test_window_without_put_user_input_event_cannot_be_created() -> None:
+    class _Incomplete(IClientWindow):
+        def get_user_input_events(self) -> UserInputEvents:
+            return UserInputEvents([])
+
+        def open(self, session_desc: SessionDesc) -> None:
+            del session_desc
+
+        def write(self, result: StepResult) -> None:
+            del result
+
+        def close(self) -> None:
+            return
+
+    with pytest.raises(TypeError, match="_put_user_input_event"):
+        _Incomplete()  # type: ignore[abstract]
 
 
 def test_window_times_out_unshown_picker_and_drops_its_late_result() -> None:
@@ -241,24 +320,10 @@ def test_selected_file_policy_helpers() -> None:
     assert not selected_file_suffix_allowed("seed.txt", (".png",))
     assert selected_file_suffix_allowed("seed.txt", ())
     assert (
-        selected_file_policy_status("seed.txt", None, accept=(".png",), max_bytes=3)
-        is SelectedFilesStatus.DISALLOWED_TYPE
-    )
-    assert (
-        selected_file_policy_status("seed.png", None, accept=(".png",), max_bytes=3)
-        is None
-    )
-    assert (
-        selected_file_policy_status("seed.txt", 99, accept=(".png",), max_bytes=3)
-        is SelectedFilesStatus.DISALLOWED_TYPE
-    )
-    assert (
-        selected_file_policy_status("seed.png", 99, accept=(".png",), max_bytes=3)
+        selected_files_policy_status(
+            [("a.bin", 0)] * (MAX_SELECTED_FILE_COUNT + 1), max_bytes=3
+        )
         is SelectedFilesStatus.TOO_LARGE
-    )
-    assert (
-        selected_file_policy_status("seed.png", 2, accept=(".png",), max_bytes=3)
-        is None
     )
     assert (
         selected_files_policy_status(

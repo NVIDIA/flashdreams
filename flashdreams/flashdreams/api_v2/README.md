@@ -229,7 +229,7 @@ still apply to the replacement. To let the user pick a client file, call
 `imgui.button(...)` returns `True`), with one stable `request_id` per control.
 The result arrives on a later tick as one `SelectedFilesUserInputEvent`
 carrying that `request_id`; read its `status` before its `files`. One picker
-is open at a time, and a call made while one is open gets no event. The
+is open at a time, and a call made while one is open is answered `BUSY`. The
 `request_file_selector` docstring is the full contract: timing, every status,
 size and type limits, and what WebRTC shows.
 

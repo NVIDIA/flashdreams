@@ -309,14 +309,17 @@ const startFileInput = pending => {
       body,
     })
       .then(response => {
+        if (!response.ok) {
+          // A proxy may refuse the upload before the server can answer it.
+          console.debug("File upload was rejected.", response.status);
+          finishFileSelection("unavailable");
+          return;
+        }
         if (settled || pendingFileRequest === null || pendingFileRequest.id !== requestId) {
           return;
         }
         settled = true;
         hideFilePicker();
-        if (!response.ok) {
-          console.debug("File upload was rejected.", response.status);
-        }
       })
       .catch(error => {
         console.debug("Unable to upload the selected file.", error);
