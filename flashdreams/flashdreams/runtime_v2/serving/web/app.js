@@ -329,9 +329,6 @@ const openFileSelector = options => {
   if (typeof requestId !== "string" || !requestId) {
     return;
   }
-  // ponytail: replies carry only the request id, so a prompt left open across a
-  // session handoff can answer the next session's request for the same id.
-  // Upgrade path: tag requests with a session id and echo it in replies.
   if (pendingFileRequest !== null) {
     if (pendingFileRequest.id !== requestId) {
       completeFileSelection(requestId, "unavailable");
