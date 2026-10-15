@@ -11,9 +11,15 @@ Crazy Robotaxi is an interactive FlashDreams v2 driving application. Drive a
 taxi through authored maps, collect fares, race against the clock, or explore
 freely using a keyboard, gamepad, or steering wheel.
 
-The game simulates vehicle motion and objectives, renders semantic HD-map
-conditioning for OmniDreams, and composites its HUD over the generated street
-view.
+Crazy Robotaxi's game engine simulates vehicle motion, uses PhysX to resolve
+collisions, and applies rules for fares, checkpoints, and scoring. Ludus Renderer
+converts the simulated road layout and actor poses into semantic HD-map images:
+lane markings, road boundaries, and actor boxes.
+
+The OmniDreams AI world model uses those images, a text prompt, and visual
+history to generate the detailed street view. Crazy Robotaxi draws HUD text and
+navigation markers over that video using conventional rendering; their state
+and placement come from the game engine.
 
 <div class="fd-card fd-model-card">
   <img class="fd-card-preview" src="../_static/demo_clips/crazy-robotaxi.avif" alt="" />
