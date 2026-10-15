@@ -220,9 +220,23 @@ investing implementation effort.
 - If a review comment is unclear, ask. We'd rather have a 30-second
   clarifying exchange than a misunderstanding turning into rework.
 
-We aim for an initial review on every PR within two business days. If
-your PR has been quiet longer than that, please feel free to leave a
-short ping comment.
+### Contributor expectations
+
+We welcome community pull requests. Review timing depends on project
+priorities and maintainer availability. Contributions should be
+useful, tested, and easy to maintain. Contributors are responsible for
+understanding and checking all code they submit, including generated
+code, and providing relevant tests or steps to verify the change.
+Maintainers should provide an initial review and respond to updates
+within 7 calendar days. Contributors should respond to review feedback
+within 7 calendar days. If either side needs more time, they should
+say so in the PR. Maintainers may close PRs that remain inactive after
+a reminder or do not meet the project’s needs or quality standards.
+Before closing a public issue or PR, maintainers will check whether
+users or documentation reference it. An issue or PR should not be
+closed simply because it seems unnecessary. When closing, maintainers
+will explain the reason and point to an alternative approach or
+tracking issue where available.
 
 ## File Tree Of FlashDreams
 
