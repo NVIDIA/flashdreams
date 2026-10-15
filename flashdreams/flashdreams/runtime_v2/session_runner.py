@@ -219,6 +219,13 @@ def run_session(
                 step_completed = True
             finally:
                 ui_loop._finish_run(result, step_completed=step_completed)
+            request = ui_loop.flush_ui_loop_requests()
+            if request is not None:
+                _apply_window_requests(window, request)
+                if request.new_session is not None:
+                    # Present this step's final frame before the next lifecycle
+                    # check, where a close event can still cancel replacement.
+                    ui_loop.request_new_session(request.new_session)
             if result:
                 window.write(result[0])
 
@@ -446,6 +453,8 @@ def _apply_window_requests(window: IClientWindow, request: UILoopRequests) -> No
         window.request_lock_cursor_to_window(request.lock_cursor_to_window)
     if request.new_window_size is not None:
         window.request_new_window_size(request.new_window_size)
+    if request.links is not None:
+        window.request_links(request.links)
 
 
 def _open_chunk_trace(path_value: object) -> _ChunkTraceLog:
