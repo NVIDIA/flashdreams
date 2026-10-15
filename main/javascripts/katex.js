@@ -24,6 +24,13 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 // IN THE SOFTWARE.
 
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Modified for FlashDreams: adapt the KaTeX initializer formatting.
+ */
+
 document$.subscribe(({ body }) => {
   renderMathInElement(body, {
     delimiters: [
