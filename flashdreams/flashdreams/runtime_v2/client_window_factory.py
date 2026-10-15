@@ -89,11 +89,6 @@ class _Mp4Mode(ClientWindowMode):
         parser.add_argument(
             "--output-path", type=Path, help="MP4 file to write. Required for mp4."
         )
-        parser.add_argument(
-            "--synthetic-input-file",
-            type=Path,
-            help="JSON file that replays synthetic input while writing an MP4.",
-        )
 
     def check_arguments(self, parsed_args: argparse.Namespace) -> None:
         if parsed_args.output_path is None:
@@ -101,29 +96,11 @@ class _Mp4Mode(ClientWindowMode):
 
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
         self.check_arguments(parsed_args)
-        output = Mp4ClientWindow(parsed_args.output_path)
-        if parsed_args.synthetic_input_file is None:
-            return output
-        source = SyntheticInputSource(parsed_args.synthetic_input_file)
-        return CompositeClientWindow(
-            output,
-            source,
-            on_open=source.start_session,
-            on_close=source.end_session,
-        )
+        return Mp4ClientWindow(parsed_args.output_path)
 
     def finished(self, client_window: IClientWindow) -> str | None:
         """Return the file, now that there is something in it to watch."""
-        return str(
-            cast(
-                Mp4ClientWindow,
-                (
-                    client_window.client_window
-                    if isinstance(client_window, CompositeClientWindow)
-                    else client_window
-                ),
-            ).path
-        )
+        return str(cast(Mp4ClientWindow, client_window).path)
 
 
 class _WebRTCMode(ClientWindowMode):
@@ -286,6 +263,11 @@ def add_client_window_arguments(parser: argparse.ArgumentParser) -> None:
             "final session."
         ),
     )
+    parser.add_argument(
+        "--synthetic-input-file",
+        type=Path,
+        help="JSON file that replays synthetic input with any client-window mode.",
+    )
     for mode in modes:
         mode.add_arguments(parser)
 
@@ -322,6 +304,23 @@ def create_client_window(parsed_args: argparse.Namespace) -> IClientWindow:
     Raises:
         ValueError: ``mode`` is unsupported, or its arguments are incomplete.
     """
-    return client_window_mode(
+    primary_window = client_window_mode(
         parsed_args.mode, modes=getattr(parsed_args, "_client_window_modes", None)
     ).create(parsed_args)
+    return compose_client_window(primary_window, parsed_args)
+
+
+def compose_client_window(
+    primary_window: IClientWindow, parsed_args: argparse.Namespace
+) -> IClientWindow:
+    """Attach command-wide secondary components to a mode's primary window."""
+    synthetic_input_file = getattr(parsed_args, "synthetic_input_file", None)
+    if synthetic_input_file is None:
+        return primary_window
+    source = SyntheticInputSource(synthetic_input_file)
+    return CompositeClientWindow(
+        primary_window,
+        secondary_input_sources=(source,),
+        on_open=source.start_session,
+        on_close=source.end_session,
+    )

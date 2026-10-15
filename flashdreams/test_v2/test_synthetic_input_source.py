@@ -4,9 +4,12 @@
 """CPU tests for descriptor-backed synthetic input."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
+
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.synthetic_input_source import SyntheticInputSource
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
@@ -154,6 +157,23 @@ def test_replacement_session_rebases_timestamps_without_replaying_events(
         ),
     ],
 )
-def test_the_parser_rejects_unsupported_v1_forms(tmp_path: Path, contents: object) -> None:
+def test_the_parser_rejects_unsupported_v1_forms(
+    tmp_path: Path, contents: object
+) -> None:
     with pytest.raises((ValueError, TypeError)):
         SyntheticInputSource(_write_descriptor(tmp_path, contents))
+
+
+def test_documentation_covers_every_registered_event_type() -> None:
+    documentation = (
+        Path(__file__).parents[2]
+        / "docs"
+        / "source"
+        / "documentation"
+        / "synthetic_input.md"
+    ).read_text(encoding="utf-8")
+    documented_types = set(
+        re.findall(r"^\| `([^`]+)` \|", documentation, flags=re.MULTILINE)
+    )
+
+    assert documented_types == set(UserInputEvent._type_name_owners)
