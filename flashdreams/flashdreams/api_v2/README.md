@@ -224,24 +224,18 @@ UI control that needs a fresh application session calls
 `request_new_session(session_desc)` with a fully resolved replacement
 description; the runtime cleans the current session and passes that description
 to `ApplicationRunner` unchanged. Remaining timeout and remaining model steps
-still apply to the replacement. Call `file_selector` every UI tick from each
-place in the UI that can open a client file picker, using a stable `request_id`.
-Pass `open=True` only when the user asks to open it on that tick (for ImGui,
-`open=imgui.button(...)`). The call returns this tick's
-`SelectedFilesUserInputEvent` for that id, or `None`. Read `status`; use
-`files` only when the pick succeeded. Reuse that `request_id` so extra clicks
-do not stack pickers; use a different id for every other place that can open
-one. Sharing an id between places is not supported: a pick made from one
-place would also be reported to the other. The app supplies the id because
-`file_selector` is called anew every tick, so nothing persists between the
-tick that opens a picker and the tick that receives its result; like an ImGui
-widget id, the stable `request_id` is what connects them. An id generated per
-call would differ on every tick. `accept` is filename suffixes (empty = any type);
+still apply to the replacement. To let the user pick a client file, call
+`request_file_selector(request_id, ...)` when they ask (for ImGui, when
+`imgui.button(...)` returns `True`). The result arrives on a later tick as one
+`SelectedFilesUserInputEvent` in the UI loop's events, carrying that
+`request_id`, so each place that can open a picker should pass its own id. Read
+`status`; use `files` only when the pick succeeded. `accept` is filename
+suffixes (empty = any type);
 `max_file_bytes` is the size budget per file (`None` = the
 `MAX_SELECTED_FILE_BYTES` ceiling); `multiple` allows more than one file, with
 the whole set capped by `MAX_SELECTED_FILE_BATCH_BYTES`. Both caps live in
 `runtime_v2/selected_file.py`. One picker is open at a time; a request made
-while another is open completes as `UNAVAILABLE`. The status is also
+while another is open is ignored and gets no result. The status is
 `UNAVAILABLE` when the client cannot show a picker, or does not show one within
 30 seconds. Once a picker is shown, the user may take as long as they want.
 

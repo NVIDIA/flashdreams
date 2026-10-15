@@ -374,6 +374,20 @@ chooses its UI independently of the client window. Browser keyboard, mouse,
 focus, and file-selector events arrive on the server's own thread, so it queues
 them and hands them over in batches when the session asks.
 
+File selection rules live in `IClientWindow` itself: one picker at a time
+(another request while one is open is ignored), `UNAVAILABLE` if a picker is
+not shown within 30 seconds, and exactly one result per request. A window
+only shows the picker. It implements `_put_user_input_event` to queue an event
+for `get_user_input_events`; that alone is enough for a window without a
+picker, which then answers every request with `UNAVAILABLE`. A window with a
+picker also implements `_request_file_selector(selector_id, request)` without
+blocking, calls `_file_selector_opened(selector_id)` once the picker is shown,
+then `_complete_file_selector(selector_id, status, files)` from any thread, and
+calls `_expire_file_selectors()` each time its input is read. A result for a
+picker that was forgotten when its session ended is dropped. A window that
+wraps another forwards `request_file_selector` and `flush_file_selectors` to
+it instead.
+
 A UI loop may call `request_new_session(session_desc)` during its step with a
 fully resolved replacement description. `run_session` stops and cleans the
 current session, leaves the interactive window open, and returns that

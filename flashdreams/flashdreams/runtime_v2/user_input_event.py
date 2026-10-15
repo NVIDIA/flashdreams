@@ -250,7 +250,8 @@ class XRControllerUserInputEvent(UserInputEvent):
 class SelectedFilesUserInputEvent(UserInputEvent):
     """Result of one file-selector request.
 
-    Applications receive it from :meth:`IUILoop.file_selector`.
+    The answer to :meth:`IUILoop.request_file_selector`, read from
+    ``user_events`` like any other input.
     ``OK`` is the only status with files; every other status has empty ``files``.
     """
 
@@ -277,23 +278,6 @@ class SelectedFilesUserInputEvent(UserInputEvent):
             return
         if has_files:
             raise ValueError("failed selected-files events must not include files.")
-
-
-@dataclass(frozen=True, slots=True, eq=False)
-class FileSelectorOpenedUserInputEvent(UserInputEvent):
-    """A client window showed the picker for one file-selector request.
-
-    The runtime consumes it to stop that request's presentation deadline.
-    Applications never receive it.
-    """
-
-    @classmethod
-    def get_type_name(cls) -> str:
-        """Return the event type name."""
-        return "file_selector_opened"
-
-    request_id: str
-    """``request_id`` of the request whose picker is now shown."""
 
 
 @dataclass(frozen=True, slots=True, eq=False)

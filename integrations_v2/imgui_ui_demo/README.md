@@ -10,11 +10,9 @@ Small ImGui applications for the FlashDreams v2 loop runtime:
 - `imgui-ui-text-input` renders an editable text field over model output.
 - `imgui-ui-file-picker` opens the client file selector and shows the chosen
   name and size on one status line per button. Each Open button calls
-  `file_selector` every UI tick with its own stable `request_id`; the returned
-  event carries the file bytes. Extra
-  clicks on the same button while a picker is open are ignored. One picker is
-  open at a time; opening another meanwhile reports it as unavailable.
-  Dropping the WebRTC tab completes in-flight picks as unavailable. A picker
+  `request_file_selector` with its own `request_id`, and the result event
+  carrying that id updates the button's line. One picker is open at a time;
+  clicks on any button while it is open are ignored. Dropping the WebRTC tab completes in-flight picks as unavailable. A picker
   the host never shows within 30 seconds also completes as unavailable; a
   picker that is shown stays open as long as the user wants.
 - `imgui-ui-query-string` sets background from a `?(r,g,b)` browser URL.

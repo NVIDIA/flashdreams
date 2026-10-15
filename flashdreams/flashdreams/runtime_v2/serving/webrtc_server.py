@@ -43,7 +43,6 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
-    FileSelectorOpenedUserInputEvent,
     FocusUserInputEvent,
     GamepadUserInputEvent,
     GameWheelUserInputEvent,
@@ -52,7 +51,6 @@ from flashdreams.runtime_v2.user_input_event import (
     MouseUserInputEvent,
     QueryStringUserInputEvent,
     ResetUserInputEvent,
-    SelectedFilesUserInputEvent,
     TouchUserInputEvent,
     UserInputEvent,
     XRControllerUserInputEvent,
@@ -374,6 +372,13 @@ class WebRTCServer:
         self._hide_cursor = False
         self._lock_cursor_to_window = False
         self._pending_file_requests: dict[str, _PendingFileSelection] = {}
+        self._file_selector_callbacks: (
+            tuple[
+                Callable[[str], None],
+                Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
+            ]
+            | None
+        ) = None
         self._file_selector_lock = threading.Lock()
         self._thread = threading.Thread(
             target=self._run_server,
@@ -465,13 +470,16 @@ class WebRTCServer:
 
         self._sent_cursor_options = cursor_options
 
-    def request_selected_files(self, request: FileSelectionRequest) -> None:
+    def request_file_selector(
+        self, request_id: str, request: FileSelectionRequest
+    ) -> None:
         """Ask the connected browser to open a file selector.
 
         The browser cannot use a host path, so ``initial_path`` is ignored.
         Without a connected viewer the request completes as ``UNAVAILABLE``.
 
         Args:
+            request_id: Id the browser echoes back with this selector's result.
             request: File selector to show.
         """
         policy = _PendingFileSelection(
@@ -482,7 +490,12 @@ class WebRTCServer:
         loop = self._loop
         if loop is None:
             raise RuntimeError("WebRTC server is not running.")
-        loop.call_soon_threadsafe(self._arm_file_selector, request.request_id, policy)
+        loop.call_soon_threadsafe(self._arm_file_selector, request_id, policy)
+
+    def cancel_file_selectors(self) -> None:
+        """Forget every armed selector; a later upload for one is refused."""
+        with self._file_selector_lock:
+            self._pending_file_requests.clear()
 
     def _arm_file_selector(
         self, request_id: str, policy: _PendingFileSelection
@@ -491,9 +504,7 @@ class WebRTCServer:
         channel = self._control_channel
         if channel is None or channel.readyState != "open":
             self._emit_selected_files(
-                self._timestamp_us() or np.uint64(0),
-                request_id,
-                status=SelectedFilesStatus.UNAVAILABLE,
+                request_id, status=SelectedFilesStatus.UNAVAILABLE
             )
             return
         with self._file_selector_lock:
@@ -522,10 +533,9 @@ class WebRTCServer:
         with self._file_selector_lock:
             abandoned = tuple(self._pending_file_requests)
             self._pending_file_requests.clear()
-        timestamp_us = self._timestamp_us() or np.uint64(0)
         for request_id in abandoned:
             self._emit_selected_files(
-                timestamp_us, request_id, status=SelectedFilesStatus.UNAVAILABLE
+                request_id, status=SelectedFilesStatus.UNAVAILABLE
             )
 
     def event_timestamp_us(self) -> np.uint64:
@@ -647,6 +657,22 @@ class WebRTCServer:
         if self._input_callback is not None:
             raise RuntimeError("An input callback is already registered.")
         self._input_callback = callback
+
+    def register_file_selector_callbacks(
+        self,
+        *,
+        opened: Callable[[str], None],
+        completed: Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
+    ) -> None:
+        """Register how armed file selectors report back, by request id.
+
+        Both run on the server thread.
+
+        Args:
+            opened: Called when the browser shows the selector.
+            completed: Called once with the selector's status and files.
+        """
+        self._file_selector_callbacks = (opened, completed)
 
     def write(self, result: StepResult) -> None:
         """Materialize and admit one generated result to the sender mailbox.
@@ -863,8 +889,7 @@ class WebRTCServer:
         """Turn a browser file upload into a selected-files input event."""
         if self._closed:
             raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
-        timestamp_us = self._timestamp_us()
-        if timestamp_us is None:
+        if self._timestamp_us() is None:
             raise web.HTTPConflict(reason="WebRTC server is not open.")
         request_id = request.query.get("request_id")
         if not isinstance(request_id, str) or not request_id:
@@ -882,9 +907,7 @@ class WebRTCServer:
             files: tuple[SelectedFile, ...] = (),
         ) -> None:
             nonlocal emitted
-            self._emit_selected_files(
-                timestamp_us, request_id, status=status, files=files
-            )
+            self._emit_selected_files(request_id, status=status, files=files)
             emitted = True
 
         try:
@@ -1292,9 +1315,8 @@ class WebRTCServer:
             with self._file_selector_lock:
                 if request_id not in self._pending_file_requests:
                     return
-            event = FileSelectorOpenedUserInputEvent(
-                timestamp=timestamp_us, request_id=request_id
-            )
+            self._file_selector_callbacks_or_raise()[0](request_id)
+            return
         elif event_type == "file_selector_result":
             request_id = payload.get("id")
             if not isinstance(request_id, str) or not request_id:
@@ -1310,7 +1332,7 @@ class WebRTCServer:
                 )
             if self._take_pending_file_request(request_id) is None:
                 return
-            self._emit_selected_files(timestamp_us, request_id, status=status)
+            self._emit_selected_files(request_id, status=status)
             return
         else:
             raise ValueError("Unsupported browser event type.")
@@ -1325,21 +1347,24 @@ class WebRTCServer:
 
     def _emit_selected_files(
         self,
-        timestamp_us: np.uint64,
         request_id: str,
         *,
         status: SelectedFilesStatus,
         files: tuple[SelectedFile, ...] = (),
     ) -> None:
-        """Append one selected-files event."""
-        self._append_event(
-            SelectedFilesUserInputEvent(
-                timestamp=timestamp_us,
-                request_id=request_id,
-                status=status,
-                files=files,
-            )
-        )
+        """Report the result of one armed file selector to the window."""
+        self._file_selector_callbacks_or_raise()[1](request_id, status, files)
+
+    def _file_selector_callbacks_or_raise(
+        self,
+    ) -> tuple[
+        Callable[[str], None],
+        Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
+    ]:
+        callbacks = self._file_selector_callbacks
+        if callbacks is None:
+            raise RuntimeError("WebRTC file selector callbacks are not registered.")
+        return callbacks
 
     async def _release_peer_connection(
         self,

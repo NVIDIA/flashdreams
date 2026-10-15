@@ -598,44 +598,42 @@ class IUILoop(ILoop[StateT], ABC):
         self.get_or_create_ui_loop_requests().new_window_size = new_window_size
 
     @final
-    def file_selector(
+    def request_file_selector(
         self,
         request_id: str,
         initial_path: str | None = None,
         *,
-        open: bool = False,
         accept: Sequence[str] = (),
         max_file_bytes: int | None = None,
         multiple: bool = False,
-    ) -> SelectedFilesUserInputEvent | None:
-        """Request files from the client and return this tick's matching result.
+    ) -> None:
+        """Ask the client to show a file selector.
 
-        Call every UI tick from each place in the UI that can open a picker.
-        Pass ``open=True`` only on the tick that the user asks to open it, such
-        as when an ImGui button returns ``True``. Use a different stable
-        ``request_id`` for each such place. Sharing an id between places is
-        not supported: a pick made from one place would also be reported to
-        the other.
-        One picker is open at a time: another ``open=True`` for the open
-        ``request_id`` is ignored, and one for any other id completes as
-        ``UNAVAILABLE``.
+        The result arrives on a later tick as one
+        :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`
+        in :attr:`user_events`, carrying ``request_id``. Read its ``status``;
+        use ``files`` only when the pick succeeded. One selector is open at a
+        time: a request made while one is open is ignored and gets no result.
 
         Example:
 
         .. code-block:: python
 
-            pick = self.file_selector("open-image", open=imgui.button("Open"))
-            if pick is not None and pick.status is SelectedFilesStatus.OK:
-                image_bytes = pick.files[0].data
+            if imgui.button("Open image"):
+                self.request_file_selector("open-image", accept=(".png",))
+            for event in self.user_events.get_events():
+                if (
+                    isinstance(event, SelectedFilesUserInputEvent)
+                    and event.request_id == "open-image"
+                    and event.status is SelectedFilesStatus.OK
+                ):
+                    image_bytes = event.files[0].data
 
         Args:
-            request_id: Stable id for this place in the UI. Echoed on the
-                matching event. Supplied by the app, like an ImGui widget id,
-                because it must stay the same across the ticks between
-                opening a picker and receiving its result.
+            request_id: Names the place in the UI that asked, so its result
+                can be told apart from another place's. Echoed on the result.
             initial_path: Directory hint for the selector; ``None`` uses the
                 current user's home directory.
-            open: Whether to start a selector this tick.
             accept: Filename suffixes such as ``.png``. Empty allows any type.
             max_file_bytes: Maximum size of each file in bytes, or ``None`` for
                 the ceiling. Larger values clamp to
@@ -644,14 +642,10 @@ class IUILoop(ILoop[StateT], ABC):
                 whole set is also capped by
                 :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BATCH_BYTES`.
 
-        Returns:
-            This tick's selected-files event for ``request_id``, or ``None``.
-            Read ``status``; use ``files`` only when the pick succeeded.
-
         Raises:
             TypeError: ``request_id`` or ``initial_path`` is not a string, or
-                ``open`` / ``accept`` / ``max_file_bytes`` / ``multiple`` has
-                the wrong type.
+                ``accept`` / ``max_file_bytes`` / ``multiple`` has the wrong
+                type.
             ValueError: ``request_id`` or ``initial_path`` is empty, or
                 ``accept`` / ``max_file_bytes`` is invalid.
         """
@@ -659,43 +653,31 @@ class IUILoop(ILoop[StateT], ABC):
             raise TypeError("request_id must be a string.")
         if not request_id:
             raise ValueError("request_id must be a non-empty string.")
-        if not isinstance(open, bool):
-            raise TypeError("open must be a bool.")
-        if open:
-            if initial_path is None:
-                resolved_initial_path = str(Path.home())
-            else:
-                if not isinstance(initial_path, str):
-                    raise TypeError("initial_path must be a string.")
-                if not initial_path:
-                    raise ValueError("initial_path must be a non-empty string.")
-                resolved_initial_path = initial_path
-            suffixes = normalize_selected_file_accept(accept)
-            if max_file_bytes is not None:
-                if isinstance(max_file_bytes, bool) or not isinstance(
-                    max_file_bytes, int
-                ):
-                    raise TypeError("max_file_bytes must be an integer.")
-                if max_file_bytes <= 0:
-                    raise ValueError("max_file_bytes must be > 0.")
-            if not isinstance(multiple, bool):
-                raise TypeError("multiple must be a bool.")
-            self.get_or_create_ui_loop_requests().file_selections.append(
-                FileSelectionRequest(
-                    request_id=request_id,
-                    initial_path=resolved_initial_path,
-                    accept=suffixes,
-                    max_bytes=max_file_bytes,
-                    multiple=multiple,
-                )
+        if initial_path is None:
+            resolved_initial_path = str(Path.home())
+        else:
+            if not isinstance(initial_path, str):
+                raise TypeError("initial_path must be a string.")
+            if not initial_path:
+                raise ValueError("initial_path must be a non-empty string.")
+            resolved_initial_path = initial_path
+        suffixes = normalize_selected_file_accept(accept)
+        if max_file_bytes is not None:
+            if isinstance(max_file_bytes, bool) or not isinstance(max_file_bytes, int):
+                raise TypeError("max_file_bytes must be an integer.")
+            if max_file_bytes <= 0:
+                raise ValueError("max_file_bytes must be > 0.")
+        if not isinstance(multiple, bool):
+            raise TypeError("multiple must be a bool.")
+        self.get_or_create_ui_loop_requests().file_selections.append(
+            FileSelectionRequest(
+                request_id=request_id,
+                initial_path=resolved_initial_path,
+                accept=suffixes,
+                max_bytes=max_file_bytes,
+                multiple=multiple,
             )
-        for event in self.user_events.get_events():
-            if (
-                isinstance(event, SelectedFilesUserInputEvent)
-                and event.request_id == request_id
-            ):
-                return event
-        return None
+        )
 
     def get_or_create_ui_loop_requests(self) -> UILoopRequests:
         if self._ui_loop_requests is None:

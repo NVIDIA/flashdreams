@@ -72,6 +72,12 @@ class WebRTCClientWindow(IClientWindow):
                 self._input_events.append(event)
 
         self.server.register_input_callback(handle_input)
+        self.server.register_file_selector_callbacks(
+            opened=lambda request_id: self._file_selector_opened(int(request_id)),
+            completed=lambda request_id, status, files: self._complete_file_selector(
+                int(request_id), status, files
+            ),
+        )
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor in the browser window."""
@@ -101,9 +107,21 @@ class WebRTCClientWindow(IClientWindow):
         """
         self.server.request_new_window_size(new_window_size)
 
-    def request_selected_files(self, request: FileSelectionRequest) -> None:
+    def _request_file_selector(
+        self, selector_id: int, request: FileSelectionRequest
+    ) -> None:
         """Ask the connected browser to open a file selector."""
-        self.server.request_selected_files(request)
+        self.server.request_file_selector(str(selector_id), request)
+
+    def _cancel_active_file_selectors(self) -> None:
+        """Refuse a later upload for the selector that was forgotten."""
+        self.server.cancel_file_selectors()
+
+    def _put_user_input_event(self, event: UserInputEvent) -> None:
+        """Queue a file-selection event on the server's clock, like browser input."""
+        event = replace(event, timestamp=self.server.event_timestamp_us())
+        with self._input_lock:
+            self._input_events.append(event)
 
     def open(self, session_desc: SessionDesc) -> None:
         """Implement ``OutputSink.open`` by configuring WebRTC output.
@@ -123,6 +141,7 @@ class WebRTCClientWindow(IClientWindow):
         Returns:
             Buffered browser events in timestamp order, each returned once.
         """
+        self._expire_file_selectors()
         with self._input_lock:
             events = list(self._input_events)
             self._input_events.clear()

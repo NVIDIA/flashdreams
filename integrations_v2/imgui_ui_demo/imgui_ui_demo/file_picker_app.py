@@ -47,7 +47,7 @@ _FILE_SELECTION_STATUS_TEXT = {
     ),
     SelectedFilesStatus.UNAVAILABLE: (
         "SelectedFilesStatus.UNAVAILABLE: picker could not complete "
-        "(another picker open, no or gone client, failed chooser, or "
+        "(no or gone client, picker not shown in time, failed chooser, or "
         "unreadable file)."
     ),
 }
@@ -140,24 +140,22 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
         events: UserInputEvents,
     ) -> Tensor | None:
         """Draw the Open buttons and one status line per button."""
-        del step_index, events
+        del step_index
+        for event in events.get_events():
+            if isinstance(event, SelectedFilesUserInputEvent):
+                self.state.statuses[event.request_id] = _status_text(event)
         imgui.set_next_window_pos(imgui.ImVec2(16.0, 16.0), imgui.Cond_.once)
         imgui.set_next_window_size(imgui.ImVec2(520.0, 300.0), imgui.Cond_.once)
         imgui.begin("File picker")
         try:
-            clicked = [imgui.button(label) for label, _, _ in _FILE_SELECTOR_SLOTS]
-            for (_, request_id, multiple), pressed in zip(
-                _FILE_SELECTOR_SLOTS, clicked, strict=True
-            ):
-                pick = self.file_selector(
-                    request_id,
-                    open=pressed,
-                    accept=(".bin", ".raw"),
-                    max_file_bytes=MAX_SELECTED_FILE_BYTES,
-                    multiple=multiple,
-                )
-                if pick is not None:
-                    self.state.statuses[request_id] = _status_text(pick)
+            for label, request_id, multiple in _FILE_SELECTOR_SLOTS:
+                if imgui.button(label):
+                    self.request_file_selector(
+                        request_id,
+                        accept=(".bin", ".raw"),
+                        max_file_bytes=MAX_SELECTED_FILE_BYTES,
+                        multiple=multiple,
+                    )
             for label, request_id, _ in _FILE_SELECTOR_SLOTS:
                 status = self.state.statuses.get(request_id, _NO_FILE_SELECTED)
                 line = f"{label}: {status}"

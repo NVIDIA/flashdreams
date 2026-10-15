@@ -34,13 +34,11 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
-    FileSelectorOpenedUserInputEvent,
     FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
-    SelectedFilesUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
@@ -279,17 +277,24 @@ class NativeWindowClientWindow(IClientWindow):
             )
         self._window_size = presenter.resize(*new_window_size)
 
-    def request_selected_files(self, request: FileSelectionRequest) -> None:
+    def _request_file_selector(
+        self, selector_id: int, request: FileSelectionRequest
+    ) -> None:
         """Open the Tk file dialog on a worker thread so the window keeps presenting."""
+        # ponytail: Tk cannot close this dialog from another thread, so one
+        # left open after its session ended can sit beside a newer one; its
+        # result is dropped. Upgrade path: run the dialog in a child process.
         threading.Thread(
             target=self._complete_file_selection,
-            args=(request,),
+            args=(selector_id, request),
             name="flashdreams-file-picker",
             daemon=True,
         ).start()
 
-    def _complete_file_selection(self, request: FileSelectionRequest) -> None:
-        """Run the file dialog, then queue ``opened`` and one result event."""
+    def _complete_file_selection(
+        self, selector_id: int, request: FileSelectionRequest
+    ) -> None:
+        """Run the file dialog, then report it opened and its result."""
         files: tuple[SelectedFile, ...] = ()
         status = SelectedFilesStatus.UNAVAILABLE
         try:
@@ -297,11 +302,7 @@ class NativeWindowClientWindow(IClientWindow):
                 initial_dir=request.initial_path or str(Path.home()),
                 accept=request.accept,
                 multiple=request.multiple,
-                on_presented=lambda: self._put_from_worker(
-                    FileSelectorOpenedUserInputEvent(
-                        timestamp=uint64(0), request_id=request.request_id
-                    )
-                ),
+                on_presented=lambda: self._file_selector_opened(selector_id),
             )
         except Exception:
             _LOGGER.exception(
@@ -316,14 +317,7 @@ class NativeWindowClientWindow(IClientWindow):
                 )
             else:
                 status = SelectedFilesStatus.CANCELLED
-        self._put_from_worker(
-            SelectedFilesUserInputEvent(
-                timestamp=uint64(0),
-                request_id=request.request_id,
-                status=status,
-                files=files,
-            )
-        )
+        self._complete_file_selector(selector_id, status, files)
 
     def open(self, session_desc: SessionDesc) -> None:
         """Open a session in the GLFW window on the runtime's UI thread.
@@ -387,6 +381,7 @@ class NativeWindowClientWindow(IClientWindow):
 
     def get_user_input_events(self) -> UserInputEvents:
         """Pump GLFW and return native input events not yet read."""
+        self._expire_file_selectors()
         presenter = self._presenter
         if presenter is not None:
             pending_before_poll = tuple(self._pending_printable_keys)
@@ -553,7 +548,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._close_event_enqueued = True
         self._put_input(CloseUserInputEvent(timestamp=uint64(0)))
 
-    def _put_from_worker(self, event: UserInputEvent) -> None:
+    def _put_user_input_event(self, event: UserInputEvent) -> None:
         """Queue one event from a picker thread, bypassing the poll-time buffer."""
         started_ns = self._session_started_ns
         elapsed_ns = 0 if started_ns is None else max(0, self._clock_ns() - started_ns)

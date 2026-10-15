@@ -104,8 +104,8 @@ class SelectedFilesStatus(Enum):
     """A chosen file did not match ``accept``. Checked before size."""
 
     UNAVAILABLE = "unavailable"
-    """No pick was made: another picker was open, the client has no picker or
-    left, the picker was not shown in time, or a chosen file was unreadable."""
+    """No pick was made: the client has no picker or left, the picker was not
+    shown in time, or a chosen file was unreadable."""
 
 
 def selected_file_policy_status(

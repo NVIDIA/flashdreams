@@ -30,7 +30,6 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
-    FileSelectorOpenedUserInputEvent,
     FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
@@ -720,7 +719,7 @@ def test_native_window_reports_a_selected_file(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_selected_files(_file_request("open-1", str(tmp_path)))
+    window.request_file_selector(_file_request("open-1", str(tmp_path)))
     events = _wait_for_input_events(window)
     window.close()
 
@@ -746,7 +745,7 @@ def test_native_window_reports_cancelled_file_selection(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_selected_files(_file_request("open-1", str(tmp_path)))
+    window.request_file_selector(_file_request("open-1", str(tmp_path)))
     events = _wait_for_input_events(window)
     window.close()
 
@@ -777,7 +776,7 @@ def test_native_window_reports_unavailable_when_picker_raises(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_selected_files(_file_request("open-1", str(tmp_path)))
+    window.request_file_selector(_file_request("open-1", str(tmp_path)))
     events = _wait_for_input_events(window)
     window.close()
 
@@ -822,9 +821,12 @@ def test_selected_files_from_paths_skips_unreadable_and_oversize(
     assert status is SelectedFilesStatus.DISALLOWED_TYPE
 
 
-def test_native_window_reports_opened_before_the_result(
+def test_native_window_shown_picker_has_no_deadline(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    shown = threading.Event()
+    release = threading.Event()
+
     def picker(
         *,
         initial_dir: str,
@@ -835,29 +837,28 @@ def test_native_window_reports_opened_before_the_result(
         del initial_dir, accept, multiple
         assert on_presented is not None
         on_presented()
+        shown.set()
+        release.wait(5)
         return ()
 
     monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
+    now = [0.0]
     presenter = _Presenter()
     window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window._file_selector_clock = lambda: now[0]
     window.open(_session_desc())
-    window.request_selected_files(_file_request("open-1", str(tmp_path)))
-    events: list[object] = []
-    for _ in range(100):
-        events.extend(window.get_user_input_events().get_events())
-        if len(events) >= 2:
-            break
-        time.sleep(0.01)
+    window.request_file_selector(_file_request("open-1", str(tmp_path)))
+    assert shown.wait(5)
+    now[0] = 1_000.0
+    assert window.get_user_input_events().get_events() == []
+    release.set()
+    events = _wait_for_input_events(window)
     window.close()
 
-    assert [type(event) for event in events] == [
-        FileSelectorOpenedUserInputEvent,
-        SelectedFilesUserInputEvent,
-    ]
-    assert all(
-        cast(SelectedFilesUserInputEvent, event).request_id == "open-1"
-        for event in events
-    )
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.status is SelectedFilesStatus.CANCELLED
 
 
 def test_native_window_reports_multiple_selected_files(
@@ -880,7 +881,7 @@ def test_native_window_reports_multiple_selected_files(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_selected_files(_file_request("open-1", str(tmp_path), multiple=True))
+    window.request_file_selector(_file_request("open-1", str(tmp_path), multiple=True))
     events = _wait_for_input_events(window)
     window.close()
 

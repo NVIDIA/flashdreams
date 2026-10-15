@@ -669,6 +669,7 @@ class RecordingClientWindow(IClientWindow):
         self.results: list[StepResult] = []
         self.cursor_requests: list[tuple[str, bool]] = []
         self.file_selection_requests: list[FileSelectionRequest] = []
+        self._file_events: list[UserInputEvent] = []
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Record one cursor visibility request."""
@@ -680,20 +681,25 @@ class RecordingClientWindow(IClientWindow):
         self._log.record("window.request_lock_cursor_to_window")
         self.cursor_requests.append(("lock", lock_cursor_to_window))
 
-    def request_selected_files(
-        self, request: FileSelectionRequest
-    ) -> SelectedFilesUserInputEvent | None:
+    def request_file_selector(self, request: FileSelectionRequest) -> None:
         """Record one file-selector request and answer with the default."""
-        self._log.record("window.request_selected_files")
+        self._log.record("window.request_file_selector")
         self.file_selection_requests.append(request)
-        return super().request_selected_files(request)
+        super().request_file_selector(request)
+
+    def _put_user_input_event(self, event: UserInputEvent) -> None:
+        with self._lock:
+            self._file_events.append(event)
 
     def get_user_input_events(self) -> UserInputEvents:
         self._log.record("window.get_user_input_events")
         with self._lock:
+            file_events, self._file_events = self._file_events, []
             if self._scripted:
-                return self._scripted.pop(0)
-        return UserInputEvents([])
+                return UserInputEvents(
+                    [*file_events, *self._scripted.pop(0).get_events()]
+                )
+        return UserInputEvents(file_events)
 
     def open(self, session_desc: SessionDesc) -> None:
         self._log.record("window.open")
@@ -1392,10 +1398,9 @@ def test_run_session_forwards_file_selection_requests_to_the_window() -> None:
             super().init()
 
             def open_selector(_: object) -> None:
-                self.ui_loop.file_selector(
+                self.ui_loop.request_file_selector(
                     "open-1",
                     "/tmp",
-                    open=True,
                     accept=(".png",),
                     max_file_bytes=1024,
                 )
@@ -1413,7 +1418,7 @@ def test_run_session_forwards_file_selection_requests_to_the_window() -> None:
             max_bytes=1024,
         )
     ]
-    assert "window.request_selected_files" in log.calls
+    assert "window.request_file_selector" in log.calls
 
 
 def test_run_session_delivers_an_immediate_file_selection_result() -> None:
@@ -1422,10 +1427,14 @@ def test_run_session_delivers_an_immediate_file_selection_result() -> None:
 
     class PickingSession(FakeSession):
         def run_ui(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
-            pick = self.ui_loop.file_selector("open-1", open=self.ui_steps == 0)
+            if self.ui_steps == 0:
+                self.ui_loop.request_file_selector("open-1")
             self.ui_steps += 1
-            if pick is not None:
-                picks.append(pick)
+            picks.extend(
+                event
+                for event in self.ui_loop.user_events.get_events()
+                if isinstance(event, SelectedFilesUserInputEvent)
+            )
             return super().run_ui(step_index, events)
 
     session_desc = replace(
