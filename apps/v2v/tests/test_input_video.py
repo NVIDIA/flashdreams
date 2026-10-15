@@ -114,9 +114,10 @@ def test_load_input_video_preserves_display_rotation(
         writer.send(image)
     finally:
         writer.close()
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
     subprocess.run(
         [
-            imageio_ffmpeg.get_ffmpeg_exe(),
+            ffmpeg,
             "-y",
             "-v",
             "error",
@@ -131,13 +132,32 @@ def test_load_input_video_preserves_display_rotation(
         check=True,
         capture_output=True,
     )
-    reader = imageio_ffmpeg.read_frames(str(rotated), pix_fmt="rgb24")
-    try:
-        metadata = next(reader)
-        width, height = metadata["size"]
-        expected = np.frombuffer(next(reader), dtype=np.uint8).reshape(height, width, 3)
-    finally:
-        reader.close()
+    with av.open(str(rotated)) as container:
+        frame = next(container.decode(video=0))
+        assert frame.rotation % 360 == rotation % 360
+    height, width = image.shape[:2]
+    if rotation % 180 == 90:
+        height, width = width, height
+    # Read raw pixels: FFmpeg's odd-angle warning can break imageio's log parser.
+    reference = subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-i",
+            str(rotated),
+            "-frames:v",
+            "1",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "pipe:1",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    expected = np.frombuffer(reference.stdout, dtype=np.uint8).reshape(height, width, 3)
 
     video = _load_input_video(rotated, 1)
 
