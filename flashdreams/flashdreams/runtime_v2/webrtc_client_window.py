@@ -9,7 +9,7 @@ from dataclasses import replace
 
 from numpy import uint64
 
-from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.client_window import ClientWindowLink, IClientWindow
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -71,6 +71,10 @@ class WebRTCClientWindow(IClientWindow):
                 self._input_events.append(event)
 
         self.server.register_input_callback(handle_input)
+
+    def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:
+        """Replace links opened locally by the browser viewing this window."""
+        self.server.configure_links(links)
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Show or hide the cursor in the browser window."""

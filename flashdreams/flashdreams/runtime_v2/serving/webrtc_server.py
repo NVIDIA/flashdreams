@@ -26,15 +26,20 @@ from av import VideoFrame
 from loguru import logger
 from torch.nn import functional as F
 
+from flashdreams.api_v2.client_window import ClientWindowLink
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.serving.browser_input import (
     decode_browser_message,
+    link_gesture,
     parse_browser_event,
 )
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEvent,
+    FocusUserInputEvent,
     QueryStringUserInputEvent,
+    ResetUserInputEvent,
     UserInputEvent,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -326,6 +331,9 @@ class WebRTCServer:
         self._peer_connection: RTCPeerConnection | None = None
         self._control_channel: Any | None = None
         self._sent_cursor_options: tuple[bool, bool] | None = None
+        self._link_lock = threading.Lock()
+        self._links: tuple[ClientWindowLink, ...] = ()
+        self._pressed_link: tuple[str, int, ClientWindowLink] | None = None
         self._video_track: _VideoTrack | None = None
         self._final_video_track_metrics: dict[str, float | int] | None = None
         self._media_connected = threading.Event()
@@ -390,6 +398,59 @@ class WebRTCServer:
             "webrtc_sender_materialized_count": self._materialization_count,
         }
 
+    def configure_links(self, links: tuple[ClientWindowLink, ...]) -> None:
+        """Replace the server-side clickable regions over the output content."""
+        with self._link_lock:
+            if links != self._links:
+                self._links = links
+                self._pressed_link = None
+
+    def _cancel_link_press(self) -> None:
+        with self._link_lock:
+            self._pressed_link = None
+
+    def _consume_link_pointer(
+        self,
+        pointer: tuple[str, int],
+        action: str,
+        x: float,
+        y: float,
+        *,
+        in_content: bool,
+    ) -> bool:
+        """Consume a link press and open its destination only on a matching release."""
+        with self._link_lock:
+            link = next(
+                (
+                    candidate
+                    for candidate in self._links
+                    if in_content
+                    and not self._lock_cursor_to_window
+                    and candidate.bounds[0] <= x < candidate.bounds[2]
+                    and candidate.bounds[1] <= y < candidate.bounds[3]
+                ),
+                None,
+            )
+            if action == "start":
+                self._pressed_link = (*pointer, link) if link is not None else None
+                return link is not None
+            pressed = self._pressed_link
+            if pressed is None or pressed[:2] != pointer:
+                return False
+            if action == "move":
+                return True
+            self._pressed_link = None
+            channel = self._control_channel
+            if (
+                action == "end"
+                and link is not None
+                and link == pressed[2]
+                and channel is not None
+                and channel.readyState == "open"
+            ):
+                channel.send(json.dumps({"type": "open_url", "url": link.url}))
+            return True
+
     def configure_cursor(
         self, *, hide_cursor: bool, lock_cursor_to_window: bool
     ) -> None:
@@ -404,7 +465,9 @@ class WebRTCServer:
         ):
             return
         self._hide_cursor = hide_cursor
-        self._lock_cursor_to_window = lock_cursor_to_window
+        with self._link_lock:
+            self._lock_cursor_to_window = lock_cursor_to_window
+            self._pressed_link = None
         loop = self._loop
         if loop is not None and self._control_channel is not None:
             loop.call_soon_threadsafe(self._send_cursor_options)
@@ -482,6 +545,7 @@ class WebRTCServer:
                 future.cancel()
                 raise
         self._session_desc = session_desc
+        self.configure_links(())
         if current_session_desc is None:
             self._window_size = (
                 session_desc.video_width,
@@ -587,6 +651,7 @@ class WebRTCServer:
         """Close the peer connection and stop the WebRTC server."""
         if self._closed:
             return
+        self.configure_links(())
         self._closed = True
         failures: list[BaseException] = []
         track = self._video_track
@@ -803,6 +868,7 @@ class WebRTCServer:
                         self._control_channel = channel
 
                         self._sent_cursor_options = None
+                        self._cancel_link_press()
 
                     @channel.on("open")
                     def on_open() -> None:
@@ -839,6 +905,7 @@ class WebRTCServer:
                     self._media_connected.set()
                 elif peer_connection.connectionState == "disconnected":
                     self._media_connected.clear()
+                    self._cancel_link_press()
                 elif peer_connection.connectionState in {"failed", "closed"}:
                     await self._release_peer_connection(peer_connection)
 
@@ -894,6 +961,7 @@ class WebRTCServer:
                 self._media_connected.set()
             self._control_channel = control_channel
             self._sent_cursor_options = None
+            self._cancel_link_press()
             if control_channel is not None and control_channel.readyState == "open":
                 self._send_cursor_options()
             query_string = request.rel_url.raw_query_string
@@ -919,7 +987,21 @@ class WebRTCServer:
         timestamp_us = self._timestamp_us()
         if timestamp_us is None:
             return
-        self._append_event(parse_browser_event(payload, timestamp=timestamp_us))
+        event = parse_browser_event(payload, timestamp=timestamp_us)
+        gesture = link_gesture(payload, event)
+        if gesture is not None and self._consume_link_pointer(
+            gesture.pointer,
+            gesture.action,
+            gesture.x,
+            gesture.y,
+            in_content=gesture.in_content,
+        ):
+            return
+        if isinstance(event, (ResetUserInputEvent, CloseUserInputEvent)) or (
+            isinstance(event, FocusUserInputEvent) and not event.focused
+        ):
+            self._cancel_link_press()
+        self._append_event(event)
 
     def _append_event(self, event: UserInputEvent) -> None:
         """Buffer one validated browser event."""
@@ -946,6 +1028,7 @@ class WebRTCServer:
             self._control_channel = None
             self._video_track = None
             self._sent_cursor_options = None
+            self._cancel_link_press()
         else:
             track = detached_video_track
         failures: list[BaseException] = []

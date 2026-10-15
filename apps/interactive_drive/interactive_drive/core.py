@@ -534,29 +534,23 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
             # part of a worker's step that buys nothing, so it stops here. No
             # result reads to the runtime as a step that presented nothing.
             return []
-        output = _frame_chunk_tensor(
-            chunk,
-            state.view_mode,
-            layout=state.config.app.presentation,
-            output_size=(state.desc.video_height, state.desc.video_width),
-            output_device=_output_cuda_device(state.config.app),
-        )
         state._notify(
             "Rollout complete."
             if finished
             else _telemetry_status(state.vehicle, state.blocks_generated)
         )
         results = []
-        if output.shape[0]:
-            results.append(
-                StepResult(
-                    step_index=step_index,
-                    output=output,
-                    frame_count=int(output.shape[0]),
-                    output_layout=state.desc.output_layout,
-                    metrics=finalize_metrics,
+        for output in self._frame_chunk_tensors(chunk):
+            if output.shape[0]:
+                results.append(
+                    StepResult(
+                        step_index=step_index,
+                        output=output,
+                        frame_count=int(output.shape[0]),
+                        output_layout=state.desc.output_layout,
+                        metrics=finalize_metrics,
+                    )
                 )
-            )
         bev_output = self._bev_chunk_tensor(chunk)
         if bev_output is not None:
             results.append(
@@ -571,6 +565,19 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
         model_loop_ms = (time.perf_counter() - step_started_at) * 1000.0
         state._publish_drive_telemetry(chunk, model_loop_ms)
         return results
+
+    def _frame_chunk_tensors(self, chunk: FrameChunk) -> list[Tensor]:
+        """Return synchronized presentation channels for an emitted chunk."""
+        state = self.state
+        return [
+            _frame_chunk_tensor(
+                chunk,
+                state.view_mode,
+                layout=state.config.app.presentation,
+                output_size=(state.desc.video_height, state.desc.video_width),
+                output_device=_output_cuda_device(state.config.app),
+            )
+        ]
 
     @staticmethod
     def _bev_chunk_tensor(chunk: FrameChunk) -> Tensor | None:

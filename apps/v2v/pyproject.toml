@@ -12,14 +12,15 @@ description = "Reusable transport-neutral FlashDreams video-to-video application
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "av>=16.1.0",
     "flashdreams[local-window,serving]",
-    "imageio-ffmpeg>=0.5",
     "numpy>=1.26",
     "torch>=2.9",
 ]
 
 [project.optional-dependencies]
 dev = [
+    "imageio-ffmpeg>=0.5",
     "pytest>=8.0",
 ]
 

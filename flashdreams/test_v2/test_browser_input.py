@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """CPU checks for browser message decoding and input validation."""
 
@@ -24,6 +12,7 @@ import pytest
 
 from flashdreams.runtime_v2.serving.browser_input import (
     decode_browser_message,
+    link_gesture,
     parse_browser_event,
 )
 from flashdreams.runtime_v2.user_input_event import (
@@ -243,3 +232,90 @@ def test_nonfinite_numbers(event_type: str, value: int | float) -> None:
         parse_browser_event(
             decode_browser_message(json.dumps(payload)), timestamp=np.uint64(0)
         )
+
+
+def _gesture(payload: dict[str, object]):
+    return link_gesture(payload, parse_browser_event(payload, timestamp=np.uint64(1)))
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (
+            {"type": "mouse", "action": "button", "x": 3, "y": 4, "pressed": True},
+            (("mouse", 0), "start", 3.0, 4.0, True),
+        ),
+        (
+            {"type": "mouse", "action": "button", "x": 3, "y": 4, "in_content": False},
+            (("mouse", 0), "end", 3.0, 4.0, False),
+        ),
+        (
+            {"type": "mouse", "action": "button", "x": 3, "y": 4, "cancelled": True},
+            (("mouse", 0), "cancel", 3.0, 4.0, True),
+        ),
+        (
+            {
+                "type": "touch",
+                "action": "start",
+                "touch_id": 7,
+                "x": 0.1,
+                "y": 0.2,
+                "primary": True,
+            },
+            (("touch", 7), "start", 0.1, 0.2, True),
+        ),
+        (
+            {"type": "touch", "action": "move", "touch_id": 7, "x": 0.1, "y": 0.2},
+            (("touch", 7), "move", 0.1, 0.2, True),
+        ),
+    ],
+)
+def test_link_gesture_describes_primary_pointer(
+    payload: dict[str, object], expected: tuple[object, ...]
+) -> None:
+    assert tuple(_gesture(payload) or ()) == expected
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"type": "mouse", "action": "button", "x": 0, "y": 0, "button": 2},
+        {"type": "mouse", "action": "move", "x": 0, "y": 0},
+        {"type": "touch", "action": "start", "touch_id": 1, "x": 0, "y": 0},
+        {"type": "keyboard", "key": "w", "pressed": True},
+        {"type": "focus", "focused": False},
+    ],
+)
+def test_link_gesture_ignores_other_events(payload: dict[str, object]) -> None:
+    assert _gesture(payload) is None
+
+
+@pytest.mark.parametrize("value", [None, 1, "false", [], {}])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"type": "mouse", "action": "button", "x": 0, "y": 0, "in_content": None},
+        {
+            "type": "mouse",
+            "action": "button",
+            "x": 0,
+            "y": 0,
+            "button": 2,
+            "cancelled": None,
+        },
+        {
+            "type": "touch",
+            "action": "end",
+            "touch_id": 1,
+            "x": 0,
+            "y": 0,
+            "in_content": None,
+        },
+    ],
+)
+def test_link_gesture_flags_require_booleans(
+    payload: dict[str, object], value: object
+) -> None:
+    flag = next(key for key, item in payload.items() if item is None)
+    with pytest.raises(ValueError, match="boolean"):
+        _gesture({**payload, flag: value})

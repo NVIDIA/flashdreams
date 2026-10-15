@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """
 nvjpeg - GPU-accelerated JPEG encoding for PyTorch tensors.
@@ -68,8 +56,10 @@ def _get_plugin():
     else:
         ldflags = []
 
-    # Reset CUDA arch list to let PyTorch detect the installed GPU
-    os.environ["TORCH_CUDA_ARCH_LIST"] = ""
+    # Let PyTorch detect the installed GPU unless the caller already chose an arch list:
+    # on GPUs newer than this torch knows (e.g. compute capability 10.7) detection raises
+    # "Unknown CUDA arch", and an explicit "<newest known>+PTX" is the only way to build.
+    os.environ.setdefault("TORCH_CUDA_ARCH_LIST", "")
 
     # Speed up compilation on Windows
     if os.name == "nt":

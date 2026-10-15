@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Unified checkpoint loader that dispatches by source URL."""
 
@@ -21,6 +9,8 @@ import hashlib
 import io
 import json
 import os
+import shutil
+import tempfile
 import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -1104,17 +1094,29 @@ def _save_to_local_cache(
     *,
     label: str = "checkpoint cache",
 ) -> None:
-    """Save state dict to local cache."""
+    """Atomically save a state dict, preserving any existing cache on failure."""
     min_bytes = _preflight_local_cache_path(
         path,
         label=label,
         settings={"path": path},
     )
     try:
-        if ext == ".safetensors":
-            save_safetensors(dict(state_dict), path)
-        else:
-            torch.save(state_dict, path)
+        # A private sibling directory allows normal file-creation permissions
+        # while keeping publication on the same filesystem.
+        with tempfile.TemporaryDirectory(
+            prefix=f".{os.path.basename(path)}.",
+            dir=os.path.dirname(path) or ".",
+        ) as temporary_dir:
+            temporary_path = os.path.join(temporary_dir, f"checkpoint{ext}")
+            if ext == ".safetensors":
+                save_safetensors(dict(state_dict), temporary_path)
+            else:
+                torch.save(state_dict, temporary_path)
+            try:
+                shutil.copymode(path, temporary_path)
+            except FileNotFoundError:
+                pass
+            os.replace(temporary_path, path)
     except Exception as exc:
         _raise_local_cache_disk_error(
             exc,

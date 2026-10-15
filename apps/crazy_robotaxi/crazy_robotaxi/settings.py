@@ -53,7 +53,9 @@ SETTING_CLI_FLAGS: dict[str, str] = {
     "live_edit.items.rain_sprite_path": "--live-edit-item-rain-sprite",
     "live_edit.items.snow_sprite_path": "--live-edit-item-snow-sprite",
     "live_edit.items.spacing_m": "--live-edit-item-spacing",
-    "live_edit.map_context.enabled": "--live-edit-map-context, --no-live-edit-map-context",
+    "live_edit.dynamic_prompts.enabled": (
+        "--live-edit-dynamic-prompts, --no-live-edit-dynamic-prompts"
+    ),
     "live_edit.obstacle.active_chunks": "--live-edit-obstacle-chunks",
     "live_edit.obstacle.annotate": "--live-edit-obstacle-annotate, --no-live-edit-obstacle-annotate",
     "live_edit.obstacle.count": "--live-edit-obstacle-count",
@@ -454,6 +456,7 @@ class SettingsDocument:
         version = document.get("schema_version", 1)
         if not isinstance(version, int) or isinstance(version, bool) or version != 1:
             raise SettingsError("schema_version must be 1")
+        _drop_deprecated_settings(document)
         base = default_settings(
             pipeline_config,
             width=width,
@@ -518,6 +521,14 @@ class SettingsDocument:
                 pass
             raise
         self.settings = settings
+
+
+def _drop_deprecated_settings(document: CommentedMap) -> None:
+    """Discard settings keys retired within schema version 1."""
+    live_edit = document.get("live_edit")
+    if not isinstance(live_edit, CommentedMap) or "map_context" not in live_edit:
+        return
+    del live_edit["map_context"]
 
 
 def normalize_settings(

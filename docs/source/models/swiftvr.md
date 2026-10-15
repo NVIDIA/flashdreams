@@ -18,11 +18,8 @@ mask-free shifted-window attention with a restoration-aware autoencoder for
 causal chunk-wise inference. FlashDreams provides 2x and 4x post-processing
 presets and the standalone `v2v-swiftvr` application.
 
-<div class="model-video-card" style="width: 100%; margin: 10px auto 14px;">
-  <video class="model-video-player" autoplay muted loop playsinline preload="metadata">
-    <source src="../_static/model_clips/swiftvr/swiftvr-2x.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+<div class="fd-card fd-model-card">
+  <img class="fd-card-preview" src="../_static/model_clips/swiftvr/swiftvr-2x.avif" alt="" />
 </div>
 
 <figcaption class="tiny-figcaption">
@@ -40,11 +37,13 @@ presets and the standalone `v2v-swiftvr` application.
 uv sync --package flashdreams-swiftvr --inexact
 uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
   --mode mp4 --output-path artifacts/swiftvr-2x.mp4 --timeout unbound -- \
-  --video-path docs/source/_static/model_clips/wan22/wan22-ti2v-5b.mp4
+  --video-path docs/source/_static/model_clips/wan22/wan22-ti2v-5b.avif
 ```
 
-- [Demo presets](#v2v-presets)
-- [Demo arguments](../demos/v2v.md#demo-arguments)
+<div class="fd-cta-row">
+  <a class="fd-button" href="#v2v-presets">Demo Presets</a>
+  <a class="fd-button" href="../demos/v2v.md#demo-arguments">Demo Arguments</a>
+</div>
 
 <hr>
 
@@ -63,7 +62,7 @@ uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
 ## Developer Details
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/swiftvr">Integration source</a>
+  <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/tree/main/integrations_v2/swiftvr">Integration Source</a>
   <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/swiftvr/config.py">Pipeline configurations</a>
 </div>
 

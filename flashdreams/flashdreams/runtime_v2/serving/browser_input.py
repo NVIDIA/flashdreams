@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Browser message validation and v2 input event conversion."""
 
@@ -19,7 +7,7 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Literal, cast
+from typing import Literal, NamedTuple, cast
 
 import numpy as np
 
@@ -222,6 +210,53 @@ def parse_browser_event(
     else:
         raise ValueError("Unsupported browser event type.")
     return event
+
+
+class LinkGesture(NamedTuple):
+    """Primary-pointer gesture that a server-side link region may consume."""
+
+    pointer: tuple[str, int]
+    action: Literal["start", "move", "end", "cancel"]
+    x: float
+    y: float
+    in_content: bool
+
+
+def link_gesture(
+    payload: dict[str, object], event: UserInputEvent
+) -> LinkGesture | None:
+    """Return the link-eligible pointer gesture of a parsed event, if any.
+
+    Only the primary mouse button and primary-initiated touches can activate a
+    link. The optional ``cancelled`` and ``in_content`` flags are validated for
+    every mouse button event and every touch event.
+
+    Args:
+        payload: Object returned by ``decode_browser_message``.
+        event: Event returned by ``parse_browser_event`` for ``payload``.
+
+    Raises:
+        ValueError: A pointer flag is not a boolean.
+    """
+    if isinstance(event, MouseUserInputEvent) and event.action == "button":
+        cancelled = payload.get("cancelled", False)
+        in_content = payload.get("in_content", True)
+        if not isinstance(cancelled, bool) or not isinstance(in_content, bool):
+            raise ValueError("Mouse cancelled and in_content must be booleans.")
+        if event.button != 0:
+            return None
+        action = "cancel" if cancelled else "start" if event.pressed else "end"
+        return LinkGesture(("mouse", 0), action, event.x, event.y, in_content)
+    if isinstance(event, TouchUserInputEvent):
+        in_content = payload.get("in_content", True)
+        if not isinstance(in_content, bool):
+            raise ValueError("Touch in_content must be a boolean.")
+        if event.action == "start" and not event.primary:
+            return None
+        return LinkGesture(
+            ("touch", event.touch_id), event.action, event.x, event.y, in_content
+        )
+    return None
 
 
 def _finite_number(value: object, *, label: str) -> float:

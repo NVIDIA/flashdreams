@@ -1,170 +1,105 @@
 ---
-title: 'OmniDreams interactive latency tuning'
+title: 'Latency tuning'
 ---
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
-
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-Interactive launch latency has two different components:
+Tune latency from measurements, not from model size or code shape. Interactive
+latency includes model work, decode, transfer, queueing, and presentation; a
+faster kernel cannot fix a backed-up presenter, and transport changes cannot
+make a slow denoising loop faster.
 
-- **Model / chunk latency** is the time spent preparing HDMap conditioning,
-  running the OmniDreams DiT, decoding the generated chunk, and updating model
-  state. This is usually the dominant input-to-visual delay.
-- **Video-transport latency** is the time spent delivering already-generated
-  frames to a local window or browser. The presentation mode and network path
-  affect this cost, but they do not make the model generate a chunk faster.
+## 1. Establish a reproducible baseline
 
-Tune the model path first when the profiler shows per-chunk work dominating.
-Tune transport when generated frames are ready quickly but arrive late or unevenly
-in the viewer.
+Fix the model slug, checkpoint, input, seed, resolution, block count, precision,
+compile flags, cache policy, and presentation mode. Record the commit, GPU,
+driver, CUDA, PyTorch, cuDNN, and compiler-cache state.
 
-## Model and backend choice
-
-Use the OmniDreams world-model backend for latency work. The raster backend is
-useful for scene, control, and presenter debugging, but it does not exercise the
-model path and should not be used as a model-latency reference.
-
-The registered Interactive Drive applications are the supported starting points:
-
-- `interactive-drive-omnidreams` is the default single-view configuration at
-  `1280 x 704` (width x height), 30 FPS, 8 generated frames per steady-state
-  block, LightVAE enabled, and native DiT acceleration disabled.
-- `interactive-drive-omnidreams-optimized-gb300` and
-  `interactive-drive-omnidreams-optimized-rtx-pro-6000` select
-  hardware-specific optimized PyTorch attention policies at `1280 x 704`.
-- `interactive-drive-omnidreams-perf` is the perf-tuned configuration. It lowers the
-  default resolution to `1168 x 640`, keeps 30 FPS and 8-frame steady-state
-  blocks, enables the performance recipe, and requires the native DiT path.
-- `interactive-drive-omnidreams-fast-perf` adds the native FP8 LightVAE
-  encoders to the perf configuration.
-
-Run the perf application only on hosts that can build and load the native extension:
+Use `--stats-path` before the application separator. It enables synchronized
+pipeline profiling and writes model-step metrics:
 
 ```bash
-
-uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-    interactive-drive-omnidreams-perf --mode native-window
-
+uv run --package flashdreams-self-forcing flashdreams-run-v2 \
+    t2v-self-forcing-wan2.1-t2v-1.3b \
+    --mode mp4 \
+    --output-path artifacts/latency/baseline.mp4 \
+    --stats-path artifacts/latency/baseline.json \
+    --timeout unbound -- \
+    --no-ui \
+    --prompt "A fixed benchmark prompt." \
+    --total-blocks 14 \
+    --seed 1
 ```
 
-The perf config's `native_dit_acceleration="required"` is intentional. If the
-native extension is not available, startup fails instead of silently falling
-back to the slower PyTorch path.
+Profiling synchronizes CUDA and changes throughput. Use it to attribute stages,
+not as the headline uninstrumented result.
 
-## Resolution
+## 2. Separate cold and steady state
 
-Resolution is one of the highest-impact latency knobs because it changes the
-amount of HDMap, DiT, and VAE work per chunk. Pass application arguments after
-the `--` separator:
+The first steps may include checkpoint loading, text/context encoding,
+`torch.compile`, kernel autotuning, graph capture, and cache fill. Report at
+least:
 
-```bash
+- application initialization or preload time;
+- first visible chunk latency;
+- warmup steps excluded;
+- steady-state median and p90 chunk time;
+- frames per chunk and effective generated FPS;
+- peak and reserved GPU memory.
 
-uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-    interactive-drive-omnidreams --mode native-window -- \
-    --width 1168 --height 640
+Run long enough to reach a full rolling cache. Use fresh processes when
+comparing compile, autotune, or persistent-cache behavior.
 
-```
+## 3. Read the pipeline stages
 
-`--width` and `--height` must be positive. The OmniDreams pipeline also
-requires both dimensions to be divisible by the VAE spatial compression ratio
-times the DiT patch size (16 for the registered single-view configurations).
-The registered defaults, `1280 x 704` and `1168 x 640`, satisfy this
-constraint.
+The base pipeline reports `encode_ms`, `diffuse_ms`, `decode_ms`,
+`finalize_ms`, `total_ms_wo_finalize`, and `total_ms` when those stages are
+present. It also reports allocated, reserved, and peak GPU memory.
 
-Lowering resolution reduces per-chunk compute and transport payload size, with
-the expected image-quality tradeoff. The application uses the selected
-resolution for both HDMap rasterization and world-model output.
+| Dominant observation | Investigate first |
+| --- | --- |
+| `encode_ms` | control preprocessing, VAE encoder, input layout/copies |
+| `diffuse_ms` | denoising steps, attention/GEMM backend, compile, CUDA graphs, model cache |
+| `decode_ms` | decoder choice, streaming cache, layout conversion, memory format |
+| `finalize_ms` | K/V maintenance, synchronization, overlap opportunity |
+| Pipeline fast but display late | device-to-host transfer, encoding, queue depth, pacing, network |
+| Latency grows over time | unbounded cache/history, allocator growth, presenter backlog |
 
-## Chunk size constraints
+Measure transfer and presentation separately when they are not represented by
+pipeline metrics. For interactive generation, also report estimated
+input-to-visible latency rather than only model FPS.
 
-Do not treat chunk size as an arbitrary latency knob. The registered
-Interactive Drive applications do not expose a chunk-size command-line option,
-and the world-model adapter validates the pipeline at startup:
+## 4. Change one bottleneck at a time
 
-- The initial conditioning chunk is fixed at 5 frames.
-- The registered single-view configurations generate 8-frame steady-state
-  chunks.
+Prefer the smallest option that addresses the measured hot stage:
 
-At 30 FPS, an 8-frame steady-state chunk covers about 267 ms of generated video.
-Reducing video-transport latency cannot remove this model-side chunk granularity.
+- reduce resolution, denoising steps, or context only when the quality tradeoff
+  is acceptable;
+- bound and preallocate K/V caches before compiler or graph work;
+- compile the smallest fixed-shape compute region;
+- capture CUDA graphs only with stable shapes, pointers, and stream ordering;
+- compare attention backends on the target GPU instead of assuming portability;
+- keep the quality decoder as the reference when evaluating a faster decoder;
+- tune ordered pacing and bounded queues after generation gets faster.
 
-## FP8 and native acceleration
+Keep optimized paths opt-in until their startup, reset, scene-switch, and
+shape-change behavior is validated. Hardware-specific results belong on the
+model page, not as universal defaults in this generic guide.
 
-The perf application config uses the OmniDreams single-view native CUDA
-extension for the DiT path. These values are properties of the registered
-pipeline preset, not application manifest fields:
+## 5. Validate performance and quality together
 
-```yaml
+Use the same latent for decoder comparisons, compare cache changes before and
+after the rolling-window boundary, and use controlled short schedules for
+attention or compile changes. Preserve the fallback path.
 
-native_dit_acceleration: required
-native_dit_backend: fp8_kvcache_cudnn
-native_dit_attention_backend: cudnn
+A defensible result includes the exact command and environment, warmup policy,
+median and p90 totals, stage timings, memory, output artifacts, quality method,
+and whether the candidate is recommended, useful only as an opt-in, rejected,
+or still unvalidated.
 
-```
-
-The implementation supports `disabled`, `auto`, and `required` native
-acceleration policies and `fp8_kvcache_cudnn` and `bf16` native DiT
-backends. Its attention selector accepts `auto`, `cudnn`, `sparge`,
-`sage3`, `sage3_fp8`, and `prefer_sage3_fp8`; the perf application pins
-`cudnn`.
-
-The native extension requires a source checkout, `git`, network access, a
-CUDA toolchain (`nvcc`) matching the PyTorch build, and a Blackwell-class GPU
-(SM 12.0). It downloads pinned third-party sources when first used and builds
-for `12.0a` by default. The automatic architecture detection recognizes the
-SM 12.0 RTX PRO 6000 and RTX 5090 device families.
-
-H100 / Hopper systems should use the standard PyTorch CUDA path with native DiT
-disabled unless you are deliberately maintaining a compatible native build. That
-path is supported, but it is not the same perf path as the published GB300
-numbers.
-
-GB300 systems should use `interactive-drive-omnidreams-optimized-gb300`;
-GB300 is not an SM 12.0 target for the native extension.
-
-The `interactive-drive-omnidreams-fast-perf` application enables native FP8
-for both the first-frame and per-step LightVAE encoders. It automatically
-exports and caches calibration state at
-`artifacts/native_vae/lightvae_fp8_state.pt` when no explicit state is
-configured. Custom pipeline configurations can instead set
-`native_vae_fp8_state_path` or the
-`OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH` environment variable.
-
-The regular perf application leaves native VAE acceleration disabled.
-
-## Transport choice
-
-Pick transport based on where the viewer runs:
-
-- `--mode native-window`: local GPU-backed presentation when the host has a
-  graphics-capable GPU and display stack.
-- `--mode webrtc`: browser presentation. Add `--host 0.0.0.0` and a fixed
-  `--port` when connecting from another host.
-- `--mode mp4 --output-path FILE`: file output for offline inspection; it is
-  not an interactive transport.
-
-Presentation choice affects delivery after a frame exists. If the model is
-still spending most of the time inside each chunk, use the perf application
-and resolution knobs first.
-
-## Profiling and validated reference
-
-Pass `--stats-path FILE.json` before the application-argument separator to
-record model-step measurements. This also enables synchronized per-stage
-pipeline profiling, so use it for measurement rather than as a throughput
-setting:
-
-```bash
-
-uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-    interactive-drive-omnidreams-perf --mode native-window \
-    --stats-path artifacts/interactive-drive-stats.json
-
-```
-
-The validated published reference is the single-view GB300 table in
-[OmniDreams](../../../models/omnidreams.md), measured at `1280 x 704` (width x height). Its
-KV-cache update measurement is off the hot path and excluded from the reported
-total. This guide consolidates the supported latency controls; it does not add
-new end-to-end hardware measurements.
+For repeatable command execution and reports, use the
+[local benchmark guide](../../demo_api/guides/local_benchmarks.md). For low-level
+attention and quantization options, continue with
+[Accelerated building blocks](accelerated.md) only after profiling identifies
+that stage as the bottleneck.
