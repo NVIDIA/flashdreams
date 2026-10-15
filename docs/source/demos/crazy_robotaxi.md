@@ -8,8 +8,12 @@ title: 'Crazy Robotaxi'
 <a id="crazy-robotaxi"></a>
 
 Crazy Robotaxi is an interactive FlashDreams v2 driving application. Drive a
-taxi through authored maps, collect fares, or race against the clock using a
-keyboard, gamepad, or steering wheel.
+taxi through authored maps, collect fares, race against the clock, or explore
+freely using a keyboard, gamepad, or steering wheel.
+
+The game simulates vehicle motion and objectives, renders semantic HD-map
+conditioning for OmniDreams, and composites its HUD over the generated street
+view.
 
 <div class="fd-card fd-model-card">
   <img class="fd-card-preview" src="../_static/demo_clips/crazy-robotaxi.avif" alt="" />
@@ -111,7 +115,7 @@ runtime concern.
 | `--seed N` | Set both gameplay and model seeds. |
 | `--game-seed N`, `--model-seed N` | Set gameplay and model seeds independently. |
 | `--high-scores PATH` | Store taxi-mode high scores at a specific path. |
-| `--game-mode {taxi,race}` | Start directly in taxi or race mode. |
+| `--game-mode {taxi,race,free-roam}` | Start directly in taxi, race, or Free-Roam mode. |
 | `--visual-flare`, `--no-visual-flare` | Enable or disable visual flare. |
 | `--race-course NAME` | Select a race course from the active map. |
 | `--race-times PATH` | Store race times at a specific path. |
@@ -198,14 +202,29 @@ uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window -- \
 Race times are stored per map and course. Use `--race-times PATH` to choose a
 different leaderboard file.
 
+## Free-Roam mode
+
+Choose **FREE-ROAM** from the mode menu, then choose a map. Free-Roam keeps
+driving and enabled live-edit abilities available without fares, checkpoints,
+a timer, or a score. No race-course selection is needed.
+
+To skip the menus and start on the bundled boulevard map:
+
+```bash
+uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+  crazy-robotaxi-omnidreams --mode native-window -- \
+  --game-mode free-roam \
+  --map apps/crazy_robotaxi/crazy_robotaxi/maps/boulevard_district.robotaxi.yaml
+```
+
 <a id="apps-crazyrobotaxi-readme--optional-live-edit-abilities"></a>
 
 <hr>
 
 ## Optional live-edit abilities
 
-Live-edit features are disabled by default. Enable them with application
-arguments:
+Live-edit features are disabled by default. Enable them on the **LIVE EDIT**
+Options page or with application arguments:
 
 ```bash
 
@@ -214,27 +233,62 @@ uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window -- \
   --live-edit-items \
   --live-edit-weather \
   --live-edit-style \
-  --live-edit-map-context
+  --live-edit-obstacle \
+  --live-edit-dynamic-prompts
 
 ```
 
 When enabled, `C` toggles coins, `K` cycles style skins, `V` cycles weather,
 and `O` spawns a crossing obstacle. The same enabled actions appear as buttons
 in the live-edit HUD card alongside frame-aligned ability status. Weather cannot
-change while a non-base style is active. Style mode downloads its additional
-model assets on first use and caches them under
-`artifacts/crazy_robotaxi/live_edit`.
+change while a non-base style is active. Required additional checkpoints are
+downloaded during application startup when the features are enabled, unless
+explicit checkpoint paths are configured. Downloaded assets are cached under
+`artifacts/crazy_robotaxi/live_edit` relative to the working directory.
 
-Map context appends authored road and landmark descriptions plus topology,
-curve, and vehicle-motion clauses to the active prompt. Complete combined
-prompts are encoded and retained lazily, so the first visit to a new context
-may pause briefly and maps with many unique contexts retain more GPU memory.
+Style, weather, active dynamic prompts, and obstacles with a positive
+`guide_scale` need the Python transformer hooks. Enabling any of them
+automatically disables native DiT acceleration and logs the reason. Native VAE
+acceleration and the remaining performance configuration are preserved. Coins,
+nitro-only items, and unguided obstacles can retain native DiT. The default item
+types include rain, snow, and mystery, which also enable weather and style and
+therefore disable native DiT.
 
-Style, weather, and guided obstacles need the Python transformer hooks. When
-one of those features is enabled, the application automatically disables native
-DiT acceleration and logs the reason. Native VAE acceleration and the remaining
-performance configuration stay enabled; pixel-only features such as coins,
-items, and unguided obstacles keep native DiT acceleration.
+### Dynamic Prompts
+
+Enable the master switch with `--live-edit-dynamic-prompts`, or disable it for
+the current run with `--no-live-edit-dynamic-prompts`. Choose the individual
+fragments in **LIVE EDIT → Dynamic Prompts** in Options or under
+`live_edit.dynamic_prompts` in YAML:
+
+| YAML key | Default | Prompt content |
+| --- | --- | --- |
+| `enabled` | `false` | Master switch for dynamic prompt updates. |
+| `include_current_road_context` | `true` | Authored description of the current road. |
+| `include_next_map_node_type` | `true` | Type and relative status of the current or next map node. |
+| `include_next_map_node_context` | `true` | Authored description of the current or next map node. |
+| `include_upcoming_road_curve_direction` | `true` | Whether the upcoming road curves left or right. |
+| `include_taxi_motion_state` | `true` | Forward, stationary, or reversing motion. |
+
+For example, keep road and node descriptions but omit curve and motion cues:
+
+```yaml
+live_edit:
+  dynamic_prompts:
+    enabled: true
+    include_upcoming_road_curve_direction: false
+    include_taxi_motion_state: false
+```
+
+Dynamic prompts are active only when the master switch and at least one
+fragment are enabled. When active, they use the spawn's shorter `prompt_context`
+as a base, falling back to its full `prompt` if no context is provided. With all
+fragments off, the normal spawn prompt and selected DiT backend are retained
+unless another feature requires the Python transformer.
+
+Complete combined prompts are encoded and retained lazily, so the first visit
+to a new combination may pause briefly and sessions with many unique
+combinations retain more GPU memory.
 
 <a id="apps-crazyrobotaxi-readme--authored-maps"></a>
 
@@ -257,5 +311,5 @@ uv run --package crazy-robotaxi crazy-robotaxi-map preview-spawn \
 ```
 
 Each spawn can define both a full `prompt` for normal play and a shorter
-`prompt_context` base for `--live-edit-map-context`; dynamic road and motion
-clauses are appended only to the latter.
+`prompt_context` base for active dynamic prompts. Selected fragments are
+appended to that base, falling back to `prompt` when `prompt_context` is absent.
