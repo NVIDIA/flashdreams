@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import threading
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -564,7 +565,39 @@ def test_visual_swap_absorbs_pending_map_change_once() -> None:
     assert ability._pending_map_suffix is None
 
 
-def test_combined_map_prompts_are_encoded_lazily() -> None:
+def test_combined_map_prompts_use_the_text_encoder_cache() -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(),
+        map_context_config=LiveEditMapContextConfig(enabled=True),
+    )
+    ability._dynamic_prompts_use_host_cache = True
+    prompt_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    pipeline = SimpleNamespace(replace_text_from_embeddings=pytest.fail)
+    session = SimpleNamespace(
+        pipeline=pipeline,
+        _cache=object(),
+        _pending_finalization_index=None,
+        replace_prompt=lambda *args, **kwargs: prompt_calls.append((args, kwargs)),
+    )
+    target = SimpleNamespace(
+        prompt="A sunny suburb. The taxi is stationary.",
+        guidance_scale=1.0,
+        guidance_chunks=0,
+        use_lora=False,
+    )
+
+    ability._replace_text(session, target)
+
+    assert target.prompt not in ability._prompt_embeddings
+    assert prompt_calls == [
+        (
+            (target.prompt,),
+            {"guidance_scale": 1.0, "guidance_chunks": 0},
+        )
+    ]
+
+
+def test_gpu_encoder_dynamic_prompts_keep_lazy_device_cache() -> None:
     ability = StyleAbility(
         LiveEditStyleConfig(),
         map_context_config=LiveEditMapContextConfig(enabled=True),
@@ -579,7 +612,7 @@ def test_combined_map_prompts_are_encoded_lazily() -> None:
         pipeline=pipeline,
         _cache=object(),
         _pending_finalization_index=None,
-        replace_prompt=lambda *args, **kwargs: pytest.fail("expected cached swap"),
+        replace_prompt=lambda *args, **kwargs: pytest.fail("expected device cache"),
     )
     setattr(
         ability,
@@ -599,6 +632,128 @@ def test_combined_map_prompts_are_encoded_lazily() -> None:
 
     assert target.prompt in ability._prompt_embeddings
     assert calls[0][0][1] == "cached"
+
+
+@pytest.mark.parametrize(("run_on_cpu", "expected"), [(False, False), (True, True)])
+def test_bounded_host_prompt_cache_requires_cpu_encoder(
+    run_on_cpu: bool, expected: bool
+) -> None:
+    pipeline = SimpleNamespace(
+        text_encoder=SimpleNamespace(
+            config=SimpleNamespace(
+                run_on_cpu=run_on_cpu,
+                embedding_cache_size=8,
+            ),
+            preencode=lambda prompts: None,
+        )
+    )
+
+    assert StyleAbility._uses_bounded_host_prompt_cache(pipeline) is expected
+
+
+def test_dynamic_prompts_preencode_when_complete_set_fits_host_cache() -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(),
+        map_context_config=LiveEditMapContextConfig(
+            enabled=True,
+            include_current_road_context=False,
+            include_next_map_node_type=False,
+            include_next_map_node_context=False,
+            include_upcoming_road_curve_direction=False,
+        ),
+    )
+    game_map = load_game_map(
+        Path(__file__).parent / "maps" / "traffic_loop.robotaxi.yaml"
+    )
+    ability.configure_map(game_map)
+    ability._base_prompt = "A sunny suburb."
+    preencoded: list[tuple[str, ...]] = []
+    text_encoder = SimpleNamespace(
+        config=SimpleNamespace(run_on_cpu=True, embedding_cache_size=4),
+        preencode=lambda prompts: preencoded.append(tuple(prompts)),
+    )
+
+    ability._preencode_dynamic_prompts(SimpleNamespace(text_encoder=text_encoder))
+
+    assert set(preencoded) == {
+        ("A sunny suburb. The taxi is driving forward.",),
+        (
+            "A sunny suburb. The taxi is reversing; scenery moves forward "
+            "relative to the camera.",
+        ),
+        ("A sunny suburb. The taxi is stationary.",),
+    }
+
+
+def test_dynamic_prompt_preencoding_runs_in_background() -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(),
+        map_context_config=LiveEditMapContextConfig(
+            enabled=True,
+            include_current_road_context=False,
+            include_next_map_node_type=False,
+            include_next_map_node_context=False,
+            include_upcoming_road_curve_direction=False,
+        ),
+    )
+    ability.configure_map(
+        load_game_map(Path(__file__).parent / "maps" / "traffic_loop.robotaxi.yaml")
+    )
+    ability._base_prompt = "A sunny suburb."
+    started = threading.Event()
+    release = threading.Event()
+
+    def preencode(prompts: list[str]) -> None:
+        del prompts
+        started.set()
+        assert release.wait(timeout=2.0)
+
+    pipeline = SimpleNamespace(
+        text_encoder=SimpleNamespace(
+            config=SimpleNamespace(run_on_cpu=True, embedding_cache_size=4),
+            preencode=preencode,
+        )
+    )
+
+    try:
+        ability._precompute_prompt_embeddings(pipeline)
+        assert started.wait(timeout=2.0)
+        assert ability._dynamic_prompt_preencode_future is not None
+        assert not ability._dynamic_prompt_preencode_future.done()
+        ability._pending_map_suffix = "The taxi is stationary."
+        ability._apply_pending_map_context()
+        assert ability._pending_map_suffix == "The taxi is stationary."
+    finally:
+        release.set()
+
+    ability.finish_dynamic_prompt_preencoding()
+    assert ability._dynamic_prompt_preencode_future is None
+
+
+def test_dynamic_prompt_preencoding_skips_sets_larger_than_host_cache() -> None:
+    ability = StyleAbility(
+        LiveEditStyleConfig(),
+        map_context_config=LiveEditMapContextConfig(
+            enabled=True,
+            include_current_road_context=False,
+            include_next_map_node_type=False,
+            include_next_map_node_context=False,
+            include_upcoming_road_curve_direction=False,
+        ),
+    )
+    game_map = load_game_map(
+        Path(__file__).parent / "maps" / "traffic_loop.robotaxi.yaml"
+    )
+    ability.configure_map(game_map)
+    ability._base_prompt = "A sunny suburb."
+    text_encoder = SimpleNamespace(
+        config=SimpleNamespace(run_on_cpu=True, embedding_cache_size=3),
+        preencode=lambda prompts: pytest.fail(
+            f"oversized prompt set must not be partially pre-encoded: {prompts}"
+        ),
+    )
+
+    ability._preencode_dynamic_prompts(SimpleNamespace(text_encoder=text_encoder))
 
 
 def test_map_only_postprocessing_returns_original_video() -> None:
