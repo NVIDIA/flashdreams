@@ -448,8 +448,8 @@ def _apply_window_requests(window: IClientWindow, request: UILoopRequests) -> No
         window.request_lock_cursor_to_window(request.lock_cursor_to_window)
     if request.new_window_size is not None:
         window.request_new_window_size(request.new_window_size)
-    for file_selection in request.file_selections:
-        window.request_file_selector(file_selection)
+    if request.file_selection is not None:
+        window.request_file_selector(request.file_selection)
 
 
 def _open_chunk_trace(path_value: object) -> _ChunkTraceLog:

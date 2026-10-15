@@ -118,10 +118,12 @@ def test_open_file_button_requests_a_client_file(label: str, request_id: str) ->
     requests = loop.flush_ui_loop_requests()
 
     assert requests is not None
-    assert [item.request_id for item in requests.file_selections] == [request_id]
-    assert requests.file_selections[0].accept == (".bin", ".raw")
-    assert requests.file_selections[0].max_bytes == MAX_SELECTED_FILE_BYTES
-    assert requests.file_selections[0].multiple is False
+    selection = requests.file_selection
+    assert selection is not None
+    assert selection.request_id == request_id
+    assert selection.accept == (".bin", ".raw")
+    assert selection.max_bytes == MAX_SELECTED_FILE_BYTES
+    assert selection.multiple is False
 
 
 def test_open_files_button_requests_multiple_client_files() -> None:
@@ -132,12 +134,12 @@ def test_open_files_button_requests_multiple_client_files() -> None:
     requests = loop.flush_ui_loop_requests()
 
     assert requests is not None
-    assert [item.request_id for item in requests.file_selections] == [
-        _OPEN_FILES_REQUEST_ID
-    ]
-    assert requests.file_selections[0].accept == (".bin", ".raw")
-    assert requests.file_selections[0].max_bytes == MAX_SELECTED_FILE_BYTES
-    assert requests.file_selections[0].multiple is True
+    selection = requests.file_selection
+    assert selection is not None
+    assert selection.request_id == _OPEN_FILES_REQUEST_ID
+    assert selection.accept == (".bin", ".raw")
+    assert selection.max_bytes == MAX_SELECTED_FILE_BYTES
+    assert selection.multiple is True
 
 
 def test_selected_files_event_updates_file_picker_status() -> None:

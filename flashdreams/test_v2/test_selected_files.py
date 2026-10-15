@@ -74,8 +74,8 @@ def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
-    assert len(requests.file_selections) == 1
-    selection = requests.file_selections[0]
+    selection = requests.file_selection
+    assert selection is not None
     assert selection.request_id == "open-1"
     assert selection.initial_path == "/tmp"
     assert selection.accept == (".png", ".JPG")
@@ -89,20 +89,19 @@ def test_ui_loop_uses_home_when_initial_path_is_omitted() -> None:
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
-    assert requests.file_selections[0].initial_path == str(Path.home())
+    assert requests.file_selection is not None
+    assert requests.file_selection.initial_path == str(Path.home())
 
 
-def test_ui_loop_forwards_distinct_file_selection_ids() -> None:
+def test_ui_loop_keeps_the_first_file_selection_of_a_tick() -> None:
     loop = _ui_loop()
     loop.request_file_selector("open-1", "/tmp")
     loop.request_file_selector("open-2", "/var")
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
-    assert [item.request_id for item in requests.file_selections] == [
-        "open-1",
-        "open-2",
-    ]
+    assert requests.file_selection is not None
+    assert requests.file_selection.request_id == "open-1"
 
 
 def test_ui_loop_keeps_file_results_until_a_step_runs() -> None:

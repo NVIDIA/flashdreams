@@ -103,8 +103,8 @@ class UILoopRequests:
     new_window_size: tuple[int, int] | None = None
     """Requested downstream window size, or ``None`` to leave it unchanged."""
 
-    file_selections: list[FileSelectionRequest] = field(default_factory=list)
-    """File-selector requests to apply, in the order they were queued."""
+    file_selection: FileSelectionRequest | None = None
+    """File selector to show, or ``None`` when none was requested."""
 
 
 class ILoop(ABC, Generic[StateT]):
@@ -613,7 +613,8 @@ class IUILoop(ILoop[StateT], ABC):
         :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`
         in :attr:`user_events`, carrying ``request_id``. Read its ``status``;
         use ``files`` only when the pick succeeded. One selector is open at a
-        time: a request made while one is open is ignored and gets no result.
+        time: a request made while one is open, or after another request in
+        the same tick, is ignored and gets no result.
 
         Example:
 
@@ -669,15 +670,15 @@ class IUILoop(ILoop[StateT], ABC):
                 raise ValueError("max_file_bytes must be > 0.")
         if not isinstance(multiple, bool):
             raise TypeError("multiple must be a bool.")
-        self.get_or_create_ui_loop_requests().file_selections.append(
-            FileSelectionRequest(
+        requests = self.get_or_create_ui_loop_requests()
+        if requests.file_selection is None:
+            requests.file_selection = FileSelectionRequest(
                 request_id=request_id,
                 initial_path=resolved_initial_path,
                 accept=suffixes,
                 max_bytes=max_file_bytes,
                 multiple=multiple,
             )
-        )
 
     def get_or_create_ui_loop_requests(self) -> UILoopRequests:
         if self._ui_loop_requests is None:
