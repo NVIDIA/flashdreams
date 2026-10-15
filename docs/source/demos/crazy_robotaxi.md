@@ -238,9 +238,10 @@ uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window -- \
 When enabled, `C` toggles coins, `K` cycles style skins, `V` cycles weather,
 and `O` spawns a crossing obstacle. The same enabled actions appear as buttons
 in the live-edit HUD card alongside frame-aligned ability status. Weather cannot
-change while a non-base style is active. Style mode downloads its additional
-model assets on first use and caches them under
-`artifacts/crazy_robotaxi/live_edit`.
+change while a non-base style is active. When enabled, style mode downloads
+missing model assets during application startup and caches them under
+`artifacts/crazy_robotaxi/live_edit`. Explicit checkpoint paths skip the
+corresponding downloads.
 
 Dynamic prompts append selected descriptions of the current road, upcoming
 map node and curve, and taxi motion to the active prompt. Choose which fragments
