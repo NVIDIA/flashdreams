@@ -3897,6 +3897,15 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         for event in events.get_events():
             if isinstance(event, FullscreenEnabledOptimalWindowSizeUserInputEvent):
                 self.state.presentation_size = event.width, event.height
+                if (document := self.state.settings_document) is not None:
+                    document.settings = replace(
+                        document.settings,
+                        presentation=replace(
+                            document.settings.presentation,
+                            width=event.width,
+                            height=event.height,
+                        ),
+                    )
         presentation_size = self.state.presentation_size or (
             self.state.width,
             self.state.height,

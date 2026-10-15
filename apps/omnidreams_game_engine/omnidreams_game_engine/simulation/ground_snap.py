@@ -60,6 +60,8 @@ class GroundSnapper:
         self._min_intersections = int(min_intersections)
         self._anchor_offset_m: float | None = None
         self._invalid_sample_handler = invalid_sample_handler
+        self._body_grid_key: tuple[float, float, float, int] | None = None
+        self._body_grid: np.ndarray | None = None
 
         vertices_d = np.asarray(vertices_xyz, dtype=np.float64)
         faces_i = np.asarray(faces_ijk, dtype=np.int32)
@@ -117,51 +119,77 @@ class GroundSnapper:
         j = int((y - self._grid_origin[1]) / self._grid_resolution_m)
         return max(0, min(self._grid_shape[1] - 1, j))
 
-    def _ground_z_at(self, x: float, y: float, z_ref: float) -> float | None:
-        if (
-            x < self._grid_origin[0]
-            or y < self._grid_origin[1]
-            or x > self._grid_origin[0] + self._grid_shape[0] * self._grid_resolution_m
-            or y > self._grid_origin[1] + self._grid_shape[1] * self._grid_resolution_m
-        ):
-            return None
-        candidates = self._cell_candidates.get((self._cell_x(x), self._cell_y(y)))
-        if candidates is None or candidates.size == 0:
-            return None
-        v2x = x - self._a_x[candidates]
-        v2y = y - self._a_y[candidates]
-        v0y_c = self._v0y[candidates]
-        v1x_c = self._v1x[candidates]
-        v0x_c = self._v0x[candidates]
-        v1y_c = self._v1y[candidates]
-        inv = self._inv_denom[candidates]
-        v = (v2x * v1y_c - v1x_c * v2y) * inv
-        w = (v0x_c * v2y - v2x * v0y_c) * inv
-        u = 1.0 - v - w
-        eps = 1e-6
-        inside = self._denom_valid[candidates] & (u >= -eps) & (v >= -eps) & (w >= -eps)
-        if not bool(inside.any()):
-            return None
-        z = (
-            u * self._a_z[candidates]
-            + v * self._b_z[candidates]
-            + w * self._c_z[candidates]
-        )
-        z_inside = z[inside]
-        best = int(np.argmin(np.abs(z_inside - z_ref)))
-        return float(z_inside[best])
+    def _raycast(self, points: np.ndarray) -> np.ndarray:
+        """Cast vertical rays in batches sharing the same triangle candidates."""
+        result = np.full(len(points), np.nan, dtype=np.float64)
+        groups: dict[tuple[int, int], list[int]] = {}
+        for index, (x, y, _) in enumerate(points):
+            if (
+                x < self._grid_origin[0]
+                or y < self._grid_origin[1]
+                or x
+                > self._grid_origin[0] + self._grid_shape[0] * self._grid_resolution_m
+                or y
+                > self._grid_origin[1] + self._grid_shape[1] * self._grid_resolution_m
+            ):
+                continue
+            groups.setdefault((self._cell_x(x), self._cell_y(y)), []).append(index)
+        # ponytail: matrices scale with rays per cell times candidate triangles;
+        # tile ray groups if sample grids grow beyond the default 16 rays.
+        for cell, indices in groups.items():
+            candidates = self._cell_candidates.get(cell)
+            if candidates is None or candidates.size == 0:
+                continue
+            selected = points[indices]
+            v2x = selected[:, 0, None] - self._a_x[candidates]
+            v2y = selected[:, 1, None] - self._a_y[candidates]
+            v = (
+                v2x * self._v1y[candidates] - self._v1x[candidates] * v2y
+            ) * self._inv_denom[candidates]
+            w = (
+                self._v0x[candidates] * v2y - v2x * self._v0y[candidates]
+            ) * self._inv_denom[candidates]
+            u = 1.0 - v - w
+            inside = (
+                self._denom_valid[candidates]
+                & (u >= -1e-6)
+                & (v >= -1e-6)
+                & (w >= -1e-6)
+            )
+            z = (
+                u * self._a_z[candidates]
+                + v * self._b_z[candidates]
+                + w * self._c_z[candidates]
+            )
+            best = np.argmin(
+                np.where(inside, np.abs(z - selected[:, 2, None]), np.inf), axis=1
+            )
+            hit = inside.any(axis=1)
+            result[np.asarray(indices)[hit]] = z[np.flatnonzero(hit), best[hit]]
+        return result
 
     def _sample_body_grid(self, vehicle: VehicleConfig) -> np.ndarray:
+        key = (
+            vehicle.aabb_length_m,
+            vehicle.aabb_width_m,
+            vehicle.aabb_height_m,
+            self._num_sample_points,
+        )
+        if key == self._body_grid_key:
+            assert self._body_grid is not None
+            return self._body_grid
         n = max(2, int(np.ceil(self._num_sample_points**0.5)))
         p = np.linspace(0.0, 1.0, n)
         u, v = np.meshgrid(p, p)
-        return np.column_stack(
+        self._body_grid = np.column_stack(
             [
                 u.ravel() * vehicle.aabb_length_m - vehicle.aabb_length_m * 0.5,
                 v.ravel() * vehicle.aabb_width_m - vehicle.aabb_width_m * 0.5,
                 np.full(u.size, -vehicle.aabb_height_m * 0.5),
             ]
         )
+        self._body_grid_key = key
+        return self._body_grid
 
     def snap(self, state: VehicleState, vehicle: VehicleConfig) -> VehicleState:
         body_pts = self._sample_body_grid(vehicle)
@@ -169,10 +197,7 @@ class GroundSnapper:
         world_pts = body_pts @ rot.T + np.array(
             [state.x_m, state.y_m, state.z_m], dtype=np.float64
         )
-        ground_zs = np.array(
-            [self._raycast(float(p[0]), float(p[1]), float(p[2])) for p in world_pts],
-            dtype=np.float64,
-        )
+        ground_zs = self._raycast(world_pts)
         mask = ~np.isnan(ground_zs)
         n_hits = int(mask.sum())
         n_total = int(len(world_pts))
@@ -234,10 +259,6 @@ class GroundSnapper:
         if self._invalid_sample_handler is None:
             return state
         return self._invalid_sample_handler(state)
-
-    def _raycast(self, x: float, y: float, z_ref: float) -> float:
-        z = self._ground_z_at(x, y, z_ref)
-        return float("nan") if z is None else z
 
 
 class _InsufficientPoints(Exception):
