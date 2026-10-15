@@ -448,45 +448,47 @@ def _load_input_video(value: str | Path | None, max_frames: int | None) -> Loade
     )
     try:
         import av  # noqa: PLC0415
-        import imageio_ffmpeg  # noqa: PLC0415
+        from av.filter import Graph  # noqa: PLC0415
     except ImportError as error:  # pragma: no cover - dependency gate
         raise ImportError(
-            "Decoding the v2v input needs PyAV and imageio-ffmpeg. "
-            "Install the flashdreams-v2v package."
+            "Decoding the v2v input needs PyAV. Install the flashdreams-v2v package."
         ) from error
 
-    output_params: list[str] = []
-    fps: float | None = None
     with av.open(str(path)) as container:
+        streams = container.streams.video
+        if not streams:
+            raise ValueError(f"Input video contains no video streams: {path}")
+        stream = max(streams, key=lambda s: (s.width * s.height, -s.index))
         brands = container.metadata.get("major_brand", "") + container.metadata.get(
             "compatible_brands", ""
         )
         if any(brands[i : i + 4] in {"avif", "avis"} for i in range(0, len(brands), 4)):
-            streams = container.streams.video
-            if not streams:
-                raise ValueError(f"Input video contains no video streams: {path}")
             # AVIF image items have no duration; animation tracks are timed.
-            stream = next((s for s in streams if s.duration is not None), streams[0])
-            fps = float(stream.average_rate or 0.0)
-            output_params = ["-map", f"0:{stream.index}", "-vsync", "0"]
+            stream = next((s for s in streams if s.duration is not None), stream)
+        fps = float(stream.average_rate or stream.guessed_rate or 0.0)
 
-    reader = imageio_ffmpeg.read_frames(
-        str(path), pix_fmt="rgb24", output_params=output_params
-    )
-    try:
-        metadata = next(reader)
-        width, height = metadata["size"]
         frames = []
-        for frame_bytes in reader:
-            frames.append(
-                np.frombuffer(frame_bytes, dtype=np.uint8)
-                .reshape(height, width, 3)
-                .copy()
-            )
-            if max_frames is not None and len(frames) == max_frames:
+        rotation_graph = None
+        for frame in container.decode(stream):
+            rotation = frame.rotation
+            if rotation % 90:
+                if rotation_graph is None:
+                    rotation_graph = Graph()
+                    rotation_graph.link_nodes(
+                        rotation_graph.add_buffer(template=stream),
+                        rotation_graph.add("rotate", str(-math.radians(rotation))),
+                        rotation_graph.add("buffersink"),
+                    )
+                    rotation_graph.configure()
+                rotation_graph.push(frame)
+                frame = rotation_graph.vpull()
+                array = frame.to_ndarray(format="rgb24")
+            else:
+                # Match FFmpeg's default display-matrix autorotation.
+                array = np.rot90(frame.to_ndarray(format="rgb24"), rotation // 90)
+            frames.append(array)
+            if max_frames is not None and len(frames) >= max_frames:
                 break
-    finally:
-        reader.close()
     if not frames:
         raise ValueError(f"Input video contains no frames: {path}")
 
@@ -496,57 +498,8 @@ def _load_input_video(value: str | Path | None, max_frames: int | None) -> Loade
     return LoadedVideo(
         frames=tensor,
         spec=VideoSpec(
-            height=height,
-            width=width,
-            fps=float(metadata["fps"]) if fps is None else fps,
-            channels=3,
-        ),
-def _load_input_video(value: str | Path | None, max_frames: int | None) -> LoadedVideo:
-    path = (
-        _resolve_big_buck_bunny()
-        if value is None
-        else resolve_input_path(value, cache_dir=_INPUT_CACHE_DIR)
-    )
-    try:
-        import av  # noqa: PLC0415
-    except ImportError as error:  # pragma: no cover - dependency gate
-        raise ImportError(
-            "Decoding the v2v input needs PyAV and imageio-ffmpeg. "
-            "Install the flashdreams-v2v package."
-        ) from error
-
-    output_params: list[str] = []
-    fps: float | None = None
-    with av.open(str(path)) as container:
-        streams = container.streams.video
-        if not streams:
-            raise ValueError(f"Input contains no video streams: {path}")
-
-        # Prefer a timed stream, preserving AVIF selection logic.
-        stream = next(
-            (s for s in streams if s.duration is not None),
-            streams[0],
-        )
-        fps = float(stream.average_rate or 0.0)
-
-        frames = []
-        height = stream.height
-        width = stream.width
-        for frame in container.decode(stream):
-            frames.append(frame.to_ndarray(format="rgb24"))
-            if max_frames is not None and len(frames) >= max_frames:
-                break
-        if not frames:
-            raise ValueError(f"Input video contains no frames: {path}")
-
-    array = np.stack(frames)
-    tensor = torch.from_numpy(array).float().div(127.5).sub(1.0)
-    tensor = tensor.permute(0, 3, 1, 2).contiguous()
-    return LoadedVideo(
-        frames=tensor,
-        spec=VideoSpec(
-            height=height,
-            width=width,
+            height=int(array.shape[1]),
+            width=int(array.shape[2]),
             fps=fps,
             channels=3,
         ),

@@ -77,7 +77,12 @@ pyarrow                Apache-2.0   https://github.com/apache/arrow
 Optional application: apps/v2v
 ================================================================================
 
+av                     BSD-3-Clause https://github.com/PyAV-Org/PyAV
+    BSD-3-Clause covers the Python bindings. Bundled FFmpeg libraries and
+    codec dependencies retain their own terms; preserve the licenses of
+    the actual installed or redistributed artifact.
 imageio-ffmpeg         BSD-2-Clause https://github.com/imageio/imageio-ffmpeg
+    Used only to generate test fixtures for this application.
     BSD-2-Clause covers the Python wrapper. Bundled FFmpeg executables
     carry additional FFmpeg and codec terms, including GPL-enabled builds;
     preserve the licenses of the actual installed or redistributed artifact.

@@ -1565,8 +1565,8 @@ name = "flashdreams-v2v"
 version = "0.1.0"
 source = { editable = "apps/v2v" }
 dependencies = [
+    { name = "av" },
     { name = "flashdreams", extra = ["local-window", "serving"] },
-    { name = "imageio-ffmpeg" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform != 'win32' and extra == 'group-11-flashdreams-cuda12') or (extra == 'extra-11-flashdreams-dev' and extra == 'group-11-flashdreams-cuda12') or (extra == 'group-11-flashdreams-cuda12' and extra == 'group-11-flashdreams-cuda13')" },
@@ -1576,13 +1576,15 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "imageio-ffmpeg" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "av", specifier = ">=16.1.0" },
     { name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" },
-    { name = "imageio-ffmpeg", specifier = ">=0.5" },
+    { name = "imageio-ffmpeg", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "torch", specifier = ">=2.9" },
