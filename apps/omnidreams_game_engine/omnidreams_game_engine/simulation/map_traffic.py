@@ -404,26 +404,22 @@ class MapTrafficController:
                 (best.segment_index - 1) % segment_count,
                 (best.segment_index + 1) % segment_count,
             )
-            neighbors = tuple(
-                cls._route_projection(state, position_xy, segment_index)
-                for segment_index in neighbor_indices
-                if segment_index not in visited
-            )
-            visited.update(projection.segment_index for projection in neighbors)
-            better = tuple(
-                projection
-                for projection in neighbors
-                if cls._projection_is_better(projection, best)
-            )
-            if not better:
-                break
-            best = min(
-                better,
-                key=lambda projection: (
+            next_best = None
+            for segment_index in neighbor_indices:
+                if segment_index in visited:
+                    continue
+                projection = cls._route_projection(state, position_xy, segment_index)
+                visited.add(segment_index)
+                if not cls._projection_is_better(projection, best):
+                    continue
+                if next_best is None or (
                     projection.distance_sq,
                     projection.progress_distance,
-                ),
-            )
+                ) < (next_best.distance_sq, next_best.progress_distance):
+                    next_best = projection
+            if next_best is None:
+                break
+            best = next_best
         return best
 
     @classmethod
@@ -541,6 +537,7 @@ class MapTrafficController:
         forward_x, forward_y = vx / speed_mps, vy / speed_mps
         position_x, position_y = (float(value) for value in observation.position_xy)
         minimum_heading_dot = math.cos(_MAX_HEADING_DELTA_RAD)
+        desired_clearance = _MIN_CLEARANCE_M + _TIME_HEADWAY_S * speed_mps
         best_clearance = math.inf
         for other in candidates:
             if other is observation:
@@ -562,10 +559,9 @@ class MapTrafficController:
                 if heading_dot < minimum_heading_dot:
                     continue
             clearance = longitudinal - observation.half_length_m - other.half_length_m
+            if clearance <= desired_clearance:
+                return 0.0
             best_clearance = min(best_clearance, clearance)
-        desired_clearance = _MIN_CLEARANCE_M + _TIME_HEADWAY_S * speed_mps
-        if best_clearance <= desired_clearance:
-            return 0.0
         return min(
             max((best_clearance - desired_clearance) / _BRAKING_MARGIN_M, 0.0), 1.0
         )
