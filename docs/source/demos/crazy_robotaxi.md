@@ -208,15 +208,6 @@ Choose **FREE-ROAM** from the mode menu, then choose a map. Free-Roam keeps
 driving and enabled live-edit abilities available without fares, checkpoints,
 a timer, or a score. No race-course selection is needed.
 
-To skip the menus and start on the bundled boulevard map:
-
-```bash
-uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  crazy-robotaxi-omnidreams --mode native-window -- \
-  --game-mode free-roam \
-  --map apps/crazy_robotaxi/crazy_robotaxi/maps/boulevard_district.robotaxi.yaml
-```
-
 <a id="apps-crazyrobotaxi-readme--optional-live-edit-abilities"></a>
 
 <hr>
