@@ -14,6 +14,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -51,6 +52,7 @@ from crazy_robotaxi.ui import (
     _NATIVE_DIT_NOTICE_RGBA,
     _RESTART_NOTICE_RGBA,
     _SAVED_NOTICE_RGBA,
+    CrazyRobotaxiImGuiUILoop,
     TaxiHudState,
     build_hud_frames,
 )
@@ -59,6 +61,7 @@ from omnidreams_game_engine.types import CameraCalibration
 
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.runtime_v2.user_input_event import (
+    FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -66,6 +69,49 @@ from flashdreams.runtime_v2.user_input_event import (
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_taxi_ui_requests_fullscreen_dimensions_before_resizing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loop = CrazyRobotaxiImGuiUILoop(width=320, height=240)
+    loop.state = TaxiHudState(320, 240, None, presentation_size=(320, 240))
+    loop._ui_loop_requests = None
+    loop._presentation_manager = Mock()
+    loop._presentation_manager.presented_frames.return_value = ()
+    monkeypatch.setattr(TaxiHudState, "draw", Mock())
+    loop.step_ui(object(), 0, UserInputEvents([]))
+    assert loop.get_ui_loop_size() == (320, 240)
+
+    loop.step_ui(
+        object(),
+        1,
+        UserInputEvents(
+            [
+                FullscreenEnabledOptimalWindowSizeUserInputEvent(
+                    timestamp=np.uint64(0), width=1920, height=1080
+                )
+            ]
+        ),
+    )
+    assert loop.get_ui_loop_size() == (320, 240)
+    assert (loop.state.width, loop.state.height) == (320, 240)
+    assert loop.state.presentation_size == (1920, 1080)
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None and requests.new_window_size == (1920, 1080)
+
+    loop.step_ui(object(), 2, UserInputEvents([]))
+    assert loop.get_ui_loop_size() == (1920, 1080)
+    assert (loop.state.width, loop.state.height) == (1920, 1080)
+    assert loop.flush_ui_loop_requests() is None
+
+    loop.state.presentation_size = (640, 480)
+    loop.step_ui(object(), 3, UserInputEvents([]))
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None and requests.new_window_size == (640, 480)
+    loop.step_ui(object(), 4, UserInputEvents([]))
+    assert loop.get_ui_loop_size() == (640, 480)
+    loop.close()
 
 
 @dataclass(frozen=True)

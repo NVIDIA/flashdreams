@@ -114,13 +114,18 @@ def test_internal_null_mode_discards_preload_output() -> None:
     )
 
 
-def test_a_native_window_mode_is_lazy_and_keeps_its_title() -> None:
+@pytest.mark.parametrize("fullscreen", [False, True])
+def test_a_native_window_mode_is_lazy_and_keeps_its_title(fullscreen: bool) -> None:
     window = create_client_window(
-        _parsed(["--mode", "native-window", "--window-title", "World model"])
+        _parsed(
+            ["--mode", "native-window", "--window-title", "World model"]
+            + (["--fullscreen"] if fullscreen else [])
+        )
     )
 
     assert isinstance(window, NativeWindowClientWindow)
     assert window.title == "World model"
+    assert window._fullscreen is fullscreen
 
 
 def test_an_installed_mode_owns_its_flashdreams_run_v2_arguments(

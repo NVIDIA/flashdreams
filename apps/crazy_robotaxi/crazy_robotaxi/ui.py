@@ -87,6 +87,7 @@ from flashdreams.api_v2.loop import ILoop, invoke_async
 from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
+    FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     GameWheelUserInputEvent,
     KeyboardInputState,
@@ -3893,6 +3894,9 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         self, imgui: Any, step_index: int, events: UserInputEvents
     ) -> Tensor | None:
         """Draw the HUD and return the generated world frame beneath it."""
+        for event in events.get_events():
+            if isinstance(event, FullscreenEnabledOptimalWindowSizeUserInputEvent):
+                self.state.presentation_size = event.width, event.height
         presentation_size = self.state.presentation_size or (
             self.state.width,
             self.state.height,

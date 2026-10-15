@@ -16,7 +16,7 @@ import pytest
 import torch
 from numpy import uint64
 
-from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.client_window import ClientWindowLink, IClientWindow
 from flashdreams.api_v2.loop import (
     IModelLoop,
     IUILoop,
@@ -1444,6 +1444,69 @@ def test_interactive_ui_can_replace_an_already_finished_session() -> None:
     assert len(window.results) == 1
     assert "window.close" not in log.calls
     assert log.calls[-1] == "session.close"
+
+
+@pytest.mark.parametrize("close_at_handoff", [False, True])
+def test_ui_window_requests_apply_before_their_frame(close_at_handoff: bool) -> None:
+    """Match interactive regions to pixels while retaining replacement precedence."""
+    log = CallLog()
+    resolved = _session_desc()
+    replacement = replace(resolved, metadata={"replacement": True})
+    link = ClientWindowLink("Open", "https://example.test/", (0, 0, 1, 1))
+
+    class RequestingUILoop(FakeUILoop):
+        def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            self.request_links((link,) if step_index == 0 else ())
+            self.request_hide_cursor(step_index == 0)
+            self.request_new_window_size((step_index + 2, step_index + 2))
+            if step_index == 1:
+                self.request_new_session(replacement)
+            return [
+                StepResult(
+                    step_index=step_index,
+                    output=torch.zeros((1, 3, 1, 1, 1)),
+                    frame_count=1,
+                    output_layout=resolved.output_layout,
+                )
+            ]
+
+    class RequestingSession(FiniteSession):
+        def init(self) -> None:
+            self.register_ui_loop(RequestingUILoop, state=self)
+            self.register_model_loop(FakeModelLoop, state=self)
+
+    class ObservingWindow(RecordingClientWindow):
+        links: tuple[ClientWindowLink, ...] = ()
+        """Regions active when the next frame is presented."""
+
+        size: tuple[int, int] = (1, 1)
+        """Dimensions active when the next frame is presented."""
+
+        def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:
+            self.links = links
+
+        def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
+            self.size = new_window_size
+
+        def get_user_input_events(self) -> UserInputEvents:
+            if close_at_handoff and len(self.results) == 2:
+                return _lifecycle_event(CloseUserInputEvent)
+            return super().get_user_input_events()
+
+        def write(self, result: StepResult) -> None:
+            first = result.step_index == 0
+            assert self.links == ((link,) if first else ())
+            assert self.cursor_requests[-1] == ("hide", first)
+            assert self.size == ((2, 2) if first else (3, 3))
+            super().write(result)
+
+    window = ObservingWindow(log)
+    session = RequestingSession(resolved, log, length=0)
+    next_session = run_session(session, window)
+
+    assert next_session == (None if close_at_handoff else replacement)
+    assert [result.step_index for result in window.results] == [0, 1]
+    assert ("window.close" in log.calls) is close_at_handoff
 
 
 def test_close_event_wins_over_a_ui_new_session_request() -> None:

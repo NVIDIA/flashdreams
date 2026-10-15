@@ -8,7 +8,9 @@ from __future__ import annotations
 import importlib
 import io
 import json
+import os
 import pickle
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -112,6 +114,135 @@ def test_pickle_checkpoint_formats_still_load_tensor_state_dicts(
     actual = checkpoint_load.load_single_checkpoint(str(checkpoint_path))
 
     torch.testing.assert_close(actual["weight"], expected["weight"])
+
+
+@pytest.mark.parametrize("extension", [".pt", ".safetensors"])
+@pytest.mark.parametrize("existing_cache", [False, True])
+@pytest.mark.parametrize("error_type", [OSError, KeyboardInterrupt])
+def test_cache_write_failure_preserves_published_cache(
+    extension: str,
+    existing_cache: bool,
+    error_type: type[BaseException],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Keep partial writes out of the cache and clean up after interruptions."""
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+    monkeypatch.setenv("FLASHDREAMS_MIN_CACHE_FREE_GB", "0")
+    checkpoint_path = tmp_path / f"weights{extension}"
+    original_bytes = b"previous cache"
+    if existing_cache:
+        checkpoint_path.write_bytes(original_bytes)
+
+    def interrupted_save(_state_dict: object, path: str) -> None:
+        temporary_path = Path(path)
+        assert (
+            temporary_path.parent.stat().st_dev == checkpoint_path.parent.stat().st_dev
+        )
+        assert temporary_path != checkpoint_path
+        temporary_path.write_bytes(b"partial checkpoint")
+        if existing_cache:
+            assert checkpoint_path.read_bytes() == original_bytes
+        else:
+            assert not checkpoint_path.exists()
+        raise error_type("interrupted serialization")
+
+    if extension == ".safetensors":
+        monkeypatch.setattr(checkpoint_load, "save_safetensors", interrupted_save)
+    else:
+        monkeypatch.setattr(torch, "save", interrupted_save)
+
+    with pytest.raises(error_type, match="interrupted serialization"):
+        checkpoint_load._save_to_local_cache(
+            {"weight": torch.ones(2)}, str(checkpoint_path), extension
+        )
+
+    assert list(tmp_path.iterdir()) == ([checkpoint_path] if existing_cache else [])
+    if existing_cache:
+        assert checkpoint_path.read_bytes() == original_bytes
+
+
+@pytest.mark.parametrize("extension", [".pt", ".pth", ".ckpt", ".safetensors"])
+@pytest.mark.parametrize("existing_cache", [False, True])
+def test_cache_write_publishes_complete_checkpoint(
+    extension: str,
+    existing_cache: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Publish reloadable caches for every supported checkpoint format."""
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+    monkeypatch.setenv("FLASHDREAMS_MIN_CACHE_FREE_GB", "0")
+    checkpoint_path = tmp_path / f"weights{extension}"
+    if existing_cache:
+        checkpoint_path.write_bytes(b"previous cache")
+    expected = {"weight": torch.arange(3)}
+
+    checkpoint_load._save_to_local_cache(expected, str(checkpoint_path), extension)
+    actual = checkpoint_load.load_single_checkpoint(str(checkpoint_path))
+
+    torch.testing.assert_close(actual["weight"], expected["weight"])
+    assert list(tmp_path.iterdir()) == [checkpoint_path]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Requires POSIX file permissions.")
+@pytest.mark.parametrize("extension", [".pt", ".safetensors"])
+@pytest.mark.parametrize("existing_mode", [None, 0o600, 0o664])
+@pytest.mark.parametrize("umask", [0o022, 0o002, 0o077])
+def test_cache_write_preserves_permissions(
+    extension: str,
+    existing_mode: int | None,
+    umask: int,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Honor creation permissions and retain permissions on cache replacement."""
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+    monkeypatch.setenv("FLASHDREAMS_MIN_CACHE_FREE_GB", "0")
+    checkpoint_path = tmp_path / f"weights{extension}"
+    expected_mode = 0o600 if extension == ".safetensors" else 0o666 & ~umask
+    if existing_mode is not None:
+        checkpoint_path.write_bytes(b"previous cache")
+        checkpoint_path.chmod(existing_mode)
+        expected_mode = existing_mode
+
+    previous_umask = os.umask(umask)
+    try:
+        checkpoint_load._save_to_local_cache(
+            {"weight": torch.ones(2)}, str(checkpoint_path), extension
+        )
+    finally:
+        os.umask(previous_umask)
+
+    assert stat.S_IMODE(checkpoint_path.stat().st_mode) == expected_mode
+    assert list(tmp_path.iterdir()) == [checkpoint_path]
+
+
+def test_cache_publish_failure_preserves_existing_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Remove a fully serialized temporary file when publication fails."""
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+    monkeypatch.setenv("FLASHDREAMS_MIN_CACHE_FREE_GB", "0")
+    checkpoint_path = tmp_path / "weights.safetensors"
+    original_bytes = b"previous cache"
+    checkpoint_path.write_bytes(original_bytes)
+
+    def reject_replace(source: str, destination: str) -> None:
+        assert Path(source).is_file()
+        assert destination == str(checkpoint_path)
+        raise OSError("publication failed")
+
+    monkeypatch.setattr(checkpoint_load.os, "replace", reject_replace)
+
+    with pytest.raises(OSError, match="publication failed"):
+        checkpoint_load._save_to_local_cache(
+            {"weight": torch.ones(2)}, str(checkpoint_path), ".safetensors"
+        )
+
+    assert checkpoint_path.read_bytes() == original_bytes
+    assert list(tmp_path.iterdir()) == [checkpoint_path]
 
 
 def test_s3_cache_path_preserves_distinct_opaque_s3_keys(tmp_path: Path) -> None:
