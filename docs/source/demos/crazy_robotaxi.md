@@ -241,18 +241,9 @@ uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window -- \
 When enabled, `C` toggles coins, `K` cycles style skins, `V` cycles weather,
 and `O` spawns a crossing obstacle. The same enabled actions appear as buttons
 in the live-edit HUD card alongside frame-aligned ability status. Weather cannot
-change while a non-base style is active. Required additional checkpoints are
-downloaded during application startup when the features are enabled, unless
-explicit checkpoint paths are configured. Downloaded assets are cached under
-`artifacts/crazy_robotaxi/live_edit` relative to the working directory.
-
-Style, weather, active dynamic prompts, and obstacles with a positive
-`guide_scale` need the Python transformer hooks. Enabling any of them
-automatically disables native DiT acceleration and logs the reason. Native VAE
-acceleration and the remaining performance configuration are preserved. Coins,
-nitro-only items, and unguided obstacles can retain native DiT. The default item
-types include rain, snow, and mystery, which also enable weather and style and
-therefore disable native DiT.
+change while a non-base style is active. Style mode downloads its additional
+model assets on first use and caches them under
+`artifacts/crazy_robotaxi/live_edit`.
 
 ### Dynamic Prompts
 
@@ -289,6 +280,13 @@ unless another feature requires the Python transformer.
 Complete combined prompts are encoded and retained lazily, so the first visit
 to a new combination may pause briefly and sessions with many unique
 combinations retain more GPU memory.
+
+Style, weather, active dynamic prompts, and guided obstacles need the Python
+transformer hooks. When one of those features is enabled, the application
+automatically disables native DiT acceleration and logs the reason. Native VAE
+acceleration and the remaining performance configuration stay enabled;
+pixel-only features such as coins, items, and unguided obstacles keep native
+DiT acceleration.
 
 <a id="apps-crazyrobotaxi-readme--authored-maps"></a>
 
