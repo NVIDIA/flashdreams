@@ -21,6 +21,7 @@ from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2 import cli, client_window_factory
 from flashdreams.runtime_v2.application_runner import ApplicationRunner, Unbound
 from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
+from flashdreams.runtime_v2.composite_client_window import CompositeClientWindow
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -64,6 +65,61 @@ class _StubMode(ClientWindowMode):
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
         del parsed_args
         return _StubWindow()
+
+
+def test_synthetic_composition_keeps_mode_hooks_on_the_primary_window(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    descriptor = tmp_path / "input.json"
+    descriptor.write_text('{"version": 1, "events": []}', encoding="utf-8")
+    primary = _StubWindow()
+    hook_windows: list[tuple[str, IClientWindow]] = []
+    runtime_windows: list[IClientWindow | None] = []
+
+    class HookMode(_StubMode):
+        def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
+            del parsed_args
+            return primary
+
+        def starting(self, client_window: IClientWindow) -> str | None:
+            hook_windows.append(("starting", client_window))
+            return None
+
+        def finished(self, client_window: IClientWindow) -> str | None:
+            hook_windows.append(("finished", client_window))
+            return None
+
+    def record_run(
+        self: ApplicationRunner,
+        session_desc: SessionDesc,
+        commandline_args: Sequence[str],
+        *,
+        timeout_seconds: float | Unbound = Unbound.unbound,
+        steps: int | Unbound = Unbound.unbound,
+    ) -> None:
+        del session_desc, commandline_args, timeout_seconds, steps
+        runtime_windows.append(self._client_window)
+
+    mode = HookMode("webrtc")
+    monkeypatch.setattr(cli, "create_application", lambda slug: _StubApplication())
+    monkeypatch.setattr(cli, "client_window_mode", lambda name, *, modes: mode)
+    monkeypatch.setattr(cli.ApplicationRunner, "run", record_run)
+
+    cli.entrypoint(
+        [
+            "stub",
+            "--mode",
+            "webrtc",
+            "--synthetic-input-file",
+            str(descriptor),
+        ]
+    )
+
+    assert hook_windows == [("starting", primary), ("finished", primary)]
+    assert len(runtime_windows) == 1
+    runtime_window = runtime_windows[0]
+    assert isinstance(runtime_window, CompositeClientWindow)
+    assert runtime_window.primary_window is primary
 
 
 def _record_run(

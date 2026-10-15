@@ -16,8 +16,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.runtime_v2.composite_client_window import CompositeClientWindow
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
+from flashdreams.runtime_v2.synthetic_input_source import SyntheticInputSource
 
 if TYPE_CHECKING:
     from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
@@ -261,6 +263,11 @@ def add_client_window_arguments(parser: argparse.ArgumentParser) -> None:
             "final session."
         ),
     )
+    parser.add_argument(
+        "--synthetic-input-file",
+        type=Path,
+        help="JSON file that replays synthetic input with any client-window mode.",
+    )
     for mode in modes:
         mode.add_arguments(parser)
 
@@ -297,6 +304,23 @@ def create_client_window(parsed_args: argparse.Namespace) -> IClientWindow:
     Raises:
         ValueError: ``mode`` is unsupported, or its arguments are incomplete.
     """
-    return client_window_mode(
+    primary_window = client_window_mode(
         parsed_args.mode, modes=getattr(parsed_args, "_client_window_modes", None)
     ).create(parsed_args)
+    return compose_client_window(primary_window, parsed_args)
+
+
+def compose_client_window(
+    primary_window: IClientWindow, parsed_args: argparse.Namespace
+) -> IClientWindow:
+    """Attach command-wide secondary components to a mode's primary window."""
+    synthetic_input_file = getattr(parsed_args, "synthetic_input_file", None)
+    if synthetic_input_file is None:
+        return primary_window
+    source = SyntheticInputSource(synthetic_input_file)
+    return CompositeClientWindow(
+        primary_window,
+        secondary_input_sources=(source,),
+        on_open=source.start_session,
+        on_close=source.end_session,
+    )

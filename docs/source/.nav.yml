@@ -6,6 +6,7 @@ nav:
   - Documentation:
       - Documentation Overview: documentation/index.md
       - CLI Reference: documentation/cli.md
+      - Synthetic Input Files: documentation/synthetic_input.md
       - Demo API:
           - Demo API Overview: documentation/demo_api/index.md
           - Guides:

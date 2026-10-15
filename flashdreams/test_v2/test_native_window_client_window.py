@@ -5,11 +5,13 @@
 
 from __future__ import annotations
 
+import json
 import queue
 import sys
 import threading
 import webbrowser
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock, call
@@ -19,11 +21,13 @@ import torch
 
 from flashdreams.api_v2.client_window import ClientWindowLink
 from flashdreams.runtime_v2 import native_window_client_window as native_window_module
+from flashdreams.runtime_v2.composite_client_window import CompositeClientWindow
 from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
 )
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.synthetic_input_source import SyntheticInputSource
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     FullscreenEnabledOptimalWindowSizeUserInputEvent,
@@ -31,6 +35,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    ResetUserInputEvent,
 )
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -720,6 +725,52 @@ def test_replacement_session_reuses_native_window_and_rebases_input() -> None:
     assert factory_calls == 1
     assert event.get_timestamp() == 1
     assert len(presenter.close_threads) == 1
+
+
+def test_composite_native_replacement_preserves_replay_and_rebases_timestamps(
+    tmp_path: Path,
+) -> None:
+    descriptor = tmp_path / "input.json"
+    descriptor.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "events": [
+                    {"on": "ui_loop", "at": 0, "event": {"type": "reset"}},
+                    {"on": "ui_loop", "at": 1, "event": {"type": "close"}},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    presenter = _Presenter()
+    presenter_factory = Mock(return_value=presenter)
+    native = NativeWindowClientWindow(
+        presenter_factory=presenter_factory,
+        clock_ns=iter((10_000_000, 20_000_000)).__next__,
+    )
+    source = SyntheticInputSource(
+        descriptor,
+        clock_ns=iter((1_000_000, 1_005_000, 2_000_000, 2_007_000)).__next__,
+    )
+    window = CompositeClientWindow(
+        native,
+        secondary_input_sources=(source,),
+        on_open=source.start_session,
+        on_close=source.end_session,
+    )
+
+    window.open(_session_desc())
+    first = window.get_user_input_events().get_events()
+    window.open(_session_desc())
+    second = window.get_user_input_events().get_events()
+    window.close()
+
+    assert presenter_factory.call_count == 1
+    assert [type(event) for event in first] == [ResetUserInputEvent]
+    assert first[0].get_timestamp() == 5
+    assert [type(event) for event in second] == [CloseUserInputEvent]
+    assert second[0].get_timestamp() == 7
 
 
 def test_presentation_context_copies_frames_to_its_render_device() -> None:
