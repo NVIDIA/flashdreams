@@ -36,6 +36,26 @@ class IApplication(ABC):
         """
         return None
 
+    def resolve_client_window_mode(self, mode: str) -> str:
+        """Return the installed window mode implementing the requested output.
+
+        An application may select a registered mode that adds its input source
+        while preserving the requested presentation backend. The runtime still
+        validates arguments and creates the window. Called before :meth:`init`;
+        do not load models or acquire resources here. Help and application
+        preload skip this hook.
+
+        Args:
+            mode: Explicit CLI mode, or the resolved application/runtime default.
+
+        Returns:
+            Installed mode name. The default returns ``mode`` unchanged.
+
+        Raises:
+            ValueError: The application cannot support the requested output.
+        """
+        return mode
+
     def session_desc(self) -> SessionDesc | None:
         """Return the description of a session this application would generate.
 

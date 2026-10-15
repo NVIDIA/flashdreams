@@ -402,7 +402,10 @@ def test_a_run_can_record_what_generating_the_clip_cost(
     asks for both and the file it writes is the one the harness reads."""
     application = StubT2VApplication(_stand_in())
     _install(monkeypatch, application)
+    # --stats-path sets these for the whole process; restore them afterwards.
     monkeypatch.setenv("FLASHDREAMS_SYNC_AND_PROFILE", "0")
+    monkeypatch.setenv("FLASHDREAMS_FPS", "0")
+    monkeypatch.setenv("FLASHDREAMS_INPUT_LATENCY", "0")
 
     def create_profiled_application(slug: str) -> IApplication:
         del slug

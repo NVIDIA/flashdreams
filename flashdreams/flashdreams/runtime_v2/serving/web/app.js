@@ -87,6 +87,10 @@ controls.addEventListener("message", event => {
       applyCursorOptions(payload);
       return;
     }
+    if (payload?.type === "open_url") {
+      openUrl(payload.url);
+      return;
+    }
     if (payload?.type === "error") {
       console.warn(`WebRTC server: ${payload.message ?? "unknown error"}`);
     }
@@ -171,11 +175,39 @@ const renderedVideoBounds = () => {
   };
 };
 
+const openUrl = destination => {
+  if (
+    typeof destination !== "string" || destination.length > 4096 ||
+    /[\x00-\x1f\x7f-\x9f\\]/.test(destination) || destination !== destination.trim()
+  ) {
+    return;
+  }
+  const authority = destination.match(/^https?:\/\/([^/?#]+)/i);
+  if (!authority || authority[1].includes("@")) {
+    return;
+  }
+  let url;
+  try {
+    url = new URL(destination);
+  } catch {
+    return;
+  }
+  if (!["http:", "https:"].includes(url.protocol) || !url.hostname || url.username || url.password) {
+    return;
+  }
+  // The server hit-tests the click; the viewer owns the destination tab.
+  // With noopener, a null return does not distinguish success from popup blocking.
+  window.open(url.href, "_blank", "noopener,noreferrer");
+};
+
 const pointerPosition = event => {
   const bounds = renderedVideoBounds();
+  const x = (event.clientX - bounds.left) / bounds.width;
+  const y = (event.clientY - bounds.top) / bounds.height;
   return {
-    x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
-    y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)),
+    x: Math.min(1, Math.max(0, x)),
+    y: Math.min(1, Math.max(0, y)),
+    in_content: x >= 0 && x <= 1 && y >= 0 && y <= 1,
   };
 };
 
@@ -205,6 +237,9 @@ const lockPointerToWindow = () => {
 };
 
 video.addEventListener("pointermove", event => {
+  if (event.pointerType === "touch") {
+    return;
+  }
   lastPointerPosition = activePointerPosition(event);
   pendingPointerMove = lastPointerPosition;
   if (pointerMoveHandle !== null) {
@@ -232,6 +267,9 @@ video.addEventListener("pointermove", event => {
 });
 
 video.addEventListener("pointerdown", event => {
+  if (event.pointerType === "touch") {
+    return;
+  }
   video.focus();
   if (lockCursorToWindow) {
     lockPointerToWindow();
@@ -257,6 +295,9 @@ video.addEventListener("pointerdown", event => {
 });
 
 video.addEventListener("pointerup", event => {
+  if (event.pointerType === "touch") {
+    return;
+  }
   if (!pressedButtons.has(event.button)) {
     return;
   }
@@ -278,7 +319,10 @@ video.addEventListener("pointerup", event => {
   event.preventDefault();
 });
 
-video.addEventListener("pointercancel", () => {
+video.addEventListener("pointercancel", event => {
+  if (event.pointerType === "touch") {
+    return;
+  }
   cancelPendingPointerMove();
   for (const button of [...pressedButtons]) {
     const wasSent = sendInput(
@@ -288,6 +332,7 @@ video.addEventListener("pointercancel", () => {
         ...lastPointerPosition,
         button,
         pressed: false,
+        cancelled: true,
       },
       {channel: pointerControls},
     );
@@ -343,13 +388,11 @@ video.addEventListener("blur", () => {
 });
 
 const touchPayload = (event, touch, action) => {
-  const bounds = renderedVideoBounds();
   return {
     type: "touch",
     action,
     touch_id: touch.identifier,
-    x: Math.min(1, Math.max(0, (touch.clientX - bounds.left) / bounds.width)),
-    y: Math.min(1, Math.max(0, (touch.clientY - bounds.top) / bounds.height)),
+    ...pointerPosition(touch),
     pressure: Math.min(1, Math.max(0, touch.force || 0)),
     primary: touch.identifier === event.touches[0]?.identifier,
   };
@@ -426,6 +469,7 @@ window.addEventListener("blur", () => {
         ...lastPointerPosition,
         button,
         pressed: false,
+        cancelled: true,
       },
       {channel: pointerControls},
     );

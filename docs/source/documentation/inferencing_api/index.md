@@ -19,6 +19,7 @@ the lower-level pipeline and model building blocks.
   <a class="fd-card fd-model-card" href="guides/create_model/"><span class="fd-card-title">Create a model</span><span>Implement and register a model integration with FlashDreams.</span></a>
   <a class="fd-card fd-model-card" href="guides/stream_inference_pipeline/"><span class="fd-card-title">Stream inference pipeline</span><span>Build stateful generation with streaming pipeline contracts.</span></a>
   <a class="fd-card fd-model-card" href="guides/latency_tuning/"><span class="fd-card-title">Latency tuning</span><span>Profile and reduce model, decode, transfer, and presentation latency.</span></a>
+  <a class="fd-card fd-model-card" href="guides/profiling/"><span class="fd-card-title">Profiling a pipeline</span><span>Measure pipeline stages with CUDA event or NVTX profilers.</span></a>
   <a class="fd-card fd-model-card" href="guides/accelerated/"><span class="fd-card-title">Accelerated building blocks</span><span>Use optimized attention, quantization, caching, and execution components.</span></a>
 </div>
 

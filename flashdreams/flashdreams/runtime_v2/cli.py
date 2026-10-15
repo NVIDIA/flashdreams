@@ -70,6 +70,10 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     parsed = parser.parse_args(own_args)
     if parsed.stats_path is not None:
         os.environ["FLASHDREAMS_SYNC_AND_PROFILE"] = "1"
+        # The stats file is the only reader of the frame rates and input
+        # latency, so asking for one asks for the others.
+        os.environ["FLASHDREAMS_FPS"] = "1"
+        os.environ["FLASHDREAMS_INPUT_LATENCY"] = "1"
     if parsed.preload_application and any(
         argument == "--mode" or argument.startswith("--mode=") for argument in own_args
     ):
@@ -92,18 +96,18 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
     if parsed.mode is None:
         preferred_mode = application.default_client_window_mode()
         parsed.mode = "mp4" if preferred_mode is None else preferred_mode
+    requested_mode = parsed.mode
     try:
+        if not parsed.preload_application:
+            parsed.mode = application.resolve_client_window_mode(parsed.mode)
         mode = client_window_mode(parsed.mode, modes=parsed._client_window_modes)
         mode.check_arguments(parsed)
     except ValueError as error:
         parser.error(str(error))
-    if parsed.mode == "mp4" and parsed.presentation_mode is None:
+    writes_mp4 = "mp4" in (requested_mode, parsed.mode)
+    if writes_mp4 and parsed.presentation_mode is None:
         parsed.presentation_mode = PresentationMode.ON_DEMAND
-    if (
-        parsed.mode == "mp4"
-        and parsed.timeout is None
-        and parsed.total_model_steps is None
-    ):
+    if writes_mp4 and parsed.timeout is None and parsed.total_model_steps is None:
         parser.error("--mode mp4 requires --timeout and/or --total-model-steps.")
     session_desc = _session_desc(application, parsed)
     worker = get_global_rank_for_logging() != 0
