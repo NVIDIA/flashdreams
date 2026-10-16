@@ -1161,6 +1161,25 @@ def test_native_window_reports_multiple_selected_files(
     assert [chosen.data for chosen in event.files] == [b"one", b"two"]
 
 
+def test_native_window_reads_a_path_list_larger_than_a_pipe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _fake_dialog(
+        monkeypatch, "import json; print(json.dumps(['/' + 'x' * 1000] * 200))"
+    )
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    window.request_file_selector(_file_request("open-1", str(tmp_path), multiple=True))
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.status is SelectedFilesStatus.UNAVAILABLE
+
+
 def test_native_window_flush_closes_the_open_dialog(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

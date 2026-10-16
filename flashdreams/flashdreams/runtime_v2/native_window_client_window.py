@@ -11,6 +11,7 @@ import queue
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
@@ -18,7 +19,7 @@ from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any, cast
 
 import numpy as np
 import torch
@@ -240,7 +241,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._links: tuple[ClientWindowLink, ...] = ()
         self._pressed_link: ClientWindowLink | None = None
         self._file_dialog: (
-            tuple[int, FileSelectionRequest, subprocess.Popen[str]] | None
+            tuple[int, FileSelectionRequest, subprocess.Popen[bytes], IO[str]] | None
         ) = None
 
     def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:
@@ -295,16 +296,19 @@ class NativeWindowClientWindow(IClientWindow):
             "accept": list(request.accept),
             "multiple": request.multiple,
         }
-        self._file_dialog = (
-            selector_id,
-            request,
-            subprocess.Popen(
+        # A file, not a pipe: a long path list would fill a pipe and block the
+        # child before it exits.
+        output = tempfile.TemporaryFile("w+")
+        try:
+            process = subprocess.Popen(
                 [sys.executable, "-I", "-c", _FILE_DIALOG_SCRIPT, json.dumps(options)],
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                text=True,
-            ),
-        )
+                stdout=output,
+            )
+        except BaseException:
+            output.close()
+            raise
+        self._file_dialog = (selector_id, request, process, output)
         # ponytail: a started child is the presentation signal; Tk does not
         # report when its dialog is visible. Upgrade path: have the child print
         # a line once Tk maps the dialog.
@@ -316,7 +320,8 @@ class NativeWindowClientWindow(IClientWindow):
         self._file_dialog = None
         if dialog is not None:
             dialog[2].kill()
-            dialog[2].communicate()
+            dialog[2].wait()
+            dialog[3].close()
 
     def _poll_file_dialog(self) -> None:
         """Report the dialog's result once its child process has exited."""
@@ -324,8 +329,10 @@ class NativeWindowClientWindow(IClientWindow):
         if dialog is None or dialog[2].poll() is None:
             return
         self._file_dialog = None
-        selector_id, request, process = dialog
-        output, _ = process.communicate()
+        selector_id, request, process, output_file = dialog
+        with output_file:
+            output_file.seek(0)
+            output = output_file.read()
         try:
             paths = json.loads(output) if process.returncode == 0 else None
         except ValueError:
