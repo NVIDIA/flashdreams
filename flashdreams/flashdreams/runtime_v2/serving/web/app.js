@@ -336,10 +336,11 @@ const openFileSelector = options => {
     return;
   }
   if (pendingFileRequest !== null) {
-    if (pendingFileRequest.id !== requestId) {
-      completeFileSelection(requestId, "unavailable");
+    if (pendingFileRequest.id === requestId) {
+      return;
     }
-    return;
+    // The server opens one selector at a time, so a new one means the old one finished.
+    hideFilePicker();
   }
   const accept = Array.isArray(options.accept) ? options.accept : [];
   const maxBytes = Number(options.max_bytes);
