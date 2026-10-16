@@ -5,7 +5,6 @@
 
 import logging
 import math
-import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -106,43 +105,17 @@ class IClientWindow(InputSource, OutputSink, ABC):
     A window does not describe the output shape. The session does, and the window
     is given that description in :meth:`OutputSink.open`.
 
-    The runtime makes every call on a window from one thread. A window still
-    needs locking where its backend or file picker delivers input from another
-    thread, such as :meth:`_put_user_input_event`.
+    The runtime makes every call on a window from the UI thread. A window still
+    needs locking where its backend delivers input from another thread.
 
-    File selection lifecycle. This class holds the rules; a window only shows
-    a picker and reports what it returned.
-
-    - **Request.** The runtime calls :meth:`request_file_selector` on the UI
-      thread, once for each call an app made, except in a tick that also
-      replaces the session (that session gets no results). The first request
-      opens a picker
-      with a new internal ``selector_id``. A request made while a picker is
-      open is answered at once as ``BUSY``.
-    - **Showing.** :meth:`_request_file_selector` runs on the UI thread and
-      must not block. The window calls :meth:`_file_selector_opened` from any
-      thread once the picker is on screen, which ends its deadline.
-    - **Deadline.** A picker not shown within
-      :data:`FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS` completes as
-      ``UNAVAILABLE``. :meth:`_expire_file_selectors` checks it; a window with a
-      picker calls it each time its input is read, or that answer waits for the
-      next request.
-    - **Result.** The window calls :meth:`_complete_file_selector` from any
-      thread. This class checks the result against the request (non-``OK``
-      results carry no files; ``OK`` needs files that pass ``accept``, the
-      clamped size limits, and ``multiple``) and queues exactly one event
-      through :meth:`_put_user_input_event`. A result for a ``selector_id``
-      that is no longer active is dropped.
-    - **Withdrawal.** :meth:`_cancel_active_file_selectors` runs on the UI
-      thread after a timeout or a flush, so the window can close what it shows.
-    - **Session end.** When a session ends, for replacement or shutdown, the
-      runtime calls :meth:`flush_file_selectors`: the open picker is withdrawn
-      and its result is dropped. :meth:`OutputSink.open` drops events still
-      queued for the previous session. An in-session reset
-      (``ResetUserInputEvent``) does not flush; the picker stays open and its
-      result arrives after the reset.
-    - **Wrappers.** A window that wraps another forwards
-      :meth:`request_file_selector` and :meth:`flush_file_selectors` to it.
+    File selection: this class owns the rules (one picker at a time, the
+    presentation deadline, result checks, stale results). A window with a
+    picker implements :meth:`_request_file_selector` and
+    :meth:`_cancel_active_file_selectors`, and calls
+    :meth:`_expire_file_selectors` when input is read. Its reports must reach
+    this class on the UI thread. :meth:`OutputSink.open` drops events queued
+    for the previous session. A window wrapping another forwards
+    :meth:`request_file_selector` and :meth:`flush_file_selectors`.
 
     Created by the runtime, never by an application.
     """
@@ -186,25 +159,23 @@ class IClientWindow(InputSource, OutputSink, ABC):
         The result is one ``SelectedFilesUserInputEvent`` from
         :meth:`InputSource.get_user_input_events` carrying
         ``request.request_id``. A request made while a picker is open is
-        answered as ``BUSY``. See the class docstring for the lifecycle.
+        answered as ``BUSY``.
 
         Args:
             request: Selector request queued by the UI loop.
         """
         self._expire_file_selectors()
-        with _FILE_SELECTOR_LOCK:
-            if self._active_file_selector is not None:
-                self._put_user_input_event(
-                    _selected_files_event(request, SelectedFilesStatus.BUSY)
-                )
-                return
-            selector_id = self._last_file_selector_id + 1
-            self._last_file_selector_id = selector_id
-            self._active_file_selector = (selector_id, request)
-            self._file_selector_deadline = (
-                self._file_selector_clock()
-                + FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS
+        if self._active_file_selector is not None:
+            self._put_user_input_event(
+                _selected_files_event(request, SelectedFilesStatus.BUSY)
             )
+            return
+        selector_id = self._last_file_selector_id + 1
+        self._last_file_selector_id = selector_id
+        self._active_file_selector = (selector_id, request)
+        self._file_selector_deadline = (
+            self._file_selector_clock() + FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS
+        )
         try:
             self._request_file_selector(selector_id, request)
         except Exception:
@@ -217,10 +188,9 @@ class IClientWindow(InputSource, OutputSink, ABC):
         The window withdraws a picker still on screen where it can; whatever
         that picker returns is dropped.
         """
-        with _FILE_SELECTOR_LOCK:
-            active = self._active_file_selector
-            self._active_file_selector = None
-            self._file_selector_deadline = None
+        active = self._active_file_selector
+        self._active_file_selector = None
+        self._file_selector_deadline = None
         if active is not None:
             self._cancel_active_file_selectors()
 
@@ -232,8 +202,8 @@ class IClientWindow(InputSource, OutputSink, ABC):
 
         Call :meth:`_file_selector_opened` once it is shown, then
         :meth:`_complete_file_selector` with ``selector_id`` when the user
-        finishes, from any thread. The default has no picker and completes as
-        ``UNAVAILABLE``.
+        finishes, both on the UI thread. The default has no picker and
+        completes as ``UNAVAILABLE``.
         """
         del request
         self._complete_file_selector(selector_id, SelectedFilesStatus.UNAVAILABLE)
@@ -248,18 +218,16 @@ class IClientWindow(InputSource, OutputSink, ABC):
         """Queue ``event`` for :meth:`InputSource.get_user_input_events`.
 
         Required even for a window without a picker, which answers every
-        request through it. Only this class calls it. It may run on any thread
-        and runs under the file-selector lock, so it must not call back into
-        file selection.
+        request through it. Only this class calls it, on the UI thread, and it
+        must not call back into file selection.
         """
 
     @final
     def _file_selector_opened(self, selector_id: int) -> None:
         """Stop the deadline because the picker for ``selector_id`` is shown."""
-        with _FILE_SELECTOR_LOCK:
-            active = self._active_file_selector
-            if active is not None and active[0] == selector_id:
-                self._file_selector_deadline = None
+        active = self._active_file_selector
+        if active is not None and active[0] == selector_id:
+            self._file_selector_deadline = None
 
     @final
     def _complete_file_selector(
@@ -270,20 +238,17 @@ class IClientWindow(InputSource, OutputSink, ABC):
     ) -> None:
         """Report the result for ``selector_id``; a stale id is dropped.
 
-        A result that breaks the request's rules is reported by the status it
-        earns instead; see the class docstring.
+        A result that breaks the request's rules (type, size, count) is
+        reported by the status it earns instead.
         """
-        with _FILE_SELECTOR_LOCK:
-            active = self._active_file_selector
-            if active is None or active[0] != selector_id:
-                return
-            self._active_file_selector = None
-            self._file_selector_deadline = None
-            request = active[1]
-            status, files = _checked_result(request, status, files)
-            # Queued under the lock so flush_file_selectors, which runs before
-            # the next session's open(), cannot slip in before the put.
-            self._put_user_input_event(_selected_files_event(request, status, files))
+        active = self._active_file_selector
+        if active is None or active[0] != selector_id:
+            return
+        self._active_file_selector = None
+        self._file_selector_deadline = None
+        request = active[1]
+        status, files = _checked_result(request, status, files)
+        self._put_user_input_event(_selected_files_event(request, status, files))
 
     @final
     def _expire_file_selectors(self) -> None:
@@ -291,15 +256,10 @@ class IClientWindow(InputSource, OutputSink, ABC):
 
         Windows with a picker call this each time input is read.
         """
-        with _FILE_SELECTOR_LOCK:
-            active = self._active_file_selector
-            deadline = self._file_selector_deadline
-            if (
-                active is None
-                or deadline is None
-                or self._file_selector_clock() < deadline
-            ):
-                return
+        active = self._active_file_selector
+        deadline = self._file_selector_deadline
+        if active is None or deadline is None or self._file_selector_clock() < deadline:
+            return
         _LOGGER.warning(
             "File selector %r was not shown within %g seconds.",
             active[1].request_id,
@@ -351,9 +311,3 @@ def _base_name(name: str) -> str:
     """Return ``name`` without any POSIX or Windows directory part."""
     base = name.replace("\\", "/").rsplit("/", 1)[-1]
     return "upload" if base in ("", ".", "..") else base
-
-
-# ponytail: one lock for every window keeps subclasses constructor-free; it only
-# guards a few assignments and one event put. Upgrade path: a per-window lock
-# set in ``__init__``.
-_FILE_SELECTOR_LOCK = threading.Lock()

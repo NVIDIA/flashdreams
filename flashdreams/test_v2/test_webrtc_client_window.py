@@ -6,17 +6,21 @@
 # ruff: noqa: E402 - optional WebRTC imports must follow importorskip.
 
 import asyncio
+import concurrent.futures
 import json
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import replace
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 import torch
 
 pytestmark = pytest.mark.ci_cpu
+
+T = TypeVar("T")
 
 pytest.importorskip("aiohttp")
 pytest.importorskip("aiortc")
@@ -89,17 +93,30 @@ async def _wait_file_armed(window: WebRTCClientWindow) -> str:
     raise AssertionError("file selection was not armed")
 
 
+def _on_server_loop(window: WebRTCClientWindow, call: Callable[[], T]) -> T:
+    """Run ``call`` on the server's event loop, which owns its upload tokens."""
+    loop = window.server._loop
+    assert loop is not None
+    future: concurrent.futures.Future[T] = concurrent.futures.Future()
+    loop.call_soon_threadsafe(lambda: future.set_result(call()))
+    return future.result(timeout=5)
+
+
 def _arm(window: WebRTCClientWindow, request: FileSelectionRequest) -> str:
     """Arm a selector as if the browser had been sent ``request``; return its token."""
     selector_id = window._last_file_selector_id + 1
     window._last_file_selector_id = selector_id
     window._active_file_selector = (selector_id, request)
     wire_id = f"token-{selector_id}"
-    window.server._pending_file_requests[wire_id] = webrtc_server._PendingFileSelection(
+    policy = webrtc_server._PendingFileSelection(
         selector_id=str(selector_id),
         accept=request.accept,
         max_bytes=clamp_selected_file_max_bytes(request.max_bytes),
         multiple=request.multiple,
+    )
+    _on_server_loop(
+        window,
+        lambda: window.server._pending_file_requests.__setitem__(wire_id, policy),
     )
     return wire_id
 
@@ -551,11 +568,11 @@ async def test_browser_ack_reports_the_file_selector_opened() -> None:
         channel.send(json.dumps({"type": "file_selector_ack", "id": "other"}))
         channel.send(json.dumps({"type": "file_selector_ack", "id": wire_id}))
         for _ in range(100):
+            assert window.get_user_input_events().get_events() == []
             if window._file_selector_deadline is None:
                 break
             await asyncio.sleep(0.01)
         assert window._file_selector_deadline is None
-        assert window.get_user_input_events().get_events() == []
         channel.send(
             json.dumps(
                 {
@@ -673,7 +690,10 @@ async def test_session_handoff_clears_pending_file_selection() -> None:
     try:
         wire_id = _arm(window, _file_request("open-1"))
         window.open(_session_desc())
-        assert window.server._pending_file_requests == {}
+        assert (
+            _on_server_loop(window, lambda: dict(window.server._pending_file_requests))
+            == {}
+        )
         assert await _post_selected_file(window, wire_id, b"hello", "hello.txt") == 409
     finally:
         window.close()
@@ -958,7 +978,6 @@ def _link_server() -> tuple[webrtc_server.WebRTCServer, Mock, Mock]:
     server._link_lock = threading.Lock()
     server._links = ()
     server._pressed_link = None
-    server._file_selector_lock = threading.Lock()
     server._pending_file_requests = {}
     server._uploading_file_requests = {}
     channel = Mock(readyState="open")

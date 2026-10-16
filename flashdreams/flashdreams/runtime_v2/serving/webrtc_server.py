@@ -380,6 +380,7 @@ class WebRTCServer:
         self._client_connected = False
         self._hide_cursor = False
         self._lock_cursor_to_window = False
+        # Upload tokens, touched only on the event loop once it runs.
         self._pending_file_requests: dict[str, _PendingFileSelection] = {}
         self._uploading_file_requests: dict[str, _PendingFileSelection] = {}
         self._file_selector_callbacks: (
@@ -389,7 +390,6 @@ class WebRTCServer:
             ]
             | None
         ) = None
-        self._file_selector_lock = threading.Lock()
         self._thread = threading.Thread(
             target=self._run_server,
             name="flashdreams-webrtc",
@@ -565,16 +565,14 @@ class WebRTCServer:
         """
         loop = self._loop
         if loop is None:
-            with self._file_selector_lock:
-                self._pending_file_requests.clear()
+            self._pending_file_requests.clear()
             return
         # On the event loop, after any arm still queued for a forgotten selector.
         loop.call_soon_threadsafe(self._withdraw_file_selectors)
 
     def _withdraw_file_selectors(self) -> None:
         """Forget armed selectors and tell the viewer to close its prompt."""
-        with self._file_selector_lock:
-            self._pending_file_requests.clear()
+        self._pending_file_requests.clear()
         channel = self._control_channel
         if channel is not None and channel.readyState == "open":
             channel.send(json.dumps({"type": "file_selector_cancel"}))
@@ -592,8 +590,7 @@ class WebRTCServer:
             )
             return
         token = secrets.token_urlsafe(16)
-        with self._file_selector_lock:
-            self._pending_file_requests[token] = policy
+        self._pending_file_requests[token] = policy
         channel.send(
             json.dumps(
                 {
@@ -608,18 +605,16 @@ class WebRTCServer:
 
     def _take_pending_file_request(self, token: str) -> _PendingFileSelection | None:
         """Return and consume the policy for ``token``, if it was pending."""
-        with self._file_selector_lock:
-            return self._pending_file_requests.pop(token, None)
+        return self._pending_file_requests.pop(token, None)
 
     def _complete_abandoned_file_selectors(self) -> None:
         """Answer every armed pick as ``UNAVAILABLE`` because the viewer left."""
-        with self._file_selector_lock:
-            abandoned = (
-                *self._pending_file_requests.values(),
-                *self._uploading_file_requests.values(),
-            )
-            self._pending_file_requests.clear()
-            self._uploading_file_requests.clear()
+        abandoned = (
+            *self._pending_file_requests.values(),
+            *self._uploading_file_requests.values(),
+        )
+        self._pending_file_requests.clear()
+        self._uploading_file_requests.clear()
         for policy in abandoned:
             self._emit_selected_files(
                 policy.selector_id, status=SelectedFilesStatus.UNAVAILABLE
@@ -688,8 +683,10 @@ class WebRTCServer:
             # Keep timestamps comparable across sessions so events buffered
             # during a handoff retain their real order.
             self._event_origin_ns = time.monotonic_ns()
-        with self._file_selector_lock:
+        if loop is None:
             self._pending_file_requests.clear()
+        else:
+            loop.call_soon_threadsafe(self._pending_file_requests.clear)
 
     def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
         """Change the dimensions used to present subsequent UI frames.
@@ -987,8 +984,7 @@ class WebRTCServer:
         if policy is None:
             raise web.HTTPConflict(reason="No pending file selection for this id.")
         # Tracked until it ends so a viewer that leaves mid-upload is answered.
-        with self._file_selector_lock:
-            self._uploading_file_requests[token] = policy
+        self._uploading_file_requests[token] = policy
 
         emitted = False
 
@@ -1083,8 +1079,7 @@ class WebRTCServer:
                 emit(SelectedFilesStatus.TOO_LARGE)
             raise
         finally:
-            with self._file_selector_lock:
-                self._uploading_file_requests.pop(token, None)
+            self._uploading_file_requests.pop(token, None)
             if not emitted:
                 emit(SelectedFilesStatus.UNAVAILABLE)
 
@@ -1443,8 +1438,7 @@ class WebRTCServer:
                 raise ValueError(
                     "File selector acknowledgement requires a non-empty id."
                 )
-            with self._file_selector_lock:
-                policy = self._pending_file_requests.get(token)
+            policy = self._pending_file_requests.get(token)
             if policy is None:
                 return
             self._file_selector_callbacks_or_raise()[0](policy.selector_id)

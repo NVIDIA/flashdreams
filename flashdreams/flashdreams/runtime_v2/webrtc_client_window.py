@@ -5,6 +5,7 @@
 
 import threading
 from collections import deque
+from collections.abc import Callable
 from dataclasses import replace
 
 from numpy import uint64
@@ -24,7 +25,8 @@ class WebRTCClientWindow(IClientWindow):
     A thin pairing of the :class:`IClientWindow` protocol with
     :class:`WebRTCServer`, which does the serving. Browser events arrive on the
     server's own thread, so they are queued here and handed over in batches when
-    the session asks, as the protocol requires.
+    the session asks, as the protocol requires. File-selector reports are
+    queued the same way and applied on the UI thread when input is read.
 
     The server timestamps arrivals against one stable clock. This window clears
     input buffered during a session handoff, then rebases later events to the
@@ -54,6 +56,7 @@ class WebRTCClientWindow(IClientWindow):
             startup_timeout_seconds: Maximum time to wait for server startup.
         """
         self._input_events: deque[UserInputEvent] = deque()
+        self._file_selector_reports: deque[Callable[[], None]] = deque()
         self._hide_cursor = False
         self._lock_cursor_to_window = False
         self._input_lock = threading.Lock()
@@ -71,11 +74,18 @@ class WebRTCClientWindow(IClientWindow):
             with self._input_lock:
                 self._input_events.append(event)
 
+        def report_file_selector(apply: Callable[[], None]) -> None:
+            """Hand a server-thread picker report to the UI thread."""
+            with self._input_lock:
+                self._file_selector_reports.append(apply)
+
         self.server.register_input_callback(handle_input)
         self.server.register_file_selector_callbacks(
-            opened=lambda selector_id: self._file_selector_opened(int(selector_id)),
-            completed=lambda selector_id, status, files: self._complete_file_selector(
-                int(selector_id), status, files
+            opened=lambda selector_id: report_file_selector(
+                lambda: self._file_selector_opened(int(selector_id))
+            ),
+            completed=lambda selector_id, status, files: report_file_selector(
+                lambda: self._complete_file_selector(int(selector_id), status, files)
             ),
         )
 
@@ -145,6 +155,11 @@ class WebRTCClientWindow(IClientWindow):
         Returns:
             Buffered browser events in timestamp order, each returned once.
         """
+        with self._input_lock:
+            reports = list(self._file_selector_reports)
+            self._file_selector_reports.clear()
+        for apply in reports:
+            apply()
         self._expire_file_selectors()
         with self._input_lock:
             events = list(self._input_events)
