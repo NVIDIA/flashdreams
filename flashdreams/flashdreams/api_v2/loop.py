@@ -633,52 +633,24 @@ class IUILoop(ILoop[StateT], ABC):
     ) -> None:
         """Ask the client to show a file selector.
 
-        The call only queues the request and returns nothing. The window sees
-        it after this step, so the result is never in :attr:`user_events`
-        during the step that asked. It arrives on a later tick as one
+        The result arrives on a later tick, never during the step that asked,
+        as one
         :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`
-        carrying ``request_id``. The model loop's ``step`` receives the same
-        event.
+        carrying ``request_id``. One selector is open at a time; a call made
+        while one is open is answered ``BUSY``. A selector stays open across a
+        session reset; a replaced or ended session gets no result.
 
-        Every call gets exactly one event, unless the session ends first: a
-        session replaced or shut down before the answer gets none. One
-        selector is open at a time, so a call made while one is open, including
-        a second call in the same tick, is answered ``BUSY``. Use one stable
-        ``request_id`` per control and reuse it. A control that is already
-        waiting for its own result can get a ``BUSY`` for a repeat click
-        before that result.
+        Read ``status`` first; ``files`` is empty unless it is ``OK``:
 
-        For the full lifecycle, including session reset versus replacement,
-        see :class:`~flashdreams.api_v2.client_window.IClientWindow`.
-
-        Read ``status`` first. ``files`` is empty unless it is ``OK``, and one
-        rejected file fails the whole set:
-
-        - ``OK``: ``files`` holds each chosen file as its base ``name`` and its
-          ``data`` bytes. There is no host path. Empty files are allowed.
+        - ``OK``: each chosen file as its base ``name`` and ``data`` bytes.
         - ``CANCELLED``: the user dismissed the selector.
-        - ``BUSY``: another selector was open, so this one was not shown.
-        - ``DISALLOWED_TYPE``: a file did not match ``accept``. Suffixes
-          compare case-insensitively, and this wins over ``TOO_LARGE``.
-        - ``TOO_LARGE``: a file exceeded ``max_file_bytes``, or the set
-          exceeded
-          :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BATCH_BYTES`
-          or :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_COUNT`.
-        - ``UNAVAILABLE``: the window has no picker (MP4, null), the picker
-          was not shown within
-          :data:`~flashdreams.runtime_v2.selected_file.FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS`,
-          the viewer left, the chooser failed, or a file could not be read.
+        - ``BUSY``: another selector was open.
+        - ``DISALLOWED_TYPE``: a file did not match ``accept``.
+        - ``TOO_LARGE``: a file or the set exceeded the size or count limits.
+        - ``UNAVAILABLE``: the window cannot show a selector, or it failed.
 
-        ``accept`` checks filename suffixes only, never contents, so validate
-        and decode ``data`` as untrusted input.
-
-        Once the picker is shown there is no deadline. On WebRTC, shown means
-        the browser's "The app requested a file" prompt; its Select… button
-        opens the browser's file chooser. The native window uses a Tk dialog,
-        which needs a Python with Tk and a display; without them the result is
-        ``UNAVAILABLE``. Tk cannot close its dialog from another thread, so one
-        left open when its session ends stays on screen, and whatever it
-        returns is dropped.
+        ``accept`` checks filename suffixes only, so treat ``data`` as
+        untrusted input.
 
         Example:
 

@@ -11,13 +11,13 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
 class NullClientWindow(IClientWindow):
-    """Discard output and report no input except file-selection results."""
+    """Discard output. It has no user input of its own."""
 
     def __init__(self) -> None:
         self._input_events: list[UserInputEvent] = []
 
     def get_user_input_events(self) -> UserInputEvents:
-        """Return the file-selection results queued since the last call."""
+        """Return the events queued since the last call."""
         events, self._input_events = self._input_events, []
         return UserInputEvents(events)
 

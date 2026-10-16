@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import queue
 import sys
 import threading
@@ -65,8 +66,13 @@ def _file_request(
     )
 
 
+def _fake_dialog(monkeypatch: pytest.MonkeyPatch, script: str) -> None:
+    """Run ``script`` in the dialog's child process instead of Tk."""
+    monkeypatch.setattr(native_window_module, "_FILE_DIALOG_SCRIPT", script)
+
+
 def _wait_for_input_events(window: NativeWindowClientWindow) -> list[object]:
-    for _ in range(100):
+    for _ in range(500):
         events = window.get_user_input_events().get_events()
         if events:
             return list(events)
@@ -1004,13 +1010,7 @@ def test_native_window_reports_a_selected_file(
 ) -> None:
     chosen = tmp_path / "seed.png"
     chosen.write_bytes(b"png-bytes")
-    monkeypatch.setattr(
-        native_window_module,
-        "_ask_open_filename",
-        lambda *, initial_dir, accept=(), multiple=False, on_presented=None: (
-            str(chosen),
-        ),
-    )
+    _fake_dialog(monkeypatch, f"print({json.dumps([str(chosen)])!r})")
     presenter = _Presenter()
     window = NativeWindowClientWindow(
         presenter_factory=_presenter_factory(presenter),
@@ -1032,11 +1032,7 @@ def test_native_window_reports_a_selected_file(
 def test_native_window_reports_cancelled_file_selection(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(
-        native_window_module,
-        "_ask_open_filename",
-        lambda *, initial_dir, accept=(), multiple=False, on_presented=None: (),
-    )
+    _fake_dialog(monkeypatch, "print('[]')")
     presenter = _Presenter()
     window = NativeWindowClientWindow(
         presenter_factory=_presenter_factory(presenter),
@@ -1057,17 +1053,7 @@ def test_native_window_reports_cancelled_file_selection(
 def test_native_window_reports_unavailable_when_picker_raises(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    def fail_picker(
-        *,
-        initial_dir: str,
-        accept: tuple[str, ...] = (),
-        multiple: bool = False,
-        on_presented: object = None,
-    ) -> tuple[str, ...]:
-        del initial_dir, accept, multiple, on_presented
-        raise RuntimeError("Native file picker needs a desktop chooser.")
-
-    monkeypatch.setattr(native_window_module, "_ask_open_filename", fail_picker)
+    _fake_dialog(monkeypatch, "raise SystemExit('Tk cannot open a display.')")
     presenter = _Presenter()
     window = NativeWindowClientWindow(
         presenter_factory=_presenter_factory(presenter),
@@ -1132,34 +1118,15 @@ def test_selected_files_from_paths_rejects_a_non_regular_file(tmp_path: Path) ->
 def test_native_window_shown_picker_has_no_deadline(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    shown = threading.Event()
-    release = threading.Event()
-
-    def picker(
-        *,
-        initial_dir: str,
-        accept: tuple[str, ...] = (),
-        multiple: bool = False,
-        on_presented: Callable[[], None] | None = None,
-    ) -> tuple[str, ...]:
-        del initial_dir, accept, multiple
-        assert on_presented is not None
-        on_presented()
-        shown.set()
-        release.wait(5)
-        return ()
-
-    monkeypatch.setattr(native_window_module, "_ask_open_filename", picker)
+    _fake_dialog(monkeypatch, "import time; time.sleep(0.5); print('[]')")
     now = [0.0]
     presenter = _Presenter()
     window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
     window._file_selector_clock = lambda: now[0]
     window.open(_session_desc())
     window.request_file_selector(_file_request("open-1", str(tmp_path)))
-    assert shown.wait(5)
     now[0] = 1_000.0
     assert window.get_user_input_events().get_events() == []
-    release.set()
     events = _wait_for_input_events(window)
     window.close()
 
@@ -1176,14 +1143,7 @@ def test_native_window_reports_multiple_selected_files(
     second = tmp_path / "b.bin"
     first.write_bytes(b"one")
     second.write_bytes(b"two")
-    monkeypatch.setattr(
-        native_window_module,
-        "_ask_open_filename",
-        lambda *, initial_dir, accept=(), multiple=False, on_presented=None: (
-            str(first),
-            str(second),
-        ),
-    )
+    _fake_dialog(monkeypatch, f"print({json.dumps([str(first), str(second)])!r})")
     presenter = _Presenter()
     window = NativeWindowClientWindow(
         presenter_factory=_presenter_factory(presenter),
@@ -1199,6 +1159,24 @@ def test_native_window_reports_multiple_selected_files(
     assert event.status is SelectedFilesStatus.OK
     assert [chosen.name for chosen in event.files] == ["a.bin", "b.bin"]
     assert [chosen.data for chosen in event.files] == [b"one", b"two"]
+
+
+def test_native_window_flush_closes_the_open_dialog(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _fake_dialog(monkeypatch, "import time; time.sleep(60)")
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    window.request_file_selector(_file_request("open-1", str(tmp_path)))
+    dialog = window._file_dialog
+    assert dialog is not None
+
+    window.flush_file_selectors()
+
+    assert dialog[2].returncode is not None
+    assert window.get_user_input_events().get_events() == []
+    window.close()
 
 
 def test_native_window_reports_standard_gamepad_events() -> None:

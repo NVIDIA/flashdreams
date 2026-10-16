@@ -374,11 +374,9 @@ chooses its UI independently of the client window. Browser keyboard, mouse,
 focus, and file-selector events arrive on the server's own thread, so it queues
 them and hands them over in batches when the session asks.
 
-File selection rules live in `IClientWindow`, and its class docstring is the
-full lifecycle: requests, the 30 second deadline, result checks, withdrawal,
-session end versus in-session reset, threads, and wrappers. A window only shows
-a picker and reports what it returned. Every window implements the abstract
-`_put_user_input_event`; a window with a picker also implements
+File selection rules live in `IClientWindow`; a window only shows a picker and
+reports what it returned, on the UI thread. Every window implements the
+abstract `_put_user_input_event`; a window with a picker also implements
 `_request_file_selector` and calls `_expire_file_selectors()` each time its
 input is read.
 
