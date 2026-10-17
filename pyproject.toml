@@ -62,6 +62,7 @@ extraPaths = [
     "apps",
     "apps/cam2v",
     "apps/t2v",
+    "apps/minimal_t2v",
     "apps/crazy_robotaxi",
     "apps/interactive_drive",
     "apps/omnidreams_game_engine",
@@ -98,6 +99,7 @@ extra-paths = [
     "apps",
     "apps/cam2v",
     "apps/t2v",
+    "apps/minimal_t2v",
     "apps/action2v",
     "apps/crazy_robotaxi",
     "apps/interactive_drive",
@@ -195,6 +197,7 @@ lint = [
 
 # Documentation site generator.
 docs = [
+    "mkdocstrings-python>=2.0.9",
     "zensical==0.0.67",
 ]
 dev = [

@@ -5,94 +5,99 @@ title: 'Create a demo'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-A demo is a reusable, model-independent `flashdreams.api_v2` application under
-`apps/<demo>/`. It owns interaction, session lifecycle, input handling, UI, and
-presentation policy. It must not import a model integration or own a
-checkpoint.
+A demo implements `IApplication` and `ISession` from `flashdreams.api_v2`.
+Reuse an app from the [demo gallery](../../../demos/index.md) when it already
+supports your interaction; then [add a model adapter](integrate_model_adapter_for_a_demo.md).
 
-First check the [demo gallery](../../../demos/index.md). If T2V, Cam2V,
-Action2V, V2V, Interactive Drive, or Crazy Robotaxi already owns the required
-interaction, add a [model adapter](integrate_model.md) instead of another app.
+This tutorial builds the [Minimal T2V app](https://github.com/NVIDIA/flashdreams/tree/main/apps/minimal_t2v)
+(`minimal_t2v`), which sends ImGui prompts to a model loop. All source below is included from the repository.
 
-## Package layout
+## New application files
 
 ```text
-apps/<demo>/
-  <demo>/
+apps/minimal_t2v/
+  pyproject.toml
+  minimal_t2v/
     __init__.py
     application.py
-    defaults.py           # optional adapter-supplied defaults
     session.py
-    ui.py                 # only for custom composition or controls
-  tests/
-  pyproject.toml
-  README.md
+    model_loop.py
+    ui_loop.py
+  tests/test_application.py
+
+docs/source/demos/minimal_t2v.md # Add the app page with controls, arguments, and a link to its model's quick start.
+docs/source/demos/.nav.yml # Add `Minimal T2V: minimal_t2v.md` to the sidebar.
+docs/source/demos/index.md # Add a Minimal T2V gallery card linking to `minimal_t2v/`.
 ```
 
-Depend on `flashdreams`, never on `integrations_v2`. Add the `serving` or
-`local-window` extra only when the app directly imports that optional stack.
-The root workspace already discovers `apps/*` packages.
+## Package
 
-## Implement the lifecycle
+Define a new demo package and export its application slug.
 
-The runtime calls the API in this order:
+`apps/minimal_t2v/pyproject.toml`:
+```toml
+--8<-- "apps/minimal_t2v/pyproject.toml"
+```
 
-1. `IApplication.session_desc()` describes native output without loading the
-   model.
-2. `IApplication.init(args)` parses arguments after `--` and initializes state
-   shared by sessions.
-3. `IApplication.create_session(desc)` validates the requested description and
-   returns an uninitialized `ISession`.
-4. `ISession.init()` creates per-run state and registers exactly one
-   `IModelLoop`; a custom `IUILoop` is optional.
-5. `IModelLoop.step(index, events)` returns `list[StepResult]`.
-6. `is_finished`, `reset`, and `close` manage the run lifecycle.
+`apps/minimal_t2v/minimal_t2v/__init__.py`:
+```python
+--8<-- "apps/minimal_t2v/minimal_t2v/__init__.py"
+```
 
-A minimal session registration is:
+## IApplication
+
+Implement an [`IApplication`](../api_reference/application.md#flashdreams.api_v2.application.IApplication) to be implemented by *every model* that desires to integrate with this demo:
+
+- `__init__` is your constructor/contract to any implementor of this demo.
+    - `pipeline_config` is the model's pipeline configuration.
+    - `desc` is our session description - more on this later.
+    - `total_blocks` is the model's total number of blocks to generate for the entire session.
+- `init()` parses arguments & is where we load/download our model.
+- `session_desc()` is how our [`ISession`](../api_reference/application.md#flashdreams.api_v2.session.ISession) collects a session description from our IApplication.
+    - [`SessionDesc`](../api_reference/application.md#flashdreams.runtime_v2.session_desc.SessionDesc)
+- `create_session()` is called every time a session is made, passing `IApplication` data to `ISession`
+- `close()` is called when the application is shutting down.
+```python
+--8<-- "apps/minimal_t2v/minimal_t2v/application.py"
+```
+
+## Session
+
+[`ISession`](../api_reference/application.md#flashdreams.api_v2.session.ISession) owns the two main loops driving our application *session* (running in separate threads):
+
+- [`IModelLoop`](../api_reference/application.md#flashdreams.api_v2.loop.IModelLoop): Drives model inference/logic.
+- [`IUILoop`](../api_reference/application.md#flashdreams.api_v2.loop.IUILoop): Drives UI/user-interaction.
+
+These are set with `register_*_loop()` methods part of `ISession`. These must be called during `ISession.init()`.
 
 ```python
-from flashdreams.api_v2.session import ISession
-
-class DemoSession(ISession):
-    def init(self) -> None:
-        self.register_model_loop(DemoModelLoop, state=DemoModelState(...))
-
-    @property
-    def session_desc(self) -> SessionDesc:
-        return self._session_desc
+--8<-- "apps/minimal_t2v/minimal_t2v/session.py"
 ```
 
-If the session does not register a UI loop, the runtime presents model output
-with its default blit loop. Model and UI loops run on separate threads and own
-their state; use `flashdreams.api_v2.loop.invoke_async` for cross-loop changes.
+## Model loop
 
-## Expose a narrow adapter seam
+`IModelLoop` governs all model logic and will be where we run our model inference:
 
-Put model-independent facts in the app and accept model-owned facts through a
-small immutable defaults object or constructor arguments. Typical adapter
-inputs are:
+- `MinimalT2VModelState` is the type of `ILoop.state` for our `IModelLoop`.
+- `step()` is called for each loop of our `IModelLoop`.
+    - `pipeline.initialize_cache()` is called to initialize our model's cache.
+    - `pipeline.generate()` is called to generate a chunk of frames given our current model's state (`pipeline`).
+    - `pipeline.finalize()` is called to finalize the generated chunk & produce metrics.
+- `reset()` is called when the session is reset.
+- `close()` is called when the session is closed.
 
-- pipeline config or model factory;
-- native width, height, frame rate, and tensor layout;
-- default rollout length and device;
-- model-specific input resolver callbacks.
-
-Keep expensive shared objects, such as the loaded pipeline, on the application.
-Keep caches, counters, and resettable rollout state on the session's model-loop
-state.
-
-## Test without a real model
-
-Tests live in `apps/<demo>/tests/` and must not import `integrations_v2`. Use a
-stand-in pipeline to cover argument validation, session-description checks,
-loop registration, step output, reset, finish, close, and scripted input. Mark
-pure Python tests `ci_cpu`; put real-model behavior in the integration's tests.
-
-```bash
-uv sync --package flashdreams-<demo> --extra dev --no-default-groups --inexact
-uv run --no-sync pytest apps/<demo>/tests -m ci_cpu
+```python
+--8<-- "apps/minimal_t2v/minimal_t2v/model_loop.py"
 ```
 
-Add `docs/source/demos/<demo>.md`, update `demos/.nav.yml`, and keep the package
-README focused on development. The demo becomes publicly runnable when a model
-adapter registers an application slug.
+## UI loop
+
+`IUILoop` governs all UI logic and will be where we handle user-interaction:
+
+- `MinimalT2VUIState` is the type of `ILoop.state` for our `IUILoop`.
+- `invoke_async(self.state.model_loop, lambda...)` is called when the user submits a new prompt (via imgui button) to submit a `lambda` to run on our `IModelLoop` thread before the next new `IModelLoop.step()`. 
+- `step_ui(...)` is called for each loop of our `IUILoop`. It contains `imgui` state when `IUILoop` inherits from [`ImGuiUILoop`](../api_reference/application.md#flashdreams.runtime_v2.imgui_ui_loop.ImGuiUILoop).
+
+```python
+--8<-- "apps/minimal_t2v/minimal_t2v/ui_loop.py"
+```

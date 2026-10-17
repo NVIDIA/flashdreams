@@ -6,5 +6,6 @@ nav:
   - Model Interfaces:
       - Action2V: action2v.md
       - Cam2V: cam2v.md
+      - Minimal T2V: minimal_t2v.md
       - T2V: t2v.md
       - V2V: v2v.md

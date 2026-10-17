@@ -6,10 +6,10 @@ SPDX-License-Identifier: Apache-2.0
 Applications built on the v2 API. Each directory is a standalone package that
 depends on `flashdreams` and holds no framework code of its own.
 
-This is the guide to writing one. If the model generates video from a prompt,
-read [`apps/t2v`](../apps/t2v/README.md)
-instead, that path is a subclass and a `pyproject.toml`, and most of what
-follows is already done for you.
+For new work, follow the website's
+[Create a model](../docs/source/documentation/inferencing_api/guides/create_model.md)
+and [Integrate model adapter for a demo](../docs/source/documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md)
+guides. They are the canonical authoring instructions.
 
 ## What is here
 
@@ -42,7 +42,6 @@ follows is already done for you.
 ```text
 integrations_v2/<model>/
   pyproject.toml
-  README.md
   __init__.py
   config.py            # collection of pipeline definitions for a particular `<model>`
   impl/                # implementation details of a model
@@ -51,7 +50,8 @@ integrations_v2/<model>/
     <demo>/
       __init__.py
       adapter.py       # all entry point definitions for `<demo>` (ex: `create_app`)
-      README.md        # launch instructions only
+
+docs/source/models/<model>.md  # canonical website article
 ```
 
 The workspace glob in the root `pyproject.toml` picks up any directory here
@@ -278,5 +278,6 @@ halves for text-to-video models.
   in detail.
 - [Runtime](../flashdreams/flashdreams/runtime_v2/README.md) - the buffering
   between those threads, and the command line that starts them.
-- [`apps/t2v`](../apps/t2v/README.md) - adding a
-  text-to-video model.
+- [Create a model](../docs/source/documentation/inferencing_api/guides/create_model.md)
+  and [Integrate model adapter for a demo](../docs/source/documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md)
+  cover new model and text-to-video integrations.

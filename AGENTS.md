@@ -87,7 +87,7 @@ Before performance work, collect an nsys report with `uv run flashdreams-profile
 
 ## Testing Guidance
 
-Every pytest test must carry exactly one of `ci_cpu`, `ci_gpu`, or `manual`; `CONTRIBUTING.md` has the exact rules, including how pytest discovers files and functions (`test_*.py`, `test_*`). Use module-level `pytestmark = pytest.mark.ci_cpu` for pure Python/metadata tests. Keep GPU, `libGL`/`cv2`, large-checkpoint, credential, and download-heavy checks out of `ci_cpu`.
+Every pytest test must carry exactly one of `ci_cpu`, `ci_gpu`, or `manual`; [Testing](https://nvidia.github.io/flashdreams/main/documentation/tools/testing/) has the exact discovery and marker rules. Use module-level `pytestmark = pytest.mark.ci_cpu` for pure Python/metadata tests. Keep GPU, `libGL`/`cv2`, large-checkpoint, credential, and download-heavy checks out of `ci_cpu`.
 
 **v2 test ownership** — put a new test next to the thing it validates:
 

@@ -1,3 +1,7 @@
+---
+title: 'Benchmarking'
+---
+
 <!--
 SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: Apache-2.0
@@ -5,16 +9,13 @@ SPDX-License-Identifier: Apache-2.0
 
 # Benchmarking models on the v2 API
 
-[`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
+[`configs/v2_model_benchmarks.json`](https://github.com/NVIDIA/flashdreams/blob/main/configs/v2_model_benchmarks.json)
 runs every model on the v2 API at the same seed, writing a clip and its runtime
 metrics for each. Use it to compare the models against each other, or a change
 against a baseline of a previous run. The text-to-video models share one prompt
 so their clips can be put side by side; a camera-to-video model is conditioned
 on a first frame that its prompt belongs to, so it is compared against runs of
 itself rather than against the text-to-video clips.
-
-The v1 demo suites that run through `flashdreams-run` are a separate workflow,
-in [the local benchmarks guide](../../../docs/source/documentation/demo_api/guides/local_benchmarks.md).
 
 ## Set up
 

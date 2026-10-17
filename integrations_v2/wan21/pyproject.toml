@@ -16,10 +16,12 @@ dependencies = [
     "mediapy>=1.1",
     "opencv-python-headless>=4.5",
     "flashdreams-t2v",
+    "flashdreams-minimal-t2v",
 ]
 
 [tool.uv.sources]
 flashdreams-t2v = { workspace = true }
+flashdreams-minimal-t2v = { workspace = true }
 flashdreams = { workspace = true }
 
 [project.optional-dependencies]
@@ -29,9 +31,10 @@ dev = [
 
 [project.entry-points."flashdreams.applications_v2"]
 "t2v-wan21-t2v-1.3b-480p" = "wan21.apps.t2v.adapter:create_app"
+"minimal-t2v-wan21" = "wan21.apps.minimal_t2v.adapter:create_app"
 
 [tool.setuptools]
-packages = ["wan21", "wan21.apps", "wan21.apps.t2v", "wan21.impl"]
+packages = ["wan21", "wan21.apps", "wan21.apps.t2v", "wan21.apps.minimal_t2v", "wan21.impl"]
 
 [tool.setuptools.package-dir]
 wan21 = "."

@@ -22,129 +22,31 @@ and has grown into a general platform for real-time world-model applications
 across gaming, autonomous vehicles, robotics, simulated or virtual
 environments, and more.
 
-[omnidreams-blog]: https://research.nvidia.com/labs/sil/projects/omnidreams-blog/
-
-https://github.com/user-attachments/assets/2b000ce9-effe-4cc9-a227-5b4619413e4d
-
-## System Requirements
-
-- NVIDIA GPU with **80 GB VRAM or more** (e.g. H100 80GB), see notes below.
-- NVIDIA driver from the **R580 series or newer** (default compatible with CUDA 13.x)
-- **CUDA 13.x by default** (PyTorch `2.11.0+cu130` and the `nvidia-*-cu13` libraries are
-  resolved by `uv sync`. A system CUDA toolkit is needed only for the
-  developer extras and is included in `nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04`)
-- **Python >= 3.10**
-- **PyTorch >= 2.11.0+cu130** (`>= 2.9` for bare PyPI library install)
-- Linux x86-64 or arm64
-- **100 GB+ free storage space** recommended for environment and model checkpoints.
-- Docker with the
-  [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-  (optional, only for the container workflow)
-
-> Development and testing were performed on GPUs with **80 GB of VRAM or more**.
-> Inference can fail (out-of-memory) on consumer and even enthusiast GPUs.
-> Per-model GPU and VRAM requirements are listed on each model page in
-> [the model gallery](https://nvidia.github.io/flashdreams/main/models/index.html).
 
 ## Quickstart
 
-The complete setup is in
-[the installation guide](https://nvidia.github.io/flashdreams/main/quickstart/index.html#install).
-Assuming `uv` is [installed](https://docs.astral.sh/uv/getting-started/installation), the shortest viable path is:
+The complete setup is in our
+[quick-start guide](https://nvidia.github.io/flashdreams/main/quickstart/index.html#install).
 
-```bash
-git clone https://github.com/NVIDIA/flashdreams.git
-cd flashdreams
-uv sync --extra runners
-export HF_TOKEN=<your-hf-token>
-uv run flashdreams-run --help
-```
+## Checkout Our Demos! 🎉
 
-Note for developers/maintainers you would want to run `uv sync --extra dev --extra runners` instead.
+Quick-start to our interactive driving demo is [here](https://nvidia.github.io/flashdreams/main/quickstart/index.html#run-your-first-model).
 
-### Select CUDA Version
+![](docs/source/_static/demo_clips/interactive-drive.avif)
 
-FlashDreams defaults to the CUDA 13 PyTorch stack (the `cuda13` dependency
-group is activated automatically via `default-groups`):
+Checkout our game-like crazy-robotaxi demo [here](https://nvidia.github.io/flashdreams/main/demos/crazy_robotaxi/).
 
-- **Linux:** `uv sync` pulls `torch>=2.9` from PyPI, whose Linux wheels are
-  the CUDA 13 build (the `+cu130` local-version tag is just stripped on
-  PyPI).
-- **Windows:** `uv sync` pulls torch from NVIDIA's `cu130` index
-  (`https://download.pytorch.org/whl/cu130`) — PyPI's Windows torch wheel
-  is CPU-only.
-
-CUDA 12.8 is available as an opt-in side profile (Linux only) via the
-`cuda12` dependency group:
-
-```bash
-uv sync --group cuda12 --extra runners
-```
-
-The two groups are declared mutually exclusive in `pyproject.toml`, so uv
-deactivates the default `cuda13` group automatically when `--group cuda12`
-is passed.
-
-Then launch your first model by following [the Get Started guide](https://nvidia.github.io/flashdreams/main/quickstart/index.html#run-your-first-model).
-For example, the Self-Forcing T2V v2 application is:
-
-```bash
-uv run --project integrations_v2/self_forcing \
-    flashdreams-run-v2 t2v-self-forcing-wan2.1-t2v-1.3b \
-    --output-path artifacts/t2v-self-forcing-wan2.1-t2v-1.3b.mp4 --timeout unbound -- \
-    --prompt "A cat surfing." --total-blocks 7
-```
-
-You can also install FlashDreams as a library from PyPI:
-
-```bash
-pip install flashdreams
-```
-
-### Try the interactive driving demo
-
-Drive a world model in real time with the unified OmniDreams `local-window` or
-`webrtc` launch mode. See the
-**[interactive demo guide](https://nvidia.github.io/flashdreams/main/models/omnidreams.html#launch-the-interactive-demo)**.
-
-## Supported models
-
-FlashDreams ships first-party integrations under
-[`integrations_v2/`](integrations_v2/). Each model has a dedicated docs page with
-runner slugs, multi-GPU commands, and (where available) profiling benchmarks.
-
-| Model | Family |
-| --- | --- |
-| [Self-Forcing](https://nvidia.github.io/flashdreams/main/models/self_forcing.html) | Streaming Wan2.1 T2V |
-| [OmniDreams](https://nvidia.github.io/flashdreams/main/models/omnidreams.html) | HDMap-conditioned driving world model |
-| [LingBot-World](https://nvidia.github.io/flashdreams/main/models/lingbot_world.html) | Camera-controllable I2V world model |
-| [Waypoint 1.5](https://nvidia.github.io/flashdreams/main/models/waypoint.html) | Interactive image-established keyboard/mouse-controlled world model |
-| [Wan2.1](https://nvidia.github.io/flashdreams/main/models/wan21.html) | Bidirectional T2V / I2V |
-| [Causal-Forcing](https://nvidia.github.io/flashdreams/main/models/causal_forcing.html) | Streaming Wan2.1 T2V / I2V |
-| [Causal Wan2.2](https://nvidia.github.io/flashdreams/main/models/causal_wan22.html) | FastVideo Causal Wan 2.2 14B MoE T2V |
-| [FlashVSR](https://nvidia.github.io/flashdreams/main/models/flashvsr.html) | Streaming video super-resolution |
-| [Cosmos-Predict2.5](https://nvidia.github.io/flashdreams/main/models/cosmos_predict2.html) | Bidirectional T2V / I2V |
-
-See [the model gallery](https://nvidia.github.io/flashdreams/main/models/index.html) and
-[the new method guide](https://nvidia.github.io/flashdreams/main/developer_guides/new_integration.html)
-to add your own.
+![](docs/source/_static/demo_clips/crazy-robotaxi.avif)
 
 ## Developer guides
 
-- [Architecture](ARCHITECTURE.md)
-- [Inference pipeline overview](https://nvidia.github.io/flashdreams/main/developer_guides/inference_pipeline_overview.html)
-- [Config system](https://nvidia.github.io/flashdreams/main/developer_guides/config_system.html)
-- [Add a new method](https://nvidia.github.io/flashdreams/main/developer_guides/new_integration.html)
+### For Demo Developers
 
-For day-to-day development:
+Make demos using world-models with our [Demo API](https://nvidia.github.io/flashdreams/main/documentation/demo_api/).
 
-```bash
-uv sync --extra dev --extra runners
-uv run --group lint pre-commit run -a
-uv run pytest -m "not manual"
-```
+### For Model Developers
 
-See [`DEV.md`](DEV.md) for repository-specific workflow notes.
+Implement world-models with our [Inferencing API](https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/).
 
 ## Contributing
 
@@ -197,3 +99,5 @@ If FlashDreams is useful in your research or product, please cite the project:
   url           = {https://arxiv.org/abs/2606.03159},
 }
 ```
+
+[omnidreams-blog]: https://research.nvidia.com/labs/sil/projects/omnidreams-blog/

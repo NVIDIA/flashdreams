@@ -67,7 +67,7 @@ These models enhance an existing video stream rather than generating a scene fro
 Follow
 [Create a model](../documentation/inferencing_api/guides/create_model.md) for
 the model package, then
-[Integrate a model with a demo](../documentation/demo_api/guides/integrate_model.md)
+[Integrate model adapter for a demo](../documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md)
 to register a runnable application.
 
 ## Related

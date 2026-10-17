@@ -15,7 +15,8 @@ apps/<app_slug>/
   <app_slug>/          # the app implementation
   tests/               # validate the app against a stub, not a real model
   pyproject.toml
-  README.md            # purpose, controls, example command line, options
+
+docs/source/demos/<app_slug>.md  # canonical website article
 ```
 
 Tests live in `apps/<app_slug>/tests/`, beside the package rather than inside
@@ -24,6 +25,7 @@ model or its adapter belongs in `integrations_v2/<model>/tests/`.
 
 ## What is here
 
+- `minimal_t2v` — Minimal T2V app from the Create a demo tutorial.
 - `t2v` — text-to-video: prompt in, frames out. The reference app to copy.
 - `cam2v` — interactive camera-to-video.
 - `action2v` — world models driven by direct action input.
@@ -37,5 +39,8 @@ model or its adapter belongs in `integrations_v2/<model>/tests/`.
 `omnidreams_game_engine` is not the OmniDreams model. That is
 `integrations_v2/omnidreams`. The names are close; the packages are unrelated.
 
-Each app's own README covers how to launch it and what the controls are. To
-bind a model to one of these, read `integrations_v2/README.md`.
+Put launch instructions, controls, and options in
+`docs/source/demos/<app_slug>.md`. Follow the website's
+[Create a demo](../docs/source/documentation/demo_api/guides/create_demo.md)
+and [Integrate model adapter for a demo](../docs/source/documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md)
+guides.

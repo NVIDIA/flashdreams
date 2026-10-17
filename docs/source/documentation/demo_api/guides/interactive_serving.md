@@ -5,31 +5,29 @@ title: 'Interactive serving'
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-`flashdreams-run-v2` can present a compatible application in a browser or a
-local native window. Applications generate frames and consume input events;
-`flashdreams.runtime_v2` owns transport, pacing, and window lifecycle.
+Run a demo in a browser or a local window with `flashdreams-run-v2`.
+Use a registered name from `--help` or the [model pages](../../../models/index.md).
 
-## Launch a client
-
-Serve a browser on the local machine:
+## Browser
 
 ```bash
 uv run --no-sync flashdreams-run-v2 APPLICATION_SLUG \
     --mode webrtc --host 127.0.0.1 --port 0
 ```
 
-Port `0` selects an available port and prints the URL. Use `0.0.0.0` only when
-remote clients must connect; it exposes the server on available network
-interfaces, so apply the host's normal firewall and access controls.
+Open the URL printed by the server. Port `0` picks an available port.
+To accept connections from another machine, use `--host 0.0.0.0` and a fixed
+port, then connect to the server's address.
 
-Open a GPU-backed local window instead:
+## Local window
 
 ```bash
-uv run --no-sync flashdreams-run-v2 APPLICATION_SLUG \
-    --mode native-window --window-title FlashDreams
+uv run --no-sync flashdreams-run-v2 APPLICATION_SLUG --mode native-window
 ```
 
-Runtime options precede `--`. Application-specific options follow it:
+## Demo arguments
+
+Runtime options go before `--`; demo options go after it:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
@@ -37,43 +35,31 @@ uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
     --example-data --total-blocks 21
 ```
 
-Inspect both sides before launching:
+List runtime options with `flashdreams-run-v2 --help`. For this demo's options,
+use `flashdreams-run-v2 cam2v-lingbot -- --help`.
 
-```bash
-uv run --no-sync flashdreams-run-v2 --help
-uv run --no-sync flashdreams-run-v2 cam2v-lingbot -- --help
-```
+## Input and display
 
-## Understand the boundary
+The runtime sends user input to the app's loops and displays their output.
+The app handles controls and model inputs. A custom UI loop can draw controls
+over the generated frames; otherwise, the runtime displays the frames directly.
 
-- `IApplication` owns shared model state and application arguments.
-- `ISession` owns one run and registers model and optional UI loops.
-- The model loop receives `UserInputEvents` and publishes `StepResult` channels.
-- The UI loop composites frames and controls; without one, the runtime uses its
-  default blit loop.
-- The selected client-window mode owns browser, file, or native presentation.
+Model and UI loops run on separate threads. Use `invoke_async` to send changes
+between them. [Create a demo](create_demo.md) shows an ImGui text field sending
+a prompt to the model loop.
 
-The model and UI loops run on separate threads. They must not mutate each
-other's state directly; use `flashdreams.api_v2.loop.invoke_async`. Keep camera,
-action, and conditioning semantics in the app or adapter rather than teaching
-the WebRTC transport about a model.
+## Multiple GPUs
 
-## Distributed applications
-
-Launch all model ranks through the same command. Rank zero owns the client
-window and output sinks; the session's parallel context synchronizes admitted
-steps and input across ranks.
+For a model adapter that supports distributed execution, launch all ranks:
 
 ```bash
 uv run torchrun --nproc_per_node=2 --no-python flashdreams-run-v2 \
-    cam2v-lingbot --mode webrtc -- \
-    --example-data --total-blocks 21
+    cam2v-lingbot --mode webrtc -- --example-data --total-blocks 21
 ```
 
-The integration remains responsible for its tensor/context parallelism and for
-gathering any output required by the presenting rank.
+Rank zero handles the window and output. The session's parallel context
+synchronizes steps and inputs; the model integration handles parallel inference
+and gathers the output for rank zero.
 
-Use [Create a demo](create_demo.md) when the interaction needs new session or UI
-behavior. Use [Integrate a model with a demo](integrate_model.md) when the
-interaction already exists. The [CLI reference](../../cli.md) documents common
-runtime and presentation options.
+See the [CLI reference](../../cli.md) for runtime options, or
+[Integrate model adapter for a demo](integrate_model_adapter_for_a_demo.md) to connect another model.

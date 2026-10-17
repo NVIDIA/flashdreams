@@ -63,6 +63,19 @@ See our [How to Run a Model](../models/index.md#running-a-model) for more inform
 - See our [Omnidreams Overview](../models/omnidreams.md) for a brief Omnidreams world-model overview.
 - See our [Interactive Drive Overview](../demos/interactive_drive.md) for more information on the demo.
 
+## Install one integration
+
+Install only the model package you need with `--package`. Add `--extra dev`
+when working on its code:
+
+```bash
+uv sync --package flashdreams-omnidreams --extra dev --inexact
+```
+
+Use the distribution name from the integration's `pyproject.toml`.
+See [Models](../models/index.md) for available integrations, requirements, and
+setup commands. See [Testing](../documentation/tools/testing.md) for test commands.
+
 ## Where to next
 
 - [Model Gallery](../models/index.md): Every FlashDreams default-shipped model & how to run models!
