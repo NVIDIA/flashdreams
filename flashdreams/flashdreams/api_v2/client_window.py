@@ -105,17 +105,12 @@ class IClientWindow(InputSource, OutputSink, ABC):
     A window does not describe the output shape. The session does, and the window
     is given that description in :meth:`OutputSink.open`.
 
-    The runtime makes every call on a window from the UI thread. A window still
-    needs locking where its backend delivers input from another thread.
+    One thread makes every call on a window, so an implementation needs no
+    locking except when its backend delivers input from another thread.
 
-    File selection: this class owns the rules (one picker at a time, the
-    presentation deadline, result checks, stale results). A window with a
-    picker implements :meth:`_request_file_selector` and
-    :meth:`_cancel_active_file_selectors`, and calls
-    :meth:`_expire_file_selectors` when input is read. Its reports must reach
-    this class on the UI thread. :meth:`OutputSink.open` drops events queued
-    for the previous session. A window wrapping another forwards
-    :meth:`request_file_selector` and :meth:`flush_file_selectors`.
+    A window with a file picker implements :meth:`_request_file_selector` and
+    :meth:`_cancel_active_file_selectors`, reports results on the UI thread,
+    and calls :meth:`_expire_file_selectors` when input is read.
 
     Created by the runtime, never by an application.
     """
