@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import secrets
 import socket
 import threading
 import time
@@ -21,6 +22,7 @@ from typing import Any, Literal, cast
 import numpy as np
 import torch
 from aiohttp import web
+from aiohttp.multipart import BodyPartReader, MultipartReader
 from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
@@ -29,6 +31,17 @@ from torch.nn import functional as F
 
 from flashdreams.api_v2.client_window import ClientWindowLink
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
+from flashdreams.runtime_v2.selected_file import (
+    MAX_SELECTED_FILE_BATCH_BYTES,
+    MAX_SELECTED_FILE_COUNT,
+    FileSelectionRequest,
+    SelectedFile,
+    SelectedFilesStatus,
+    clamp_selected_file_max_bytes,
+    normalize_selected_file_accept,
+    selected_file_suffix_allowed,
+    selected_files_policy_status,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -295,6 +308,23 @@ class _VideoTrack(MediaStreamTrack):
             await self._frame_available.wait()
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingFileSelection:
+    """Accept suffixes and size budget for one armed file-selector request."""
+
+    selector_id: str
+    """Window selector this upload answers. Never sent to the browser."""
+
+    accept: tuple[str, ...]
+    """Filename suffixes the client may upload, empty for any type."""
+
+    max_bytes: int
+    """Maximum file bytes, already clamped to the window ceiling."""
+
+    multiple: bool
+    """Whether this request may include more than one file."""
+
+
 class WebRTCServer:
     """Own the HTTP, signaling, input buffering, and media transport."""
 
@@ -350,6 +380,16 @@ class WebRTCServer:
         self._client_connected = False
         self._hide_cursor = False
         self._lock_cursor_to_window = False
+        # Upload tokens, touched only on the event loop once it runs.
+        self._pending_file_requests: dict[str, _PendingFileSelection] = {}
+        self._uploading_file_requests: dict[str, _PendingFileSelection] = {}
+        self._file_selector_callbacks: (
+            tuple[
+                Callable[[str], None],
+                Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
+            ]
+            | None
+        ) = None
         self._thread = threading.Thread(
             target=self._run_server,
             name="flashdreams-webrtc",
@@ -495,6 +535,91 @@ class WebRTCServer:
 
         self._sent_cursor_options = cursor_options
 
+    def request_file_selector(
+        self, selector_id: str, request: FileSelectionRequest
+    ) -> None:
+        """Ask the connected browser to open a file selector.
+
+        The browser cannot use a host path, so ``initial_path`` is ignored.
+        Without a connected viewer the request completes as ``UNAVAILABLE``.
+
+        Args:
+            selector_id: Window selector reported back with this result.
+            request: File selector to show.
+        """
+        policy = _PendingFileSelection(
+            selector_id=selector_id,
+            accept=normalize_selected_file_accept(request.accept),
+            max_bytes=clamp_selected_file_max_bytes(request.max_bytes),
+            multiple=request.multiple,
+        )
+        loop = self._loop
+        if loop is None:
+            raise RuntimeError("WebRTC server is not running.")
+        loop.call_soon_threadsafe(self._arm_file_selector, policy)
+
+    def cancel_file_selectors(self) -> None:
+        """Forget every armed selector and close the viewer's prompt.
+
+        A later upload for a forgotten selector is refused.
+        """
+        loop = self._loop
+        if loop is None:
+            self._pending_file_requests.clear()
+            return
+        # On the event loop, after any arm still queued for a forgotten selector.
+        loop.call_soon_threadsafe(self._withdraw_file_selectors)
+
+    def _withdraw_file_selectors(self) -> None:
+        """Forget armed selectors and tell the viewer to close its prompt."""
+        self._pending_file_requests.clear()
+        channel = self._control_channel
+        if channel is not None and channel.readyState == "open":
+            channel.send(json.dumps({"type": "file_selector_cancel"}))
+
+    def _arm_file_selector(self, policy: _PendingFileSelection) -> None:
+        """Send the selector to the browser and remember its upload policy.
+
+        The browser gets an unguessable token instead of the selector id, so a
+        page that cannot read the data channel cannot answer the selector.
+        """
+        channel = self._control_channel
+        if channel is None or channel.readyState != "open":
+            self._emit_selected_files(
+                policy.selector_id, status=SelectedFilesStatus.UNAVAILABLE
+            )
+            return
+        token = secrets.token_urlsafe(16)
+        self._pending_file_requests[token] = policy
+        channel.send(
+            json.dumps(
+                {
+                    "type": "file_selector",
+                    "id": token,
+                    "accept": list(policy.accept),
+                    "max_bytes": policy.max_bytes,
+                    "multiple": policy.multiple,
+                }
+            )
+        )
+
+    def _take_pending_file_request(self, token: str) -> _PendingFileSelection | None:
+        """Return and consume the policy for ``token``, if it was pending."""
+        return self._pending_file_requests.pop(token, None)
+
+    def _complete_abandoned_file_selectors(self) -> None:
+        """Answer every armed pick as ``UNAVAILABLE`` because the viewer left."""
+        abandoned = (
+            *self._pending_file_requests.values(),
+            *self._uploading_file_requests.values(),
+        )
+        self._pending_file_requests.clear()
+        self._uploading_file_requests.clear()
+        for policy in abandoned:
+            self._emit_selected_files(
+                policy.selector_id, status=SelectedFilesStatus.UNAVAILABLE
+            )
+
     def event_timestamp_us(self) -> np.uint64:
         """Return the current timestamp relative to this server's first session.
 
@@ -558,6 +683,10 @@ class WebRTCServer:
             # Keep timestamps comparable across sessions so events buffered
             # during a handoff retain their real order.
             self._event_origin_ns = time.monotonic_ns()
+        if loop is None:
+            self._pending_file_requests.clear()
+        else:
+            loop.call_soon_threadsafe(self._pending_file_requests.clear)
 
     def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
         """Change the dimensions used to present subsequent UI frames.
@@ -613,6 +742,22 @@ class WebRTCServer:
         if self._input_callback is not None:
             raise RuntimeError("An input callback is already registered.")
         self._input_callback = callback
+
+    def register_file_selector_callbacks(
+        self,
+        *,
+        opened: Callable[[str], None],
+        completed: Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
+    ) -> None:
+        """Register how armed file selectors report back, by selector id.
+
+        Both run on the server thread.
+
+        Args:
+            opened: Called when the browser shows the selector.
+            completed: Called once with the selector's status and files.
+        """
+        self._file_selector_callbacks = (opened, completed)
 
     def write(self, result: StepResult) -> None:
         """Materialize and admit one generated result to the sender mailbox.
@@ -781,11 +926,14 @@ class WebRTCServer:
     async def _start_server(self) -> None:
         """Create and bind the standalone aiohttp application."""
         self._offer_lock = asyncio.Lock()
-        app = web.Application()
+        app = web.Application(
+            client_max_size=MAX_SELECTED_FILE_BATCH_BYTES + 1024 * 1024
+        )
         app.router.add_get("/", self._serve_browser)
         app.router.add_get("/app.js", self._serve_browser_script)
         app.router.add_get("/healthz", self._health)
         app.router.add_post("/api/webrtc/offer", self._offer)
+        app.router.add_post("/api/files", self._upload_selected_file)
         runner = web.AppRunner(app)
         await runner.setup()
         address_family = socket.AF_INET6 if ":" in self._host else socket.AF_INET
@@ -822,6 +970,118 @@ class WebRTCServer:
                 "lock_cursor_to_window": self._lock_cursor_to_window,
             }
         )
+
+    async def _upload_selected_file(self, request: web.Request) -> web.Response:
+        """Turn a browser file upload into a selected-files input event."""
+        if self._closed:
+            raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
+        if self._timestamp_us() is None:
+            raise web.HTTPConflict(reason="WebRTC server is not open.")
+        token = request.query.get("id")
+        if not isinstance(token, str) or not token:
+            raise web.HTTPBadRequest(reason="File upload requires an id.")
+        policy = self._take_pending_file_request(token)
+        if policy is None:
+            raise web.HTTPConflict(reason="No pending file selection for this id.")
+        # Tracked until it ends so a viewer that leaves mid-upload is answered.
+        self._uploading_file_requests[token] = policy
+
+        emitted = False
+
+        def emit(
+            status: SelectedFilesStatus,
+            files: tuple[SelectedFile, ...] = (),
+        ) -> None:
+            nonlocal emitted
+            self._emit_selected_files(policy.selector_id, status=status, files=files)
+            emitted = True
+
+        try:
+            if not request.content_type.startswith("multipart/"):
+                emit(SelectedFilesStatus.UNAVAILABLE)
+                raise web.HTTPBadRequest(reason="File upload requires a file.")
+            try:
+                reader = await request.multipart()
+            except web.HTTPRequestEntityTooLarge:
+                emit(SelectedFilesStatus.TOO_LARGE)
+                raise
+            chosen: list[tuple[str, bytes]] = []
+            file_count = 0
+            total_bytes = 0
+            too_large = False
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if not isinstance(part, BodyPartReader):
+                    continue
+                if part.name != "file":
+                    await part.release()
+                    continue
+                if not policy.multiple and (chosen or too_large):
+                    await part.release()
+                    continue
+                if not _identity_encoded(part):
+                    emit(SelectedFilesStatus.UNAVAILABLE)
+                    raise web.HTTPBadRequest(reason="File parts must not be encoded.")
+                file_count += 1
+                if file_count > MAX_SELECTED_FILE_COUNT:
+                    too_large = True
+                    chosen.clear()
+                name = part.filename or "upload"
+                if not selected_file_suffix_allowed(name, policy.accept):
+                    emit(SelectedFilesStatus.DISALLOWED_TYPE)
+                    await _drain_multipart_reader(reader, part)
+                    return web.Response(status=204)
+                if too_large:
+                    # Keep reading names so a disallowed type still wins.
+                    await part.release()
+                    continue
+                data = await _read_upload_part_bounded(part, max_bytes=policy.max_bytes)
+                if data is not None:
+                    total_bytes += len(data)
+                if data is None or total_bytes > MAX_SELECTED_FILE_BATCH_BYTES:
+                    too_large = True
+                    chosen.clear()
+                    continue
+                chosen.append((name, data))
+            if too_large:
+                emit(SelectedFilesStatus.TOO_LARGE)
+                raise web.HTTPRequestEntityTooLarge(
+                    max_size=policy.max_bytes, actual_size=policy.max_bytes + 1
+                )
+            if not chosen:
+                emit(SelectedFilesStatus.UNAVAILABLE)
+                raise web.HTTPBadRequest(reason="File upload requires a file.")
+            rejected = selected_files_policy_status(
+                [(name, len(data)) for name, data in chosen],
+                accept=policy.accept,
+                max_bytes=policy.max_bytes,
+            )
+            if rejected is SelectedFilesStatus.TOO_LARGE:
+                emit(rejected)
+                raise web.HTTPRequestEntityTooLarge(
+                    max_size=policy.max_bytes,
+                    actual_size=max(len(data) for _name, data in chosen),
+                )
+            if rejected is not None:
+                emit(rejected)
+                return web.Response(status=204)
+            emit(
+                SelectedFilesStatus.OK,
+                files=tuple(
+                    SelectedFile(name=name, data=data) for name, data in chosen
+                ),
+            )
+            return web.Response(status=204)
+        except web.HTTPRequestEntityTooLarge:
+            if not emitted:
+                emit(SelectedFilesStatus.TOO_LARGE)
+            raise
+        finally:
+            self._uploading_file_requests.pop(token, None)
+            if not emitted:
+                emit(SelectedFilesStatus.UNAVAILABLE)
 
     async def _offer(self, request: web.Request) -> web.Response:
         """Negotiate one browser peer connection."""
@@ -1172,6 +1432,35 @@ class WebRTCServer:
         elif event_type == "close":
             self._cancel_link_press()
             event = CloseUserInputEvent(timestamp=timestamp_us)
+        elif event_type == "file_selector_ack":
+            token = payload.get("id")
+            if not isinstance(token, str) or not token:
+                raise ValueError(
+                    "File selector acknowledgement requires a non-empty id."
+                )
+            policy = self._pending_file_requests.get(token)
+            if policy is None:
+                return
+            self._file_selector_callbacks_or_raise()[0](policy.selector_id)
+            return
+        elif event_type == "file_selector_result":
+            token = payload.get("id")
+            if not isinstance(token, str) or not token:
+                raise ValueError("File selector result requires a non-empty id.")
+            try:
+                status = SelectedFilesStatus(payload.get("status"))
+            except ValueError as error:
+                raise ValueError("File selector result status is invalid.") from error
+            if status is SelectedFilesStatus.OK:
+                raise ValueError(
+                    "File selector result must not set status ok; send files "
+                    "with POST /api/files."
+                )
+            policy = self._take_pending_file_request(token)
+            if policy is None:
+                return
+            self._emit_selected_files(policy.selector_id, status=status)
+            return
         else:
             raise ValueError("Unsupported browser event type.")
         self._append_event(event)
@@ -1182,6 +1471,27 @@ class WebRTCServer:
         if callback is None:
             raise RuntimeError("WebRTC input callback is not registered.")
         callback(event)
+
+    def _emit_selected_files(
+        self,
+        selector_id: str,
+        *,
+        status: SelectedFilesStatus,
+        files: tuple[SelectedFile, ...] = (),
+    ) -> None:
+        """Report the result of one armed file selector to the window."""
+        self._file_selector_callbacks_or_raise()[1](selector_id, status, files)
+
+    def _file_selector_callbacks_or_raise(
+        self,
+    ) -> tuple[
+        Callable[[str], None],
+        Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
+    ]:
+        callbacks = self._file_selector_callbacks
+        if callbacks is None:
+            raise RuntimeError("WebRTC file selector callbacks are not registered.")
+        return callbacks
 
     async def _release_peer_connection(
         self,
@@ -1202,6 +1512,7 @@ class WebRTCServer:
             self._video_track = None
             self._sent_cursor_options = None
             self._cancel_link_press()
+            self._complete_abandoned_file_selectors()
         else:
             track = detached_video_track
         failures: list[BaseException] = []
@@ -1276,6 +1587,59 @@ class WebRTCServer:
                     "Additional WebRTC cleanup failure"
                 )
             raise primary
+
+
+_UPLOAD_READ_CHUNK_BYTES = 64 * 1024
+"""Bytes read per multipart chunk while enforcing ``max_bytes``."""
+
+
+def _identity_encoded(part: BodyPartReader) -> bool:
+    """Return whether ``part`` carries its bytes as-is, as browsers send them."""
+    transfer = part.headers.get("Content-Transfer-Encoding", "").lower()
+    content = part.headers.get("Content-Encoding", "").lower()
+    return transfer in ("", "binary", "7bit", "8bit") and content in ("", "identity")
+
+
+async def _read_upload_part_bounded(
+    part: BodyPartReader, *, max_bytes: int
+) -> bytes | None:
+    """Return the decoded part body, or ``None`` when it exceeds ``max_bytes``.
+
+    Args:
+        part: Multipart file part whose headers have already been read.
+        max_bytes: Maximum allowed size of the decoded file in bytes.
+
+    Returns:
+        The decoded bytes, or ``None`` when they exceed ``max_bytes``.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await part.read_chunk(_UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        async for decoded in part.decode_iter(chunk):
+            piece = bytes(decoded)
+            total += len(piece)
+            if total > max_bytes:
+                await part.release()
+                return None
+            chunks.append(piece)
+    return b"".join(chunks)
+
+
+async def _drain_multipart_reader(
+    reader: MultipartReader, part: BodyPartReader | None = None
+) -> None:
+    """Consume leftover multipart parts so the request can finish."""
+    if part is not None:
+        await part.release()
+    while True:
+        leftover = await reader.next()
+        if leftover is None:
+            break
+        if isinstance(leftover, BodyPartReader):
+            await leftover.release()
 
 
 def _same_stream_format(first: SessionDesc, second: SessionDesc) -> bool:
