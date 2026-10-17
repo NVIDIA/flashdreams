@@ -40,7 +40,7 @@ validation. If `--output` is omitted, the destination is
 | `--hidden-import MODULE` | Add a PyInstaller hidden import; repeat as needed. |
 | `--collect-executable NAME` | Include an executable found on `PATH`; repeat as needed. |
 | `--noconsole` | Build without a console window on Windows (ignored on Linux). `stdout` and `stderr` write to `%TEMP%\flashdreams\<application-slug>\runtime.log`. |
-| 
+|
 | `--working-dir PATH` | Defaults to the output directory (which must not already exist. Creates dir if missing and copy its contents into the bundle before preload. |
 
 Use `--help` for the authoritative option list:
