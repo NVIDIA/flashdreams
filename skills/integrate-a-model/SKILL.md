@@ -9,17 +9,16 @@ The ordered procedure for binding an external video model to the flashdreams
 framework. Read the **`flashdreams-integrations`** skill first for the architecture
 (layers, contracts, the cache tree) — this skill is the *route*, that one is the *map*.
 
-**Worked example throughout:** `integrations_v2/hy_worldplay/` (HY-WorldPlay WAN-5B I2V),
-which reuses the `integrations_v2/wan22/` Wan 2.2 TI2V-5B recipe. It is the most complete
-reference integration; read it side-by-side. Match `python-docstring-style`.
+**Reference examples:** `integrations_v2/wan22/` for the Wan 2.2 TI2V-5B recipe
+and checkpoint remap, and `integrations_v2/lingbot/` for camera conditioning.
+Read them side-by-side. Match `python-docstring-style`.
 
 ## The core bet: reuse, don't re-implement
 
 Most modern video models are DiT-family. Before writing anything, find the closest
 existing flashdreams recipe (`integrations_v2/wan22`, `wan21`, `self_forcing`, …) and
-**subclass it**. HY-WorldPlay is a Wan 2.2 TI2V-5B with three conditioner deltas — it
-adds ~3 small subclasses, not a from-scratch network. If your model maps onto an
-existing backbone, the job is *config + checkpoint remap + deltas + verify*, which is
+**subclass it**. Keep model-specific conditioner deltas in small subclasses.
+If your model maps onto an existing backbone, the job is *config + checkpoint remap + deltas + verify*, which is
 days–weeks. If it needs a novel network/attention/inference loop, it is much longer —
 say so up front.
 
@@ -28,13 +27,12 @@ say so up front.
 ## Phase 0 — Scope (½–2 days; do this before promising a timeline)
 
 **First pick the integration lane** — the `integrations/` directory has several, and they
-differ a lot in effort. HY-WorldPlay is the *runner-plugin* lane, **not** the universal
-pattern:
+differ a lot in effort:
 
 | Lane | What it is | Examples | Effort |
 |---|---|---|---|
 | **Config-only recipe** | just `config.py` literals over an existing backbone; no new runner | `wan22` | smallest |
-| **Runner plugin** | recipe + a `flashdreams-run` runner (+ model deltas) | `hy_worldplay` | small–medium |
+| **Runner plugin** | recipe + a `flashdreams-run` runner (+ model deltas) | `flashdreams/flashdreams/recipes/template/runner.py` | small–medium |
 | **Serving adapter** | adds serving/runtime surfaces on top of a runner | `lingbot` | medium |
 | **Full native port / builder variants** | real builder helpers, dynamic-resolution variants, a network ported from scratch | `flashvsr` | largest |
 
@@ -44,7 +42,7 @@ Then answer these from the upstream repo + model card, and write the answers dow
    recipe is the closest base. (Decisive for the estimate.)
 2. **Checkpoints.** What does upstream publish — native `.pth`/safetensors, a diffusers
    port, sharded or single-file? Note the HF repo ids. (Drives the remap; see Phase 3.)
-3. **Inference shape.** Steps (distilled? e.g. HY = 4-step Euler), scheduler, guidance,
+3. **Inference shape.** Steps (distilled? e.g. 4-step Euler), scheduler, guidance,
    resolution, AR/streaming vs one-shot, KV cache.
 4. **Conditioners / deltas.** What does it add beyond the base backbone (camera, action,
    memory, control)? Each is a subclass + (usually) extra checkpoint keys.
@@ -75,15 +73,15 @@ tests/
 ```
 
 **Lane A — in-tree (`integrations/<name>/`)**, for upstreaming into flashdreams (mirror
-`integrations_v2/hy_worldplay/`):
+`integrations_v2/wan22/`):
 - The repo-root `integrations/*` glob auto-adds it to the uv workspace.
 - `pyproject.toml` `version` must match `flashdreams._version.__version__`; the
   `sync-version` pre-commit hook enforces it (CI fails otherwise).
 - `[project.entry-points."flashdreams.runner_configs"]` maps slug → config (see
-  `integrations_v2/hy_worldplay/pyproject.toml`):
+  the runner-plugin template):
   ```toml
   [project.entry-points."flashdreams.runner_configs"]
-  "hy-worldplay-wan-i2v-5b" = "hy_worldplay.config:RUNNER_HY_WORLDPLAY_WAN_I2V_5B"
+  "my-model-slug" = "my_model.config:RUNNER_MY_MODEL"
   ```
 
 **Lane B — out-of-tree (your own pip-installable repo)**, the supported path for external
@@ -108,14 +106,14 @@ differ — encoder / transformer.network / scheduler — into model-specific sub
 Ship **one module-level literal** `PIPELINE_<NAME>` (no `build_*` factories for the
 config-only / runner-plugin lanes; the full-native-port lane like `flashvsr` uses real
 builder helpers for dynamic-resolution variants — see Phase 0) + a
-`RUNNER_<NAME>` literal + a `<NAME>_CONFIGS` dict keyed by `name`. See
-`hy_worldplay/config.py::_build_hy_worldplay_pipeline`.
+`RUNNER_<NAME>` literal + a `<NAME>_CONFIGS` dict keyed by `name`. See the
+`PIPELINE_WAN22_TI2V_5B` literal in `integrations_v2/wan22/config.py` for the base config.
 
 - Subclass `Wan21TransformerConfig` / the network / encoder configs; copy field-by-field
   so a future base-class field addition surfaces loudly instead of silently dropping.
 - Set the standard transformer knobs (`len_t`, `window_size_t`, `guidance_scale`,
   `stamp_image_latent`, …) — see `flashdreams-integrations` §"Standard transformer knobs".
-- Distilled models: swap the scheduler (HY → 4-step `FlowMatchEulerDiscreteScheduler`).
+- Distilled models: swap the scheduler (e.g. a 4-step `FlowMatchEulerDiscreteScheduler`).
 
 ## Phase 3 — Checkpoint loading + key remap (the highest-leverage phase)
 
@@ -124,7 +122,7 @@ Upstream weights almost never match flashdreams key names. You write a
 
 **Prefer the native checkpoint over a diffusers port when both exist.** flashdreams'
 networks are typically ported from the *native* model, so native keys often match
-1:1 (HY-WorldPlay DiT: `Wan-AI/Wan2.2-TI2V-5B` native keys = `WanDiTNetwork` keys
+1:1 (`Wan-AI/Wan2.2-TI2V-5B` native keys = `WanDiTNetwork` keys
 exactly → **zero** remap, the transform is `lambda sd: sd`; the diffusers port needs
 ~25 rules). The native VAE needed only 4 rules vs the diffusers ~50. Note the native
 checkpoint can be **either** a single-file `.pth` **or** sharded safetensors + a
@@ -193,17 +191,16 @@ present under a different convention.
 
 ## Phase 4 — Model-specific conditioners / deltas
 
-Each delta = a subclass + (usually) extra checkpoint keys. HY-WorldPlay adds action
-AdaLN (`action_embedding`), PRoPE dual-branch camera attention (`o_prope`), and
-reconstituted-context memory. Conventions that make these parity-safe:
+Each delta = a subclass + (usually) extra checkpoint keys. Keep action, camera,
+and memory conditioners local to the integration. Conventions that make these
+parity-safe:
 
 - **Zero-init new residual heads** so the conditioner is a strict identity until trained
   weights load (`nn.init.zeros_(head.weight)`). The un-conditioned pipeline then matches
   the base model exactly.
 - **Tolerate the extra zero-init keys when loading a base checkpoint** that lacks them.
   Override `load_state_dict` on the network to allow *exactly* those keys missing (keep
-  it strict for everything else) — see
-  `HyWorldPlayWanDiTNetwork.load_state_dict`. Without this, a base/un-distilled load
+  it strict for everything else). Without this, a base/un-distilled load
   raises `Missing key(s)`.
 - Keep model deltas in the integration — never branch `core/` or `infra/`; expose a
   config slot or override hook instead.
@@ -212,7 +209,8 @@ reconstituted-context memory. Conventions that make these parity-safe:
 
 `runner.py` ships a `RunnerConfig` subclass (I/O fields: image/prompt/output, ckpt
 override, knobs) + a `Runner` whose `run()` drives `initialize_cache` → per-AR-step
-`generate`/`finalize` → decode → write mp4. Mirror `hy_worldplay/runner.py`. Thread an
+`generate`/`finalize` → decode → write mp4. Mirror
+`flashdreams/flashdreams/recipes/template/runner.py`. Thread an
 optional `--ckpt-path` through `derive_config` to swap the checkpoint + transform at
 construction time. Add example-data download helpers if useful for demos.
 
@@ -228,8 +226,8 @@ In order of cost:
    produces a valid mp4. (Use `--ckpt-path`; a base/un-distilled run gives identity-only
    output. Keep `num_chunk` small to dodge OOM and short-rollout edge cases.)
 4. **Upstream parity** — run upstream on the same input/seed, diff decoded frames,
-   report **mean `|Δ|` / 255**. HY-WorldPlay's bar: `≤ 20/255` (landed at 15.65). The
-   residual is bf16 FP noise; don't chase bit-exactness across two kernel stacks.
+   report **mean `|Δ|` / 255** against an agreed model-specific threshold. Account
+   for bf16 FP noise; don't chase bit-exactness across two kernel stacks.
 
 ## Phase 7 — Perf + model card (the visible deliverable)
 
@@ -273,8 +271,8 @@ In order of cost:
 
 To test the skill, point a fresh agent (no prior context) at the repo state **before**
 an integration landed — a branch that **removes the integration plugins but keeps this
-skill and the core network/recipe scaffolding** (e.g. `git rm -r integrations_v2/wan22
-integrations_v2/hy_worldplay` off a branch that already has this skill). Have it reproduce
+skill and the core network/recipe scaffolding** (e.g. `git rm -r integrations_v2/wan22`
+off a branch that already has this skill). Have it reproduce
 the integration following this skill; score against the merged result (the integration
 PR + its follow-ups) — key set / shapes, parity `|Δ|`, test coverage, and how many
 gotchas it hits unaided. Feed the gaps back into this file.

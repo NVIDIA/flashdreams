@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, final
 import torch
 from torch import Tensor
 
+from flashdreams.api_v2.client_window import ClientWindowLink
 from flashdreams.api_v2.profiler import IProfiler
 from flashdreams.runtime_v2.event_buffer import EventBuffer
 from flashdreams.runtime_v2.profiler import NullProfiler
@@ -96,6 +97,9 @@ class UILoopRequests:
 
     new_window_size: tuple[int, int] | None = None
     """Requested downstream window size, or ``None`` to leave it unchanged."""
+
+    links: tuple[ClientWindowLink, ...] | None = None
+    """Replacement clickable regions, or ``None`` to leave them unchanged."""
 
 
 class ILoop(ABC, Generic[StateT]):
@@ -580,6 +584,25 @@ class IUILoop(ILoop[StateT], ABC):
         if any(dimension <= 0 for dimension in new_window_size):
             raise ValueError("new_window_size dimensions must be > 0.")
         self.get_or_create_ui_loop_requests().new_window_size = new_window_size
+
+    @final
+    def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:
+        """Replace up to sixteen clickable regions of the output content.
+
+        Args:
+            links: Immutable regions; an empty tuple clears existing links.
+
+        Raises:
+            TypeError: The request is not a tuple of ``ClientWindowLink`` objects.
+            ValueError: More than sixteen regions are supplied.
+        """
+        if not isinstance(links, tuple) or any(
+            not isinstance(link, ClientWindowLink) for link in links
+        ):
+            raise TypeError("links must be a tuple of ClientWindowLink objects.")
+        if len(links) > 16:
+            raise ValueError("At most sixteen client-window links are supported.")
+        self.get_or_create_ui_loop_requests().links = links
 
     def get_or_create_ui_loop_requests(self) -> UILoopRequests:
         if self._ui_loop_requests is None:

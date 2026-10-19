@@ -73,7 +73,6 @@ extraPaths = [
     "integrations_v2/flashvsr",
     "integrations_v2/swiftvr",
     "integrations_v2/fastvideo_causal_wan22",
-    "integrations_v2/hy_worldplay",
     "integrations_v2/lingbot",
     "integrations_v2/sana_wm",
     "integrations_v2/self_forcing",
@@ -111,7 +110,6 @@ extra-paths = [
     "integrations_v2/flashvsr",
     "integrations_v2/swiftvr",
     "integrations_v2/fastvideo_causal_wan22",
-    "integrations_v2/hy_worldplay",
     "integrations_v2/lingbot",
     "integrations_v2/sana_wm",
     "integrations_v2/self_forcing",
@@ -146,9 +144,6 @@ exclude = [
     "apps/omnidreams_game_engine/omnidreams_game_engine/scene_loader.py",
     "apps/omnidreams_game_engine/omnidreams_game_engine/simulation/components.py",
     "apps/omnidreams_game_engine/omnidreams_game_engine/simulation/game_physics.py",
-    # Bench / parity-debugging scaffolding for the hy_worldplay integration;
-    # not shipped product, mirrors the interactive_drive precedent above.
-    "integrations_v2/hy_worldplay/tests/parity_check/**",
 ]
 
 [tool.ty.rules]

@@ -422,7 +422,10 @@ def test_worker_cli_constructs_no_io_and_shuts_down_distributed(
     monkeypatch.setattr(
         cli,
         "create_application",
-        lambda slug: SimpleNamespace(session_desc=lambda: SessionDesc()),
+        lambda slug: SimpleNamespace(
+            session_desc=lambda: SessionDesc(),
+            resolve_client_window_mode=lambda mode: mode,
+        ),
     )
     received = []
 
