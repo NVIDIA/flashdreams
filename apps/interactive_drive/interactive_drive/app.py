@@ -361,6 +361,11 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
 class InteractiveDriveSession(ISession):
     """Register the separate Interactive Drive model and HUD loops."""
 
+    model_loop_type: type[InteractiveDriveModelLoop] = InteractiveDriveModelLoop
+    """Model loop responsible for generation and presentation channels."""
+    ui_loop_type: type[InteractiveDriveUILoop] = InteractiveDriveUILoop
+    """HUD matching the model loop's presentation channels."""
+
     def __init__(
         self,
         *,
@@ -407,11 +412,22 @@ class InteractiveDriveSession(ISession):
             view_mode=self._config.view_mode,
             postprocess_enabled=self._config.app.postprocess.is_enabled(),
         )
-        model_loop = self.register_model_loop(
-            InteractiveDriveModelLoop, state=model_state
-        )
+        model_loop = self.register_model_loop(self.model_loop_type, state=model_state)
         if self._config.no_ui:
             return
+        ui_loop = self.register_ui_loop(
+            self.ui_loop_type,
+            state=self._create_ui_state(model_loop),
+            width=self._desc.video_width,
+            height=self._desc.video_height,
+            cuda_device=_output_cuda_device(self._config.app),
+        )
+        model_state.ui_loop = ui_loop
+
+    def _create_ui_state(
+        self, model_loop: IModelLoop[InteractiveDriveModelState]
+    ) -> InteractiveDriveUIState:
+        """Build the HUD state for the selected scene and presentation."""
         current_scene_index = next(
             (
                 index
@@ -429,36 +445,32 @@ class InteractiveDriveSession(ISession):
             ),
             0,
         )
-        ui_loop = self.register_ui_loop(
-            InteractiveDriveUILoop,
-            state=InteractiveDriveUIState(
-                model_loop=model_loop,
-                title=self._title,
-                prompt=self._config.app.prompt_override,
-                scene_options=self._scene_options,
-                current_scene_index=current_scene_index,
-                current_variant_index=current_variant_index,
-                view_mode=self._config.view_mode,
-                view_modes=view_modes_for(self._config.app.physics),
-                viewport_width=self._desc.video_width,
-                viewport_height=self._desc.video_height,
-                world_model_device=self._config.app.world_model_device,
-                raster_device=self._config.app.raster.device,
-                postprocess_preset=self._config.app.postprocess_preset,
-                postprocess_device=self._config.app.postprocess_device,
-                postprocess_enabled=self._config.app.postprocess.is_enabled(),
-                show_postprocess_toggle=self._config.app.postprocess.is_enabled(),
-                show_bev=self._config.app.bev.enabled,
-            ),
-            width=self._desc.video_width,
-            height=self._desc.video_height,
-            cuda_device=_output_cuda_device(self._config.app),
+        return InteractiveDriveUIState(
+            model_loop=model_loop,
+            title=self._title,
+            prompt=self._config.app.prompt_override,
+            scene_options=self._scene_options,
+            current_scene_index=current_scene_index,
+            current_variant_index=current_variant_index,
+            view_mode=self._config.view_mode,
+            view_modes=view_modes_for(self._config.app.physics),
+            viewport_width=self._desc.video_width,
+            viewport_height=self._desc.video_height,
+            world_model_device=self._config.app.world_model_device,
+            raster_device=self._config.app.raster.device,
+            postprocess_preset=self._config.app.postprocess_preset,
+            postprocess_device=self._config.app.postprocess_device,
+            postprocess_enabled=self._config.app.postprocess.is_enabled(),
+            show_postprocess_toggle=self._config.app.postprocess.is_enabled(),
+            show_bev=self._config.app.bev.enabled,
         )
-        model_state.ui_loop = ui_loop
 
 
 class InteractiveDriveApplication(_InteractiveDriveApplicationBase):
     """Create the distinct long-running Interactive Drive demo."""
+
+    session_type: type[InteractiveDriveSession] = InteractiveDriveSession
+    """Session binding the driving backend to its model and UI loops."""
 
     def __init__(
         self,
@@ -566,7 +578,7 @@ class InteractiveDriveApplication(_InteractiveDriveApplicationBase):
                     variants=(self._config.app.variant,),
                 ),
             )
-        return InteractiveDriveSession(
+        return self.session_type(
             backend_factory=(
                 self._backend_factory if backend is None else lambda _: backend
             ),

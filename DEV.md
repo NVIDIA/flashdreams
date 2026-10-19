@@ -59,7 +59,6 @@ uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.gi
 | flashdreams-cosmos-predict2 | git only | synced |
 | flashdreams-fastvideo-causal-wan22 | git only | synced |
 | flashdreams-flashvsr | git only | synced |
-| flashdreams-hy-worldplay | git only | synced |
 | flashdreams-lingbot | git only | synced |
 | flashdreams-omnidreams | git only | synced |
 | flashdreams-self-forcing | git only | synced |

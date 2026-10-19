@@ -15,8 +15,7 @@ first-frame image, then generates the complete 81-frame, 1280x640 clip in one
 rollout instead of advancing through multiple causal blocks. It therefore
 requires exactly one block (`--total-blocks 1`, which is the default);
 multi-block generation is not supported. The application runs through the
-shared null, MP4, local-window, or WebRTC host. HY-WorldPlay also reuses the
-pipeline config as its base recipe.
+shared null, MP4, local-window, or WebRTC host.
 
 ## Application integrations
 

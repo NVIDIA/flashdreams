@@ -108,7 +108,7 @@ jobs:
                      '*.c' '*.cc' '*.cpp' '*.cxx' \
                      '*.h' '*.hh' '*.hpp' '*.hxx' \
                      '*.cu' '*.cuh' '*.inl' \
-                     '*.sh' '*.proto' \
+                     '*.sh' '*.proto' '*.js' '*.css' \
                      'Dockerfile' '*/Dockerfile' '**/Dockerfile' '*.dockerfile')
           if [ "${#missing_files[@]}" -gt 0 ]; then
             # Print the list to the raw log so it shows in the step output,

@@ -140,9 +140,11 @@ Pull requests without DCO sign-off will be asked to rebase before merge.
 This is a hard gate; please don't take a polite ping personally.
 
 NVIDIA contributors and external contributors follow the *same* DCO
-process. NVIDIA-internal IP review, where applicable, is handled by
-NVIDIA reviewers on your behalf — you do not need to engage with it as
-an outside contributor.
+process. NVIDIA reviewers follow the
+[NVIDIA IP review process](https://nv/ip_review_process) for ongoing project
+modifications and third-party contributions. Reviewers handle this internal
+process on your behalf — you do not need to engage with it as an outside
+contributor.
 
 ### Signing Your Work
 
@@ -220,9 +222,23 @@ investing implementation effort.
 - If a review comment is unclear, ask. We'd rather have a 30-second
   clarifying exchange than a misunderstanding turning into rework.
 
-We aim for an initial review on every PR within two business days. If
-your PR has been quiet longer than that, please feel free to leave a
-short ping comment.
+### Contributor expectations
+
+We welcome community pull requests. Review timing depends on project
+priorities and maintainer availability. Contributions should be
+useful, tested, and easy to maintain. Contributors are responsible for
+understanding and checking all code they submit, including generated
+code, and providing relevant tests or steps to verify the change.
+Maintainers should provide an initial review and respond to updates
+within 7 calendar days. Contributors should respond to review feedback
+within 7 calendar days. If either side needs more time, they should
+say so in the PR. Maintainers may close PRs that remain inactive after
+a reminder or do not meet the project’s needs or quality standards.
+Before closing a public issue or PR, maintainers will check whether
+users or documentation reference it. An issue or PR should not be
+closed simply because it seems unnecessary. When closing, maintainers
+will explain the reason and point to an alternative approach or
+tracking issue where available.
 
 ## File Tree Of FlashDreams
 
@@ -390,7 +406,6 @@ Available integration packages:
 | `integrations_v2/cosmos_predict2` | `flashdreams-cosmos-predict2` |
 | `integrations_v2/fastvideo_causal_wan22` | `flashdreams-fastvideo-causal-wan22` |
 | `integrations_v2/flashvsr` | `flashdreams-flashvsr` |
-| `integrations_v2/hy_worldplay` | `flashdreams-hy-worldplay` |
 | `integrations_v2/lingbot` | `flashdreams-lingbot` |
 | `integrations_v2/omnidreams` | `flashdreams-omnidreams` |
 | `integrations_v2/self_forcing` | `flashdreams-self-forcing` |

@@ -38,6 +38,14 @@ It can also answer `session_desc` before `init` runs, so a caller can ask what
 this application would generate without paying to start it. Returning `None`
 means it will generate whatever it is asked for.
 
+`default_client_window_mode` supplies a CLI default when `--mode` is omitted.
+`resolve_client_window_mode` may map the selected output mode to a registered
+window plugin that adds application-specific input while keeping that output
+backend. Both hooks run before `init` and must not acquire resources. Resolution
+defaults to identity; ordinary applications do not need either hook. The runtime
+still owns window validation, creation, and shutdown. Help and application
+preload skip mode resolution, so they never start an input device through it.
+
 Reject a description you cannot honour, from `create_session`, rather than
 generating something else instead.
 
@@ -212,6 +220,19 @@ through `model_inference_state` to distinguish `NOT_STARTED`, `RUNNING`, and
 `FINISHED`; it does not store a second copy. An unfinished UI continues ticking
 after inference so it can remain responsive and request another session.
 Override `is_finished` when the UI has its own terminal condition.
+
+For a clickable URL in rendered output, draw its label and call
+`IUILoop.request_links((ClientWindowLink(label, url, bounds),))`, importing
+`ClientWindowLink` from `flashdreams.api_v2.client_window`. Bounds are normalized
+`(left, top, right, bottom)` coordinates within the output content, excluding
+letterboxing. Supply at most sixteen links with absolute HTTP(S) destinations;
+an empty tuple clears them. Native windows open links in their local browser.
+The WebRTC server hit-tests pointer input against these regions and sends an
+`open_url` command to the viewer, which opens a tab on the viewer's machine.
+There are no browser link overlays or separate Tab-focus targets. Browsers may
+block the tab because opening it requires a server round trip; allow popups for
+the viewer's origin and click again if necessary. Republish regions when the UI
+layout changes; opening a session clears the previous regions.
 
 Use `PresentationMode.ON_DEMAND` with `BackpressureMode.BLOCK` when every
 generated model frame must be selected and written exactly once in order.

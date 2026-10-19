@@ -23,8 +23,6 @@ follows is already done for you.
   shared interactive camera-to-video application.
 - `waypoint` — the Waypoint model binding to the shared `apps/action2v`
   application.
-- `hy_worldplay` — the HY-WorldPlay model and its `cam2v-hy-worldplay` binding,
-  including live PRoPE/action camera-history adaptation.
 - `waypoint` — the interactive Waypoint 1.5 image-established application
   with deterministic control replay and live keyboard/mouse input.
 - `self_forcing`, `causal_forcing`, `fastvideo_causal_wan22`, `wan21`,
