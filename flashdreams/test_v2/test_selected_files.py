@@ -103,24 +103,6 @@ def test_ui_loop_forwards_every_file_selection_of_a_tick() -> None:
     ]
 
 
-def test_ui_loop_keeps_file_results_until_a_step_runs() -> None:
-    loop = _ui_loop()
-    picked = SelectedFilesUserInputEvent(
-        timestamp=uint64(0),
-        request_id="open-1",
-        status=SelectedFilesStatus.CANCELLED,
-    )
-
-    loop._begin_run(UserInputEvents([picked]), generation=0)
-    loop._finish_run(None, step_completed=False)
-    loop._begin_run(UserInputEvents([]), generation=0)
-    assert loop.user_events.get_events() == [picked]
-
-    loop._finish_run([], step_completed=True)
-    loop._begin_run(UserInputEvents([]), generation=0)
-    assert loop.user_events.get_events() == []
-
-
 class _PickerWindow(NullClientWindow):
     def __init__(self) -> None:
         super().__init__()

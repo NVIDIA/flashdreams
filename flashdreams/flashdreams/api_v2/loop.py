@@ -33,7 +33,6 @@ from flashdreams.runtime_v2.selected_file import (
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
-    SelectedFilesUserInputEvent,
     UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -265,16 +264,10 @@ class ILoop(ABC, Generic[StateT]):
         """
         if step_completed:
             self.latest_result = result
-            self._pending_user_events.clear()
-        else:
-            # Input that reaches a run with no step is dropped, except a file
-            # result: it answers a request and arrives once.
-            self._pending_user_events = [
-                event
-                for event in self._pending_user_events
-                if isinstance(event, SelectedFilesUserInputEvent)
-            ]
         self._step_index += 1
+        # Input read by a run with no step is dropped, such as an ON_DEMAND UI
+        # tick without a new frame.
+        self._pending_user_events.clear()
 
     @final
     def _shutdown(self) -> None:
