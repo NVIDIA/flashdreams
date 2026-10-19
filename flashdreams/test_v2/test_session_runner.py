@@ -682,11 +682,13 @@ class RecordingClientWindow(IClientWindow):
         self._log.record("window.request_lock_cursor_to_window")
         self.cursor_requests.append(("lock", lock_cursor_to_window))
 
-    def request_file_selector(self, request: FileSelectionRequest) -> None:
+    def _request_file_selector(
+        self, selector_id: int, request: FileSelectionRequest
+    ) -> None:
         """Record one file-selector request and answer with the default."""
-        self._log.record("window.request_file_selector")
+        self._log.record("window._request_file_selector")
         self.file_selection_requests.append(request)
-        super().request_file_selector(request)
+        super()._request_file_selector(selector_id, request)
 
     def _put_user_input_event(self, event: UserInputEvent) -> None:
         with self._lock:
@@ -1419,7 +1421,7 @@ def test_run_session_forwards_file_selection_requests_to_the_window() -> None:
             max_bytes=1024,
         )
     ]
-    assert "window.request_file_selector" in log.calls
+    assert "window._request_file_selector" in log.calls
 
 
 def test_window_requests_skip_a_file_selector_for_a_replaced_session() -> None:

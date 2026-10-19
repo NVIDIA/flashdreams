@@ -12,9 +12,8 @@ Small ImGui applications for the FlashDreams v2 loop runtime:
   name and size on one status line per button. Each Open button calls
   `request_file_selector` with its own `request_id`, and the result event
   carrying that id updates the button's line. One picker is open at a time;
-  a click on any button while it is open shows `BUSY` on that button's line. Dropping the WebRTC tab completes in-flight picks as unavailable. A picker
-  the host never shows within 30 seconds also completes as unavailable; a
-  picker that is shown stays open as long as the user wants.
+  a click on any button while it is open shows `BUSY` on that button's line.
+  Dropping the WebRTC tab completes in-flight picks as unavailable.
 - `imgui-ui-query-string` sets background from a `?(r,g,b)` browser URL.
 - `imgui-ui-window-size` resizes native window or UI render target without
   resetting session.

@@ -557,41 +557,6 @@ async def test_file_upload_prefers_disallowed_suffix_over_body_limit() -> None:
 
 
 @pytest.mark.asyncio
-async def test_browser_ack_reports_the_file_selector_opened() -> None:
-    window = WebRTCClientWindow()
-    window.open(_session_desc())
-    peer: RTCPeerConnection | None = None
-    try:
-        peer, channel, _ = await _connect_browser(window)
-        window.request_file_selector(_file_request("open-1"))
-        wire_id = await _wait_file_armed(window)
-        channel.send(json.dumps({"type": "file_selector_ack", "id": "other"}))
-        channel.send(json.dumps({"type": "file_selector_ack", "id": wire_id}))
-        for _ in range(100):
-            assert window.get_user_input_events().get_events() == []
-            if window._file_selector_deadline is None:
-                break
-            await asyncio.sleep(0.01)
-        assert window._file_selector_deadline is None
-        channel.send(
-            json.dumps(
-                {
-                    "type": "file_selector_result",
-                    "id": wire_id,
-                    "status": "cancelled",
-                }
-            )
-        )
-        event = await _wait_selected_files_event(window)
-        assert event.status is SelectedFilesStatus.CANCELLED
-        assert event.files == ()
-    finally:
-        if peer is not None:
-            await peer.close()
-        window.close()
-
-
-@pytest.mark.asyncio
 async def test_browser_file_selector_result_reports_status() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
@@ -676,7 +641,6 @@ async def test_browser_script_checks_type_and_size_before_upload() -> None:
         assert '"disallowed_type"' in script
         assert "fetch(`/api/files?id=${encodeURIComponent(requestId)}`" in script
         assert "input.multiple" in script
-        assert "file_selector_ack" in script
         assert "event.stopImmediatePropagation();" in script
         assert "(promptDialog !== null && promptDialog.open)" in script
     finally:

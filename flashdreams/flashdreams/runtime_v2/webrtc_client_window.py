@@ -5,13 +5,16 @@
 
 import threading
 from collections import deque
-from collections.abc import Callable
 from dataclasses import replace
 
 from numpy import uint64
 
 from flashdreams.api_v2.client_window import ClientWindowLink, IClientWindow
-from flashdreams.runtime_v2.selected_file import FileSelectionRequest
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    SelectedFile,
+    SelectedFilesStatus,
+)
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -56,7 +59,9 @@ class WebRTCClientWindow(IClientWindow):
             startup_timeout_seconds: Maximum time to wait for server startup.
         """
         self._input_events: deque[UserInputEvent] = deque()
-        self._file_selector_reports: deque[Callable[[], None]] = deque()
+        self._file_selector_reports: deque[
+            tuple[int, SelectedFilesStatus, tuple[SelectedFile, ...]]
+        ] = deque()
         self._hide_cursor = False
         self._lock_cursor_to_window = False
         self._input_lock = threading.Lock()
@@ -74,20 +79,17 @@ class WebRTCClientWindow(IClientWindow):
             with self._input_lock:
                 self._input_events.append(event)
 
-        def report_file_selector(apply: Callable[[], None]) -> None:
-            """Hand a server-thread picker report to the UI thread."""
+        def report_file_selector(
+            selector_id: str,
+            status: SelectedFilesStatus,
+            files: tuple[SelectedFile, ...],
+        ) -> None:
+            """Hand a server-thread picker result to the UI thread."""
             with self._input_lock:
-                self._file_selector_reports.append(apply)
+                self._file_selector_reports.append((int(selector_id), status, files))
 
         self.server.register_input_callback(handle_input)
-        self.server.register_file_selector_callbacks(
-            opened=lambda selector_id: report_file_selector(
-                lambda: self._file_selector_opened(int(selector_id))
-            ),
-            completed=lambda selector_id, status, files: report_file_selector(
-                lambda: self._complete_file_selector(int(selector_id), status, files)
-            ),
-        )
+        self.server.register_file_selector_callback(report_file_selector)
 
     def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:
         """Replace links opened locally by the browser viewing this window."""
@@ -158,9 +160,8 @@ class WebRTCClientWindow(IClientWindow):
         with self._input_lock:
             reports = list(self._file_selector_reports)
             self._file_selector_reports.clear()
-        for apply in reports:
-            apply()
-        self._expire_file_selectors()
+        for selector_id, status, files in reports:
+            self._complete_file_selector(selector_id, status, files)
         with self._input_lock:
             events = list(self._input_events)
             self._input_events.clear()

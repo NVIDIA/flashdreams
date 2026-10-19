@@ -4,6 +4,7 @@
 """ImGui file-picker application for the v2 loop runtime."""
 
 import math
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -51,8 +52,7 @@ _FILE_SELECTION_STATUS_TEXT = {
     ),
     SelectedFilesStatus.UNAVAILABLE: (
         "SelectedFilesStatus.UNAVAILABLE: picker could not complete "
-        "(no or gone client, picker not shown in time, failed chooser, or "
-        "unreadable file)."
+        "(no or gone client, failed chooser, or unreadable file)."
     ),
 }
 _FILE_SELECTION_ERROR_COLOR = (1.0, 0.25, 0.25, 1.0)
@@ -85,6 +85,9 @@ _FILE_SELECTOR_SLOTS = (
 
 _NO_FILE_SELECTED = "No file selected."
 """Status shown for a button before its first result."""
+
+_RESTART_DELAY_S = 5.0
+"""Seconds before a requested restart, long enough to open a picker first."""
 
 
 class BreathingBackgroundModelLoop(IModelLoop[tuple[SessionDesc, torch.device | str]]):
@@ -124,6 +127,9 @@ class FilePickerState:
     statuses: dict[str, str] = field(default_factory=dict)
     """Status text by ``request_id``. A missing id has no result yet."""
 
+    restart_at: float | None = None
+    """``time.monotonic()`` deadline for a requested session restart."""
+
 
 def _status_text(event: SelectedFilesUserInputEvent) -> str:
     """Return the overlay text for one selector result."""
@@ -160,6 +166,14 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
                         max_file_bytes=MAX_SELECTED_FILE_BYTES,
                         multiple=multiple,
                     )
+            if self.state.restart_at is None:
+                if imgui.button(f"Restart session in {_RESTART_DELAY_S:.0f}s"):
+                    self.state.restart_at = time.monotonic() + _RESTART_DELAY_S
+            else:
+                remaining = self.state.restart_at - time.monotonic()
+                if remaining <= 0:
+                    self.request_new_session(self.session_desc)
+                imgui.text(f"Restarting in {max(remaining, 0.0):.1f}s...")
             for label, request_id, _ in _FILE_SELECTOR_SLOTS:
                 status = self.state.statuses.get(request_id, _NO_FILE_SELECTED)
                 line = f"{label}: {status}"

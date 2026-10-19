@@ -377,8 +377,7 @@ them and hands them over in batches when the session asks.
 File selection rules live in `IClientWindow`; a window only shows a picker and
 reports what it returned, on the UI thread. Every window implements the
 abstract `_put_user_input_event`; a window with a picker also implements
-`_request_file_selector` and calls `_expire_file_selectors()` each time its
-input is read.
+`_request_file_selector`.
 
 A UI loop may call `request_new_session(session_desc)` during its step with a
 fully resolved replacement description. `run_session` stops and cleans the

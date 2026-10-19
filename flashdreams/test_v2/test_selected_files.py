@@ -16,7 +16,6 @@ from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.selected_file import (
-    FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS,
     MAX_SELECTED_FILE_BATCH_BYTES,
     MAX_SELECTED_FILE_BYTES,
     MAX_SELECTED_FILE_COUNT,
@@ -125,8 +124,6 @@ def test_ui_loop_keeps_file_results_until_a_step_runs() -> None:
 class _PickerWindow(NullClientWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.now = 0.0
-        self._file_selector_clock = lambda: self.now
         self.started: list[tuple[int, str]] = []
         self.cancelled = 0
 
@@ -205,7 +202,7 @@ def test_window_checks_a_result_against_its_request() -> None:
             SelectedFilesStatus.TOO_LARGE,
         ),
         (png, SelectedFilesStatus.CANCELLED, (a,), SelectedFilesStatus.CANCELLED),
-        (png, SelectedFilesStatus.BUSY, (), SelectedFilesStatus.UNAVAILABLE),
+        (png, SelectedFilesStatus.BUSY, (a,), SelectedFilesStatus.BUSY),
     ]
     for request, status, files, expected in cases:
         [event] = complete(request, status, files)
@@ -217,15 +214,10 @@ def test_window_checks_a_result_against_its_request() -> None:
 
     pathy = (
         SelectedFile(name="../outside.png", data=b"1"),
-        SelectedFile(name="C:\\dir\\in.png", data=b"2"),
-        SelectedFile(name="..", data=b"3"),
+        SelectedFile(name="/home/user/in.png", data=b"2"),
     )
     [event] = complete(many, SelectedFilesStatus.OK, pathy)
-    assert [chosen.name for chosen in event.files] == [
-        "outside.png",
-        "in.png",
-        "upload",
-    ]
+    assert [chosen.name for chosen in event.files] == ["outside.png", "in.png"]
 
 
 def test_window_without_put_user_input_event_cannot_be_created() -> None:
@@ -246,40 +238,10 @@ def test_window_without_put_user_input_event_cannot_be_created() -> None:
         _Incomplete()  # type: ignore[abstract]
 
 
-def test_window_times_out_unshown_picker_and_drops_its_late_result() -> None:
-    window = _PickerWindow()
-    window.request_file_selector(_request("open-1"))
-    window.now = FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS
-    window._expire_file_selectors()
-    assert _statuses(window) == [("open-1", SelectedFilesStatus.UNAVAILABLE)]
-    assert window.cancelled == 1
-
-    window._complete_file_selector(window.started[0][0], SelectedFilesStatus.CANCELLED)
-    assert _statuses(window) == []
-
-
 def test_null_window_open_drops_a_result_left_by_the_previous_session() -> None:
     window = NullClientWindow()
     window.request_file_selector(_request("open-1"))
     window.open(SessionDesc())
-    assert _statuses(window) == []
-
-
-def test_window_expires_a_stuck_picker_when_the_next_request_arrives() -> None:
-    window = _PickerWindow()
-    window.request_file_selector(_request("open-1"))
-    window.now = FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS
-    window.request_file_selector(_request("open-2"))
-    assert _statuses(window) == [("open-1", SelectedFilesStatus.UNAVAILABLE)]
-    assert [request_id for _, request_id in window.started] == ["open-1", "open-2"]
-
-
-def test_window_shown_picker_waits_for_the_user_without_deadline() -> None:
-    window = _PickerWindow()
-    window.request_file_selector(_request("open-1"))
-    window._file_selector_opened(window.started[0][0])
-    window.now = 1_000.0
-    window._expire_file_selectors()
     assert _statuses(window) == []
 
 

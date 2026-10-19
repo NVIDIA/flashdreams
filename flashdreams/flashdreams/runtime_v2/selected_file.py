@@ -18,13 +18,6 @@ MAX_SELECTED_FILE_BATCH_BYTES = 8 * MAX_SELECTED_FILE_BYTES
 MAX_SELECTED_FILE_COUNT = 256
 """Hard ceiling for the number of files in one selected-files request."""
 
-FILE_SELECTION_PRESENTATION_TIMEOUT_SECONDS = 30.0
-"""Seconds to wait for a client window to show a picker before ``UNAVAILABLE``.
-
-The deadline starts when a request is handed to the window. Once the window
-reports the picker is shown, the user may take as long as they want.
-"""
-
 
 def clamp_selected_file_max_bytes(max_bytes: int | None) -> int:
     """Return a file-size budget that cannot exceed ``MAX_SELECTED_FILE_BYTES``.

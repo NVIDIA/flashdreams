@@ -383,12 +383,8 @@ class WebRTCServer:
         # Upload tokens, touched only on the event loop once it runs.
         self._pending_file_requests: dict[str, _PendingFileSelection] = {}
         self._uploading_file_requests: dict[str, _PendingFileSelection] = {}
-        self._file_selector_callbacks: (
-            tuple[
-                Callable[[str], None],
-                Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
-            ]
-            | None
+        self._file_selector_callback: (
+            Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None] | None
         ) = None
         self._thread = threading.Thread(
             target=self._run_server,
@@ -743,21 +739,17 @@ class WebRTCServer:
             raise RuntimeError("An input callback is already registered.")
         self._input_callback = callback
 
-    def register_file_selector_callbacks(
+    def register_file_selector_callback(
         self,
-        *,
-        opened: Callable[[str], None],
-        completed: Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
+        callback: Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
     ) -> None:
         """Register how armed file selectors report back, by selector id.
 
-        Both run on the server thread.
-
         Args:
-            opened: Called when the browser shows the selector.
-            completed: Called once with the selector's status and files.
+            callback: Called once per selector on the server thread, with its
+                status and files.
         """
-        self._file_selector_callbacks = (opened, completed)
+        self._file_selector_callback = callback
 
     def write(self, result: StepResult) -> None:
         """Materialize and admit one generated result to the sender mailbox.
@@ -1432,17 +1424,6 @@ class WebRTCServer:
         elif event_type == "close":
             self._cancel_link_press()
             event = CloseUserInputEvent(timestamp=timestamp_us)
-        elif event_type == "file_selector_ack":
-            token = payload.get("id")
-            if not isinstance(token, str) or not token:
-                raise ValueError(
-                    "File selector acknowledgement requires a non-empty id."
-                )
-            policy = self._pending_file_requests.get(token)
-            if policy is None:
-                return
-            self._file_selector_callbacks_or_raise()[0](policy.selector_id)
-            return
         elif event_type == "file_selector_result":
             token = payload.get("id")
             if not isinstance(token, str) or not token:
@@ -1480,18 +1461,10 @@ class WebRTCServer:
         files: tuple[SelectedFile, ...] = (),
     ) -> None:
         """Report the result of one armed file selector to the window."""
-        self._file_selector_callbacks_or_raise()[1](selector_id, status, files)
-
-    def _file_selector_callbacks_or_raise(
-        self,
-    ) -> tuple[
-        Callable[[str], None],
-        Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
-    ]:
-        callbacks = self._file_selector_callbacks
-        if callbacks is None:
-            raise RuntimeError("WebRTC file selector callbacks are not registered.")
-        return callbacks
+        callback = self._file_selector_callback
+        if callback is None:
+            raise RuntimeError("WebRTC file selector callback is not registered.")
+        callback(selector_id, status, files)
 
     async def _release_peer_connection(
         self,
