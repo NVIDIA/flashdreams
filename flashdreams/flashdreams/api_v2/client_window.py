@@ -202,8 +202,7 @@ class IClientWindow(InputSource, OutputSink, ABC):
     def _put_user_input_event(self, event: UserInputEvent) -> None:
         """Queue ``event`` for :meth:`InputSource.get_user_input_events`.
 
-        Lets each window add an event that did not come from its own input
-        polling. Only this class calls it, on the UI thread.
+        Canonical method for how user-input-events are added to a window.
         """
 
     @final

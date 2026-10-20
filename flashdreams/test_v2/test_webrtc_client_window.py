@@ -76,12 +76,12 @@ def _files_url(window: WebRTCClientWindow, token: str) -> str:
 
 
 async def _wait_file_armed(window: WebRTCClientWindow) -> str:
-    """Return the token the browser was sent once a selector is armed."""
+    """Return the token the browser was sent once a selector is open."""
     for _ in range(100):
         if window.server._pending_file_requests:
             return next(iter(window.server._pending_file_requests))
         await asyncio.sleep(0.01)
-    raise AssertionError("file selection was not armed")
+    raise AssertionError("file selection was not opened")
 
 
 def _on_server_loop(window: WebRTCClientWindow, call: Callable[[], T]) -> T:
@@ -94,7 +94,7 @@ def _on_server_loop(window: WebRTCClientWindow, call: Callable[[], T]) -> T:
 
 
 def _arm(window: WebRTCClientWindow, request: FileSelectionRequest) -> str:
-    """Arm a selector as if the browser had been sent ``request``; return its token."""
+    """Open a selector as if the browser had been sent ``request``; return its token."""
     selector_id = window._last_file_selector_id + 1
     window._last_file_selector_id = selector_id
     window._active_file_selector = (selector_id, request)

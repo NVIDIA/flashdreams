@@ -143,6 +143,9 @@ const showPromptDialog = ({
   ) {
     return;
   }
+  if (document.pointerLockElement === video) {
+    document.exitPointerLock();
+  }
   if (promptDialog.open) {
     promptSettled = true;
     promptOnConfirm = null;

@@ -305,7 +305,7 @@ class _VideoTrack(MediaStreamTrack):
 
 @dataclass(frozen=True, slots=True)
 class _PendingFileSelection:
-    """One armed file-selector request and the upload rules it sets."""
+    """One open file-selector request and the upload rules it sets."""
 
     selector_id: str
     """Window selector this upload answers. Never sent to the browser."""
@@ -319,7 +319,7 @@ class _FileUpload:
     """One pick whose files are arriving, one request per file."""
 
     policy: _PendingFileSelection
-    """The armed request this upload answers."""
+    """The open request this upload answers."""
 
     count: int
     """How many files the browser said it will send."""
@@ -556,10 +556,10 @@ class WebRTCServer:
         loop = self._loop
         if loop is None:
             raise RuntimeError("WebRTC server is not running.")
-        loop.call_soon_threadsafe(self._arm_file_selector, policy)
+        loop.call_soon_threadsafe(self._open_client_side_file_selector, policy)
 
     def cancel_file_selectors(self) -> None:
-        """Forget every armed selector and close the viewer's prompt.
+        """Forget every open selector and close the viewer's prompt.
 
         A later upload for a forgotten selector is refused.
         """
@@ -567,18 +567,18 @@ class WebRTCServer:
         if loop is None:
             self._pending_file_requests.clear()
             return
-        # On the event loop, after any arm still queued for a forgotten selector.
+        # On the event loop, after any opening still queued for a forgotten selector.
         loop.call_soon_threadsafe(self._withdraw_file_selectors)
 
     def _withdraw_file_selectors(self) -> None:
-        """Forget armed selectors and tell the viewer to close its prompt."""
+        """Forget open selectors and tell the viewer to close its prompt."""
         self._pending_file_requests.clear()
         self._uploading_file_requests.clear()
         channel = self._control_channel
         if channel is not None and channel.readyState == "open":
             channel.send(json.dumps({"type": "file_selector_cancel"}))
 
-    def _arm_file_selector(self, policy: _PendingFileSelection) -> None:
+    def _open_client_side_file_selector(self, policy: _PendingFileSelection) -> None:
         """Send the selector to the browser and remember its upload policy.
 
         The browser gets an unguessable token instead of the selector id, so a
@@ -609,7 +609,7 @@ class WebRTCServer:
         return self._pending_file_requests.pop(token, None)
 
     def _complete_abandoned_file_selectors(self) -> None:
-        """Answer every armed pick as ``UNAVAILABLE`` because the viewer left."""
+        """Answer every open pick as ``UNAVAILABLE`` because the viewer left."""
         abandoned = (
             *self._pending_file_requests.values(),
             *(upload.policy for upload in self._uploading_file_requests.values()),
@@ -748,7 +748,7 @@ class WebRTCServer:
         self,
         callback: Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
     ) -> None:
-        """Register how armed file selectors report back, by selector id.
+        """Register how open file selectors report back, by selector id.
 
         Args:
             callback: Called once per selector on the server thread, with its
@@ -1443,7 +1443,7 @@ class WebRTCServer:
         status: SelectedFilesStatus,
         files: tuple[SelectedFile, ...] = (),
     ) -> None:
-        """Report the result of one armed file selector to the window."""
+        """Report the result of one open file selector to the window."""
         callback = self._file_selector_callback
         if callback is None:
             raise RuntimeError("WebRTC file selector callback is not registered.")
