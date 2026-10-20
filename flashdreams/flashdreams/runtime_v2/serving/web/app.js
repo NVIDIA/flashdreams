@@ -343,7 +343,7 @@ const openFileSelector = options => {
     hideFilePicker();
   }
   const accept = Array.isArray(options.accept) ? options.accept : [];
-  const maxBytes = Number(options.max_bytes);
+  const maxBytes = Number(options.max_file_bytes);
   pendingFileRequest = {
     id: requestId,
     accept,

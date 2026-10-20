@@ -7,38 +7,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
-MAX_SELECTED_FILE_BYTES = 32 * 1024 * 1024
-"""Hard ceiling for one selected file. Windows clamp requested budgets to this."""
+DEFAULT_MAX_FILE_BYTES = 1024 * 1024 * 1024
+"""Default ``max_file_bytes`` (1 GiB): the largest single file a request accepts."""
 
-# ponytail: 8× the per-file ceiling is the batch cap; raise it or
-# make it per-request if an app needs a larger set in one pick.
-MAX_SELECTED_FILE_BATCH_BYTES = 8 * MAX_SELECTED_FILE_BYTES
-"""Hard ceiling for the total bytes of one selected-files request."""
+DEFAULT_MAX_TOTAL_BYTES = 1024 * 1024 * 1024
+"""Default ``max_total_bytes`` (1 GiB): the most bytes all chosen files add up to."""
 
-MAX_SELECTED_FILE_COUNT = 256
-"""Hard ceiling for the number of files in one selected-files request."""
-
-
-def clamp_selected_file_max_bytes(max_bytes: int | None) -> int:
-    """Return a file-size budget that cannot exceed ``MAX_SELECTED_FILE_BYTES``.
-
-    Args:
-        max_bytes: Requested budget in bytes, or ``None`` for the ceiling.
-
-    Returns:
-        The requested budget when it is below the ceiling, otherwise the ceiling.
-
-    Raises:
-        TypeError: ``max_bytes`` is not ``None`` or an integer.
-        ValueError: ``max_bytes`` is not positive.
-    """
-    if max_bytes is None:
-        return MAX_SELECTED_FILE_BYTES
-    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int):
-        raise TypeError("max_bytes must be an integer.")
-    if max_bytes <= 0:
-        raise ValueError("max_bytes must be > 0.")
-    return min(max_bytes, MAX_SELECTED_FILE_BYTES)
+DEFAULT_MAX_FILE_COUNT = 256
+"""Default ``max_file_count``: the most files one request may return."""
 
 
 def normalize_selected_file_accept(accept: Sequence[str] = ()) -> tuple[str, ...]:
@@ -94,8 +70,8 @@ class SelectedFilesStatus(Enum):
     """The user dismissed the selector."""
 
     TOO_LARGE = "too_large"
-    """A file exceeded its size budget, or the set exceeded the batch size or
-    file-count ceiling."""
+    """The set broke the request's ``max_file_bytes``, ``max_total_bytes``, or
+    ``max_file_count``."""
 
     DISALLOWED_TYPE = "disallowed_type"
     """A chosen file did not match ``accept``. Checked before size."""
@@ -105,44 +81,8 @@ class SelectedFilesStatus(Enum):
     open selector keeps going and answers its own request."""
 
     UNAVAILABLE = "unavailable"
-    """No pick was made: the client has no picker or left, the picker was not
-    shown in time, or a chosen file was unreadable."""
-
-
-def selected_files_policy_status(
-    files: Sequence[tuple[str, int | None]],
-    *,
-    accept: tuple[str, ...] = (),
-    max_bytes: int,
-) -> SelectedFilesStatus | None:
-    """Return why a chosen set is rejected, or ``None`` if every file is allowed.
-
-    Type is checked before size and count, across the whole set.
-
-    Args:
-        files: ``(name, size)`` pairs. ``size`` of ``None`` skips that file's
-            size check and omits it from the batch total.
-        accept: Filename suffixes such as ``.png``. Empty allows any type.
-        max_bytes: Maximum allowed size of each file in bytes.
-
-    Returns:
-        ``DISALLOWED_TYPE``, ``TOO_LARGE``, or ``None`` when the set passes.
-    """
-    for name, _size in files:
-        if not selected_file_suffix_allowed(name, accept):
-            return SelectedFilesStatus.DISALLOWED_TYPE
-    if len(files) > MAX_SELECTED_FILE_COUNT:
-        return SelectedFilesStatus.TOO_LARGE
-    total = 0
-    for _name, size in files:
-        if size is None:
-            continue
-        if size > max_bytes:
-            return SelectedFilesStatus.TOO_LARGE
-        total += size
-    if total > MAX_SELECTED_FILE_BATCH_BYTES:
-        return SelectedFilesStatus.TOO_LARGE
-    return None
+    """No pick was made: the client has no picker or left, the picker failed,
+    or a chosen file was unreadable."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,8 +109,47 @@ class FileSelectionRequest:
     accept: tuple[str, ...] = ()
     """Filename suffixes the client may choose, empty for any type."""
 
-    max_bytes: int | None = None
-    """Requested size budget per file in bytes, or ``None`` for the ceiling."""
+    max_file_bytes: int = DEFAULT_MAX_FILE_BYTES
+    """Largest single file in bytes."""
+
+    max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES
+    """Most bytes all chosen files may add up to."""
+
+    max_file_count: int = DEFAULT_MAX_FILE_COUNT
+    """Most files the selector may return."""
 
     multiple: bool = False
     """Whether the selector may return more than one file."""
+
+
+def selected_files_policy_status(
+    files: Sequence[tuple[str, int | None]],
+    request: FileSelectionRequest,
+) -> SelectedFilesStatus | None:
+    """Return why a chosen set breaks ``request``, or ``None`` if it passes.
+
+    Type is checked before size and count, across the whole set.
+
+    Args:
+        files: ``(name, size)`` pairs. ``size`` of ``None`` skips that file's
+            size check and omits it from the total.
+        request: The request whose ``accept`` and limits apply.
+
+    Returns:
+        ``DISALLOWED_TYPE``, ``TOO_LARGE``, or ``None`` when the set passes.
+    """
+    for name, _size in files:
+        if not selected_file_suffix_allowed(name, request.accept):
+            return SelectedFilesStatus.DISALLOWED_TYPE
+    if len(files) > request.max_file_count:
+        return SelectedFilesStatus.TOO_LARGE
+    total = 0
+    for _name, size in files:
+        if size is None:
+            continue
+        if size > request.max_file_bytes:
+            return SelectedFilesStatus.TOO_LARGE
+        total += size
+    if total > request.max_total_bytes:
+        return SelectedFilesStatus.TOO_LARGE
+    return None

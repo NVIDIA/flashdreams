@@ -16,10 +16,7 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.session import ISession
 from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
-from flashdreams.runtime_v2.selected_file import (
-    MAX_SELECTED_FILE_BYTES,
-    SelectedFilesStatus,
-)
+from flashdreams.runtime_v2.selected_file import SelectedFilesStatus
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import SelectedFilesUserInputEvent
@@ -43,9 +40,8 @@ _FILE_SELECTION_STATUS_TEXT = {
         "SelectedFilesStatus.BUSY: another picker was already open."
     ),
     SelectedFilesStatus.TOO_LARGE: (
-        "SelectedFilesStatus.TOO_LARGE: a file exceeded this request's "
-        f"max_file_bytes={MAX_SELECTED_FILE_BYTES}, or the set exceeded the "
-        "batch limits."
+        "SelectedFilesStatus.TOO_LARGE: the pick broke this request's "
+        "max_file_bytes, max_total_bytes, or max_file_count."
     ),
     SelectedFilesStatus.DISALLOWED_TYPE: (
         "SelectedFilesStatus.DISALLOWED_TYPE: suffix not in accept=('.bin', '.raw')."
@@ -82,6 +78,13 @@ _FILE_SELECTOR_SLOTS = (
     (_OPEN_FILES_LABEL, _OPEN_FILES_REQUEST_ID, True),
 )
 """``(label, request_id, multiple)`` for each Open button, in display order."""
+
+_MAX_FILE_BYTES = 32 * 1024 * 1024
+"""Each button's ``max_file_bytes`` (32 MiB), lowered from the 1 GiB default."""
+
+_MAX_TOTAL_BYTES = 256 * 1024 * 1024
+"""Each button's ``max_total_bytes`` (256 MiB), lowered from the 1 GiB default.
+Only Open files can pick enough to reach it."""
 
 _NO_FILE_SELECTED = "No file selected."
 """Status shown for a button before its first result."""
@@ -163,7 +166,8 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
                     self.request_file_selector(
                         request_id,
                         accept=(".bin", ".raw"),
-                        max_file_bytes=MAX_SELECTED_FILE_BYTES,
+                        max_file_bytes=_MAX_FILE_BYTES,
+                        max_total_bytes=_MAX_TOTAL_BYTES,
                         multiple=multiple,
                     )
             if self.state.restart_at is None:

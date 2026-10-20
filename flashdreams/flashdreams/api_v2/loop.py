@@ -27,6 +27,9 @@ from flashdreams.runtime_v2.profiler_utils import (
     unbind_inference_profiler,
 )
 from flashdreams.runtime_v2.selected_file import (
+    DEFAULT_MAX_FILE_BYTES,
+    DEFAULT_MAX_FILE_COUNT,
+    DEFAULT_MAX_TOTAL_BYTES,
     FileSelectionRequest,
     normalize_selected_file_accept,
 )
@@ -621,7 +624,9 @@ class IUILoop(ILoop[StateT], ABC):
         initial_path: str | None = None,
         *,
         accept: Sequence[str] = (),
-        max_file_bytes: int | None = None,
+        max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
+        max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES,
+        max_file_count: int = DEFAULT_MAX_FILE_COUNT,
         multiple: bool = False,
     ) -> None:
         """Ask the client to show a file selector.
@@ -639,7 +644,8 @@ class IUILoop(ILoop[StateT], ABC):
         - ``CANCELLED``: the user dismissed the selector.
         - ``BUSY``: another selector was open.
         - ``DISALLOWED_TYPE``: a file did not match ``accept``.
-        - ``TOO_LARGE``: a file or the set exceeded the size or count limits.
+        - ``TOO_LARGE``: the set broke ``max_file_bytes``, ``max_total_bytes``,
+          or ``max_file_count``.
         - ``UNAVAILABLE``: the window cannot show a selector, or it failed.
 
         ``accept`` checks filename suffixes only, so treat ``data`` as
@@ -672,20 +678,20 @@ class IUILoop(ILoop[StateT], ABC):
             initial_path: Directory hint for the native selector; ``None``
                 uses the host user's home directory. The browser ignores it.
             accept: Filename suffixes such as ``.png``. Empty allows any type.
-            max_file_bytes: Maximum size of each file in bytes, or ``None`` for
-                the ceiling. Larger values are clamped to
-                :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BYTES`
-                without notice.
-            multiple: Whether the selector may return more than one file. The
-                whole set is also capped by
-                :data:`~flashdreams.runtime_v2.selected_file.MAX_SELECTED_FILE_BATCH_BYTES`.
+            max_file_bytes: Largest single file in bytes. Must not exceed
+                ``max_total_bytes``.
+            max_total_bytes: Most bytes all chosen files may add up to. Has no
+                effect unless ``multiple`` is set.
+            max_file_count: Most files the selector may return. Has no effect
+                unless ``multiple`` is set.
+            multiple: Whether the selector may return more than one file.
 
         Raises:
             TypeError: ``request_id`` or ``initial_path`` is not a string, or
-                ``accept`` / ``max_file_bytes`` / ``multiple`` has the wrong
-                type.
-            ValueError: ``request_id`` or ``initial_path`` is empty, or
-                ``accept`` / ``max_file_bytes`` is invalid.
+                ``accept``, a limit, or ``multiple`` has the wrong type.
+            ValueError: ``request_id`` or ``initial_path`` is empty, ``accept``
+                is invalid, a limit is not positive, or ``max_file_bytes``
+                exceeds ``max_total_bytes``.
         """
         if not isinstance(request_id, str):
             raise TypeError("request_id must be a string.")
@@ -700,11 +706,17 @@ class IUILoop(ILoop[StateT], ABC):
                 raise ValueError("initial_path must be a non-empty string.")
             resolved_initial_path = initial_path
         suffixes = normalize_selected_file_accept(accept)
-        if max_file_bytes is not None:
-            if isinstance(max_file_bytes, bool) or not isinstance(max_file_bytes, int):
-                raise TypeError("max_file_bytes must be an integer.")
-            if max_file_bytes <= 0:
-                raise ValueError("max_file_bytes must be > 0.")
+        for name, limit in (
+            ("max_file_bytes", max_file_bytes),
+            ("max_total_bytes", max_total_bytes),
+            ("max_file_count", max_file_count),
+        ):
+            if isinstance(limit, bool) or not isinstance(limit, int):
+                raise TypeError(f"{name} must be an integer.")
+            if limit <= 0:
+                raise ValueError(f"{name} must be > 0.")
+        if max_file_bytes > max_total_bytes:
+            raise ValueError("max_file_bytes must not exceed max_total_bytes.")
         if not isinstance(multiple, bool):
             raise TypeError("multiple must be a bool.")
         self.get_or_create_ui_loop_requests().file_selections.append(
@@ -712,7 +724,9 @@ class IUILoop(ILoop[StateT], ABC):
                 request_id=request_id,
                 initial_path=resolved_initial_path,
                 accept=suffixes,
-                max_bytes=max_file_bytes,
+                max_file_bytes=max_file_bytes,
+                max_total_bytes=max_total_bytes,
+                max_file_count=max_file_count,
                 multiple=multiple,
             )
         )

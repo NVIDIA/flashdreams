@@ -25,11 +25,9 @@ from torch import Tensor
 from flashdreams.api_v2.client_window import ClientWindowLink, IClientWindow
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.selected_file import (
-    MAX_SELECTED_FILE_BYTES,
     FileSelectionRequest,
     SelectedFile,
     SelectedFilesStatus,
-    clamp_selected_file_max_bytes,
     selected_files_policy_status,
 )
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -85,17 +83,11 @@ def _choose_paths(request: FileSelectionRequest) -> list[str]:
 
 
 def _selected_files_from_paths(
-    paths: Sequence[str],
-    *,
-    accept: tuple[str, ...] = (),
-    max_bytes: int | None = None,
+    paths: Sequence[str], request: FileSelectionRequest
 ) -> tuple[tuple[SelectedFile, ...], SelectedFilesStatus]:
     """Load chosen files, or empty files and a failure status."""
-    budget = MAX_SELECTED_FILE_BYTES if max_bytes is None else max_bytes
     rejected = selected_files_policy_status(
-        [(Path(path).name, None) for path in paths],
-        accept=accept,
-        max_bytes=budget,
+        [(Path(path).name, None) for path in paths], request
     )
     if rejected is not None:
         return (), rejected
@@ -109,9 +101,7 @@ def _selected_files_from_paths(
             return (), SelectedFilesStatus.UNAVAILABLE
         sized.append((path, info.st_size))
     rejected = selected_files_policy_status(
-        [(Path(path).name, size) for path, size in sized],
-        accept=accept,
-        max_bytes=budget,
+        [(Path(path).name, size) for path, size in sized], request
     )
     if rejected is not None:
         return (), rejected
@@ -119,17 +109,12 @@ def _selected_files_from_paths(
     for path, _size in sized:
         try:
             with open(path, "rb") as stream:
-                data = stream.read(budget + 1)
+                # Read one byte past the limit so a file over it is
+                # rejected, not truncated.
+                data = stream.read(request.max_file_bytes + 1)
         except OSError:
             return (), SelectedFilesStatus.UNAVAILABLE
         files.append(SelectedFile(name=Path(path).name, data=data))
-    rejected = selected_files_policy_status(
-        [(chosen.name, len(chosen.data)) for chosen in files],
-        accept=accept,
-        max_bytes=budget,
-    )
-    if rejected is not None:
-        return (), rejected
     return tuple(files), SelectedFilesStatus.OK
 
 
@@ -325,13 +310,11 @@ class NativeWindowClientWindow(IClientWindow):
             elif not paths:
                 status = SelectedFilesStatus.CANCELLED
             else:
-                # ponytail: files are read on the UI thread, up to the batch
-                # limit, which can stall presentation briefly. Upgrade path:
-                # read them on the dialog thread.
+                # ponytail: files are read on the UI thread, up to the
+                # request's max_total_bytes, which stalls presentation while
+                # they load. Upgrade path: read them on the dialog thread.
                 files, status = _selected_files_from_paths(
-                    paths if request.multiple else paths[:1],
-                    accept=request.accept,
-                    max_bytes=clamp_selected_file_max_bytes(request.max_bytes),
+                    paths if request.multiple else paths[:1], request
                 )
             self._complete_file_selector(selector_id, status, files)
 

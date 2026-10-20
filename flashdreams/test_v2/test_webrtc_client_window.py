@@ -10,7 +10,7 @@ import concurrent.futures
 import json
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
 from typing import Any, TypeVar, cast
 from unittest.mock import AsyncMock, Mock
@@ -38,10 +38,9 @@ from yarl import URL
 
 from flashdreams.api_v2.client_window import ClientWindowLink
 from flashdreams.runtime_v2.selected_file import (
-    MAX_SELECTED_FILE_BYTES,
+    DEFAULT_MAX_FILE_BYTES,
     FileSelectionRequest,
     SelectedFilesStatus,
-    clamp_selected_file_max_bytes,
 )
 from flashdreams.runtime_v2.serving import webrtc_server
 from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
@@ -64,19 +63,10 @@ from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
 
 def _file_request(
-    request_id: str,
-    initial_path: str = "/tmp",
-    *,
-    accept: tuple[str, ...] = (),
-    max_bytes: int | None = None,
-    multiple: bool = False,
+    request_id: str, initial_path: str = "/tmp", **fields: Any
 ) -> FileSelectionRequest:
     return FileSelectionRequest(
-        request_id=request_id,
-        initial_path=initial_path,
-        accept=accept,
-        max_bytes=max_bytes,
-        multiple=multiple,
+        request_id=request_id, initial_path=initial_path, **fields
     )
 
 
@@ -109,10 +99,7 @@ def _arm(window: WebRTCClientWindow, request: FileSelectionRequest) -> str:
     window._active_file_selector = (selector_id, request)
     wire_id = f"token-{selector_id}"
     policy = webrtc_server._PendingFileSelection(
-        selector_id=str(selector_id),
-        accept=request.accept,
-        max_bytes=clamp_selected_file_max_bytes(request.max_bytes),
-        multiple=request.multiple,
+        selector_id=str(selector_id), request=request
     )
     _on_server_loop(
         window,
@@ -369,7 +356,7 @@ async def test_upload_without_the_armed_token_is_rejected() -> None:
 
 
 @pytest.mark.asyncio
-async def test_browser_file_selector_sends_clamped_policy_without_host_path() -> None:
+async def test_browser_file_selector_sends_the_request_without_host_path() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     peer: RTCPeerConnection | None = None
@@ -387,7 +374,7 @@ async def test_browser_file_selector_sends_clamped_policy_without_host_path() ->
                 "open-1",
                 "/home/secret",
                 accept=(".png", ".jpg"),
-                max_bytes=MAX_SELECTED_FILE_BYTES * 2,
+                max_file_bytes=DEFAULT_MAX_FILE_BYTES * 2,
             )
         )
         for _ in range(100):
@@ -401,7 +388,7 @@ async def test_browser_file_selector_sends_clamped_policy_without_host_path() ->
         assert payload == {
             "type": "file_selector",
             "accept": [".png", ".jpg"],
-            "max_bytes": MAX_SELECTED_FILE_BYTES,
+            "max_file_bytes": DEFAULT_MAX_FILE_BYTES * 2,
             "multiple": False,
         }
     finally:
@@ -478,7 +465,7 @@ async def test_file_upload_rejects_oversize() -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
-        wire_id = _arm(window, _file_request("open-1", max_bytes=1))
+        wire_id = _arm(window, _file_request("open-1", max_file_bytes=1))
         status = await _post_selected_file(window, wire_id, b"x" * 8192, "big.bin")
         assert status == 413
         event = await _wait_selected_files_event(window)
@@ -490,14 +477,12 @@ async def test_file_upload_rejects_oversize() -> None:
 
 
 @pytest.mark.asyncio
-async def test_file_upload_stops_once_the_batch_exceeds_its_cap(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(webrtc_server, "MAX_SELECTED_FILE_BATCH_BYTES", 5)
+@pytest.mark.parametrize("limits", [{"max_total_bytes": 5}, {"max_file_count": 2}])
+async def test_file_upload_enforces_the_request_limits(limits: dict[str, Any]) -> None:
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
-        wire_id = _arm(window, _file_request("open-1", multiple=True))
+        wire_id = _arm(window, _file_request("open-1", multiple=True, **limits))
         form = FormData()
         for name in ("a.bin", "b.bin", "c.bin"):
             form.add_field(
@@ -513,15 +498,51 @@ async def test_file_upload_stops_once_the_batch_exceeds_its_cap(
         window.close()
 
 
+async def _chunked_junk() -> AsyncIterator[bytes]:
+    yield b"junk"
+
+
+@pytest.mark.parametrize(
+    ("body", "status", "selected_status"),
+    [
+        (b"x" * (256 * 1024), 413, SelectedFilesStatus.TOO_LARGE),
+        (None, 411, SelectedFilesStatus.UNAVAILABLE),
+    ],
+)
 @pytest.mark.asyncio
-async def test_file_upload_over_the_batch_cap_still_reports_a_disallowed_type(
-    monkeypatch: pytest.MonkeyPatch,
+async def test_file_upload_rejects_an_unbounded_body_before_reading_it(
+    body: bytes | None, status: int, selected_status: SelectedFilesStatus
 ) -> None:
-    monkeypatch.setattr(webrtc_server, "MAX_SELECTED_FILE_BATCH_BYTES", 5)
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
-        wire_id = _arm(window, _file_request("open-1", accept=(".bin",), multiple=True))
+        wire_id = _arm(
+            window, _file_request("open-1", max_total_bytes=1, max_file_count=1)
+        )
+        async with ClientSession() as client:
+            async with client.post(
+                _files_url(window, wire_id),
+                data=_chunked_junk() if body is None else body,
+                headers={"Content-Type": "multipart/form-data; boundary=x"},
+            ) as response:
+                assert response.status == status
+        event = await _wait_selected_files_event(window)
+        assert event.status is selected_status
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_file_upload_over_the_total_limit_still_reports_a_disallowed_type() -> (
+    None
+):
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    try:
+        wire_id = _arm(
+            window,
+            _file_request("open-1", accept=(".bin",), max_total_bytes=5, multiple=True),
+        )
         form = FormData()
         for name in ("a.bin", "b.bin", "c.exe"):
             form.add_field(
@@ -537,16 +558,17 @@ async def test_file_upload_over_the_batch_cap_still_reports_a_disallowed_type(
 
 
 @pytest.mark.asyncio
-async def test_file_upload_prefers_disallowed_suffix_over_body_limit() -> None:
+async def test_file_upload_over_the_file_limit_still_reports_a_disallowed_type() -> (
+    None
+):
     window = WebRTCClientWindow()
     window.open(_session_desc())
     try:
-        wire_id = _arm(window, _file_request("open-1", accept=(".png",), max_bytes=1))
+        wire_id = _arm(
+            window, _file_request("open-1", accept=(".png",), max_file_bytes=1)
+        )
         assert (
-            await _post_selected_file(
-                window, wire_id, b"x" * (2 * 1024 * 1024), "hello.txt"
-            )
-            == 204
+            await _post_selected_file(window, wire_id, b"x" * 1024, "hello.txt") == 204
         )
         event = await _wait_selected_files_event(window)
         assert event.request_id == "open-1"

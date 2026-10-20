@@ -25,6 +25,7 @@ from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
 )
 from flashdreams.runtime_v2.selected_file import (
+    DEFAULT_MAX_FILE_BYTES,
     FileSelectionRequest,
     SelectedFilesStatus,
 )
@@ -53,14 +54,14 @@ def _file_request(
     initial_path: str,
     *,
     accept: tuple[str, ...] = (),
-    max_bytes: int | None = None,
+    max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
     multiple: bool = False,
 ) -> FileSelectionRequest:
     return FileSelectionRequest(
         request_id=request_id,
         initial_path=initial_path,
         accept=accept,
-        max_bytes=max_bytes,
+        max_file_bytes=max_file_bytes,
         multiple=multiple,
     )
 
@@ -1079,32 +1080,32 @@ def test_native_window_reports_unavailable_when_picker_raises(
 def test_selected_files_from_paths_skips_unreadable_and_oversize(
     tmp_path: Path,
 ) -> None:
-    missing = tmp_path / "gone.png"
-    files, status = native_window_module._selected_files_from_paths((str(missing),))
+    def load(
+        path: Path, **limits: Any
+    ) -> tuple[tuple[object, ...], SelectedFilesStatus]:
+        return native_window_module._selected_files_from_paths(
+            (str(path),), _file_request("open-1", str(tmp_path), **limits)
+        )
+
+    files, status = load(tmp_path / "gone.png")
     assert files == ()
     assert status is SelectedFilesStatus.UNAVAILABLE
 
     too_big = tmp_path / "big.bin"
     too_big.write_bytes(b"abcd")
-    files, status = native_window_module._selected_files_from_paths(
-        (str(too_big),), max_bytes=3
-    )
+    files, status = load(too_big, max_file_bytes=3)
     assert files == ()
     assert status is SelectedFilesStatus.TOO_LARGE
 
     wrong_type = tmp_path / "notes.txt"
     wrong_type.write_bytes(b"hi")
-    files, status = native_window_module._selected_files_from_paths(
-        (str(wrong_type),), accept=(".png",)
-    )
+    files, status = load(wrong_type, accept=(".png",))
     assert files == ()
     assert status is SelectedFilesStatus.DISALLOWED_TYPE
 
     too_big_wrong_type = tmp_path / "huge.txt"
     too_big_wrong_type.write_bytes(b"abcd")
-    files, status = native_window_module._selected_files_from_paths(
-        (str(too_big_wrong_type),), accept=(".png",), max_bytes=1
-    )
+    files, status = load(too_big_wrong_type, accept=(".png",), max_file_bytes=1)
     assert files == ()
     assert status is SelectedFilesStatus.DISALLOWED_TYPE
 
@@ -1114,7 +1115,7 @@ def test_selected_files_from_paths_rejects_a_non_regular_file(tmp_path: Path) ->
     endless = tmp_path / "endless.bin"
     endless.symlink_to("/dev/zero")
     files, status = native_window_module._selected_files_from_paths(
-        (str(endless),), accept=(".bin",)
+        (str(endless),), _file_request("open-1", str(tmp_path), accept=(".bin",))
     )
     assert files == ()
     assert status is SelectedFilesStatus.UNAVAILABLE

@@ -32,13 +32,9 @@ from torch.nn import functional as F
 from flashdreams.api_v2.client_window import ClientWindowLink
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.selected_file import (
-    MAX_SELECTED_FILE_BATCH_BYTES,
-    MAX_SELECTED_FILE_COUNT,
     FileSelectionRequest,
     SelectedFile,
     SelectedFilesStatus,
-    clamp_selected_file_max_bytes,
-    normalize_selected_file_accept,
     selected_file_suffix_allowed,
     selected_files_policy_status,
 )
@@ -310,19 +306,13 @@ class _VideoTrack(MediaStreamTrack):
 
 @dataclass(frozen=True, slots=True)
 class _PendingFileSelection:
-    """Accept suffixes and size budget for one armed file-selector request."""
+    """One armed file-selector request and the upload rules it sets."""
 
     selector_id: str
     """Window selector this upload answers. Never sent to the browser."""
 
-    accept: tuple[str, ...]
-    """Filename suffixes the client may upload, empty for any type."""
-
-    max_bytes: int
-    """Maximum file bytes, already clamped to the window ceiling."""
-
-    multiple: bool
-    """Whether this request may include more than one file."""
+    request: FileSelectionRequest
+    """The app's request, whose ``accept`` and limits the upload must meet."""
 
 
 class WebRTCServer:
@@ -543,12 +533,7 @@ class WebRTCServer:
             selector_id: Window selector reported back with this result.
             request: File selector to show.
         """
-        policy = _PendingFileSelection(
-            selector_id=selector_id,
-            accept=normalize_selected_file_accept(request.accept),
-            max_bytes=clamp_selected_file_max_bytes(request.max_bytes),
-            multiple=request.multiple,
-        )
+        policy = _PendingFileSelection(selector_id=selector_id, request=request)
         loop = self._loop
         if loop is None:
             raise RuntimeError("WebRTC server is not running.")
@@ -592,9 +577,9 @@ class WebRTCServer:
                 {
                     "type": "file_selector",
                     "id": token,
-                    "accept": list(policy.accept),
-                    "max_bytes": policy.max_bytes,
-                    "multiple": policy.multiple,
+                    "accept": list(policy.request.accept),
+                    "max_file_bytes": policy.request.max_file_bytes,
+                    "multiple": policy.request.multiple,
                 }
             )
         )
@@ -918,9 +903,7 @@ class WebRTCServer:
     async def _start_server(self) -> None:
         """Create and bind the standalone aiohttp application."""
         self._offer_lock = asyncio.Lock()
-        app = web.Application(
-            client_max_size=MAX_SELECTED_FILE_BATCH_BYTES + 1024 * 1024
-        )
+        app = web.Application()
         app.router.add_get("/", self._serve_browser)
         app.router.add_get("/app.js", self._serve_browser_script)
         app.router.add_get("/healthz", self._health)
@@ -992,11 +975,21 @@ class WebRTCServer:
             if not request.content_type.startswith("multipart/"):
                 emit(SelectedFilesStatus.UNAVAILABLE)
                 raise web.HTTPBadRequest(reason="File upload requires a file.")
-            try:
-                reader = await request.multipart()
-            except web.HTTPRequestEntityTooLarge:
+            limits = policy.request
+            # The body bound keeps the whole read finite, even for parts the
+            # loop below only skips.
+            body_limit = limits.max_total_bytes + _upload_overhead_bytes(
+                limits.max_file_count
+            )
+            if request.content_length is None:
+                emit(SelectedFilesStatus.UNAVAILABLE)
+                raise web.HTTPLengthRequired()
+            if request.content_length > body_limit:
                 emit(SelectedFilesStatus.TOO_LARGE)
-                raise
+                raise web.HTTPRequestEntityTooLarge(
+                    max_size=body_limit, actual_size=request.content_length
+                )
+            reader = await request.multipart()
             chosen: list[tuple[str, bytes]] = []
             file_count = 0
             total_bytes = 0
@@ -1010,18 +1003,18 @@ class WebRTCServer:
                 if part.name != "file":
                     await part.release()
                     continue
-                if not policy.multiple and (chosen or too_large):
+                if not limits.multiple and (chosen or too_large):
                     await part.release()
                     continue
                 if not _identity_encoded(part):
                     emit(SelectedFilesStatus.UNAVAILABLE)
                     raise web.HTTPBadRequest(reason="File parts must not be encoded.")
                 file_count += 1
-                if file_count > MAX_SELECTED_FILE_COUNT:
+                if file_count > limits.max_file_count:
                     too_large = True
                     chosen.clear()
                 name = part.filename or "upload"
-                if not selected_file_suffix_allowed(name, policy.accept):
+                if not selected_file_suffix_allowed(name, limits.accept):
                     emit(SelectedFilesStatus.DISALLOWED_TYPE)
                     await _drain_multipart_reader(reader, part)
                     return web.Response(status=204)
@@ -1029,10 +1022,12 @@ class WebRTCServer:
                     # Keep reading names so a disallowed type still wins.
                     await part.release()
                     continue
-                data = await _read_upload_part_bounded(part, max_bytes=policy.max_bytes)
+                data = await _read_upload_part_bounded(
+                    part, max_bytes=limits.max_file_bytes
+                )
                 if data is not None:
                     total_bytes += len(data)
-                if data is None or total_bytes > MAX_SELECTED_FILE_BATCH_BYTES:
+                if data is None or total_bytes > limits.max_total_bytes:
                     too_large = True
                     chosen.clear()
                     continue
@@ -1040,21 +1035,18 @@ class WebRTCServer:
             if too_large:
                 emit(SelectedFilesStatus.TOO_LARGE)
                 raise web.HTTPRequestEntityTooLarge(
-                    max_size=policy.max_bytes, actual_size=policy.max_bytes + 1
+                    max_size=limits.max_total_bytes, actual_size=total_bytes + 1
                 )
             if not chosen:
                 emit(SelectedFilesStatus.UNAVAILABLE)
                 raise web.HTTPBadRequest(reason="File upload requires a file.")
             rejected = selected_files_policy_status(
-                [(name, len(data)) for name, data in chosen],
-                accept=policy.accept,
-                max_bytes=policy.max_bytes,
+                [(name, len(data)) for name, data in chosen], limits
             )
             if rejected is SelectedFilesStatus.TOO_LARGE:
                 emit(rejected)
                 raise web.HTTPRequestEntityTooLarge(
-                    max_size=policy.max_bytes,
-                    actual_size=max(len(data) for _name, data in chosen),
+                    max_size=limits.max_total_bytes, actual_size=total_bytes
                 )
             if rejected is not None:
                 emit(rejected)
@@ -1564,6 +1556,14 @@ class WebRTCServer:
 
 _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 """Bytes read per multipart chunk while enforcing ``max_bytes``."""
+
+
+def _upload_overhead_bytes(max_file_count: int) -> int:
+    """Return the multipart framing an upload of ``max_file_count`` files may add."""
+    # ponytail: a flat 4 KiB of boundary and headers per file plus 64 KiB; a
+    # client sending longer headers is answered TOO_LARGE. Upgrade path: bound
+    # the bytes of skipped parts while streaming instead of the whole body.
+    return 64 * 1024 + 4 * 1024 * max_file_count
 
 
 def _identity_encoded(part: BodyPartReader) -> bool:

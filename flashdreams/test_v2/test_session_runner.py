@@ -1418,7 +1418,7 @@ def test_run_session_forwards_file_selection_requests_to_the_window() -> None:
             request_id="open-1",
             initial_path="/tmp",
             accept=(".png",),
-            max_bytes=1024,
+            max_file_bytes=1024,
         )
     ]
     assert "window._request_file_selector" in log.calls

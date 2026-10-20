@@ -6,6 +6,7 @@
 import queue
 import threading
 from pathlib import Path
+from typing import Any
 
 import pytest
 from numpy import uint64
@@ -16,13 +17,12 @@ from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.selected_file import (
-    MAX_SELECTED_FILE_BATCH_BYTES,
-    MAX_SELECTED_FILE_BYTES,
-    MAX_SELECTED_FILE_COUNT,
+    DEFAULT_MAX_FILE_BYTES,
+    DEFAULT_MAX_FILE_COUNT,
+    DEFAULT_MAX_TOTAL_BYTES,
     FileSelectionRequest,
     SelectedFile,
     SelectedFilesStatus,
-    clamp_selected_file_max_bytes,
     normalize_selected_file_accept,
     selected_file_suffix_allowed,
     selected_files_policy_status,
@@ -61,24 +61,61 @@ def _ui_loop() -> _UILoop:
     return loop
 
 
-def test_ui_loop_queues_file_selection_policy_without_clamping() -> None:
+def test_ui_loop_queues_the_app_declared_limits() -> None:
     loop = _ui_loop()
     loop.request_file_selector(
         "open-1",
         "/tmp",
         accept=(".png", ".JPG"),
-        max_file_bytes=MAX_SELECTED_FILE_BYTES * 2,
+        max_file_bytes=DEFAULT_MAX_FILE_BYTES * 4,
+        max_total_bytes=DEFAULT_MAX_TOTAL_BYTES * 4,
+        max_file_count=DEFAULT_MAX_FILE_COUNT * 4,
         multiple=True,
     )
+    loop.request_file_selector("open-2", "/tmp")
 
     requests = loop.flush_ui_loop_requests()
     assert requests is not None
-    [selection] = requests.file_selections
-    assert selection.request_id == "open-1"
-    assert selection.initial_path == "/tmp"
-    assert selection.accept == (".png", ".JPG")
-    assert selection.max_bytes == MAX_SELECTED_FILE_BYTES * 2
-    assert selection.multiple is True
+    raised, defaults = requests.file_selections
+    assert raised == FileSelectionRequest(
+        request_id="open-1",
+        initial_path="/tmp",
+        accept=(".png", ".JPG"),
+        max_file_bytes=DEFAULT_MAX_FILE_BYTES * 4,
+        max_total_bytes=DEFAULT_MAX_TOTAL_BYTES * 4,
+        max_file_count=DEFAULT_MAX_FILE_COUNT * 4,
+        multiple=True,
+    )
+    assert (
+        defaults.max_file_bytes,
+        defaults.max_total_bytes,
+        defaults.max_file_count,
+    ) == (
+        DEFAULT_MAX_FILE_BYTES,
+        DEFAULT_MAX_TOTAL_BYTES,
+        DEFAULT_MAX_FILE_COUNT,
+    )
+
+
+@pytest.mark.parametrize(
+    "limit", ["max_file_bytes", "max_total_bytes", "max_file_count"]
+)
+def test_ui_loop_rejects_a_non_positive_limit(limit: str) -> None:
+    loop = _ui_loop()
+    zero: dict[str, Any] = {limit: 0}
+    fractional: dict[str, Any] = {limit: 1.5}
+    with pytest.raises(ValueError, match=f"{limit} must be > 0"):
+        loop.request_file_selector("open-1", **zero)
+    with pytest.raises(TypeError, match=f"{limit} must be an integer"):
+        loop.request_file_selector("open-1", **fractional)
+
+
+def test_ui_loop_rejects_a_file_limit_over_the_total_limit() -> None:
+    loop = _ui_loop()
+    with pytest.raises(ValueError, match="max_file_bytes must not exceed"):
+        loop.request_file_selector("open-1", max_file_bytes=2, max_total_bytes=1)
+    with pytest.raises(ValueError, match="max_file_bytes must not exceed"):
+        loop.request_file_selector("open-1", max_file_bytes=DEFAULT_MAX_TOTAL_BYTES + 1)
 
 
 def test_ui_loop_uses_home_when_initial_path_is_omitted() -> None:
@@ -164,7 +201,7 @@ def test_window_checks_a_result_against_its_request() -> None:
         return selected
 
     png = FileSelectionRequest(
-        request_id="open-1", initial_path="/tmp", accept=(".png",), max_bytes=4
+        request_id="open-1", initial_path="/tmp", accept=(".png",), max_file_bytes=4
     )
     a = SelectedFile(name="a.png", data=b"1")
     b = SelectedFile(name="b.png", data=b"2")
@@ -254,53 +291,27 @@ def test_window_answers_unavailable_when_its_picker_fails_to_start() -> None:
 
 
 def test_selected_file_policy_helpers() -> None:
-    assert clamp_selected_file_max_bytes(None) == MAX_SELECTED_FILE_BYTES
-    assert clamp_selected_file_max_bytes(16) == 16
-    assert clamp_selected_file_max_bytes(MAX_SELECTED_FILE_BYTES * 2) == (
-        MAX_SELECTED_FILE_BYTES
-    )
     assert normalize_selected_file_accept([".png", ".jpg"]) == (".png", ".jpg")
     assert selected_file_suffix_allowed("seed.PNG", (".png",))
     assert not selected_file_suffix_allowed("seed.txt", (".png",))
     assert selected_file_suffix_allowed("seed.txt", ())
-    assert (
-        selected_files_policy_status(
-            [("a.bin", 0)] * (MAX_SELECTED_FILE_COUNT + 1), max_bytes=3
-        )
-        is SelectedFilesStatus.TOO_LARGE
+    bins = FileSelectionRequest(
+        request_id="open-1",
+        initial_path="/tmp",
+        accept=(".bin",),
+        max_file_bytes=3,
+        max_total_bytes=5,
+        max_file_count=2,
     )
-    assert (
-        selected_files_policy_status(
-            [("a.bin", 2), ("b.txt", 2)],
-            accept=(".bin",),
-            max_bytes=3,
-        )
-        is SelectedFilesStatus.DISALLOWED_TYPE
-    )
-    assert (
-        selected_files_policy_status(
-            [("a.bin", 2), ("b.bin", 99)],
-            accept=(".bin",),
-            max_bytes=3,
-        )
-        is SelectedFilesStatus.TOO_LARGE
-    )
-    assert (
-        selected_files_policy_status(
-            [("a.bin", MAX_SELECTED_FILE_BATCH_BYTES), ("b.bin", 1)],
-            accept=(".bin",),
-            max_bytes=MAX_SELECTED_FILE_BYTES,
-        )
-        is SelectedFilesStatus.TOO_LARGE
-    )
-    assert (
-        selected_files_policy_status(
-            [("a.bin", 2), ("b.bin", 2)],
-            accept=(".bin",),
-            max_bytes=3,
-        )
-        is None
-    )
+    cases = [
+        ([("a.bin", 0)] * 3, SelectedFilesStatus.TOO_LARGE),
+        ([("a.bin", 2), ("b.txt", 2)], SelectedFilesStatus.DISALLOWED_TYPE),
+        ([("a.bin", 2), ("b.bin", 4)], SelectedFilesStatus.TOO_LARGE),
+        ([("a.bin", 3), ("b.bin", 3)], SelectedFilesStatus.TOO_LARGE),
+        ([("a.bin", 2), ("b.bin", 3)], None),
+    ]
+    for files, expected in cases:
+        assert selected_files_policy_status(files, bins) is expected
 
 
 def test_ui_loop_rejects_empty_request_id() -> None:

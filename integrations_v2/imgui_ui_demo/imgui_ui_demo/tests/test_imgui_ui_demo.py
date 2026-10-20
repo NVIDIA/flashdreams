@@ -12,6 +12,8 @@ import pytest
 from imgui_ui_demo.file_picker_app import (
     _FILE_SELECTION_ERROR_COLOR,
     _FILE_SELECTION_STATUS_TEXT,
+    _MAX_FILE_BYTES,
+    _MAX_TOTAL_BYTES,
     _OPEN_FILE_A_LABEL,
     _OPEN_FILE_A_REQUEST_ID,
     _OPEN_FILE_B_LABEL,
@@ -26,7 +28,6 @@ from numpy import uint64
 
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.selected_file import (
-    MAX_SELECTED_FILE_BYTES,
     SelectedFile,
     SelectedFilesStatus,
 )
@@ -121,7 +122,8 @@ def test_open_file_button_requests_a_client_file(label: str, request_id: str) ->
     [selection] = requests.file_selections
     assert selection.request_id == request_id
     assert selection.accept == (".bin", ".raw")
-    assert selection.max_bytes == MAX_SELECTED_FILE_BYTES
+    assert selection.max_file_bytes == _MAX_FILE_BYTES
+    assert selection.max_total_bytes == _MAX_TOTAL_BYTES
     assert selection.multiple is False
 
 
@@ -136,7 +138,8 @@ def test_open_files_button_requests_multiple_client_files() -> None:
     [selection] = requests.file_selections
     assert selection.request_id == _OPEN_FILES_REQUEST_ID
     assert selection.accept == (".bin", ".raw")
-    assert selection.max_bytes == MAX_SELECTED_FILE_BYTES
+    assert selection.max_file_bytes == _MAX_FILE_BYTES
+    assert selection.max_total_bytes == _MAX_TOTAL_BYTES
     assert selection.multiple is True
 
 

@@ -17,7 +17,6 @@ from flashdreams.runtime_v2.selected_file import (
     FileSelectionRequest,
     SelectedFile,
     SelectedFilesStatus,
-    clamp_selected_file_max_bytes,
     selected_files_policy_status,
 )
 from flashdreams.runtime_v2.user_input_event import SelectedFilesUserInputEvent
@@ -203,9 +202,8 @@ class IClientWindow(InputSource, OutputSink, ABC):
     def _put_user_input_event(self, event: UserInputEvent) -> None:
         """Queue ``event`` for :meth:`InputSource.get_user_input_events`.
 
-        Required even for a window without a picker, which answers every
-        request through it. Only this class calls it, on the UI thread, and it
-        must not call back into file selection.
+        Each window decides how an event from outside its own input polling
+        joins its input stream. Only this class calls it, on the UI thread.
         """
 
     @final
@@ -256,9 +254,7 @@ def _check_file_selection_result(
         return SelectedFilesStatus.UNAVAILABLE, ()
     files = tuple(replace(chosen, name=Path(chosen.name).name) for chosen in files)
     rejected = selected_files_policy_status(
-        [(chosen.name, len(chosen.data)) for chosen in files],
-        accept=request.accept,
-        max_bytes=clamp_selected_file_max_bytes(request.max_bytes),
+        [(chosen.name, len(chosen.data)) for chosen in files], request
     )
     if rejected is not None:
         return rejected, ()
