@@ -16,7 +16,7 @@
         <link rel="prev" href="../create_model/">
       
       
-        <link rel="next" href="../latency_tuning/">
+        <link rel="next" href="../profiling/">
       
       
         
@@ -1338,6 +1338,8 @@
       
         
       
+        
+      
     
     
     
@@ -1422,6 +1424,33 @@
     
   
   Cam2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/minimal_t2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Minimal T2V
 
     
   </span>
@@ -1696,12 +1725,6 @@
       
         
       
-        
-      
-        
-      
-        
-      
     
     
     
@@ -1778,68 +1801,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../demo_api/guides/integrate_model/" class="md-nav__link">
+      <a href="../../../demo_api/guides/integrate_model_adapter_for_a_demo/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-  Integrate a model with a demo
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../demo_api/guides/configuration/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Demo configuration
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../demo_api/guides/application_slugs/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Application slugs and dispatch
+  Integrate model adapter for a demo
 
     
   </span>
@@ -1867,33 +1836,6 @@
     
   
   Interactive serving
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../demo_api/guides/local_benchmarks/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Local benchmarks
 
     
   </span>
@@ -2129,8 +2071,6 @@
       
         
       
-        
-      
     
     
     
@@ -2321,33 +2261,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../latency_tuning/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Latency tuning
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../profiling/" class="md-nav__link">
         
   
@@ -2468,33 +2381,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../api_reference/runtime/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Inference Runtime API
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../api_reference/pipeline/" class="md-nav__link">
         
   
@@ -2542,6 +2428,33 @@
 
                 
               
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api_reference/accelerated/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Accelerated API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
             </ul>
           </nav>
         
@@ -2571,6 +2484,10 @@
       
         
           
+        
+      
+        
+      
         
       
         
@@ -2670,6 +2587,60 @@
     
   
   Build Website
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Testing
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/benchmarking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Benchmarking
 
     
   </span>
@@ -2967,6 +2938,13 @@ for the next step. Use the same cache and index for both calls. The base class
 rejects skipped, repeated, or mismatched indices. When synchronized profiling
 is enabled, <code>finalize</code> returns stage timings and GPU-memory metrics; otherwise
 it returns <code>None</code>.</p>
+<p>An application does not always own this loop directly. The V2V application
+accepts a <code>VideoPostProcessorConfig</code>; each model's processor session owns the
+pipeline cache and calls <code>generate</code>/<code>finalize</code> after converting and buffering
+input chunks. FlashVSR builds its pipeline after the input shape is known,
+while SwiftVR keeps a resident pipeline and creates an isolated stream cache.
+See <a href="../../../demo_api/guides/integrate_model_adapter_for_a_demo/">Integrate model adapter for a demo</a>
+for the paired adapters.</p>
 <h2 id="shape-and-state-rules">Shape and state rules</h2>
 <p>Outside the transformer network, video tensors are normally pre-patchify
 <code>[B, C, T, H, W]</code>. Inside the network they are token sequences such as
@@ -3008,6 +2986,12 @@ for uncontrolled streaming T2V,
 for per-step camera control, and
 <a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan21/config.py">Wan 2.1</a>
 for single-step bidirectional generation.</p>
+<p>Pipeline-backed V2V processors include
+<a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/flashvsr/impl/postprocess.py">FlashVSR</a>
+and
+<a href="https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/swiftvr/impl/postprocess.py">SwiftVR</a>.
+They keep application-level video handling independent from each model's tensor
+layout, cache initialization, buffering, and flush behavior.</p>
 
 
 
@@ -3059,13 +3043,13 @@ for single-step bidirectional generation.</p>
         
         
           
-          <a href="../latency_tuning/" class="md-footer__link md-footer__link--next" aria-label="Next: Latency tuning">
+          <a href="../profiling/" class="md-footer__link md-footer__link--next" aria-label="Next: Profiling a pipeline">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Latency tuning
+                Profiling a pipeline
               </div>
             </div>
             <div class="md-footer__button md-icon">

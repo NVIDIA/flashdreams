@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/documentation/tools/">
       
       
-        <link rel="prev" href="../inferencing_api/api_reference/core/">
+        <link rel="prev" href="../inferencing_api/api_reference/accelerated/">
       
       
         <link rel="next" href="./offline_program_packager/">
@@ -1337,6 +1337,8 @@
       
         
       
+        
+      
     
     
     
@@ -1421,6 +1423,33 @@
     
   
   Cam2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../demos/minimal_t2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Minimal T2V
 
     
   </span>
@@ -1695,12 +1724,6 @@
       
         
       
-        
-      
-        
-      
-        
-      
     
     
     
@@ -1777,68 +1800,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../demo_api/guides/integrate_model/" class="md-nav__link">
+      <a href="../demo_api/guides/integrate_model_adapter_for_a_demo/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-  Integrate a model with a demo
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../demo_api/guides/configuration/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Demo configuration
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../demo_api/guides/application_slugs/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Application slugs and dispatch
+  Integrate model adapter for a demo
 
     
   </span>
@@ -1866,33 +1835,6 @@
     
   
   Interactive serving
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../demo_api/guides/local_benchmarks/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Local benchmarks
 
     
   </span>
@@ -2124,8 +2066,6 @@
       
         
       
-        
-      
     
     
     
@@ -2210,33 +2150,6 @@
     
   
   Stream inference pipeline
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../inferencing_api/guides/latency_tuning/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Latency tuning
 
     
   </span>
@@ -2376,33 +2289,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../inferencing_api/api_reference/runtime/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Inference Runtime API
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../inferencing_api/api_reference/pipeline/" class="md-nav__link">
         
   
@@ -2450,6 +2336,33 @@
 
                 
               
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../inferencing_api/api_reference/accelerated/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Accelerated API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
             </ul>
           </nav>
         
@@ -2481,6 +2394,10 @@
       
         
           
+        
+      
+        
+      
         
       
         
@@ -2580,6 +2497,60 @@
     
   
   Build Website
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Testing
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./benchmarking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Benchmarking
 
     
   </span>
@@ -2740,10 +2711,12 @@
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-<p>Choose a tool for packaging applications or maintaining the documentation website.</p>
+<p>Tools for packaging applications, building documentation, running tests, and benchmarking models.</p>
 <div class="fd-card-grid fd-card-grid-three fd-overview-grid">
   <a class="fd-card fd-model-card" href="offline_program_packager/"><span class="fd-card-title">Offline Program Packager</span><span>Package an application for offline use without Python, uv, or network access.</span></a>
   <a class="fd-card fd-model-card" href="build_website/"><span class="fd-card-title">Build Website</span><span>Validate, build, and preview the FlashDreams documentation website.</span></a>
+  <a class="fd-card fd-model-card" href="testing/"><span class="fd-card-title">Testing</span><span>Test discovery, CI tier markers, and local commands.</span></a>
+  <a class="fd-card fd-model-card" href="benchmarking/"><span class="fd-card-title">Benchmarking</span><span>Generate model benchmarks, score clips, and compare runs against a baseline.</span></a>
 </div>
 
 
@@ -2779,7 +2752,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../inferencing_api/api_reference/core/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Core API">
+          <a href="../inferencing_api/api_reference/accelerated/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Accelerated API">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
@@ -2789,7 +2762,7 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                Core API
+                Accelerated API
               </div>
             </div>
           </a>

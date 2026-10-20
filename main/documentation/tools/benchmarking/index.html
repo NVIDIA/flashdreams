@@ -10,36 +10,36 @@
       
       
       
-        <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/application_slugs/">
+        <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/documentation/tools/benchmarking/">
       
       
-        <link rel="prev" href="../configuration/">
+        <link rel="prev" href="../testing/">
       
       
-        <link rel="next" href="../interactive_serving/">
+        <link rel="next" href="../../../troubleshooting/">
       
       
         
       
       
-      <link rel="icon" href="../../../../favicon.svg">
+      <link rel="icon" href="../../../favicon.svg">
       <meta name="generator" content="zensical-0.0.67">
     
     
       
-        <title>Application slugs and model adapters - FlashDreams</title>
+        <title>Benchmarking - FlashDreams</title>
       
     
     
       
         
       
-      <link rel="stylesheet" href="../../../../assets/stylesheets/modern/main.4ae390e2.min.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/modern/main.4ae390e2.min.css">
       
         
           
         
-        <link rel="stylesheet" href="../../../../assets/stylesheets/modern/palette.96d1a7e4.min.css">
+        <link rel="stylesheet" href="../../../assets/stylesheets/modern/palette.96d1a7e4.min.css">
       
       
 
@@ -58,11 +58,11 @@
       
     
     
-      <link rel="stylesheet" href="../../../../stylesheets/custom.css">
+      <link rel="stylesheet" href="../../../stylesheets/custom.css">
     
       <link rel="stylesheet" href="https://unpkg.com/katex@0/dist/katex.min.css">
     
-    <script>__md_scope=new URL("../../../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    <script>__md_scope=new URL("../../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
     
       
 
@@ -87,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#register-an-application" class="md-skip">
+        <a href="#benchmarking-models-on-the-v2-api" class="md-skip">
           Skip to content
         </a>
       
@@ -103,9 +103,9 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../../.." title="FlashDreams" class="md-header__button md-logo" aria-label="FlashDreams" data-md-component="logo">
+    <a href="../../.." title="FlashDreams" class="md-header__button md-logo" aria-label="FlashDreams" data-md-component="logo">
       
-  <img src="../../../../images/horizontal-light.svg" alt="FlashDreams">
+  <img src="../../../images/horizontal-light.svg" alt="FlashDreams">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Application slugs and model adapters
+              Benchmarking
             
           </span>
         </div>
@@ -200,7 +200,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../.." class="md-tabs__link">
+      <a href="../../.." class="md-tabs__link">
         
   
   Home
@@ -227,7 +227,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../../quickstart/" class="md-tabs__link">
+        <a href="../../../quickstart/" class="md-tabs__link">
           
   
   Get Started
@@ -261,7 +261,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../../models/" class="md-tabs__link">
+        <a href="../../../models/" class="md-tabs__link">
           
   
   Models
@@ -293,7 +293,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../../demos/" class="md-tabs__link">
+        <a href="../../../demos/" class="md-tabs__link">
           
   
   Demos
@@ -333,7 +333,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="../../../" class="md-tabs__link">
+        <a href="../../" class="md-tabs__link">
           
   
   Documentation
@@ -361,7 +361,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../../community/" class="md-tabs__link">
+        <a href="../../../community/" class="md-tabs__link">
           
   
   Community
@@ -400,9 +400,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../../.." title="FlashDreams" class="md-nav__button md-logo" aria-label="FlashDreams" data-md-component="logo">
+    <a href="../../.." title="FlashDreams" class="md-nav__button md-logo" aria-label="FlashDreams" data-md-component="logo">
       
-  <img src="../../../../images/horizontal-light.svg" alt="FlashDreams">
+  <img src="../../../images/horizontal-light.svg" alt="FlashDreams">
 
     </a>
     FlashDreams
@@ -429,7 +429,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../.." class="md-nav__link">
+      <a href="../../.." class="md-nav__link">
         
   
   
@@ -476,7 +476,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../../quickstart/" class="md-nav__link ">
+            <a href="../../../quickstart/" class="md-nav__link ">
               
   
   
@@ -534,7 +534,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../../models/" class="md-nav__link ">
+            <a href="../../../models/" class="md-nav__link ">
               
   
   
@@ -642,7 +642,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/omnidreams/" class="md-nav__link">
+      <a href="../../../models/omnidreams/" class="md-nav__link">
         
   
   
@@ -669,7 +669,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/self_forcing/" class="md-nav__link">
+      <a href="../../../models/self_forcing/" class="md-nav__link">
         
   
   
@@ -696,7 +696,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/causal_forcing/" class="md-nav__link">
+      <a href="../../../models/causal_forcing/" class="md-nav__link">
         
   
   
@@ -723,7 +723,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/causal_wan22/" class="md-nav__link">
+      <a href="../../../models/causal_wan22/" class="md-nav__link">
         
   
   
@@ -750,7 +750,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/lingbot_world/" class="md-nav__link">
+      <a href="../../../models/lingbot_world/" class="md-nav__link">
         
   
   
@@ -777,7 +777,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/waypoint/" class="md-nav__link">
+      <a href="../../../models/waypoint/" class="md-nav__link">
         
   
   
@@ -804,7 +804,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/sana_wm_streaming/" class="md-nav__link">
+      <a href="../../../models/sana_wm_streaming/" class="md-nav__link">
         
   
   
@@ -899,7 +899,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/sana_wm_streaming/" class="md-nav__link">
+      <a href="../../../models/sana_wm_streaming/" class="md-nav__link">
         
   
   
@@ -926,7 +926,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/wan21/" class="md-nav__link">
+      <a href="../../../models/wan21/" class="md-nav__link">
         
   
   
@@ -953,7 +953,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/wan22/" class="md-nav__link">
+      <a href="../../../models/wan22/" class="md-nav__link">
         
   
   
@@ -980,7 +980,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/cosmos_predict2/" class="md-nav__link">
+      <a href="../../../models/cosmos_predict2/" class="md-nav__link">
         
   
   
@@ -1071,7 +1071,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/flashvsr/" class="md-nav__link">
+      <a href="../../../models/flashvsr/" class="md-nav__link">
         
   
   
@@ -1098,7 +1098,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../models/swiftvr/" class="md-nav__link">
+      <a href="../../../models/swiftvr/" class="md-nav__link">
         
   
   
@@ -1167,7 +1167,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../../demos/" class="md-nav__link ">
+            <a href="../../../demos/" class="md-nav__link ">
               
   
   
@@ -1265,7 +1265,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../demos/crazy_robotaxi/" class="md-nav__link">
+      <a href="../../../demos/crazy_robotaxi/" class="md-nav__link">
         
   
   
@@ -1292,7 +1292,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../demos/interactive_drive/" class="md-nav__link">
+      <a href="../../../demos/interactive_drive/" class="md-nav__link">
         
   
   
@@ -1329,6 +1329,8 @@
   
     
     
+      
+        
       
         
       
@@ -1387,7 +1389,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../demos/action2v/" class="md-nav__link">
+      <a href="../../../demos/action2v/" class="md-nav__link">
         
   
   
@@ -1414,7 +1416,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../demos/cam2v/" class="md-nav__link">
+      <a href="../../../demos/cam2v/" class="md-nav__link">
         
   
   
@@ -1441,7 +1443,34 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../demos/t2v/" class="md-nav__link">
+      <a href="../../../demos/minimal_t2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Minimal T2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demos/t2v/" class="md-nav__link">
         
   
   
@@ -1468,7 +1497,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../demos/v2v/" class="md-nav__link">
+      <a href="../../../demos/v2v/" class="md-nav__link">
         
   
   
@@ -1548,7 +1577,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../" class="md-nav__link ">
+            <a href="../../" class="md-nav__link ">
               
   
   
@@ -1591,7 +1620,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../cli/" class="md-nav__link">
+      <a href="../../cli/" class="md-nav__link">
         
   
   
@@ -1615,8 +1644,6 @@
                   
   
   
-    
-  
   
   
     
@@ -1637,15 +1664,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../" class="md-nav__link ">
+            <a href="../../demo_api/" class="md-nav__link ">
               
   
   
@@ -1669,7 +1696,7 @@
           </div>
         
         
-          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="true">
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
             <label class="md-nav__title" for="__nav_5_3">
               <span class="md-nav__icon md-icon"></span>
               
@@ -1685,18 +1712,10 @@
                   
   
   
-    
   
   
-  
     
     
-      
-        
-      
-        
-      
-        
       
         
       
@@ -1713,11 +1732,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_2" >
         
           
           <label class="md-nav__link" for="__nav_5_3_2" id="__nav_5_3_2_label" tabindex="0">
@@ -1738,7 +1757,7 @@
           </label>
         
         
-          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_2_label" aria-expanded="true">
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_2_label" aria-expanded="false">
             <label class="md-nav__title" for="__nav_5_3_2">
               <span class="md-nav__icon md-icon"></span>
               
@@ -1755,7 +1774,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../create_demo/" class="md-nav__link">
+      <a href="../../demo_api/guides/create_demo/" class="md-nav__link">
         
   
   
@@ -1782,14 +1801,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../integrate_model/" class="md-nav__link">
+      <a href="../../demo_api/guides/integrate_model_adapter_for_a_demo/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-  Integrate a model with a demo
+  Integrate model adapter for a demo
 
     
   </span>
@@ -1809,137 +1828,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Demo configuration
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-    
-  
-  
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      
-      
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Application slugs and dispatch
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="././" class="md-nav__link md-nav__link--active">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Application slugs and dispatch
-
-    
-  </span>
-  
-  
-
-      </a>
-      
-        
-
-
-<nav class="md-nav md-nav--secondary" aria-label="On this page">
-  
-  
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      On this page
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#register-an-application" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Register an application
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#discover-and-inspect-slugs" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Discover and inspect slugs
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#keep-ownership-one-way" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Keep ownership one-way
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../interactive_serving/" class="md-nav__link">
+      <a href="../../demo_api/guides/interactive_serving/" class="md-nav__link">
         
   
   
@@ -1966,34 +1855,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../local_benchmarks/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Local benchmarks
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../profiling/" class="md-nav__link">
+      <a href="../../demo_api/guides/profiling/" class="md-nav__link">
         
   
   
@@ -2082,7 +1944,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../api_reference/application/" class="md-nav__link">
+      <a href="../../demo_api/api_reference/application/" class="md-nav__link">
         
   
   
@@ -2152,7 +2014,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../inferencing_api/" class="md-nav__link ">
+            <a href="../../inferencing_api/" class="md-nav__link ">
               
   
   
@@ -2196,8 +2058,6 @@
   
     
     
-      
-        
       
         
       
@@ -2256,7 +2116,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inferencing_api/guides/create_model/" class="md-nav__link">
+      <a href="../../inferencing_api/guides/create_model/" class="md-nav__link">
         
   
   
@@ -2283,7 +2143,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inferencing_api/guides/stream_inference_pipeline/" class="md-nav__link">
+      <a href="../../inferencing_api/guides/stream_inference_pipeline/" class="md-nav__link">
         
   
   
@@ -2310,34 +2170,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inferencing_api/guides/latency_tuning/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Latency tuning
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../inferencing_api/guides/profiling/" class="md-nav__link">
+      <a href="../../inferencing_api/guides/profiling/" class="md-nav__link">
         
   
   
@@ -2364,7 +2197,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inferencing_api/guides/accelerated/" class="md-nav__link">
+      <a href="../../inferencing_api/guides/accelerated/" class="md-nav__link">
         
   
   
@@ -2457,34 +2290,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inferencing_api/api_reference/runtime/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Inference Runtime API
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../inferencing_api/api_reference/pipeline/" class="md-nav__link">
+      <a href="../../inferencing_api/api_reference/pipeline/" class="md-nav__link">
         
   
   
@@ -2511,7 +2317,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inferencing_api/api_reference/core/" class="md-nav__link">
+      <a href="../../inferencing_api/api_reference/core/" class="md-nav__link">
         
   
   
@@ -2519,6 +2325,33 @@
     
   
   Core API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../inferencing_api/api_reference/accelerated/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Accelerated API
 
     
   </span>
@@ -2553,6 +2386,8 @@
                   
   
   
+    
+  
   
   
     
@@ -2566,6 +2401,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2573,15 +2412,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../tools/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -2605,7 +2444,7 @@
           </div>
         
         
-          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="true">
             <label class="md-nav__title" for="__nav_5_5">
               <span class="md-nav__icon md-icon"></span>
               
@@ -2624,7 +2463,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../tools/offline_program_packager/" class="md-nav__link">
+      <a href="../offline_program_packager/" class="md-nav__link">
         
   
   
@@ -2651,7 +2490,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../tools/build_website/" class="md-nav__link">
+      <a href="../build_website/" class="md-nav__link">
         
   
   
@@ -2666,6 +2505,184 @@
   
 
       </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Testing
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Benchmarking
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Benchmarking
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#set-up" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Set up
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#score-the-clips-with-pai-bench-if-you-want-scores" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Score the clips with PAI-Bench, if you want scores
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#check-the-sweep-without-running-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check the sweep without running it
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generate-the-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Generate the baseline
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compare-a-candidate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Compare a candidate
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-run-writes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a run writes
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-a-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Adding a model
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2687,7 +2704,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../troubleshooting/" class="md-nav__link">
+      <a href="../../../troubleshooting/" class="md-nav__link">
         
   
   
@@ -2743,7 +2760,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../../community/" class="md-nav__link ">
+            <a href="../../../community/" class="md-nav__link ">
               
   
   
@@ -2781,6 +2798,8 @@
                     
                     
                     
+                      
+                    
                     
                       <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
                       <div class="md-sidebar-button__wrapper">
@@ -2796,6 +2815,8 @@
   
   
   
+    
+  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -2804,10 +2825,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#register-an-application" class="md-nav__link">
+  <a href="#set-up" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Register an application
+        Set up
       </span>
     </span>
   </a>
@@ -2815,10 +2836,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#discover-and-inspect-slugs" class="md-nav__link">
+  <a href="#score-the-clips-with-pai-bench-if-you-want-scores" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Discover and inspect slugs
+        Score the clips with PAI-Bench, if you want scores
       </span>
     </span>
   </a>
@@ -2826,10 +2847,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#keep-ownership-one-way" class="md-nav__link">
+  <a href="#check-the-sweep-without-running-it" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Keep ownership one-way
+        Check the sweep without running it
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generate-the-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Generate the baseline
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compare-a-candidate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Compare a candidate
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-run-writes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a run writes
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-a-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Adding a model
       </span>
     </span>
   </a>
@@ -2852,7 +2917,7 @@
                   
 
   
-    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/documentation/demo_api/guides/application_slugs.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/documentation/tools/benchmarking.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
     </a>
@@ -2860,69 +2925,131 @@
   
 
 
-  <h1 id="__skip">Application slugs and dispatch</h1>
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
 
-<!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<h1 id="benchmarking-models-on-the-v2-api">Benchmarking models on the v2 API</h1>
+<p><a href="https://github.com/NVIDIA/flashdreams/blob/main/configs/v2_model_benchmarks.json"><code>configs/v2_model_benchmarks.json</code></a>
+runs every model on the v2 API at the same seed, writing a clip and its runtime
+metrics for each. Use it to compare the models against each other, or a change
+against a baseline of a previous run. The text-to-video models share one prompt
+so their clips can be put side by side; a camera-to-video model is conditioned
+on a first frame that its prompt belongs to, so it is compared against runs of
+itself rather than against the text-to-video clips.</p>
+<h2 id="set-up">Set up</h2>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams<span class="w"> </span>--group<span class="w"> </span>cuda13<span class="w"> </span>--extra<span class="w"> </span>runners<span class="w"> </span>--inexact
+<span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span>&lt;your-hf-token&gt;
+</code></pre></div>
+<p>That is the harness's own environment; each scenario syncs its model when it
+runs. Every scenario needs a GPU and host FFmpeg, and the first run of a model
+downloads tens of gigabytes.</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-benchmark<span class="w"> </span>--list-scenarios<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario-file<span class="w"> </span>configs/v2_model_benchmarks.json
+</code></pre></div>
+<p>Three streaming text-to-video models and LingBot World have a ten-second
+scenario and a one-minute one; Wan 2.1 and Cosmos Predict2 generate their whole
+clip in one block, so each has one scenario at the length it does generate.</p>
+<p>LingBot World runs from its bundled example conditioning with the camera overlay
+off, so the clip holds the model's own frames rather than live timing text drawn
+over them. An MP4 run has nobody to send it keys, so the camera holds still while
+the scene moves: the throughput is measured at a resting camera.</p>
+<h2 id="score-the-clips-with-pai-bench-if-you-want-scores">Score the clips with PAI-Bench, if you want scores</h2>
+<p>Scoring runs as a scenario generates, so this is a decision to make before a
+sweep rather than after. PAI-Bench is evaluator-only and carries its own license
+terms, so it goes in a separate environment you have reviewed for your use case:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>venv<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.12<span class="w"> </span>~/.venvs/flashdreams-paibench
+<span class="nb">export</span><span class="w"> </span><span class="nv">PAI_BENCH_PYTHON</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/.venvs/flashdreams-paibench/bin/python&quot;</span>
 
-<p>An application slug identifies one installed, zero-argument
-<code>flashdreams.api_v2.IApplication</code> factory. It selects both an interaction and a
-model binding; it is not a pipeline-config registry key.</p>
-<h2 id="register-an-application">Register an application</h2>
-<p>Register factories in the model integration's <code>pyproject.toml</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="k">[project.entry-points.</span><span class="s2">&quot;flashdreams.applications_v2&quot;</span><span class="k">]</span>
-<span class="s2">&quot;t2v-self-forcing-wan2.1-t2v-1.3b&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;self_forcing.apps.t2v.adapter:create_app&quot;</span>
-<span class="s2">&quot;t2v-self-forcing-wan2.1-t2v-1.3b-taehv&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;self_forcing.apps.t2v.adapter:create_app_taehv&quot;</span>
+uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--python<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PAI_BENCH_PYTHON</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>torch<span class="w"> </span>torchvision<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>opencv-python-headless<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>omegaconf<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>openai-clip<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="s2">&quot;pyiqa&gt;=0.1.15,&lt;0.1.16&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="s2">&quot;setuptools&lt;81&quot;</span>
+
+<span class="s2">&quot;</span><span class="nv">$PAI_BENCH_PYTHON</span><span class="s2">&quot;</span><span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import clip, cv2, omegaconf, pyiqa, torch; print(&#39;PAI-Bench environment OK&#39;)&quot;</span>
 </code></pre></div>
-<p>Each target must be callable without arguments and return an uninitialized
-<code>IApplication</code>. Importing the module or calling the factory must not load a
-checkpoint, initialize CUDA, or open a window; <code>IApplication.init</code> owns that
-work.</p>
-<p>Use a stable, lowercase, hyphenated slug. Existing integrations generally use
-<code>&lt;demo&gt;-&lt;model-or-config&gt;</code> and append a suffix for a supported variant. The
-entry-point table is the source of truth; slug parsing is not an API.</p>
-<h2 id="discover-and-inspect-slugs">Discover and inspect slugs</h2>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>--help
-uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>t2v-self-forcing-wan2.1-t2v-1.3b<span class="w"> </span>--<span class="w"> </span>--help
+<p>Dropping <code>--quality-profile</code> and <code>--pai-bench-python</code> from the commands below is
+how a run skips scoring.</p>
+<h2 id="check-the-sweep-without-running-it">Check the sweep without running it</h2>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-benchmark<span class="w"> </span>--dry-run<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario-file<span class="w"> </span>configs/v2_model_benchmarks.json<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-self-forcing-quality-10s<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-dir<span class="w"> </span>artifacts/benchmarks/v2-model-dry-run
 </code></pre></div>
-<p>The first command lists registered entry points. The second constructs the
-application and asks its argument parser for help. Arguments before <code>--</code> belong
-to <code>flashdreams-run-v2</code>; arguments after it belong to the application.</p>
-<p>For small development-only examples, the registry can also import a module
-whose name is the slug with hyphens changed to underscores and call its
-<code>create_app</code>. This fallback is not listed by <code>--help</code>, so real integrations
-should register an entry point.</p>
-<h2 id="keep-ownership-one-way">Keep ownership one-way</h2>
-<table>
-<thead>
-<tr>
-<th>Concern</th>
-<th>Owner</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Interaction, session, controls, UI, presentation policy</td>
-<td><code>apps/&lt;demo&gt;/</code></td>
-</tr>
-<tr>
-<td>Model implementation, checkpoint mapping, pipeline configs</td>
-<td><code>integrations_v2/&lt;model&gt;/</code></td>
-</tr>
-<tr>
-<td>Binding and application factory</td>
-<td><code>integrations_v2/&lt;model&gt;/apps/&lt;demo&gt;/adapter.py</code></td>
-</tr>
-<tr>
-<td>File, browser, or native-window transport</td>
-<td><code>flashdreams.runtime_v2</code></td>
-</tr>
-</tbody>
-</table>
-<p>Do not copy a reusable app into the model package or add <code>runner.py</code>,
-<code>launch.py</code>, or <code>model_session.py</code> merely to expose a v2 slug. Follow
-<a href="../integrate_model/">Integrate a model with a demo</a> for the adapter workflow.</p>
+<p>Renders the commands and the report skeleton without launching anything, which
+is the cheap way to confirm a change to the scenario file.</p>
+<h2 id="generate-the-baseline">Generate the baseline</h2>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario-file<span class="w"> </span>configs/v2_model_benchmarks.json<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-self-forcing-quality-10s<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-causal-forcing-quality-10s<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-fastvideo-causal-wan22-quality-10s<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-wan21-native-clip<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-cosmos-predict2-native-clip<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>cam2v-lingbot-quality-10s<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-self-forcing-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-causal-forcing-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-fastvideo-causal-wan22-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>cam2v-lingbot-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--keep-going<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-dir<span class="w"> </span>artifacts/benchmarks/v2-model-baseline<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--quality-profile<span class="w"> </span>pai-bench-long<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--pai-bench-python<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PAI_BENCH_PYTHON</span><span class="s2">&quot;</span>
+</code></pre></div>
+<p>Scenarios are named rather than using <code>--all</code>, which would also pull in the v1
+scenarios, and the short clips come first so there is something to watch before
+the one-minute rollouts start. <code>--keep-going</code> stops one model failing from
+abandoning the models after it. <code>artifacts/</code> is git-ignored.</p>
+<h2 id="compare-a-candidate">Compare a candidate</h2>
+<p>The same command, with a directory of its own and the baseline to compare
+against:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-benchmark<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario-file<span class="w"> </span>configs/v2_model_benchmarks.json<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-self-forcing-quality-10s<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-causal-forcing-quality-10s<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-fastvideo-causal-wan22-quality-10s<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-wan21-native-clip<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-cosmos-predict2-native-clip<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>cam2v-lingbot-quality-10s<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-self-forcing-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-causal-forcing-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>t2v-fastvideo-causal-wan22-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scenario<span class="w"> </span>cam2v-lingbot-one-minute<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--keep-going<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--output-dir<span class="w"> </span>artifacts/benchmarks/v2-model-candidate<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--quality-baseline-dir<span class="w"> </span>artifacts/benchmarks/v2-model-baseline<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--quality-profile<span class="w"> </span>pai-bench-long<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--pai-bench-python<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PAI_BENCH_PYTHON</span><span class="s2">&quot;</span>
+</code></pre></div>
+<p>Clips are matched by scenario id, so a comparison only says something when both
+runs used the same prompt, seed, and model configuration, which is why the suite
+fixes all three. It is non-gating: the <code>quality_*</code> scores land in the report,
+higher being better, without changing whether a scenario passed. The one-minute
+scenarios skip the pixel comparison and report PAI-Bench and runtime alone,
+a minute of autoregressive generation drifting enough that comparing pixels
+reports noise.</p>
+<h2 id="what-a-run-writes">What a run writes</h2>
+<p><code>report.html</code> with a page per model, <code>metrics.csv</code> beside <code>metrics.ndjson</code>, and
+under <code>scenarios/&lt;id&gt;/</code> the MP4, the stats JSON, and <code>command.log</code>, which is
+where that scenario's output goes so a long sweep can be watched without model
+logs filling the terminal.</p>
+<h2 id="adding-a-model">Adding a model</h2>
+<p>Copy the scenarios closest to the new model's behaviour, point <code>--project</code> and
+the application slug at its integration, and keep the prompt and the seed: a
+comparison where each model gets its own prompt compares prompts. Keep the
+<code>--stats-path</code> too: it enables pipeline timings and records the metrics the
+report reads. Tag a scenario <code>one-minute</code> or <code>pai-bench</code> for PAI-Bench to score
+it.</p>
+<p>A model conditioned on more than a prompt cannot take the shared one, since the
+prompt belongs with its first frame. Fix that conditioning instead, the way
+LingBot World pins <code>--example-data --example-idx 0</code>, and the scenario still
+compares against runs of itself even though it no longer lines up with the
+text-to-video clips. Turn off anything that draws over the model output, or the
+clip records the overlay's timing text as well as the frames.</p>
 
 
 
@@ -2957,7 +3084,7 @@ should register an entry point.</p>
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../configuration/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Demo configuration">
+          <a href="../testing/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Testing">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
@@ -2967,20 +3094,20 @@ should register an entry point.</p>
                 Previous
               </span>
               <div class="md-ellipsis">
-                Demo configuration
+                Testing
               </div>
             </div>
           </a>
         
         
           
-          <a href="../interactive_serving/" class="md-footer__link md-footer__link--next" aria-label="Next: Interactive serving">
+          <a href="../../../troubleshooting/" class="md-footer__link md-footer__link--next" aria-label="Next: Troubleshooting">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Interactive serving
+                Troubleshooting
               </div>
             </div>
             <div class="md-footer__button md-icon">
@@ -3016,12 +3143,12 @@ should register an entry point.</p>
       
         
         
-      <script id="__config" type="application/json">{"annotate":null,"base":"../../../..","features":["content.action.edit","navigation.indexes","navigation.footer","navigation.tabs","navigation.tabs.sticky"],"redirect":null,"search":"../../../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+      <script id="__config" type="application/json">{"annotate":null,"base":"../../..","features":["content.action.edit","navigation.indexes","navigation.footer","navigation.tabs","navigation.tabs.sticky"],"redirect":null,"search":"../../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
     
     
-      <script src="../../../../assets/javascripts/bundle.67a597eb.min.js"></script>
+      <script src="../../../assets/javascripts/bundle.67a597eb.min.js"></script>
       
-        <script src="../../../../javascripts/katex.js"></script>
+        <script src="../../../javascripts/katex.js"></script>
       
         <script src="https://unpkg.com/katex@0/dist/katex.min.js"></script>
       

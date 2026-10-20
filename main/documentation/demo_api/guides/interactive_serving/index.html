@@ -13,10 +13,10 @@
         <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/interactive_serving/">
       
       
-        <link rel="prev" href="../application_slugs/">
+        <link rel="prev" href="../integrate_model_adapter_for_a_demo/">
       
       
-        <link rel="next" href="../local_benchmarks/">
+        <link rel="next" href="../profiling/">
       
       
         
@@ -87,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#launch-a-client" class="md-skip">
+        <a href="#browser" class="md-skip">
           Skip to content
         </a>
       
@@ -1338,6 +1338,8 @@
       
         
       
+        
+      
     
     
     
@@ -1422,6 +1424,33 @@
     
   
   Cam2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/minimal_t2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Minimal T2V
 
     
   </span>
@@ -1700,12 +1729,6 @@
       
         
       
-        
-      
-        
-      
-        
-      
     
     
     
@@ -1782,68 +1805,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../integrate_model/" class="md-nav__link">
+      <a href="../integrate_model_adapter_for_a_demo/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-  Integrate a model with a demo
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../configuration/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Demo configuration
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../application_slugs/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Application slugs and dispatch
+  Integrate model adapter for a demo
 
     
   </span>
@@ -1918,10 +1887,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#launch-a-client" class="md-nav__link">
+  <a href="#browser" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Launch a client
+        Browser
       </span>
     </span>
   </a>
@@ -1929,10 +1898,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#understand-the-boundary" class="md-nav__link">
+  <a href="#local-window" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Understand the boundary
+        Local window
       </span>
     </span>
   </a>
@@ -1940,10 +1909,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#distributed-applications" class="md-nav__link">
+  <a href="#demo-arguments" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Distributed applications
+        Demo arguments
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#input-and-display" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Input and display
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-gpus" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Multiple GPUs
       </span>
     </span>
   </a>
@@ -1954,33 +1945,6 @@
   
 </nav>
       
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../local_benchmarks/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Local benchmarks
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -2205,8 +2169,6 @@
       
         
       
-        
-      
     
     
     
@@ -2291,33 +2253,6 @@
     
   
   Stream inference pipeline
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../inferencing_api/guides/latency_tuning/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Latency tuning
 
     
   </span>
@@ -2457,33 +2392,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inferencing_api/api_reference/runtime/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-  Inference Runtime API
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-                
-              
-                
-                  
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../../inferencing_api/api_reference/pipeline/" class="md-nav__link">
         
   
@@ -2531,6 +2439,33 @@
 
                 
               
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../inferencing_api/api_reference/accelerated/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Accelerated API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
             </ul>
           </nav>
         
@@ -2560,6 +2495,10 @@
       
         
           
+        
+      
+        
+      
         
       
         
@@ -2659,6 +2598,60 @@
     
   
   Build Website
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Testing
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/benchmarking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Benchmarking
 
     
   </span>
@@ -2804,10 +2797,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#launch-a-client" class="md-nav__link">
+  <a href="#browser" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Launch a client
+        Browser
       </span>
     </span>
   </a>
@@ -2815,10 +2808,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#understand-the-boundary" class="md-nav__link">
+  <a href="#local-window" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Understand the boundary
+        Local window
       </span>
     </span>
   </a>
@@ -2826,10 +2819,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#distributed-applications" class="md-nav__link">
+  <a href="#demo-arguments" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Distributed applications
+        Demo arguments
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#input-and-display" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Input and display
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-gpus" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Multiple GPUs
       </span>
     </span>
   </a>
@@ -2865,57 +2880,43 @@
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-<p><code>flashdreams-run-v2</code> can present a compatible application in a browser or a
-local native window. Applications generate frames and consume input events;
-<code>flashdreams.runtime_v2</code> owns transport, pacing, and window lifecycle.</p>
-<h2 id="launch-a-client">Launch a client</h2>
-<p>Serve a browser on the local machine:</p>
+<p>Run a demo in a browser or a local window with <code>flashdreams-run-v2</code>.
+Use a registered name from <code>--help</code> or the <a href="../../../../models/">model pages</a>.</p>
+<h2 id="browser">Browser</h2>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>APPLICATION_SLUG<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">127</span>.0.0.1<span class="w"> </span>--port<span class="w"> </span><span class="m">0</span>
 </code></pre></div>
-<p>Port <code>0</code> selects an available port and prints the URL. Use <code>0.0.0.0</code> only when
-remote clients must connect; it exposes the server on available network
-interfaces, so apply the host's normal firewall and access controls.</p>
-<p>Open a GPU-backed local window instead:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>APPLICATION_SLUG<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--mode<span class="w"> </span>native-window<span class="w"> </span>--window-title<span class="w"> </span>FlashDreams
+<p>Open the URL printed by the server. Port <code>0</code> picks an available port.
+To accept connections from another machine, use <code>--host 0.0.0.0</code> and a fixed
+port, then connect to the server's address.</p>
+<h2 id="local-window">Local window</h2>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>APPLICATION_SLUG<span class="w"> </span>--mode<span class="w"> </span>native-window
 </code></pre></div>
-<p>Runtime options precede <code>--</code>. Application-specific options follow it:</p>
+<h2 id="demo-arguments">Demo arguments</h2>
+<p>Runtime options go before <code>--</code>; demo options go after it:</p>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>cam2v-lingbot<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">127</span>.0.0.1<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span><span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--example-data<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </code></pre></div>
-<p>Inspect both sides before launching:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>--help
-uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>cam2v-lingbot<span class="w"> </span>--<span class="w"> </span>--help
-</code></pre></div>
-<h2 id="understand-the-boundary">Understand the boundary</h2>
-<ul>
-<li><code>IApplication</code> owns shared model state and application arguments.</li>
-<li><code>ISession</code> owns one run and registers model and optional UI loops.</li>
-<li>The model loop receives <code>UserInputEvents</code> and publishes <code>StepResult</code> channels.</li>
-<li>The UI loop composites frames and controls; without one, the runtime uses its
-  default blit loop.</li>
-<li>The selected client-window mode owns browser, file, or native presentation.</li>
-</ul>
-<p>The model and UI loops run on separate threads. They must not mutate each
-other's state directly; use <code>flashdreams.api_v2.loop.invoke_async</code>. Keep camera,
-action, and conditioning semantics in the app or adapter rather than teaching
-the WebRTC transport about a model.</p>
-<h2 id="distributed-applications">Distributed applications</h2>
-<p>Launch all model ranks through the same command. Rank zero owns the client
-window and output sinks; the session's parallel context synchronizes admitted
-steps and input across ranks.</p>
+<p>List runtime options with <code>flashdreams-run-v2 --help</code>. For this demo's options,
+use <code>flashdreams-run-v2 cam2v-lingbot -- --help</code>.</p>
+<h2 id="input-and-display">Input and display</h2>
+<p>The runtime sends user input to the app's loops and displays their output.
+The app handles controls and model inputs. A custom UI loop can draw controls
+over the generated frames; otherwise, the runtime displays the frames directly.</p>
+<p>Model and UI loops run on separate threads. Use <code>invoke_async</code> to send changes
+between them. <a href="../create_demo/">Create a demo</a> shows an ImGui text field sending
+a prompt to the model loop.</p>
+<h2 id="multiple-gpus">Multiple GPUs</h2>
+<p>For a model adapter that supports distributed execution, launch all ranks:</p>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">2</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>cam2v-lingbot<span class="w"> </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--example-data<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
+<span class="w">    </span>cam2v-lingbot<span class="w"> </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--<span class="w"> </span>--example-data<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">21</span>
 </code></pre></div>
-<p>The integration remains responsible for its tensor/context parallelism and for
-gathering any output required by the presenting rank.</p>
-<p>Use <a href="../create_demo/">Create a demo</a> when the interaction needs new session or UI
-behavior. Use <a href="../integrate_model/">Integrate a model with a demo</a> when the
-interaction already exists. The <a href="../../../cli/">CLI reference</a> documents common
-runtime and presentation options.</p>
+<p>Rank zero handles the window and output. The session's parallel context
+synchronizes steps and inputs; the model integration handles parallel inference
+and gathers the output for rank zero.</p>
+<p>See the <a href="../../../cli/">CLI reference</a> for runtime options, or
+<a href="../integrate_model_adapter_for_a_demo/">Integrate model adapter for a demo</a> to connect another model.</p>
 
 
 
@@ -2950,7 +2951,7 @@ runtime and presentation options.</p>
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../application_slugs/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Application slugs and dispatch">
+          <a href="../integrate_model_adapter_for_a_demo/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Integrate model adapter for a demo">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
@@ -2960,20 +2961,20 @@ runtime and presentation options.</p>
                 Previous
               </span>
               <div class="md-ellipsis">
-                Application slugs and dispatch
+                Integrate model adapter for a demo
               </div>
             </div>
           </a>
         
         
           
-          <a href="../local_benchmarks/" class="md-footer__link md-footer__link--next" aria-label="Next: Local benchmarks">
+          <a href="../profiling/" class="md-footer__link md-footer__link--next" aria-label="Next: Profiling a demo">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Local benchmarks
+                Profiling a demo
               </div>
             </div>
             <div class="md-footer__button md-icon">
