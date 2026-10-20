@@ -363,6 +363,7 @@ def test_sage2_build_opt_out_parses_affirmative_values(
     expected: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(native.os, "name", "posix")
     monkeypatch.setenv("OMNIDREAMS_SINGLEVIEW_CUDA_ARCH_LIST", "9.0a")
     if value is None:
         monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE2", raising=False)
@@ -384,6 +385,16 @@ def test_sage2_build_opt_out_parses_affirmative_values(
 
 
 @pytest.mark.ci_cpu
+def test_sage2_build_is_disabled_on_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(native.os, "name", "nt")
+    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE2", raising=False)
+
+    assert native._sage2_disabled("9.0a") is True
+
+
+@pytest.mark.ci_cpu
 @pytest.mark.parametrize(
     ("cuda_arch_list", "expected"),
     [
@@ -396,7 +407,11 @@ def test_sage2_build_opt_out_parses_affirmative_values(
 def test_sage2_build_requires_exact_sm90a_target(
     cuda_arch_list: str,
     expected: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(native.os, "name", "posix")
+    monkeypatch.delenv("OMNIDREAMS_SINGLEVIEW_DISABLE_SAGE2", raising=False)
+
     assert native._sage2_disabled(cuda_arch_list) is expected
 
 
