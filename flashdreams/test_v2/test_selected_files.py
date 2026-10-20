@@ -70,7 +70,6 @@ def test_ui_loop_queues_the_app_declared_limits() -> None:
         max_file_bytes=DEFAULT_MAX_FILE_BYTES * 4,
         max_total_bytes=DEFAULT_MAX_TOTAL_BYTES * 4,
         max_file_count=DEFAULT_MAX_FILE_COUNT * 4,
-        multiple=True,
     )
     loop.request_file_selector("open-2", "/tmp")
 
@@ -84,7 +83,6 @@ def test_ui_loop_queues_the_app_declared_limits() -> None:
         max_file_bytes=DEFAULT_MAX_FILE_BYTES * 4,
         max_total_bytes=DEFAULT_MAX_TOTAL_BYTES * 4,
         max_file_count=DEFAULT_MAX_FILE_COUNT * 4,
-        multiple=True,
     )
     assert (
         defaults.max_file_bytes,
@@ -207,7 +205,7 @@ def test_window_checks_a_result_against_its_request() -> None:
     b = SelectedFile(name="b.png", data=b"2")
     cases = [
         (png, SelectedFilesStatus.OK, (), SelectedFilesStatus.UNAVAILABLE),
-        (png, SelectedFilesStatus.OK, (a, b), SelectedFilesStatus.UNAVAILABLE),
+        (png, SelectedFilesStatus.OK, (a, b), SelectedFilesStatus.TOO_LARGE),
         (
             png,
             SelectedFilesStatus.OK,
@@ -227,7 +225,9 @@ def test_window_checks_a_result_against_its_request() -> None:
         [event] = complete(request, status, files)
         assert (event.status, event.files) == (expected, ())
 
-    many = FileSelectionRequest(request_id="open-1", initial_path="/tmp", multiple=True)
+    many = FileSelectionRequest(
+        request_id="open-1", initial_path="/tmp", max_file_count=2
+    )
     [event] = complete(many, SelectedFilesStatus.OK, (a, b))
     assert (event.status, event.files) == (SelectedFilesStatus.OK, (a, b))
 
@@ -324,12 +324,6 @@ def test_ui_loop_rejects_invalid_accept() -> None:
     loop = _ui_loop()
     with pytest.raises(ValueError, match="accept suffixes"):
         loop.request_file_selector("open-1", accept=("png",))
-
-
-def test_ui_loop_rejects_invalid_multiple() -> None:
-    loop = _ui_loop()
-    with pytest.raises(TypeError, match="multiple must be a bool"):
-        loop.request_file_selector("open-1", multiple=1)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 def test_selected_files_event_rejects_inconsistent_status() -> None:

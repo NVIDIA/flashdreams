@@ -14,7 +14,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 from importlib.resources import files
 from typing import Any, Literal, cast
@@ -22,7 +22,6 @@ from typing import Any, Literal, cast
 import numpy as np
 import torch
 from aiohttp import web
-from aiohttp.multipart import BodyPartReader, MultipartReader
 from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
@@ -315,6 +314,26 @@ class _PendingFileSelection:
     """The app's request, whose ``accept`` and limits the upload must meet."""
 
 
+@dataclass(slots=True)
+class _FileUpload:
+    """One pick whose files are arriving, one request per file."""
+
+    policy: _PendingFileSelection
+    """The armed request this upload answers."""
+
+    count: int
+    """How many files the browser said it will send."""
+
+    files: list[SelectedFile] = field(default_factory=list)
+    """Files received so far, in order."""
+
+    total_bytes: int = 0
+    """Bytes received so far across ``files``."""
+
+    receiving: bool = False
+    """Whether a request is reading a file now. Another one meanwhile is refused."""
+
+
 class WebRTCServer:
     """Own the HTTP, signaling, input buffering, and media transport."""
 
@@ -372,7 +391,7 @@ class WebRTCServer:
         self._lock_cursor_to_window = False
         # Upload tokens, touched only on the event loop once it runs.
         self._pending_file_requests: dict[str, _PendingFileSelection] = {}
-        self._uploading_file_requests: dict[str, _PendingFileSelection] = {}
+        self._uploading_file_requests: dict[str, _FileUpload] = {}
         self._file_selector_callback: (
             Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None] | None
         ) = None
@@ -554,6 +573,7 @@ class WebRTCServer:
     def _withdraw_file_selectors(self) -> None:
         """Forget armed selectors and tell the viewer to close its prompt."""
         self._pending_file_requests.clear()
+        self._uploading_file_requests.clear()
         channel = self._control_channel
         if channel is not None and channel.readyState == "open":
             channel.send(json.dumps({"type": "file_selector_cancel"}))
@@ -579,7 +599,7 @@ class WebRTCServer:
                     "id": token,
                     "accept": list(policy.request.accept),
                     "max_file_bytes": policy.request.max_file_bytes,
-                    "multiple": policy.request.multiple,
+                    "max_file_count": policy.request.max_file_count,
                 }
             )
         )
@@ -592,7 +612,7 @@ class WebRTCServer:
         """Answer every armed pick as ``UNAVAILABLE`` because the viewer left."""
         abandoned = (
             *self._pending_file_requests.values(),
-            *self._uploading_file_requests.values(),
+            *(upload.policy for upload in self._uploading_file_requests.values()),
         )
         self._pending_file_requests.clear()
         self._uploading_file_requests.clear()
@@ -947,7 +967,12 @@ class WebRTCServer:
         )
 
     async def _upload_selected_file(self, request: web.Request) -> web.Response:
-        """Turn a browser file upload into a selected-files input event."""
+        """Receive one chosen file; the last one answers the pick.
+
+        The browser posts each file as its own request, in order, with the raw
+        file bytes as the body. Every byte read is then a file byte, held to
+        the request's own limits before it is read.
+        """
         if self._closed:
             raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
         if self._timestamp_us() is None:
@@ -955,117 +980,80 @@ class WebRTCServer:
         token = request.query.get("id")
         if not isinstance(token, str) or not token:
             raise web.HTTPBadRequest(reason="File upload requires an id.")
-        policy = self._take_pending_file_request(token)
-        if policy is None:
-            raise web.HTTPConflict(reason="No pending file selection for this id.")
-        # Tracked until it ends so a viewer that leaves mid-upload is answered.
-        self._uploading_file_requests[token] = policy
+        count = _query_int(request, "count")
+        upload = self._uploading_file_requests.get(token)
+        if upload is None:
+            policy = self._take_pending_file_request(token)
+            if policy is None:
+                raise web.HTTPConflict(reason="No pending file selection for this id.")
+            # Tracked until it ends so a viewer that leaves mid-upload is answered.
+            upload = _FileUpload(policy=policy, count=count or 0)
+            self._uploading_file_requests[token] = upload
 
-        emitted = False
-
-        def emit(
-            status: SelectedFilesStatus,
-            files: tuple[SelectedFile, ...] = (),
+        def finish(
+            status: SelectedFilesStatus, files: tuple[SelectedFile, ...] = ()
         ) -> None:
-            nonlocal emitted
-            self._emit_selected_files(policy.selector_id, status=status, files=files)
-            emitted = True
+            if self._uploading_file_requests.get(token) is upload:
+                del self._uploading_file_requests[token]
+                self._emit_selected_files(
+                    upload.policy.selector_id, status=status, files=files
+                )
 
-        try:
-            if not request.content_type.startswith("multipart/"):
-                emit(SelectedFilesStatus.UNAVAILABLE)
-                raise web.HTTPBadRequest(reason="File upload requires a file.")
-            limits = policy.request
-            # The body bound keeps the whole read finite, even for parts the
-            # loop below only skips.
-            body_limit = limits.max_total_bytes + _upload_overhead_bytes(
-                limits.max_file_count
-            )
-            if request.content_length is None:
-                emit(SelectedFilesStatus.UNAVAILABLE)
-                raise web.HTTPLengthRequired()
-            if request.content_length > body_limit:
-                emit(SelectedFilesStatus.TOO_LARGE)
-                raise web.HTTPRequestEntityTooLarge(
-                    max_size=body_limit, actual_size=request.content_length
-                )
-            reader = await request.multipart()
-            chosen: list[tuple[str, bytes]] = []
-            file_count = 0
-            total_bytes = 0
-            too_large = False
-            while True:
-                part = await reader.next()
-                if part is None:
-                    break
-                if not isinstance(part, BodyPartReader):
-                    continue
-                if part.name != "file":
-                    await part.release()
-                    continue
-                if not limits.multiple and (chosen or too_large):
-                    await part.release()
-                    continue
-                if not _identity_encoded(part):
-                    emit(SelectedFilesStatus.UNAVAILABLE)
-                    raise web.HTTPBadRequest(reason="File parts must not be encoded.")
-                file_count += 1
-                if file_count > limits.max_file_count:
-                    too_large = True
-                    chosen.clear()
-                name = part.filename or "upload"
-                if not selected_file_suffix_allowed(name, limits.accept):
-                    emit(SelectedFilesStatus.DISALLOWED_TYPE)
-                    await _drain_multipart_reader(reader, part)
-                    return web.Response(status=204)
-                if too_large:
-                    # Keep reading names so a disallowed type still wins.
-                    await part.release()
-                    continue
-                data = await _read_upload_part_bounded(
-                    part, max_bytes=limits.max_file_bytes
-                )
-                if data is not None:
-                    total_bytes += len(data)
-                if data is None or total_bytes > limits.max_total_bytes:
-                    too_large = True
-                    chosen.clear()
-                    continue
-                chosen.append((name, data))
-            if too_large:
-                emit(SelectedFilesStatus.TOO_LARGE)
-                raise web.HTTPRequestEntityTooLarge(
-                    max_size=limits.max_total_bytes, actual_size=total_bytes + 1
-                )
-            if not chosen:
-                emit(SelectedFilesStatus.UNAVAILABLE)
-                raise web.HTTPBadRequest(reason="File upload requires a file.")
-            rejected = selected_files_policy_status(
-                [(name, len(data)) for name, data in chosen], limits
-            )
-            if rejected is SelectedFilesStatus.TOO_LARGE:
-                emit(rejected)
-                raise web.HTTPRequestEntityTooLarge(
-                    max_size=limits.max_total_bytes, actual_size=total_bytes
-                )
-            if rejected is not None:
-                emit(rejected)
-                return web.Response(status=204)
-            emit(
-                SelectedFilesStatus.OK,
-                files=tuple(
-                    SelectedFile(name=name, data=data) for name, data in chosen
-                ),
-            )
+        limits = upload.policy.request
+        name = request.query.get("name", "")
+        size = request.content_length
+        if (
+            upload.receiving
+            or upload.count < 1
+            or count != upload.count
+            or _query_int(request, "index") != len(upload.files)
+            or not name
+        ):
+            finish(SelectedFilesStatus.UNAVAILABLE)
+            raise web.HTTPBadRequest(reason="File upload is out of order.")
+        if upload.count > limits.max_file_count:
+            finish(SelectedFilesStatus.TOO_LARGE)
+            raise web.HTTPBadRequest(reason="File upload has too many files.")
+        if not selected_file_suffix_allowed(name, limits.accept):
+            finish(SelectedFilesStatus.DISALLOWED_TYPE)
             return web.Response(status=204)
-        except web.HTTPRequestEntityTooLarge:
-            if not emitted:
-                emit(SelectedFilesStatus.TOO_LARGE)
+        if request.headers.get("Content-Encoding", "identity").lower() != "identity":
+            # aiohttp would inflate it, past the length checked below.
+            finish(SelectedFilesStatus.UNAVAILABLE)
+            raise web.HTTPBadRequest(reason="File uploads must not be encoded.")
+        if size is None:
+            finish(SelectedFilesStatus.UNAVAILABLE)
+            raise web.HTTPLengthRequired()
+        allowed = min(
+            limits.max_file_bytes, limits.max_total_bytes - upload.total_bytes
+        )
+        if size > allowed:
+            finish(SelectedFilesStatus.TOO_LARGE)
+            raise web.HTTPRequestEntityTooLarge(max_size=allowed, actual_size=size)
+        upload.receiving = True
+        try:
+            data = await request.content.readexactly(size)
+        except asyncio.IncompleteReadError as error:
+            finish(SelectedFilesStatus.UNAVAILABLE)
+            raise web.HTTPBadRequest(reason="File upload ended early.") from error
+        except BaseException:
+            finish(SelectedFilesStatus.UNAVAILABLE)
             raise
         finally:
-            self._uploading_file_requests.pop(token, None)
-            if not emitted:
-                emit(SelectedFilesStatus.UNAVAILABLE)
+            upload.receiving = False
+        upload.files.append(SelectedFile(name=name, data=data))
+        upload.total_bytes += size
+        if len(upload.files) < upload.count:
+            return web.Response(status=204)
+        files = tuple(upload.files)
+        rejected = selected_files_policy_status(
+            [(chosen.name, len(chosen.data)) for chosen in files], limits
+        )
+        if rejected is None:
+            finish(SelectedFilesStatus.OK, files)
+        else:
+            finish(rejected)
+        return web.Response(status=204)
 
     async def _offer(self, request: web.Request) -> web.Response:
         """Negotiate one browser peer connection."""
@@ -1431,7 +1419,10 @@ class WebRTCServer:
                 )
             policy = self._take_pending_file_request(token)
             if policy is None:
-                return
+                upload = self._uploading_file_requests.pop(token, None)
+                if upload is None:
+                    return
+                policy = upload.policy
             self._emit_selected_files(policy.selector_id, status=status)
             return
         else:
@@ -1554,65 +1545,12 @@ class WebRTCServer:
             raise primary
 
 
-_UPLOAD_READ_CHUNK_BYTES = 64 * 1024
-"""Bytes read per multipart chunk while enforcing ``max_bytes``."""
-
-
-def _upload_overhead_bytes(max_file_count: int) -> int:
-    """Return the multipart framing an upload of ``max_file_count`` files may add."""
-    # ponytail: a flat 4 KiB of boundary and headers per file plus 64 KiB; a
-    # client sending longer headers is answered TOO_LARGE. Upgrade path: bound
-    # the bytes of skipped parts while streaming instead of the whole body.
-    return 64 * 1024 + 4 * 1024 * max_file_count
-
-
-def _identity_encoded(part: BodyPartReader) -> bool:
-    """Return whether ``part`` carries its bytes as-is, as browsers send them."""
-    transfer = part.headers.get("Content-Transfer-Encoding", "").lower()
-    content = part.headers.get("Content-Encoding", "").lower()
-    return transfer in ("", "binary", "7bit", "8bit") and content in ("", "identity")
-
-
-async def _read_upload_part_bounded(
-    part: BodyPartReader, *, max_bytes: int
-) -> bytes | None:
-    """Return the decoded part body, or ``None`` when it exceeds ``max_bytes``.
-
-    Args:
-        part: Multipart file part whose headers have already been read.
-        max_bytes: Maximum allowed size of the decoded file in bytes.
-
-    Returns:
-        The decoded bytes, or ``None`` when they exceed ``max_bytes``.
-    """
-    chunks: list[bytes] = []
-    total = 0
-    while True:
-        chunk = await part.read_chunk(_UPLOAD_READ_CHUNK_BYTES)
-        if not chunk:
-            break
-        async for decoded in part.decode_iter(chunk):
-            piece = bytes(decoded)
-            total += len(piece)
-            if total > max_bytes:
-                await part.release()
-                return None
-            chunks.append(piece)
-    return b"".join(chunks)
-
-
-async def _drain_multipart_reader(
-    reader: MultipartReader, part: BodyPartReader | None = None
-) -> None:
-    """Consume leftover multipart parts so the request can finish."""
-    if part is not None:
-        await part.release()
-    while True:
-        leftover = await reader.next()
-        if leftover is None:
-            break
-        if isinstance(leftover, BodyPartReader):
-            await leftover.release()
+def _query_int(request: web.Request, key: str) -> int | None:
+    """Return the query value at ``key`` as an integer, or ``None``."""
+    try:
+        return int(request.query[key])
+    except (KeyError, ValueError):
+        return None
 
 
 def _same_stream_format(first: SessionDesc, second: SessionDesc) -> bool:

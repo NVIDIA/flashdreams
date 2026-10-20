@@ -35,7 +35,7 @@ Run the file-picker application. The native window uses the Tk file dialog
 confirmation dialog in the viewer (the picker must open from a browser click).
 The demo asks for `.bin` / `.raw` and overrides the default size limits with
 `max_file_bytes` of 32 MiB and `max_total_bytes` of 256 MiB. Controls are **Open file (A)**, **Open file (B)**, and **Open files**
-(more than one file). Failed picks show in red with the
+(up to 8 files, through `max_file_count`). Failed picks show in red with the
 `SelectedFilesStatus` name and why.
 ```bash
 uv run --no-sync flashdreams-run-v2 imgui-ui-file-picker --mode native-window

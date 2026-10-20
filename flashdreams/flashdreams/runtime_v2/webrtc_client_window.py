@@ -134,7 +134,7 @@ class WebRTCClientWindow(IClientWindow):
         self.server.cancel_file_selectors()
 
     def _put_user_input_event(self, event: UserInputEvent) -> None:
-        """Queue a file-selection event on the server's clock, like browser input."""
+        """Queue ``event`` on the server's clock, like browser input."""
         event = replace(event, timestamp=self.server.event_timestamp_us())
         with self._input_lock:
             self._input_events.append(event)

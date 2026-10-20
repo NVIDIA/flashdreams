@@ -185,6 +185,10 @@ if (promptDialog !== null) {
     onCancel?.();
   });
   promptDialog.addEventListener("close", () => {
+    // The event is queued, so it can arrive after a newer prompt reopened the dialog.
+    if (promptDialog.open) {
+      return;
+    }
     setPromptBackdropVisible(false);
     if (promptSettled) {
       return;
@@ -300,31 +304,33 @@ const startFileInput = pending => {
       finishFileSelection(rejected);
       return;
     }
-    const body = new FormData();
-    for (const file of files) {
-      body.append("file", file, file.name);
-    }
-    fetch(`/api/files?id=${encodeURIComponent(requestId)}`, {
-      method: "POST",
-      body,
-    })
-      .then(response => {
+    // One request per file, in order, so the server reads only file bytes.
+    const uploadFiles = async () => {
+      for (const [index, file] of files.entries()) {
+        const query = new URLSearchParams({
+          id: requestId,
+          name: file.name,
+          index: String(index),
+          count: String(files.length),
+        });
+        const response = await fetch(`/api/files?${query}`, {method: "POST", body: file});
         if (!response.ok) {
           // A proxy may refuse the upload before the server can answer it.
           console.debug("File upload was rejected.", response.status);
           finishFileSelection("unavailable");
           return;
         }
-        if (settled || pendingFileRequest === null || pendingFileRequest.id !== requestId) {
-          return;
-        }
-        settled = true;
-        hideFilePicker();
-      })
-      .catch(error => {
-        console.debug("Unable to upload the selected file.", error);
-        finishFileSelection("unavailable");
-      });
+      }
+      if (settled || pendingFileRequest === null || pendingFileRequest.id !== requestId) {
+        return;
+      }
+      settled = true;
+      hideFilePicker();
+    };
+    uploadFiles().catch(error => {
+      console.debug("Unable to upload the selected file.", error);
+      finishFileSelection("unavailable");
+    });
   });
   input.addEventListener("cancel", () => finishFileSelection("cancelled"));
   input.click();
@@ -348,7 +354,7 @@ const openFileSelector = options => {
     id: requestId,
     accept,
     maxBytes: Number.isFinite(maxBytes) ? maxBytes : 0,
-    multiple: options.multiple === true,
+    multiple: Number(options.max_file_count) > 1,
   };
   showPromptDialog({
     title: pendingFileRequest.multiple

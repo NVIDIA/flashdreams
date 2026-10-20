@@ -13,8 +13,8 @@ DEFAULT_MAX_FILE_BYTES = 1024 * 1024 * 1024
 DEFAULT_MAX_TOTAL_BYTES = 1024 * 1024 * 1024
 """Default ``max_total_bytes`` (1 GiB): the most bytes all chosen files add up to."""
 
-DEFAULT_MAX_FILE_COUNT = 256
-"""Default ``max_file_count``: the most files one request may return."""
+DEFAULT_MAX_FILE_COUNT = 1
+"""Default ``max_file_count``: one file, unless the app asks for more."""
 
 
 def normalize_selected_file_accept(accept: Sequence[str] = ()) -> tuple[str, ...]:
@@ -70,8 +70,8 @@ class SelectedFilesStatus(Enum):
     """The user dismissed the selector."""
 
     TOO_LARGE = "too_large"
-    """The set broke the request's ``max_file_bytes``, ``max_total_bytes``, or
-    ``max_file_count``."""
+    """A file was larger than ``max_file_bytes``, the files together were larger
+    than ``max_total_bytes``, or more than ``max_file_count`` files were chosen."""
 
     DISALLOWED_TYPE = "disallowed_type"
     """A chosen file did not match ``accept``. Checked before size."""
@@ -116,10 +116,7 @@ class FileSelectionRequest:
     """Most bytes all chosen files may add up to."""
 
     max_file_count: int = DEFAULT_MAX_FILE_COUNT
-    """Most files the selector may return."""
-
-    multiple: bool = False
-    """Whether the selector may return more than one file."""
+    """Most files the selector may return. Above one, the user may pick several."""
 
 
 def selected_files_policy_status(

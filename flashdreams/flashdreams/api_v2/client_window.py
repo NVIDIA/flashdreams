@@ -105,9 +105,9 @@ class IClientWindow(InputSource, OutputSink, ABC):
     One thread makes every call on a window, so an implementation needs no
     locking except when its backend delivers input from another thread.
 
-    A window with a file picker implements :meth:`_request_file_selector` and
-    :meth:`_cancel_active_file_selectors`, and reports results on the UI
-    thread.
+    A window with a file picker implements :meth:`_request_file_selector`, and
+    :meth:`_cancel_active_file_selectors` if it can withdraw a shown picker. It
+    reports results on the UI thread.
 
     Created by the runtime, never by an application.
     """
@@ -202,8 +202,8 @@ class IClientWindow(InputSource, OutputSink, ABC):
     def _put_user_input_event(self, event: UserInputEvent) -> None:
         """Queue ``event`` for :meth:`InputSource.get_user_input_events`.
 
-        Each window decides how an event from outside its own input polling
-        joins its input stream. Only this class calls it, on the UI thread.
+        Lets each window add an event that did not come from its own input
+        polling. Only this class calls it, on the UI thread.
         """
 
     @final
@@ -249,7 +249,7 @@ def _check_file_selection_result(
     """Return the status and files a window's result earns under ``request``."""
     if status is not SelectedFilesStatus.OK:
         return status, ()
-    if not files or (len(files) > 1 and not request.multiple):
+    if not files:
         _LOGGER.warning("File selector %r returned no valid set.", request.request_id)
         return SelectedFilesStatus.UNAVAILABLE, ()
     files = tuple(replace(chosen, name=Path(chosen.name).name) for chosen in files)

@@ -40,8 +40,8 @@ _FILE_SELECTION_STATUS_TEXT = {
         "SelectedFilesStatus.BUSY: another picker was already open."
     ),
     SelectedFilesStatus.TOO_LARGE: (
-        "SelectedFilesStatus.TOO_LARGE: the pick broke this request's "
-        "max_file_bytes, max_total_bytes, or max_file_count."
+        "SelectedFilesStatus.TOO_LARGE: a file was over 32 MiB, the files "
+        "together were over 256 MiB, or too many files were chosen."
     ),
     SelectedFilesStatus.DISALLOWED_TYPE: (
         "SelectedFilesStatus.DISALLOWED_TYPE: suffix not in accept=('.bin', '.raw')."
@@ -72,12 +72,15 @@ _OPEN_FILES_REQUEST_ID = "open-files"
 _OPEN_FILES_LABEL = "Open files"
 """ImGui label for a multi-file selector slot."""
 
+_OPEN_FILES_MAX_FILE_COUNT = 8
+"""Open files' ``max_file_count``, raised from the default of one."""
+
 _FILE_SELECTOR_SLOTS = (
-    (_OPEN_FILE_A_LABEL, _OPEN_FILE_A_REQUEST_ID, False),
-    (_OPEN_FILE_B_LABEL, _OPEN_FILE_B_REQUEST_ID, False),
-    (_OPEN_FILES_LABEL, _OPEN_FILES_REQUEST_ID, True),
+    (_OPEN_FILE_A_LABEL, _OPEN_FILE_A_REQUEST_ID, 1),
+    (_OPEN_FILE_B_LABEL, _OPEN_FILE_B_REQUEST_ID, 1),
+    (_OPEN_FILES_LABEL, _OPEN_FILES_REQUEST_ID, _OPEN_FILES_MAX_FILE_COUNT),
 )
-"""``(label, request_id, multiple)`` for each Open button, in display order."""
+"""``(label, request_id, max_file_count)`` for each Open button, in display order."""
 
 _MAX_FILE_BYTES = 32 * 1024 * 1024
 """Each button's ``max_file_bytes`` (32 MiB), lowered from the 1 GiB default."""
@@ -161,14 +164,14 @@ class FilePickerImGuiUILoop(ImGuiUILoop[FilePickerState]):
         imgui.set_next_window_size(imgui.ImVec2(520.0, 300.0), imgui.Cond_.once)
         imgui.begin("File picker")
         try:
-            for label, request_id, multiple in _FILE_SELECTOR_SLOTS:
+            for label, request_id, max_file_count in _FILE_SELECTOR_SLOTS:
                 if imgui.button(label):
                     self.request_file_selector(
                         request_id,
                         accept=(".bin", ".raw"),
                         max_file_bytes=_MAX_FILE_BYTES,
                         max_total_bytes=_MAX_TOTAL_BYTES,
-                        multiple=multiple,
+                        max_file_count=max_file_count,
                     )
             if self.state.restart_at is None:
                 if imgui.button(f"Restart session in {_RESTART_DELAY_S:.0f}s"):

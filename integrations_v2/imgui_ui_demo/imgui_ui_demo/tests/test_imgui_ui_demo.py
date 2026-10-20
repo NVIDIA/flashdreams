@@ -19,6 +19,7 @@ from imgui_ui_demo.file_picker_app import (
     _OPEN_FILE_B_LABEL,
     _OPEN_FILE_B_REQUEST_ID,
     _OPEN_FILES_LABEL,
+    _OPEN_FILES_MAX_FILE_COUNT,
     _OPEN_FILES_REQUEST_ID,
     FilePickerImGuiUILoop,
     FilePickerState,
@@ -124,7 +125,7 @@ def test_open_file_button_requests_a_client_file(label: str, request_id: str) ->
     assert selection.accept == (".bin", ".raw")
     assert selection.max_file_bytes == _MAX_FILE_BYTES
     assert selection.max_total_bytes == _MAX_TOTAL_BYTES
-    assert selection.multiple is False
+    assert selection.max_file_count == 1
 
 
 def test_open_files_button_requests_multiple_client_files() -> None:
@@ -140,7 +141,7 @@ def test_open_files_button_requests_multiple_client_files() -> None:
     assert selection.accept == (".bin", ".raw")
     assert selection.max_file_bytes == _MAX_FILE_BYTES
     assert selection.max_total_bytes == _MAX_TOTAL_BYTES
-    assert selection.multiple is True
+    assert selection.max_file_count == _OPEN_FILES_MAX_FILE_COUNT
 
 
 def test_selected_files_event_updates_file_picker_status() -> None:

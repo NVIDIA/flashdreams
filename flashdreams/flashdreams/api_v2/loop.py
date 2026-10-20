@@ -627,7 +627,6 @@ class IUILoop(ILoop[StateT], ABC):
         max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
         max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES,
         max_file_count: int = DEFAULT_MAX_FILE_COUNT,
-        multiple: bool = False,
     ) -> None:
         """Ask the client to show a file selector.
 
@@ -644,8 +643,9 @@ class IUILoop(ILoop[StateT], ABC):
         - ``CANCELLED``: the user dismissed the selector.
         - ``BUSY``: another selector was open.
         - ``DISALLOWED_TYPE``: a file did not match ``accept``.
-        - ``TOO_LARGE``: the set broke ``max_file_bytes``, ``max_total_bytes``,
-          or ``max_file_count``.
+        - ``TOO_LARGE``: a file was larger than ``max_file_bytes``, the files
+          together were larger than ``max_total_bytes``, or more than
+          ``max_file_count`` files were chosen.
         - ``UNAVAILABLE``: the window cannot show a selector, or it failed.
 
         ``accept`` checks filename suffixes only, so treat ``data`` as
@@ -681,14 +681,13 @@ class IUILoop(ILoop[StateT], ABC):
             max_file_bytes: Largest single file in bytes. Must not exceed
                 ``max_total_bytes``.
             max_total_bytes: Most bytes all chosen files may add up to. Has no
-                effect unless ``multiple`` is set.
-            max_file_count: Most files the selector may return. Has no effect
-                unless ``multiple`` is set.
-            multiple: Whether the selector may return more than one file.
+                effect when ``max_file_count`` is one.
+            max_file_count: Most files the selector may return. Above one, the
+                user may pick several.
 
         Raises:
             TypeError: ``request_id`` or ``initial_path`` is not a string, or
-                ``accept``, a limit, or ``multiple`` has the wrong type.
+                ``accept`` or a limit has the wrong type.
             ValueError: ``request_id`` or ``initial_path`` is empty, ``accept``
                 is invalid, a limit is not positive, or ``max_file_bytes``
                 exceeds ``max_total_bytes``.
@@ -717,8 +716,6 @@ class IUILoop(ILoop[StateT], ABC):
                 raise ValueError(f"{name} must be > 0.")
         if max_file_bytes > max_total_bytes:
             raise ValueError("max_file_bytes must not exceed max_total_bytes.")
-        if not isinstance(multiple, bool):
-            raise TypeError("multiple must be a bool.")
         self.get_or_create_ui_loop_requests().file_selections.append(
             FileSelectionRequest(
                 request_id=request_id,
@@ -727,7 +724,6 @@ class IUILoop(ILoop[StateT], ABC):
                 max_file_bytes=max_file_bytes,
                 max_total_bytes=max_total_bytes,
                 max_file_count=max_file_count,
-                multiple=multiple,
             )
         )
 

@@ -55,14 +55,14 @@ def _file_request(
     *,
     accept: tuple[str, ...] = (),
     max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
-    multiple: bool = False,
+    max_file_count: int = 1,
 ) -> FileSelectionRequest:
     return FileSelectionRequest(
         request_id=request_id,
         initial_path=initial_path,
         accept=accept,
         max_file_bytes=max_file_bytes,
-        multiple=multiple,
+        max_file_count=max_file_count,
     )
 
 
@@ -1134,7 +1134,9 @@ def test_native_window_reports_multiple_selected_files(
         presenter_factory=_presenter_factory(presenter),
     )
     window.open(_session_desc())
-    window.request_file_selector(_file_request("open-1", str(tmp_path), multiple=True))
+    window.request_file_selector(
+        _file_request("open-1", str(tmp_path), max_file_count=2)
+    )
     events = _wait_for_input_events(window)
     window.close()
 
@@ -1158,6 +1160,12 @@ def test_native_window_drops_a_flushed_dialog_and_is_busy_until_it_closes(
         return [str(chosen)]
 
     _fake_dialog(monkeypatch, choose)
+    read: list[object] = []
+    monkeypatch.setattr(
+        native_window_module,
+        "_selected_files_from_paths",
+        lambda paths, request: read.append(paths) or ((), SelectedFilesStatus.OK),
+    )
     presenter = _Presenter()
     window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
     window.open(_session_desc())
@@ -1178,6 +1186,7 @@ def test_native_window_drops_a_flushed_dialog_and_is_busy_until_it_closes(
     assert busy[0].request_id == "open-2"
     assert busy[0].status is SelectedFilesStatus.BUSY
     assert stale == []
+    assert read == [], "a flushed dialog's files are never read"
 
 
 def test_native_window_reports_standard_gamepad_events() -> None:

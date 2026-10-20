@@ -74,7 +74,7 @@ def _choose_paths(request: FileSelectionRequest) -> list[str]:
             kwargs["filetypes"] = [
                 ("Accepted", " ".join("*" + suffix for suffix in request.accept))
             ]
-        if request.multiple:
+        if request.max_file_count > 1:
             return [str(path) for path in filedialog.askopenfilenames(**kwargs) if path]
         path = filedialog.askopenfilename(**kwargs)
         return [str(path)] if path else []
@@ -304,6 +304,9 @@ class NativeWindowClientWindow(IClientWindow):
                 selector_id, request, paths = self._file_dialog_results.get_nowait()
             except queue.Empty:
                 return
+            active = self._active_file_selector
+            if active is None or active[0] != selector_id:
+                continue
             files: tuple[SelectedFile, ...] = ()
             if paths is None:
                 status = SelectedFilesStatus.UNAVAILABLE
@@ -313,9 +316,7 @@ class NativeWindowClientWindow(IClientWindow):
                 # ponytail: files are read on the UI thread, up to the
                 # request's max_total_bytes, which stalls presentation while
                 # they load. Upgrade path: read them on the dialog thread.
-                files, status = _selected_files_from_paths(
-                    paths if request.multiple else paths[:1], request
-                )
+                files, status = _selected_files_from_paths(paths, request)
             self._complete_file_selector(selector_id, status, files)
 
     def open(self, session_desc: SessionDesc) -> None:
@@ -586,7 +587,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._put_input(CloseUserInputEvent(timestamp=uint64(0)))
 
     def _put_user_input_event(self, event: UserInputEvent) -> None:
-        """Queue a file-selection event, bypassing the poll-time buffer."""
+        """Queue ``event``, bypassing the poll-time buffer."""
         started_ns = self._session_started_ns
         elapsed_ns = 0 if started_ns is None else max(0, self._clock_ns() - started_ns)
         self._input_events.put(replace(event, timestamp=uint64(elapsed_ns // 1_000)))
