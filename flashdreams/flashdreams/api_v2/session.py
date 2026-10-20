@@ -10,10 +10,13 @@ from functools import cached_property
 from typing import Any, final
 
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
+from flashdreams.api_v2.profiler import IProfiler
+from flashdreams.core.distributed.parallel import ParallelContext
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
+from flashdreams.runtime_v2.profiler import NullProfiler
 from flashdreams.runtime_v2.session_desc import SessionDesc
 
 
@@ -27,6 +30,15 @@ class ISession(ABC):
     _registered_ui_loop: IUILoop[Any] | None = None
     _registered_model_loop: IModelLoop[Any] | None = None
     _registrations_frozen = False
+
+    @property
+    def parallel_context(self) -> ParallelContext | None:
+        """Return the model mesh before initialization, or ``None`` for a local session.
+
+        The runtime synchronizes model steps and inputs across this world.
+        Only rank zero owns a client window and output sinks.
+        """
+        return None
 
     @cached_property
     def _shutdown_event(self) -> threading.Event:
@@ -42,6 +54,13 @@ class ISession(ABC):
     def _presentation_manager(self) -> PresentationManager:
         """Return this session's model frame buffer."""
         return PresentationManager()
+
+    _profiler: IProfiler = NullProfiler()
+    """The profiler this session's loops run with.
+
+    The application runner assigns the system profiler when it creates the
+    session. Assign in :meth:`init` before registering a loop to use a different one.
+    """
 
     @abstractmethod
     def init(self) -> None:
@@ -98,6 +117,7 @@ class ISession(ABC):
             frequency=self.session_desc.frames_per_second_for_ui,
             shutdown_event=self._shutdown_event,
             failure_queue=self._failure_queue,
+            profiler=self._profiler,
         )
         loop.register_session_ui_loop_objects(
             session_desc=self.session_desc,
@@ -141,6 +161,7 @@ class ISession(ABC):
             frequency=self.session_desc.frames_per_second_for_step,
             shutdown_event=self._shutdown_event,
             failure_queue=self._failure_queue,
+            profiler=self._profiler,
         )
         self._registered_model_loop = loop
         return loop

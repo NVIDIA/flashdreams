@@ -25,7 +25,9 @@ from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
 from loguru import logger
+from torch.nn import functional as F
 
+from flashdreams.api_v2.client_window import ClientWindowLink
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -86,13 +88,10 @@ class _PinnedRGBFrameBuffer:
         self._retired_frames: list[torch.Tensor] = []
 
     def get(self, shape: tuple[int, ...]) -> torch.Tensor:
-        """Return pinned storage with the session's fixed output shape."""
-        if self._shape is None:
+        """Return pinned storage matching the current output shape."""
+        if self._shape != shape:
             self._shape = shape
-        elif self._shape != shape:
-            raise ValueError(
-                f"Pinned RGB frame shape changed from {self._shape} to {shape}."
-            )
+            self._frame = None
         if self._frame is None:
             self._frame = torch.empty(
                 shape,
@@ -335,10 +334,14 @@ class WebRTCServer:
         self._peer_connection: RTCPeerConnection | None = None
         self._control_channel: Any | None = None
         self._sent_cursor_options: tuple[bool, bool] | None = None
+        self._link_lock = threading.Lock()
+        self._links: tuple[ClientWindowLink, ...] = ()
+        self._pressed_link: tuple[str, int, ClientWindowLink] | None = None
         self._video_track: _VideoTrack | None = None
         self._final_video_track_metrics: dict[str, float | int] | None = None
         self._media_connected = threading.Event()
         self._session_desc: SessionDesc | None = None
+        self._window_size: tuple[int, int] | None = None
         self._event_origin_ns: int | None = None
         self._transfer_streams: dict[int, torch.cuda.Stream] = {}
         self._materialization_buffer = _PinnedRGBFrameBuffer()
@@ -398,6 +401,59 @@ class WebRTCServer:
             "webrtc_sender_materialized_count": self._materialization_count,
         }
 
+    def configure_links(self, links: tuple[ClientWindowLink, ...]) -> None:
+        """Replace the server-side clickable regions over the output content."""
+        with self._link_lock:
+            if links != self._links:
+                self._links = links
+                self._pressed_link = None
+
+    def _cancel_link_press(self) -> None:
+        with self._link_lock:
+            self._pressed_link = None
+
+    def _consume_link_pointer(
+        self,
+        pointer: tuple[str, int],
+        action: str,
+        x: float,
+        y: float,
+        *,
+        in_content: bool,
+    ) -> bool:
+        """Consume a link press and open its destination only on a matching release."""
+        with self._link_lock:
+            link = next(
+                (
+                    candidate
+                    for candidate in self._links
+                    if in_content
+                    and not self._lock_cursor_to_window
+                    and candidate.bounds[0] <= x < candidate.bounds[2]
+                    and candidate.bounds[1] <= y < candidate.bounds[3]
+                ),
+                None,
+            )
+            if action == "start":
+                self._pressed_link = (*pointer, link) if link is not None else None
+                return link is not None
+            pressed = self._pressed_link
+            if pressed is None or pressed[:2] != pointer:
+                return False
+            if action == "move":
+                return True
+            self._pressed_link = None
+            channel = self._control_channel
+            if (
+                action == "end"
+                and link is not None
+                and link == pressed[2]
+                and channel is not None
+                and channel.readyState == "open"
+            ):
+                channel.send(json.dumps({"type": "open_url", "url": link.url}))
+            return True
+
     def configure_cursor(
         self, *, hide_cursor: bool, lock_cursor_to_window: bool
     ) -> None:
@@ -412,7 +468,9 @@ class WebRTCServer:
         ):
             return
         self._hide_cursor = hide_cursor
-        self._lock_cursor_to_window = lock_cursor_to_window
+        with self._link_lock:
+            self._lock_cursor_to_window = lock_cursor_to_window
+            self._pressed_link = None
         loop = self._loop
         if loop is not None and self._control_channel is not None:
             loop.call_soon_threadsafe(self._send_cursor_options)
@@ -490,10 +548,56 @@ class WebRTCServer:
                 future.cancel()
                 raise
         self._session_desc = session_desc
+        self.configure_links(())
+        if current_session_desc is None:
+            self._window_size = (
+                session_desc.video_width,
+                session_desc.video_height,
+            )
         if self._event_origin_ns is None:
             # Keep timestamps comparable across sessions so events buffered
             # during a handoff retain their real order.
             self._event_origin_ns = time.monotonic_ns()
+
+    def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
+        """Change the dimensions used to present subsequent UI frames.
+
+        Frames already queued at the old dimensions are discarded before the
+        new presentation size becomes active. The fixed session output is
+        resampled on its current device before host materialization. WebRTC
+        carries each frame's dimensions, so the peer connection and current
+        application session stay alive.
+
+        Args:
+            new_window_size: Requested ``(width, height)`` in pixels.
+
+        Raises:
+            RuntimeError: The server is closed or has no open session.
+            TimeoutError: The active video track cannot be reset before the
+                server timeout.
+        """
+        if self._closed:
+            raise RuntimeError("Cannot resize a closed WebRTC server.")
+        session_desc = self._session_desc
+        window_size = self._window_size
+        if session_desc is None or window_size is None:
+            raise RuntimeError("Open the WebRTC server before resizing.")
+        width, height = new_window_size
+        if (width, height) == window_size:
+            return
+
+        track = self._video_track
+        loop = self._loop
+        if track is not None and loop is not None:
+            future = asyncio.run_coroutine_threadsafe(
+                self._start_session_if_active(track), loop
+            )
+            try:
+                future.result(timeout=self._startup_timeout_seconds)
+            except BaseException:
+                future.cancel()
+                raise
+        self._window_size = (width, height)
 
     def register_input_callback(
         self, callback: Callable[[UserInputEvent], None]
@@ -524,9 +628,14 @@ class WebRTCServer:
         if self._closed:
             raise RuntimeError("Cannot write to a closed WebRTC server.")
         session_desc = self._session_desc
-        if session_desc is None:
+        window_size = self._window_size
+        if session_desc is None or window_size is None:
             raise RuntimeError("Open the WebRTC server before writing.")
-        frames = _validated_result_frames(result, session_desc)
+        frames = _validated_result_frames(
+            result,
+            session_desc,
+            window_size,
+        )
         if result.frame_count != 1:
             raise ValueError(
                 "WebRTC window writes must contain exactly one UI-composited frame."
@@ -534,13 +643,18 @@ class WebRTCServer:
         track = self._video_track
         if track is None:
             return
-        queued_frame = self._materialize_video_frame(result, frames[0])
+        queued_frame = self._materialize_video_frame(
+            result,
+            frames[0],
+            window_size,
+        )
         track.enqueue(queued_frame)
 
     def close(self) -> None:
         """Close the peer connection and stop the WebRTC server."""
         if self._closed:
             return
+        self.configure_links(())
         self._closed = True
         failures: list[BaseException] = []
         track = self._video_track
@@ -607,9 +721,11 @@ class WebRTCServer:
         self,
         result: StepResult,
         frame: torch.Tensor,
+        window_size: tuple[int, int],
     ) -> VideoFrame:
         """Return one owned video frame before admitting it to WebRTC."""
         if not frame.is_cuda:
+            frame = _resize_video_frame(frame, window_size)
             materialized = _prepare_cpu_video_frame(frame)
             self._materialization_count += 1
             return materialized
@@ -617,6 +733,7 @@ class WebRTCServer:
         transfer_stream = self._transfer_stream(device)
         with torch.cuda.device(device), torch.cuda.stream(transfer_stream):
             result.read_output()
+            frame = _resize_video_frame(frame, window_size)
         materialized = _materialize_cuda_video_frame(
             frame,
             transfer_stream=transfer_stream,
@@ -754,6 +871,7 @@ class WebRTCServer:
                         self._control_channel = channel
 
                         self._sent_cursor_options = None
+                        self._cancel_link_press()
 
                     @channel.on("open")
                     def on_open() -> None:
@@ -790,6 +908,7 @@ class WebRTCServer:
                     self._media_connected.set()
                 elif peer_connection.connectionState == "disconnected":
                     self._media_connected.clear()
+                    self._cancel_link_press()
                 elif peer_connection.connectionState in {"failed", "closed"}:
                     await self._release_peer_connection(peer_connection)
 
@@ -845,6 +964,7 @@ class WebRTCServer:
                 self._media_connected.set()
             self._control_channel = control_channel
             self._sent_cursor_options = None
+            self._cancel_link_press()
             if control_channel is not None and control_channel.readyState == "open":
                 self._send_cursor_options()
             query_string = request.rel_url.raw_query_string
@@ -912,6 +1032,19 @@ class WebRTCServer:
                 raise ValueError("Mouse button must be a non-negative integer.")
             if not isinstance(pressed, bool):
                 raise ValueError("Mouse pressed must be a boolean.")
+            if action == "button":
+                cancelled = payload.get("cancelled", False)
+                in_content = payload.get("in_content", True)
+                if not isinstance(cancelled, bool) or not isinstance(in_content, bool):
+                    raise ValueError("Mouse cancelled and in_content must be booleans.")
+                if button == 0 and self._consume_link_pointer(
+                    ("mouse", 0),
+                    "cancel" if cancelled else "start" if pressed else "end",
+                    x,
+                    y,
+                    in_content=in_content,
+                ):
+                    return
             event = MouseUserInputEvent(
                 timestamp=timestamp_us,
                 action=action,
@@ -926,6 +1059,8 @@ class WebRTCServer:
             focused = payload.get("focused")
             if not isinstance(focused, bool):
                 raise ValueError("Focus event requires a boolean focused value.")
+            if not focused:
+                self._cancel_link_press()
             event = FocusUserInputEvent(
                 timestamp=timestamp_us,
                 focused=focused,
@@ -939,6 +1074,9 @@ class WebRTCServer:
             primary = payload.get("primary", False)
             if not isinstance(primary, bool):
                 raise ValueError("Touch primary must be a boolean.")
+            in_content = payload.get("in_content", True)
+            if not isinstance(in_content, bool):
+                raise ValueError("Touch in_content must be a boolean.")
             event = TouchUserInputEvent(
                 timestamp=timestamp_us,
                 action=action,
@@ -950,6 +1088,14 @@ class WebRTCServer:
                 ),
                 primary=primary,
             )
+            if (action != "start" or primary) and self._consume_link_pointer(
+                ("touch", event.touch_id),
+                action,
+                event.x,
+                event.y,
+                in_content=in_content,
+            ):
+                return
         elif event_type == "gamepad":
             buttons = _number_tuple(payload.get("buttons", ()), label="buttons")
             pressed = _bool_tuple(payload.get("pressed", ()), label="pressed")
@@ -1021,8 +1167,10 @@ class WebRTCServer:
                 ),
             )
         elif event_type == "reset":
+            self._cancel_link_press()
             event = ResetUserInputEvent(timestamp=timestamp_us)
         elif event_type == "close":
+            self._cancel_link_press()
             event = CloseUserInputEvent(timestamp=timestamp_us)
         else:
             raise ValueError("Unsupported browser event type.")
@@ -1053,6 +1201,7 @@ class WebRTCServer:
             self._control_channel = None
             self._video_track = None
             self._sent_cursor_options = None
+            self._cancel_link_press()
         else:
             track = detached_video_track
         failures: list[BaseException] = []
@@ -1229,7 +1378,9 @@ def _controller_action(
 
 
 def _validated_result_frames(
-    result: StepResult, session_desc: SessionDesc
+    result: StepResult,
+    session_desc: SessionDesc,
+    presentation_size: tuple[int, int],
 ) -> torch.Tensor:
     """Return validated time-major frames without materializing them on the host."""
     # This path may inspect metadata and create views only. The transfer-stream
@@ -1260,8 +1411,7 @@ def _validated_result_frames(
         raise ValueError("StepResult.frame_count does not match its output tensor.")
     if frames.shape[1] not in (1, 3):
         raise ValueError("WebRTC output must have one or three color channels.")
-    if frames.shape[2:] != (session_desc.video_height, session_desc.video_width):
-        raise ValueError("WebRTC output dimensions do not match SessionDesc.")
+
     if result.output_layout != session_desc.output_layout:
         raise ValueError("StepResult.output_layout does not match SessionDesc.")
 
@@ -1277,6 +1427,26 @@ def _rgb_uint8_thwc(frames: torch.Tensor) -> torch.Tensor:
         frames = ((frames.to(torch.float32).clamp(-1.0, 1.0) + 1.0) * 127.5).round()
     frames = frames.clamp(0, 255).to(torch.uint8)
     return frames.permute(0, 2, 3, 1).contiguous()
+
+
+def _resize_video_frame(
+    frame: torch.Tensor,
+    window_size: tuple[int, int],
+) -> torch.Tensor:
+    """Resample one CHW frame on its current device."""
+    width, height = window_size
+    if frame.shape[1:] == (height, width):
+        return frame
+    source_is_floating_point = frame.is_floating_point()
+    resized = F.interpolate(
+        frame.unsqueeze(0) if source_is_floating_point else frame[None].float(),
+        size=(height, width),
+        mode="bilinear",
+        align_corners=False,
+    ).squeeze(0)
+    if source_is_floating_point:
+        return resized
+    return resized.round().to(frame.dtype)
 
 
 def _prepare_cpu_video_frame(frame: torch.Tensor) -> VideoFrame:

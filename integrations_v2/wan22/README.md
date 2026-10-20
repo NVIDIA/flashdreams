@@ -15,8 +15,7 @@ first-frame image, then generates the complete 81-frame, 1280x640 clip in one
 rollout instead of advancing through multiple causal blocks. It therefore
 requires exactly one block (`--total-blocks 1`, which is the default);
 multi-block generation is not supported. The application runs through the
-shared null, MP4, local-window, or WebRTC host. HY-WorldPlay also reuses the
-pipeline config as its base recipe.
+shared null, MP4, local-window, or WebRTC host.
 
 ## Application integrations
 
@@ -61,7 +60,7 @@ Generate the single-block MP4 with the v2 application. Because this is TI2V,
 
 ```bash
 uv run --package flashdreams-wan22 flashdreams-run-v2 \
-  t2v-wan22-ti2v-5b --output-path artifacts/t2v-wan22-ti2v-5b.mp4 -- \
+  t2v-wan22-ti2v-5b --output-path artifacts/t2v-wan22-ti2v-5b.mp4 --timeout unbound -- \
   --prompt "A cinematic ocean wave at sunset." \
   --image-path /absolute/path/to/first-frame.png \
   --no-compile

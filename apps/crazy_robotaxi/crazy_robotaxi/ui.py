@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Dear ImGui HUD and presentation state for Crazy Robotaxi."""
 
@@ -54,6 +42,7 @@ from crazy_robotaxi.controls import (
     controls_fields,
     update_binding,
 )
+from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameSelection
 from crazy_robotaxi.high_scores import (
     LEADERBOARD_LIMIT,
@@ -73,6 +62,7 @@ from crazy_robotaxi.rules import (
     project_target_pose_to_bev_edge,
 )
 from crazy_robotaxi.settings import (
+    SETTING_CLI_FLAGS,
     CrazyRobotaxiUserSettings,
     LiveEditMappingLocation,
     SettingsDocument,
@@ -81,8 +71,10 @@ from crazy_robotaxi.settings import (
     format_editor_value,
     iter_setting_fields,
     parse_editor_value,
+    presentation_resolution_wh,
     restart_required_settings,
     setting_choices,
+    setting_description,
     setting_value,
 )
 from crazy_robotaxi.world_overlay import (
@@ -95,6 +87,7 @@ from flashdreams.api_v2.loop import ILoop, invoke_async
 from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
+    FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     GameWheelUserInputEvent,
     KeyboardInputState,
@@ -183,6 +176,12 @@ _MPS_TO_MPH = 2.2369362920544
 
 _TAXI_ACCENT_RGB = (200.0 / 255.0, 150.0 / 255.0, 50.0 / 255.0)
 _RACE_ACCENT_RGB = (118.0 / 255.0, 185.0 / 255.0, 0.0)
+_FREE_ROAM_ACCENT_RGB = (0.0, 98.0 / 255.0, 1.0)
+_MODE_ACCENT_RGB = {
+    "taxi": _TAXI_ACCENT_RGB,
+    "race": _RACE_ACCENT_RGB,
+    "free-roam": _FREE_ROAM_ACCENT_RGB,
+}
 _OPTION_ENABLED_RGB = (0.25, 0.85, 0.25)
 
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
@@ -203,7 +202,7 @@ class TaxiHudFrame:
     frame_key: int
     """Live tensor data pointer identifying the corresponding video frame."""
 
-    snapshot: TaxiGameSnapshot | RaceGameSnapshot
+    snapshot: TaxiGameSnapshot | RaceGameSnapshot | FreeRoamSnapshot
     """Game-rules snapshot for the corresponding simulation frame."""
 
     rig_pose_world: npt.NDArray[np.float32]
@@ -255,6 +254,9 @@ class TaxiHudState:
 
     calibration: CameraCalibration | None
     """Camera calibration used to project world markers on the UI thread."""
+
+    presentation_size: tuple[int, int] | None = None
+    """Desired client-window and UI render-target size."""
 
     bev: BevConfig = BevConfig()
     """BEV camera geometry used to place navigation markers on the map."""
@@ -320,6 +322,9 @@ class TaxiHudState:
 
     _exit_requested: bool = False
     """Whether the root menu requested application shutdown."""
+
+    _model_size: tuple[int, int] = field(init=False)
+    """Model output size restored when presentation dimensions are unset."""
 
     _frames: OrderedDict[int, TaxiHudFrame] = field(default_factory=OrderedDict)
     """Recent immutable snapshots keyed by presented tensor-frame identity."""
@@ -477,6 +482,9 @@ class TaxiHudState:
 
     def __post_init__(self) -> None:
         """Initialize input state from the process-start bindings."""
+        self._model_size = self.width, self.height
+        if self.presentation_size is None:
+            self.presentation_size = self._model_size
         self._control_action_state = BoundActionState(self.controls)
         self._menu_back_action_state = BoundActionState(_MENU_BACK_CONTROLS)
 
@@ -792,7 +800,7 @@ class TaxiHudState:
         if mode is None:
             self._menu_stage = "mode"
             return
-        if mode == "taxi":
+        if mode != "race":
             self._start_game(option)
             return
         course_id = self.initial_race_course_id
@@ -1124,12 +1132,23 @@ class TaxiHudState:
         draft = self._options_draft
         if document is None or draft is None:
             return
+        overrides = document.cli_overrides
+        presentation = draft.presentation
+        for field_name in ("width", "height"):
+            path = "presentation", field_name
+            if path in overrides:
+                presentation = replace(
+                    presentation,
+                    **{field_name: overrides[path]},
+                )
         try:
+            presentation_size = (
+                presentation_resolution_wh(presentation) or self._model_size
+            )
             document.save(draft)
         except (OSError, SettingsError, ValueError) as exc:
             self._options_error = str(exc)
             return
-        overrides = document.cli_overrides
         if ("presentation", "hud_enabled") not in overrides:
             self.hud_enabled = draft.presentation.hud_enabled
         if ("presentation", "show_fps") not in overrides:
@@ -1144,6 +1163,7 @@ class TaxiHudState:
             self.live_edit_mapping_location = (
                 draft.presentation.live_edit_mapping_location
             )
+        self.presentation_size = presentation_size
         self._settings_notice = f"SAVED {document.path}"
         self._settings_notice_expires_at_s = (
             time.monotonic() + _SETTINGS_NOTICE_DURATION_S
@@ -1210,7 +1230,10 @@ class TaxiHudState:
                 width=self.width,
                 height=self.height,
             )
-        elif source.snapshot.checkpoint_markers:
+        elif (
+            isinstance(source.snapshot, RaceGameSnapshot)
+            and source.snapshot.checkpoint_markers
+        ):
             camera = FThetaCameraModel(
                 calibration,
                 output_width=self.width,
@@ -1301,6 +1324,14 @@ class TaxiHudState:
                 color_rgb=(1.0, 0.18, 0.08),
             )
             self._draw_bev_window(imgui, bev_frame, hud_frame)
+        elif isinstance(snapshot, FreeRoamSnapshot):
+            self._draw_status_strip(
+                imgui,
+                "FREE-ROAM",
+                color_rgb=_FREE_ROAM_ACCENT_RGB,
+                top=35.0 + prompt_offset,
+            )
+            self._draw_bev_window(imgui, bev_frame, hud_frame)
         elif (
             isinstance(snapshot, TaxiGameSnapshot)
             and snapshot.session_state == "playing"
@@ -1318,7 +1349,15 @@ class TaxiHudState:
             )
             self._draw_bev_window(imgui, bev_frame, hud_frame)
         if active:
-            self._draw_speed(imgui, hud_frame.speed_mps)
+            self._draw_speed(
+                imgui,
+                hud_frame.speed_mps,
+                color_rgb=(
+                    _FREE_ROAM_ACCENT_RGB
+                    if isinstance(snapshot, FreeRoamSnapshot)
+                    else _RACE_ACCENT_RGB
+                ),
+            )
             self._draw_coin_counter(
                 imgui,
                 hud_frame.live_edit_status,
@@ -1547,8 +1586,14 @@ class TaxiHudState:
             font=font,
         )
 
-    def _draw_speed(self, imgui: Any, speed_mps: float) -> None:
-        """Draw the source HUD's green speed digit directly over the frame."""
+    def _draw_speed(
+        self,
+        imgui: Any,
+        speed_mps: float,
+        *,
+        color_rgb: tuple[float, float, float],
+    ) -> None:
+        """Draw the speed digit directly over the frame."""
         draw_list = imgui.get_background_draw_list()
         font = self._gameplay_overlay_font(imgui)
         font_size = max(28.0, min(76.0, float(self.height) * 0.12))
@@ -1559,10 +1604,7 @@ class TaxiHudState:
         left = 24.0
         top = max(10.0, float(self.height) - speed_height - 42.0)
         shadow = _imgui_color(imgui, (0.0, 0.0, 0.0, 0.9))
-        green = _imgui_color(
-            imgui,
-            (118.0 / 255.0, 185.0 / 255.0, 0.0, 1.0),
-        )
+        color = _imgui_color(imgui, (*color_rgb, 1.0))
         _draw_overlay_text(
             imgui,
             draw_list,
@@ -1578,7 +1620,7 @@ class TaxiHudState:
             speed,
             position=(left, top),
             font_size=font_size,
-            color=green,
+            color=color,
             font=font,
         )
         unit_size = max(14.0, font_size * 0.28)
@@ -1885,6 +1927,20 @@ class TaxiHudState:
         self._name_input = ""
         self._active_control_device = "keyboard"
 
+    def resize(self, width: int, height: int) -> None:
+        """Resize presentation-dependent HUD state."""
+        if (self.width, self.height) == (width, height):
+            return
+        self.width = width
+        self.height = height
+        self._waypoint_source = None
+        self._waypoint_projections = ()
+        self._bev_composite_source_key = None
+        self._bev_composite = None
+        self._bev_rect = None
+        self._menu_scroll_chrome_heights.clear()
+        self._menu_scrollbars.clear()
+
     def _clear_presented_game(self) -> None:
         """Discard frame-aligned HUD and BEV resources from the previous game."""
         self._frames.clear()
@@ -2133,6 +2189,7 @@ class TaxiHudState:
                 )
             )
             row_y = float(imgui.get_cursor_pos_y())
+            imgui.begin_group()
             imgui.set_cursor_pos_y(
                 row_y + max(0.0, (field_height - label_height) / 2.0)
             )
@@ -2191,6 +2248,10 @@ class TaxiHudState:
                     except SettingsError as exc:
                         self._options_error = str(exc)
                         changed = False
+            imgui.end_group()
+            _draw_option_tooltip(
+                imgui, setting_description(value, item), ".".join(item_path)
+            )
             if changed:
                 try:
                     self._options_draft = document.update(draft, item_path, edited)
@@ -2562,7 +2623,7 @@ class TaxiHudState:
         scale = min(
             1.0,
             max(1.0, float(self.width) - 28.0) / 500.0,
-            max(1.0, float(self.height) - 28.0) / 445.0,
+            max(1.0, float(self.height) - 28.0) / 520.0,
         )
         _draw_arcade_backdrop(imgui, self.width, self.height)
         _prepare_window(
@@ -2572,14 +2633,21 @@ class TaxiHudState:
             alpha=0.97,
             pivot=(0.5, 0.5),
         )
+        imgui.set_next_window_size_constraints(
+            imgui.ImVec2(1.0, 1.0),
+            imgui.ImVec2(
+                max(1.0, float(self.width) - 28.0),
+                max(1.0, float(self.height) - 28.0),
+            ),
+        )
         style_var_count, style_color_count = _push_arcade_card_style(
             imgui, _TAXI_ACCENT_RGB
         )
         description_font_size = max(12.0, 13.0 * scale)
         button_labels = (
-            ("TAXI", "RACE", "CONTROLS", "OPTIONS", "EXIT")
+            ("TAXI", "RACE", "FREE-ROAM", "CONTROLS", "OPTIONS", "EXIT")
             if self.settings_document is not None
-            else ("TAXI", "RACE", "CONTROLS", "EXIT")
+            else ("TAXI", "RACE", "FREE-ROAM", "CONTROLS", "EXIT")
         )
         button_width = max(
             _overlay_text_size(
@@ -2592,12 +2660,18 @@ class TaxiHudState:
                 "CHASE THE FASTEST TRACK TIME.",
                 description_font_size,
             )[0],
+            _overlay_text_size(
+                imgui,
+                "EXPLORE THE MAP AT YOUR OWN PACE.",
+                description_font_size,
+            )[0],
             *(_button_content_width(imgui, label) for label in button_labels),
         )
         visible = _begin_window(
             imgui,
             "Crazy Robotaxi - Select Game Mode",
-            extra_flags=_AUTO_CARD_FLAGS,
+            extra_flags=("no_title_bar", "always_auto_resize"),
+            scrollable=True,
         )
         try:
             if not visible:
@@ -2646,6 +2720,27 @@ class TaxiHudState:
                 font_size=description_font_size,
                 color=(0.72, 0.72, 0.76, 1.0),
             )
+            for color, alpha in (
+                (imgui.Col_.button, 0.78),
+                (imgui.Col_.button_hovered, 1.0),
+                (imgui.Col_.button_active, 0.62),
+            ):
+                imgui.push_style_color(
+                    color, imgui.ImVec4(*_FREE_ROAM_ACCENT_RGB, alpha)
+                )
+            try:
+                if _centered_imgui_button(
+                    imgui, "FREE-ROAM", imgui.ImVec2(button_width, button_height)
+                ):
+                    self._select_mode("free-roam")
+            finally:
+                imgui.pop_style_color(3)
+            _centered_imgui_text(
+                imgui,
+                "EXPLORE THE MAP AT YOUR OWN PACE.",
+                font_size=description_font_size,
+                color=(0.72, 0.72, 0.76, 1.0),
+            )
             imgui.separator()
             if _centered_imgui_button(
                 imgui, "CONTROLS", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
@@ -2687,7 +2782,7 @@ class TaxiHudState:
             max(1.0, float(self.width) - 28.0) / 620.0,
             max(1.0, float(self.height) - 28.0) / 560.0,
         )
-        accent_rgb = _RACE_ACCENT_RGB if mode == "race" else _TAXI_ACCENT_RGB
+        accent_rgb = _MODE_ACCENT_RGB[mode]
         _draw_arcade_backdrop(imgui, self.width, self.height)
         style_var_count, style_color_count = _push_arcade_card_style(imgui, accent_rgb)
         _prepare_window(
@@ -2714,7 +2809,7 @@ class TaxiHudState:
             )
             _centered_imgui_text(
                 imgui,
-                "RACE MODE" if mode == "race" else "TAXI MODE",
+                f"{mode.upper()} MODE",
                 font_size=max(13.0, 15.0 * scale),
                 color=(0.62, 0.62, 0.68, 1.0),
             )
@@ -3158,6 +3253,8 @@ class TaxiHudState:
         if width <= 0 or height <= 0:
             return
         snapshot = hud_frame.snapshot
+        if isinstance(snapshot, FreeRoamSnapshot):
+            return
         pose = hud_frame.rig_pose_world
         draw_list = imgui.get_background_draw_list()
 
@@ -3303,9 +3400,17 @@ class TaxiHudState:
         ):
             return self._bev_composite
 
-        # The shared ImGui overlay is float32. Converting once here avoids a
-        # full-frame overlay cast and extra BF16 blend kernels downstream.
+        # Scale before placing the BEV because its rectangle is expressed in
+        # presentation pixels. The shared ImGui overlay is also float32, so
+        # converting once here avoids an extra full-frame cast.
         output = video.to(dtype=torch.float32, copy=True)
+        if tuple(output.shape[-2:]) != (self.height, self.width):
+            output = functional.interpolate(
+                output.unsqueeze(0),
+                size=(self.height, self.width),
+                mode="bilinear",
+                align_corners=False,
+            )[0]
         if frame is None or rect is None:
             self._bev_composite_source_key = composite_source_key
             self._bev_composite = output
@@ -3318,8 +3423,8 @@ class TaxiHudState:
             raise ValueError("BEV and video presentation frames must share a device")
 
         top, left, image_height, image_width = rect
-        bottom = min(int(video.shape[-2]), top + image_height)
-        right = min(int(video.shape[-1]), left + image_width)
+        bottom = min(int(output.shape[-2]), top + image_height)
+        right = min(int(output.shape[-1]), left + image_width)
         if bottom <= top or right <= left:
             self._bev_composite_source_key = composite_source_key
             self._bev_composite = output
@@ -3397,8 +3502,12 @@ class TaxiHudState:
         )
 
     def _draw_terminal(
-        self, imgui: Any, snapshot: TaxiGameSnapshot | RaceGameSnapshot
+        self,
+        imgui: Any,
+        snapshot: TaxiGameSnapshot | RaceGameSnapshot | FreeRoamSnapshot,
     ) -> None:
+        if isinstance(snapshot, FreeRoamSnapshot):
+            return
         awaiting_name = snapshot.session_state == "awaiting_name"
         leaderboard = snapshot.session_state == "leaderboard"
         if not (awaiting_name or leaderboard):
@@ -3762,6 +3871,21 @@ def _composite_bev_ego_car(panel: Tensor) -> None:
 class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
     """Present generated frames beneath a responsive Dear ImGui taxi HUD."""
 
+    def __init__(
+        self,
+        *,
+        width: int,
+        height: int,
+    ) -> None:
+        """Configure the initial UI render-target dimensions.
+
+        Args:
+            width: Initial UI render-target width.
+            height: Initial UI render-target height.
+        """
+        super().__init__(width=width, height=height)
+        self._window_resize_requested: tuple[int, int] | None = None
+
     def is_finished(self) -> bool:
         """Return whether the root menu requested application shutdown."""
         return self.state._exit_requested
@@ -3770,6 +3894,23 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         self, imgui: Any, step_index: int, events: UserInputEvents
     ) -> Tensor | None:
         """Draw the HUD and return the generated world frame beneath it."""
+        for event in events.get_events():
+            if isinstance(event, FullscreenEnabledOptimalWindowSizeUserInputEvent):
+                self.state.presentation_size = event.width, event.height
+        presentation_size = self.state.presentation_size or (
+            self.state.width,
+            self.state.height,
+        )
+        if self.get_ui_loop_size() != presentation_size:
+            if self._window_resize_requested == presentation_size:
+                self.resize_ui_loop(*presentation_size)
+                self.state.resize(*presentation_size)
+                self._window_resize_requested = None
+            else:
+                self.request_new_window_size(presentation_size)
+                self._window_resize_requested = presentation_size
+        else:
+            self._window_resize_requested = None
         self.state.consume_input_events(events)
         frames = self.presented_model_frames()
         video = frames[0] if frames else None
@@ -3864,7 +4005,9 @@ def build_hud_frames(
     for index, (snapshot, simulation_timestamp_us) in enumerate(
         zip(snapshots, simulation_timestamps_us, strict=True)
     ):
-        if not isinstance(snapshot, (TaxiGameSnapshot, RaceGameSnapshot)):
+        if not isinstance(
+            snapshot, (TaxiGameSnapshot, RaceGameSnapshot, FreeRoamSnapshot)
+        ):
             raise TypeError("Taxi HUD received an unknown game snapshot")
         pose = poses[index].copy()
         pose.setflags(write=False)
@@ -4049,8 +4192,9 @@ def _begin_window(
     title: str,
     *,
     extra_flags: Sequence[str] = (),
+    scrollable: bool = False,
 ) -> bool:
-    """Begin a non-scrolling HUD window and normalize the binding result."""
+    """Begin a HUD window and normalize the binding result."""
     flags = 0
     window_flags = imgui.WindowFlags_
     for name in (
@@ -4058,11 +4202,11 @@ def _begin_window(
         "no_resize",
         "no_collapse",
         "no_saved_settings",
-        "no_scrollbar",
-        "no_scroll_with_mouse",
         *extra_flags,
     ):
         flags |= int(getattr(window_flags, name))
+    if not scrollable:
+        flags |= int(window_flags.no_scrollbar | window_flags.no_scroll_with_mouse)
     result = imgui.begin(title, flags=flags)
     if isinstance(result, tuple):
         return bool(result[0])
@@ -4100,6 +4244,20 @@ def _settings_widget_content_width(
     text_width = max(_point_xy(imgui.calc_text_size(label))[0] for label in labels)
     frame_padding_x = _point_xy(imgui.get_style().frame_padding)[0]
     return text_width + 2.0 * frame_padding_x + frame_height
+
+
+def _draw_option_tooltip(imgui: Any, description: str | None, yaml_key: str) -> None:
+    """Show wrapped help, the YAML path, and available CLI flags on hover."""
+    if imgui.begin_item_tooltip():
+        imgui.push_text_wrap_pos(imgui.get_font_size() * 35.0)
+        try:
+            help_text = f"{description}\n\n" if description else ""
+            cli_flags = SETTING_CLI_FLAGS.get(yaml_key)
+            cli_help = f"\nCLI: {cli_flags}" if cli_flags else ""
+            imgui.text_unformatted(f"{help_text}YAML: {yaml_key}{cli_help}")
+        finally:
+            imgui.pop_text_wrap_pos()
+            imgui.end_tooltip()
 
 
 def _wrapped_input_text(

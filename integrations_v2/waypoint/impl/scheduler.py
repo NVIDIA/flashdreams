@@ -5,12 +5,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import torch
 from torch import Tensor
 
+from flashdreams.infra.diffusion.scheduler import FlowPredictor
 from flashdreams.infra.diffusion.scheduler.fm_euler import (
     FlowMatchEulerDiscreteScheduler,
     FlowMatchEulerDiscreteSchedulerConfig,
@@ -37,7 +37,7 @@ class WaypointEulerScheduler(FlowMatchEulerDiscreteScheduler):
     def sample(
         self,
         initial_noise: Tensor,
-        predict_flow: Callable[[Tensor, Tensor], Tensor],
+        predict_flow: FlowPredictor,
         rng: torch.Generator | None = None,
     ) -> Tensor:
         """Denoise one action with checkpoint-equivalent Euler updates."""

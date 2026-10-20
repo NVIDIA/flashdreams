@@ -11,6 +11,8 @@ requires-python = ">=3.10"
 # tokenizers, imageio-ffmpeg, ...) come along via these top-level entries.
 dependencies = [
     "flashdreams",
+    # The upstream baseline imports torchvision.transforms in wan/modules/clip.py.
+    "torchvision>=0.26",
     "diffusers",
     "omegaconf",
     "imageio[ffmpeg]",
@@ -28,3 +30,10 @@ flashdreams = { path = "../../../../flashdreams", editable = true }
 
 [tool.uv]
 managed = true
+# CVE-2026-59890; PyTorch's <82 cap was unnecessary.
+# ponytail: override legacy metadata until all profiles use torch>=2.13.
+# https://github.com/pytorch/pytorch/pull/188190
+override-dependencies = ["setuptools>=83.0.0,<84"]
+build-constraint-dependencies = ["setuptools>=83.0.0,<84"]
+# Pillow 12.3 fixes image memory corruption and decompression-bomb bypasses.
+constraint-dependencies = ["pillow>=12.3.0"]

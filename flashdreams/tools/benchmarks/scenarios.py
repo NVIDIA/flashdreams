@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Benchmark scenario definitions and JSON loading helpers."""
 
@@ -283,6 +271,8 @@ def built_in_scenarios() -> dict[str, BenchmarkScenario]:
                 "integrations_v2/self_forcing",
                 "flashdreams-run-v2",
                 "t2v-self-forcing-wan2.1-t2v-1.3b",
+                "--timeout",
+                "unbound",
                 "--output-path",
                 "{output_dir}/self-forcing-v2-smoke.mp4",
                 "--stats-path",
@@ -310,6 +300,8 @@ def built_in_scenarios() -> dict[str, BenchmarkScenario]:
                 "integrations_v2/wan21",
                 "flashdreams-run-v2",
                 "t2v-wan21-t2v-1.3b-480p",
+                "--timeout",
+                "unbound",
                 "--output-path",
                 "{output_dir}/wan21-t2v-single.mp4",
                 "--stats-path",
@@ -335,6 +327,8 @@ def built_in_scenarios() -> dict[str, BenchmarkScenario]:
                 "integrations_v2/cosmos_predict2",
                 "flashdreams-run-v2",
                 "t2v-cosmos2-t2v-2b-720p",
+                "--timeout",
+                "unbound",
                 "--output-path",
                 "{output_dir}/cosmos2-t2v-single.mp4",
                 "--stats-path",

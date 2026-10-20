@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """CPU tests for the model-independent multi-view rollout seam."""
 
@@ -144,11 +132,16 @@ class _Model:
         geometry: ClipGeometry,
         controls: Tensor | ControlSource,
         text_ids: Tensor,
+        view_text_tokens: tuple[int, ...] | None,
         condition_tokens: Tensor | None,
         fps: float,
         history_slots: int,
         control_ranges: tuple[tuple[int, int], ...] | None,
         control_slot_frames: int | None,
+        attention_pattern: str,
+        attention_scope: str,
+        decomposed_temporal_window_seconds: float | None,
+        view_offsets: bool,
         use_block_mask: bool,
     ) -> MultiViewRolloutState:
         """Record all generic-to-model boundary values and return test state."""
@@ -156,11 +149,16 @@ class _Model:
             "geometry": geometry,
             "controls": controls,
             "text_ids": text_ids,
+            "view_text_tokens": view_text_tokens,
             "condition_tokens": condition_tokens,
             "fps": fps,
             "history_slots": history_slots,
             "control_ranges": control_ranges,
             "control_slot_frames": control_slot_frames,
+            "attention_pattern": attention_pattern,
+            "attention_scope": attention_scope,
+            "decomposed_temporal_window_seconds": (decomposed_temporal_window_seconds),
+            "view_offsets": view_offsets,
             "use_block_mask": use_block_mask,
         }
         return self.state
@@ -212,6 +210,7 @@ def test_rollout_requests_position_ids_on_the_model_device(
         chunk_frames: int,
         fps: float,
         temporal_offset: float,
+        view_offsets: bool,
         device: torch.device | None,
     ) -> Tensor:
         requested.append(device)
@@ -221,6 +220,7 @@ def test_rollout_requests_position_ids_on_the_model_device(
             chunk_frames=chunk_frames,
             fps=fps,
             temporal_offset=temporal_offset,
+            view_offsets=view_offsets,
             device=device,
         )
 
@@ -235,6 +235,29 @@ def test_rollout_requests_position_ids_on_the_model_device(
     )
 
     assert requested == [model.device, model.device]
+
+
+def test_view_caption_and_position_options_cross_the_rollout_seam() -> None:
+    model = _Model()
+    controls, text_ids, condition = _inputs()
+
+    run_rollout(
+        model,
+        geometry=GEOMETRY,
+        controls=controls,
+        text_ids=text_ids,
+        view_text_tokens=(1, 1),
+        condition_tokens=condition,
+        attention_scope="same_view",
+        view_offsets=False,
+    )
+
+    assert model.prepared["view_text_tokens"] == (1, 1)
+    assert model.prepared["attention_scope"] == "same_view"
+    assert model.prepared["view_offsets"] is False
+    first_mask = model.state.masks[0]
+    assert isinstance(first_mask, Tensor)
+    assert first_mask[:, :2].tolist() == [[True, False], [False, True]]
 
 
 def test_block_mask_selection_crosses_the_protocol_boundary() -> None:
@@ -295,6 +318,15 @@ def test_rollout_validates_conditioning_and_schedule_before_prefill() -> None:
             text_ids=text_ids,
             condition_tokens=condition,
             schedule=[0.5, 0.75],
+        )
+    with pytest.raises(ValueError, match="one entry per view"):
+        ChunkRollout(
+            _Model(),
+            geometry=GEOMETRY,
+            controls=controls,
+            text_ids=text_ids,
+            view_text_tokens=(2,),
+            condition_tokens=condition,
         )
 
 

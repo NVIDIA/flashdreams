@@ -25,13 +25,15 @@ Available application slugs:
 | `crazy-robotaxi-omnidreams-optimized-rtx-pro-6000` | `OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG` |
 | `crazy-robotaxi-omnidreams-perf` | `OMNIDREAMS_PERF_PIPELINE_CONFIG` |
 | `crazy-robotaxi-omnidreams-fast-perf` | `OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG` |
+| `crazy-robotaxi-omnidreams-rtx-5090` | `OMNIDREAMS_RTX_5090_PIPELINE_CONFIG` |
+| `crazy-robotaxi-omnidreams-rtx-5090-fast` | `OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG` |
 | `crazy-robotaxi-omnidreams-responsive` | `OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG` |
 | `crazy-robotaxi-omnidreams-optimized-gb300-responsive` | `OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG` |
 | `crazy-robotaxi-omnidreams-optimized-rtx-pro-6000-responsive` | `OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG` |
 | `crazy-robotaxi-omnidreams-perf-responsive` | `OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG` |
 | `crazy-robotaxi-omnidreams-fast-perf-responsive` | `OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG` |
 
-The `perf`, `fast-perf`, and `fast-perf-responsive` variants download their
+The `perf`, `fast-perf`, `rtx-5090`, `rtx-5090-fast`, and `fast-perf-responsive` variants download their
 pinned native source dependencies on first use.
 
 See the shared [Crazy Robotaxi README](../../../../apps/crazy_robotaxi/README.md)

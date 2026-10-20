@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Streaming inference pipeline for Omnidreams (Cosmos DiT + HDMap + I2V)."""
 
@@ -50,7 +38,7 @@ from flashdreams.infra.pipeline import (
     StreamInferencePipelineCache,
     StreamInferencePipelineConfig,
 )
-from flashdreams.recipes.taehv import TeahvVAEDecoder
+from flashdreams.recipes.taehv import TaehvVAEDecoder
 from flashdreams.recipes.wan.autoencoder.vae import (
     WanVAEDecoder,
     WanVAEEncoder,
@@ -163,7 +151,7 @@ class OmnidreamsPipeline(
         )
         self._len_t_latent: int = transformer.config.len_t
         decoder = self.decoder
-        assert isinstance(decoder, (WanVAEDecoder, TeahvVAEDecoder)), (
+        assert isinstance(decoder, (WanVAEDecoder, TaehvVAEDecoder)), (
             "OmnidreamsPipeline requires a Wan or Taehv VAE decoder; "
             f"got {type(decoder).__name__}."
         )
@@ -370,7 +358,7 @@ class OmnidreamsPipeline(
             f"got {type(transformer).__name__}."
         )
         decoder = self.decoder
-        assert isinstance(decoder, (WanVAEDecoder, TeahvVAEDecoder)), (
+        assert isinstance(decoder, (WanVAEDecoder, TaehvVAEDecoder)), (
             "OmnidreamsPipeline requires a Wan or Taehv VAE decoder; "
             f"got {type(decoder).__name__}."
         )

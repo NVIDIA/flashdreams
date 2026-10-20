@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Clean Forcing drift corrector for the Omnidreams runner.
 
@@ -20,9 +8,8 @@ checkpoints) on a built :class:`~omnidreams.runner.OmnidreamsRunner`'s
 pipeline at ``alpha*(t) * gain`` per denoise step. SHIPPED config (owner
 decision 2026-07-24): ``lora_v2_v3_valpeak.pt`` at gain 0.25
 (``corrgate025`` — best trees/foliage detail and consistency, drift
-Delta +0.99 vs base +2.44). Mirrors the HY-WorldPlay deploy module
-(``hy_worldplay/_drift_corrector.py``); self-contained so the production
-runner does not import the research directory.
+Delta +0.99 vs base +2.44). Self-contained so the production runner
+does not import the research directory.
 
 By default the LoRA is **pre-merged**: at load time each discrete
 ``alpha*(t) * gain`` value gets its own cached copy of the target

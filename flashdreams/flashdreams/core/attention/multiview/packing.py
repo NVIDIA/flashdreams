@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Token layouts and metadata for multi-view autoregressive attention."""
 
@@ -428,18 +416,48 @@ def _vision(
     )
 
 
-def text_stream(text_tokens: int, device: torch.device | None = None) -> StreamFields:
+def text_stream(
+    text_tokens: int,
+    device: torch.device | None = None,
+    *,
+    view_text_tokens: Sequence[int] | None = None,
+) -> StreamFields:
     """Fields for ``text_tokens`` prompt tokens.
 
-    They carry a sample id and nothing else. Leaving every multiview field at
-    the padding sentinel keeps the vision rules from matching them at all, so
-    the only rule that admits the prompt is the one written for it.
+    They carry a sample id and, for view-specific captions, a view id. Leaving
+    the remaining fields at the padding sentinel keeps the vision rules from
+    matching them, so only the prompt rules admit them.
+
+    Args:
+        view_text_tokens: Token count for each view's caption, in view order.
+            ``None`` leaves every caption token visible to the whole rig.
+
+    Raises:
+        ValueError: A per-view count is negative or the counts do not sum to
+            ``text_tokens``.
     """
     device = device or torch.device("cpu")
+    if view_text_tokens is None:
+        view_id = torch.full((text_tokens,), -1, dtype=torch.long, device=device)
+    else:
+        if any(tokens < 0 for tokens in view_text_tokens):
+            raise ValueError(
+                f"per-view caption lengths must be non-negative, got "
+                f"{list(view_text_tokens)}."
+            )
+        if sum(view_text_tokens) != text_tokens:
+            raise ValueError(
+                f"per-view captions of {list(view_text_tokens)} tokens make "
+                f"{sum(view_text_tokens)}, but the prompt is {text_tokens} tokens."
+            )
+        view_id = torch.repeat_interleave(
+            torch.arange(len(view_text_tokens), dtype=torch.long, device=device),
+            torch.tensor(list(view_text_tokens), dtype=torch.long, device=device),
+        )
     return StreamFields(
         sample_id=torch.zeros(text_tokens, dtype=torch.long, device=device),
         frame_id=torch.full((text_tokens,), -1, dtype=torch.long, device=device),
-        view_id=torch.full((text_tokens,), -1, dtype=torch.long, device=device),
+        view_id=view_id,
         is_noisy=torch.zeros(text_tokens, dtype=torch.bool, device=device),
         is_control=torch.zeros(text_tokens, dtype=torch.bool, device=device),
         timestamp=torch.full((text_tokens,), -1.0, dtype=torch.float32, device=device),
@@ -448,6 +466,16 @@ def text_stream(text_tokens: int, device: torch.device | None = None) -> StreamF
         ),
         causal_step_id=torch.full((text_tokens,), -1, dtype=torch.long, device=device),
     )
+
+
+def _check_view_text_tokens(
+    geometry: ClipGeometry, view_text_tokens: Sequence[int] | None
+) -> None:
+    if view_text_tokens is not None and len(view_text_tokens) != geometry.num_views:
+        raise ValueError(
+            "view_text_tokens must contain one entry per view; "
+            f"expected {geometry.num_views}, got {len(view_text_tokens)}."
+        )
 
 
 @dataclass(frozen=True)
@@ -658,6 +686,7 @@ def build_chunk_metadata(
     chunk_start: int,
     chunk_frames: int,
     text_tokens: int,
+    view_text_tokens: Sequence[int] | None = None,
     pass_kind: ChunkPassKind = "noisy",
     text_capacity: int | None = None,
     chunk_capacity: int | None = None,
@@ -670,6 +699,7 @@ def build_chunk_metadata(
     throughout.
 
     ``text_tokens`` counts the prompt tokens prefixed to the key stream.
+    ``view_text_tokens`` optionally divides them into view-specific captions.
 
     ``pass_kind`` picks which pass this is. ``"noisy"`` denoises: the tokens are
     noisy and may read strictly earlier history. ``"clean"`` replays the
@@ -679,6 +709,7 @@ def build_chunk_metadata(
     only the prompt and earlier control in its own view.
     """
     device = device or torch.device("cpu")
+    _check_view_text_tokens(geometry, view_text_tokens)
     if chunk_frames < 1:
         raise ValueError(f"chunk_frames must be >= 1, got {chunk_frames}.")
     # Control covers the frames it describes, conditioned or not; only a target
@@ -719,7 +750,11 @@ def build_chunk_metadata(
         device,
     )
 
-    text = _pad_to(text_stream(text_tokens, device), text_capacity, device)
+    text = _pad_to(
+        text_stream(text_tokens, device, view_text_tokens=view_text_tokens),
+        text_capacity,
+        device,
+    )
 
     return ChunkMetadata(
         query=query,

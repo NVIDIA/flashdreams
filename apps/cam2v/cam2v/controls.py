@@ -167,7 +167,7 @@ class CameraPoseIntegrator:
         if self.coordinate_system == "FLU":
             self._current_pitch = float(np.arcsin(np.clip(pose[2, 0], -1.0, 1.0)))
         else:
-            self._current_pitch = float(np.arctan2(pose[2, 1], pose[1, 1]))
+            self._current_pitch = float(np.arcsin(np.clip(-pose[1, 2], -1.0, 1.0)))
 
     def current_pose(self) -> np.ndarray:
         """Return a copy of the most recently integrated camera pose."""
@@ -211,7 +211,7 @@ class CameraPoseIntegrator:
         else:
             pitch_rotation = _rotation_matrix("x", pitch_delta)
             yaw_rotation = _rotation_matrix("y", yaw_delta)
-        new_rotation = yaw_rotation @ rotation @ pitch_rotation
+        new_rotation = rotation @ yaw_rotation @ pitch_rotation
 
         forward_rate = 0.0
         if "w" in state:

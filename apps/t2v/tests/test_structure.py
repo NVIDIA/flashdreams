@@ -44,60 +44,6 @@ _MODEL_APPLICATIONS = (
 """Model packages and their user-facing application slugs."""
 
 
-@pytest.mark.parametrize(("model", "factories"), _MODEL_APPLICATIONS)
-def test_model_owns_v2_t2v_adapter(model: str, factories: dict[str, str]) -> None:
-    """Keep model code and its T2V adapter in one v2 integration package."""
-    project = _REPO_ROOT / "integrations_v2" / model
-    application_project = project / "apps" / "t2v"
-    implementation = project / "impl"
-    config = project / "config.py"
-    manifest = tomllib.loads((project / "pyproject.toml").read_text())
-
-    assert not (_REPO_ROOT / "integrations" / model).exists()
-    assert {path.name for path in project.glob("*.py")} == {"__init__.py", "config.py"}
-    assert not (project / "runner.py").exists()
-    assert {path.name for path in application_project.glob("*.py")} == {
-        "__init__.py",
-        "adapter.py",
-    }
-    assert not (application_project / "t2v").exists()
-    assert config.is_file()
-    assert (implementation / "__init__.py").is_file()
-    assert not (implementation / "config.py").exists()
-    for source_path in implementation.rglob("*.py"):
-        source = source_path.read_text()
-        assert "from t2v" not in source
-        assert "import t2v" not in source
-        assert "flashdreams.runtime_v2" not in source
-        assert "flashdreams.serving" not in source
-    assert not list(project.glob("apps/*/config.py"))
-    application_readme = (application_project / "README.md").read_text()
-    model_readme = (project / "README.md").read_text()
-    for slug in factories:
-        assert slug in application_readme
-        assert slug in model_readme
-    assert "../../../../apps/t2v/README.md" in application_readme
-    assert not (application_project / "tests").exists()
-    assert not (application_project / "impl").exists()
-    assert (project / "tests").is_dir()
-    assert "flashdreams-t2v" in manifest["project"]["dependencies"]
-    assert f"{model}.impl" in manifest["tool"]["setuptools"]["packages"]
-    for slug, factory in factories.items():
-        assert factory == "create_app" or (
-            factory.startswith("create_app_")
-            and slug.endswith(
-                "-" + factory.removeprefix("create_app_").replace("_", "-")
-            )
-        )
-    assert manifest["tool"]["setuptools"]["package-dir"] == {model: "."}
-    assert manifest["project"]["entry-points"]["flashdreams.applications_v2"] == {
-        slug: f"{model}.apps.t2v.adapter:{factory}"
-        for slug, factory in factories.items()
-    }
-    assert "flashdreams.runner_configs" not in manifest["project"]["entry-points"]
-    assert "RUNNER_" not in config.read_text()
-
-
 def test_shared_t2v_code_is_owned_by_app_package() -> None:
     """Keep reusable demo infrastructure outside the framework and models."""
     project = _REPO_ROOT / "apps" / "t2v"

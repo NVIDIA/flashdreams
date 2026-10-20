@@ -38,7 +38,7 @@ Start here, then use the narrower docs for the task in front of you:
 - `skills/` contains repo-authored Agent Skills. Use `skills/README.md` for opt-in setup and skill authoring rules.
 - `README.md` covers user-facing setup, requirements, supported models, and first-run commands.
 - `CONTRIBUTING.md` covers PR process, DCO sign-off, coding conventions, test markers, and dependency rules.
-- `docs/README.md` covers Sphinx docs build and hosting. `tests/README.md` covers local, Docker, and CI-oriented test entry points.
+- `docs/README.md` covers the Zensical docs build and hosting. `tests/README.md` covers local, Docker, and CI-oriented test entry points.
 
 ## Repo Map
 
@@ -51,7 +51,9 @@ File structure is in [CONTRIBUTING.md's File Tree Of FlashDreams](CONTRIBUTING.m
 - `skills/profile-model-performance`: read before starting performance work on an existing model integration, demo, runner, or serving path; use it to map execution, add stage timings, and identify decode/model/cache/transfer/presentation bottlenecks.
 - `skills/apply-inference-optimizations`: read before porting runtime speedups such as bounded K/V caches, overlap, compile, CUDA graphs, decoder layout changes, or presentation queue tuning into an integration.
 - `skills/validate-performance-quality`: read before adding benchmark sweeps, quality comparisons, profiler probes, performance summaries, or docs for a performance change.
+- `skills/security-code-review`: read when reviewing a change for security-sensitive behavior or giving the final merge approval.
 - `skills/flashdreams-postprocessing`: read before adding or modifying video post-processors, postprocess presets, `VideoPostprocessStream`, buffering/layout behavior, or runner postprocess wiring.
+- `skills/flashdreams-preparation`: read before adding or changing checkpoint/asset downloads, CUDA/native compilation, application initialization, or preload behavior.
 - `skills/python-docstring-style`: read before adding or polishing Python docstrings, field docstrings, module comments, or SPDX headers.
 - `skills/maintaining-oss-state`: read before dependency, license, NOTICE, REUSE, or OSS-release collateral changes.
 - When adding a new `skills/<skill-name>/SKILL.md`, update this section so agents can discover when to use it.
@@ -69,11 +71,13 @@ uv run pytest -m ci_cpu
 uv run pytest -m "not manual"
 ./tests/run_tests_local.sh [target]
 ./tests/run_tests_docker.sh [target]
-uv run --group docs sphinx-build -b html docs/source docs/_build/html
-uv run --group docs sphinx-autobuild -E docs/source docs/_build/html --port 8000
+uv run --only-group docs zensical build --clean -f docs/zensical.toml
+uv run --only-group docs zensical serve -f docs/zensical.toml
 ```
 
 Use `--no-instantiate` before GPU work to inspect the resolved runner config without constructing models or loading checkpoints.
+
+Before performance work, collect an nsys report with `uv run flashdreams-profile` and read the timeline; see `docs/source/documentation/demo_api/guides/profiling.md`.
 
 ## No-GPU Workflow
 
@@ -83,7 +87,7 @@ Use `--no-instantiate` before GPU work to inspect the resolved runner config wit
 
 ## Testing Guidance
 
-Every pytest test must carry exactly one of `ci_cpu`, `ci_gpu`, or `manual`; `CONTRIBUTING.md` has the exact rules, including how pytest discovers files and functions (`test_*.py`, `test_*`). Use module-level `pytestmark = pytest.mark.ci_cpu` for pure Python/metadata tests. Keep GPU, `libGL`/`cv2`, large-checkpoint, credential, and download-heavy checks out of `ci_cpu`.
+Every pytest test must carry exactly one of `ci_cpu`, `ci_gpu`, or `manual`; [Testing](https://nvidia.github.io/flashdreams/main/documentation/tools/testing/) has the exact discovery and marker rules. Use module-level `pytestmark = pytest.mark.ci_cpu` for pure Python/metadata tests. Keep GPU, `libGL`/`cv2`, large-checkpoint, credential, and download-heavy checks out of `ci_cpu`.
 
 **v2 test ownership** — put a new test next to the thing it validates:
 
@@ -114,11 +118,11 @@ Because of this direction, tests in `apps/<name>/tests/` must not import from `i
 
 ## Troubleshooting Links
 
-- Setup and requirements: `README.md`, `docs/source/quickstart/installation.rst`
-- CLI details: `docs/source/api/cli.rst`
-- Integration/plugin layout: `docs/source/api/integrations.rst`
-- New integrations: `docs/source/developer_guides/new_integration.rst`
-- Docs and CPU autodoc: `docs/README.md`
+- Setup and requirements: `README.md`, `docs/source/quickstart/index.md`
+- CLI details: `docs/source/documentation/cli.md`
+- Integration/plugin layout: `docs/source/documentation/demo_api/guides/integrate_model.md`
+- New integrations: `docs/source/documentation/inferencing_api/guides/create_model.md`
+- Docs build and hosting: `docs/README.md`
 - Tests and quality regressions: `tests/README.md`
 - Security reports: `SECURITY.md`
 

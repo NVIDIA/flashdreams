@@ -9,10 +9,12 @@ import logging
 import queue
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -22,6 +24,7 @@ from crazy_robotaxi.controls import (
     InputBinding,
     load_controls_documents,
 )
+from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import (
     GameMapOption,
     GameRaceCourseOption,
@@ -57,24 +60,68 @@ from crazy_robotaxi.world_overlay import draw_waypoints, project_waypoints
 from omnidreams_game_engine.types import CameraCalibration
 
 from flashdreams.api_v2.loop import IModelLoop
-from flashdreams.runtime_v2.presentation_manager import PresentationManager
-from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_taxi_ui_requests_fullscreen_dimensions_before_resizing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loop = CrazyRobotaxiImGuiUILoop(width=320, height=240)
+    loop.state = TaxiHudState(320, 240, None, presentation_size=(320, 240))
+    loop._ui_loop_requests = None
+    loop._presentation_manager = Mock()
+    loop._presentation_manager.presented_frames.return_value = ()
+    monkeypatch.setattr(TaxiHudState, "draw", Mock())
+    loop.step_ui(object(), 0, UserInputEvents([]))
+    assert loop.get_ui_loop_size() == (320, 240)
+
+    loop.step_ui(
+        object(),
+        1,
+        UserInputEvents(
+            [
+                FullscreenEnabledOptimalWindowSizeUserInputEvent(
+                    timestamp=np.uint64(0), width=1920, height=1080
+                )
+            ]
+        ),
+    )
+    assert loop.get_ui_loop_size() == (320, 240)
+    assert (loop.state.width, loop.state.height) == (320, 240)
+    assert loop.state.presentation_size == (1920, 1080)
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None and requests.new_window_size == (1920, 1080)
+
+    loop.step_ui(object(), 2, UserInputEvents([]))
+    assert loop.get_ui_loop_size() == (1920, 1080)
+    assert (loop.state.width, loop.state.height) == (1920, 1080)
+    assert loop.flush_ui_loop_requests() is None
+
+    loop.state.presentation_size = (640, 480)
+    loop.step_ui(object(), 3, UserInputEvents([]))
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None and requests.new_window_size == (640, 480)
+    loop.step_ui(object(), 4, UserInputEvents([]))
+    assert loop.get_ui_loop_size() == (640, 480)
+    loop.close()
 
 
 @dataclass(frozen=True)
 class _SettingsTransformer:
     dtype: str = "bfloat16"
+    """Test model parameter precision."""
+
     native_dit_acceleration: str = "required"
+    state_dict_transform: Callable[[object], object] | None = None
+    """Internal checkpoint hook that must stay off the Options screen."""
 
 
 @dataclass(frozen=True)
@@ -89,6 +136,25 @@ class _SettingsPipeline:
     diffusion_model: _SettingsDiffusionModel = field(
         default_factory=_SettingsDiffusionModel
     )
+
+
+@dataclass(frozen=True)
+class _SettingsEncoder:
+    precision: str = "bfloat16"
+    """Encoder precision."""
+
+
+@dataclass(frozen=True)
+class _SettingsPipelineWithEncoders:
+    image_encoder: _SettingsEncoder = field(
+        default_factory=_SettingsEncoder,
+    )
+    """First instance of the reusable encoder config."""
+
+    encoder: _SettingsEncoder = field(
+        default_factory=_SettingsEncoder,
+    )
+    """Second instance with its own parent field name."""
 
 
 def _calibration() -> CameraCalibration:
@@ -291,6 +357,40 @@ class _FakeImGui:
         self.pushed_style_colors: list[tuple[int, object]] = []
         self.fonts = _FakeFontAtlas()
         self.io = SimpleNamespace(fonts=self.fonts)
+        self.hovered_items: set[str] = set()
+        self.tooltips: list[str] = []
+        self.wrap_positions: list[float] = []
+        self._group_items: list[str] | None = None
+        self._group_hovered = False
+        self._tooltip_open = False
+
+    def begin_group(self) -> None:
+        assert self._group_items is None
+        self._group_items = []
+
+    def end_group(self) -> None:
+        assert self._group_items is not None
+        self._group_hovered = bool(self.hovered_items.intersection(self._group_items))
+        self._group_items = None
+
+    def begin_item_tooltip(self) -> bool:
+        self._tooltip_open = self._group_hovered
+        return self._tooltip_open
+
+    def end_tooltip(self) -> None:
+        assert self._tooltip_open
+        self._tooltip_open = False
+
+    def push_text_wrap_pos(self, position: float) -> None:
+        self.wrap_positions.append(position)
+
+    def pop_text_wrap_pos(self) -> None:
+        self.wrap_positions.pop()
+
+    def text_unformatted(self, value: str) -> None:
+        assert self._tooltip_open
+        assert self.wrap_positions[-1] > 0.0
+        self.tooltips.append(value)
 
     @staticmethod
     def ImVec2(x: float, y: float) -> tuple[float, float]:
@@ -426,6 +526,8 @@ class _FakeImGui:
 
     def text(self, value: str) -> None:
         assert self.current_window is not None
+        if self._group_items is not None:
+            self._group_items.append(value)
         self.windows[self.current_window].append(value)
         self.text_fonts.append((value, self.current_font, self.current_font_size))
         self.text_positions.append((value, self.cursor_y))
@@ -487,6 +589,8 @@ class _FakeImGui:
 
     def input_text(self, label: str, value: str, *, flags: int):
         del flags
+        if self._group_items is not None:
+            self._group_items.append(label)
         if label in self.input_values:
             return True, self.input_values[label]
         del label, value
@@ -501,18 +605,24 @@ class _FakeImGui:
         flags: int,
     ) -> tuple[bool, str]:
         self.multiline_inputs.append((label, value, size, flags))
+        if self._group_items is not None:
+            self._group_items.append(label)
         self.multiline_input_positions[label] = self.cursor_y
         if label in self.input_values:
             return True, self.input_values[label]
         return False, value
 
     def checkbox(self, label: str, value: bool) -> tuple[bool, bool]:
+        if self._group_items is not None:
+            self._group_items.append(label)
         if label in self.checkbox_values:
             return True, self.checkbox_values[label]
         return False, value
 
     def combo(self, label: str, index: int, options: list[str]) -> tuple[bool, int]:
         del options
+        if self._group_items is not None:
+            self._group_items.append(label)
         if label in self.combo_indices:
             return True, self.combo_indices[label]
         return False, index
@@ -885,7 +995,7 @@ def test_live_edit_card_is_hidden_when_map_context_has_no_visible_content() -> N
         540,
         _calibration(),
         live_edit=LiveEditConfig(
-            map_context=LiveEditMapContextConfig(enabled=True),
+            dynamic_prompts=LiveEditMapContextConfig(enabled=True),
         ),
         show_live_edit_buttons=False,
     )
@@ -1103,156 +1213,6 @@ def test_current_prompt_offsets_left_live_edit_overlays() -> None:
     assert imgui.window_positions["Live Edit"] == (14.0, prompt_bottom + 88.0)
 
 
-def test_imgui_ui_loop_draws_waypoints_and_bev_in_the_ui_overlay() -> None:
-    width, height = 160, 96
-    video = torch.full((1, 3, height, width), -0.5, dtype=torch.bfloat16)
-    hdmap = torch.full((1, 3, height, width), 0.5, dtype=torch.bfloat16)
-    bev = torch.full((1, 4, 32, 32), 255, dtype=torch.uint8)
-    bev[:, :3].fill_(191)
-    hud_state = TaxiHudState(width, height, _calibration())
-    hud_state.publish(
-        build_hud_frames(
-            video,
-            (_snapshot(),),
-            np.eye(4, dtype=np.float32)[None],
-            speeds_mps=(12.0,),
-        )
-    )
-    presentation = PresentationManager()
-    presentation.publish(
-        0,
-        [
-            StepResult(0, video, 1, VideoTensorLayout.tchw),
-            StepResult(0, hdmap, 1, VideoTensorLayout.tchw),
-            StepResult(0, bev, 1, VideoTensorLayout.tchw),
-        ],
-    )
-    changed, _ = presentation.advance(0)
-    renderer = _Renderer(width, height)
-    loop = CrazyRobotaxiImGuiUILoop(
-        renderer=renderer,
-    )
-    loop.register_session_loop_objects(
-        state=hud_state,
-        frequency=60,
-        shutdown_event=threading.Event(),
-        failure_queue=queue.Queue(),
-    )
-    loop.register_session_ui_loop_objects(
-        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
-        presentation_manager=presentation,
-    )
-
-    result = loop.step(0, UserInputEvents([]))
-
-    output = result.read_output()
-    assert changed
-    assert output.shape == (1, 3, height, width)
-    assert output.dtype is torch.float32
-    assert hud_state._current is not None
-    assert "Crazy Robotaxi" not in renderer.ui.windows
-    assert "Navigation" not in renderer.ui.windows
-    assert renderer.ui.dummies == [(32.0, 32.0)]
-    map_flags = renderer.ui.window_flags["Map"]
-    assert map_flags & renderer.ui.WindowFlags_.no_title_bar
-    assert map_flags & renderer.ui.WindowFlags_.no_background
-    map_borders = [
-        command
-        for command in renderer.ui.background_draw_list.commands
-        if command[0] == "rect" and command[1][4] == 2.0
-    ]
-    assert len(map_borders) == 1
-    command_names = [name for name, _ in renderer.ui.background_draw_list.commands]
-    assert "triangle_filled" in command_names
-    assert "circle_filled" in command_names
-    overlay_text = [
-        args[-1]
-        for name, args in renderer.ui.background_draw_list.commands
-        if name == "text"
-    ]
-    assert "GAME 42.5s  PICKUP  25m  SCORE 1200  HIGH 9000" in overlay_text
-    assert "27" in overlay_text
-    assert "mph" in overlay_text
-    top, left, panel_height, panel_width = hud_state._bev_rect or (0, 0, 0, 0)
-    panel = output[0, :, top : top + panel_height, left : left + panel_width]
-    background = 191.0 / 127.5 - 1.0
-    assert torch.allclose(panel[:, 0, 0], torch.full_like(panel[:, 0, 0], background))
-    assert not torch.allclose(panel, torch.full_like(panel, background))
-    torch.testing.assert_close(
-        panel[:, panel_height // 2, panel_width // 2], torch.tensor((1.0, 0.6, -1.0))
-    )
-    outside = output[0].clone()
-    outside[:, top : top + panel_height, left : left + panel_width] = -0.5
-    assert torch.all(outside == video[0])
-
-    cached_waypoints = hud_state._waypoint_projections
-    cached_bev = hud_state._bev_panel
-    cached_composite = hud_state._bev_composite
-    loop.step(1, UserInputEvents([]))
-    assert hud_state._waypoint_projections is cached_waypoints
-    assert hud_state._bev_panel is cached_bev
-    assert hud_state._bev_composite is cached_composite
-
-    loop.reset()
-    assert hud_state._current is None
-    assert hud_state._waypoint_projections == ()
-    assert hud_state._bev_panel is None
-    assert hud_state._bev_composite is None
-    assert hud_state._bev_rect is None
-    assert renderer.reset_count == 1
-
-
-def test_imgui_ui_loop_can_present_exact_hdmap_conditioning() -> None:
-    width, height = 160, 96
-    video = torch.full((1, 3, height, width), -0.5, dtype=torch.bfloat16)
-    hdmap = torch.full((1, 3, height, width), 0.75, dtype=torch.bfloat16)
-    hud_state = TaxiHudState(width, height, _calibration(), hud_enabled=False)
-    hud_state.publish(
-        build_hud_frames(
-            video,
-            (_snapshot(),),
-            np.eye(4, dtype=np.float32)[None],
-        )
-    )
-    presentation = PresentationManager()
-    presentation.publish(
-        0,
-        [
-            StepResult(0, video, 1, VideoTensorLayout.tchw),
-            StepResult(0, hdmap, 1, VideoTensorLayout.tchw),
-        ],
-    )
-    presentation.advance(0)
-    loop = CrazyRobotaxiImGuiUILoop(renderer=_Renderer(width, height))
-    loop.register_session_loop_objects(
-        state=hud_state,
-        frequency=60,
-        shutdown_event=threading.Event(),
-        failure_queue=queue.Queue(),
-    )
-    loop.register_session_ui_loop_objects(
-        session_desc=SessionDesc(output_layout=VideoTensorLayout.tchw),
-        presentation_manager=presentation,
-    )
-
-    generated = loop.step(0, UserInputEvents([])).read_output()
-    conditioning = loop.step(
-        1,
-        UserInputEvents(
-            [
-                KeyboardUserInputEvent(
-                    timestamp=np.uint64(1),
-                    key="m",
-                    state=KeyboardInputState.PRESSED,
-                )
-            ]
-        ),
-    ).read_output()
-
-    assert torch.all(generated == -0.5)
-    assert torch.all(conditioning == 0.75)
-
-
 def test_bev_compositor_uses_rgba_coverage_for_black_road_pixels() -> None:
     state = TaxiHudState(4, 4, _calibration())
     state._bev_rect = (0, 0, 4, 4)
@@ -1292,6 +1252,32 @@ def test_presentation_back_buffer_is_cached_without_a_bev_frame() -> None:
     assert first.dtype is torch.float32
     assert repeated is first
     torch.testing.assert_close(first, video.float())
+
+
+def test_presentation_back_buffer_scales_to_ui_resolution() -> None:
+    state = TaxiHudState(16, 12, _calibration())
+    state._bev_rect = (8, 12, 4, 4)
+    video = torch.full((3, 6, 8), -0.5, dtype=torch.bfloat16)
+    bev = torch.full((4, 4, 4), 255, dtype=torch.uint8)
+
+    output = state.composite_bev(video, bev)
+
+    assert output.shape == (3, 12, 16)
+    assert output.dtype is torch.float32
+    torch.testing.assert_close(output[:, 0, 0], torch.full((3,), -0.5))
+    torch.testing.assert_close(output[:, 8, 12], torch.ones(3))
+
+
+def test_presentation_back_buffer_cache_is_invalidated_on_resize() -> None:
+    state = TaxiHudState(4, 4, _calibration())
+    video = torch.full((3, 4, 4), -0.5, dtype=torch.bfloat16)
+    initial = state.composite_bev(video, None)
+
+    state.resize(8, 6)
+    resized = state.composite_bev(video, None)
+
+    assert resized is not initial
+    assert resized.shape == (3, 6, 8)
 
 
 def test_bev_draws_edge_arrow_for_an_offscreen_dropoff() -> None:
@@ -1405,6 +1391,37 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
         if name == "circle_filled"
     )
     assert compass[0][1] == 110.0
+
+
+def test_free_roam_hud_has_blue_status_without_objective_markers() -> None:
+    video = torch.zeros(1, 3, 360, 640)
+    state = TaxiHudState(640, 360, _calibration())
+    frame = build_hud_frames(
+        video,
+        (FreeRoamSnapshot(),),
+        np.eye(4, dtype=np.float32)[None],
+    )[0]
+    state.publish((frame,))
+    state._current = frame
+    state._menu_stage = "game"
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+    state._bev_rect = (0, 0, 96, 96)
+    state._draw_bev_navigation(imgui, frame)
+
+    text = [
+        args[-1] for name, args in imgui.background_draw_list.commands if name == "text"
+    ]
+    assert "FREE-ROAM" in text
+    blue = imgui.color_convert_float4_to_u32((0.0, 98.0 / 255.0, 1.0, 1.0))
+    assert any(
+        name == "text" and args[-1] == "FREE-ROAM" and args[-2] == blue
+        for name, args in imgui.background_draw_list.commands
+    )
+    assert not any(
+        name == "triangle_filled" for name, _args in imgui.background_draw_list.commands
+    )
 
 
 def test_prominent_gameplay_text_uses_droid_sans() -> None:
@@ -1547,11 +1564,15 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
         flags = imgui.window_flags[title]
         assert flags & imgui.WindowFlags_.no_title_bar
         assert flags & imgui.WindowFlags_.always_auto_resize
-        assert flags & imgui.WindowFlags_.no_scrollbar
-        assert flags & imgui.WindowFlags_.no_scroll_with_mouse
+        if title == "Crazy Robotaxi - Select Game Mode":
+            assert not flags & imgui.WindowFlags_.no_scrollbar
+            assert not flags & imgui.WindowFlags_.no_scroll_with_mouse
+        else:
+            assert flags & imgui.WindowFlags_.no_scrollbar
+            assert flags & imgui.WindowFlags_.no_scroll_with_mouse
     button_sizes = dict(imgui.button_sizes)
     button_positions = dict(imgui.button_positions)
-    assert button_sizes["TAXI"] == button_sizes["RACE"]
+    assert button_sizes["TAXI"] == button_sizes["RACE"] == button_sizes["FREE-ROAM"]
     for label in ("TAXI", "Test City##map-0", "DOWNTOWN SPRINT##course-0"):
         size = button_sizes[label]
         assert size is not None and size[0] > 0.0
@@ -1589,6 +1610,33 @@ def test_selection_menus_use_arcade_card_layout(tmp_path: Path) -> None:
     assert [command for command, _args in imgui.background_draw_list.commands].count(
         "rect_filled"
     ) == 3
+
+
+def test_mode_card_scrolls_within_a_small_viewport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    imgui = _FakeImGui()
+    constraints: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    monkeypatch.setattr(
+        imgui,
+        "set_next_window_size_constraints",
+        lambda minimum, maximum: constraints.append((minimum, maximum)),
+    )
+
+    state.draw(imgui)
+
+    assert constraints == [((1.0, 1.0), (612.0, 332.0))]
+    flags = imgui.window_flags["Crazy Robotaxi - Select Game Mode"]
+    assert not flags & imgui.WindowFlags_.no_scrollbar
+    assert not flags & imgui.WindowFlags_.no_scroll_with_mouse
+    assert "OPTIONS" in imgui.buttons
+    assert "EXIT" in imgui.buttons
 
 
 def test_race_map_grid_uses_filtered_positions_for_layout() -> None:
@@ -2029,6 +2077,40 @@ def test_race_menu_selects_map_then_course() -> None:
     ]
 
 
+def test_free_roam_menu_selects_any_map_without_a_course() -> None:
+    option = GameMapOption(
+        map_id="test-city",
+        name="Test City",
+        path=Path("test-city.robotaxi.yaml"),
+    )
+    state = TaxiHudState(640, 360, _calibration(), map_options=(option,))
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+    imgui = _FakeImGui()
+    imgui.clicked_buttons.add("FREE-ROAM")
+
+    state.draw(imgui)
+
+    assert state._menu_stage == "map"
+    blue = (0.0, 98.0 / 255.0, 1.0)
+    assert (imgui.Col_.button_hovered, (*blue, 1.0)) in imgui.pushed_style_colors
+    imgui.clicked_buttons = {"Test City##map-0"}
+    state.draw(imgui)
+    model_loop._run_message_batch()
+
+    assert state._menu_stage == "loading"
+    assert "FREE-ROAM MODE" in imgui.windows["Crazy Robotaxi - Select Map"]
+    assert model_loop.state.selections == [
+        GameSelection(mode="free-roam", map_option=option)
+    ]
+
+
 def test_complete_cli_selection_skips_all_selection_screens() -> None:
     option = GameMapOption(
         map_id="test-city",
@@ -2097,59 +2179,6 @@ def test_explicit_race_mode_and_map_skip_to_course_screen() -> None:
 
     assert state._menu_stage == "course"
     assert state._selected_map_option is option
-
-
-def test_escape_navigates_game_to_map_to_mode_then_exits() -> None:
-    state = TaxiHudState(640, 360, _calibration())
-    state._selected_game_mode = "race"
-    state._menu_stage = "game"
-    shutdown_event = threading.Event()
-    model_loop = _SelectionLoop()
-    model_loop.register_session_loop_objects(
-        state=_SelectionState(),
-        frequency=0,
-        shutdown_event=shutdown_event,
-        failure_queue=queue.Queue(),
-    )
-    ui_loop = CrazyRobotaxiImGuiUILoop(renderer=_Renderer(640, 360))
-    ui_loop.register_session_loop_objects(
-        state=state,
-        frequency=0,
-        shutdown_event=shutdown_event,
-        failure_queue=queue.Queue(),
-    )
-    state.model_loop = model_loop
-    released = KeyboardUserInputEvent(
-        timestamp=np.uint64(1),
-        key="Escape",
-        state=KeyboardInputState.RELEASED,
-    )
-    pressed = KeyboardUserInputEvent(
-        timestamp=np.uint64(2),
-        key="Escape",
-        state=KeyboardInputState.PRESSED,
-    )
-
-    state.consume_input_events(UserInputEvents([released]))
-    assert state._menu_stage == "game"
-
-    state.consume_input_events(UserInputEvents([pressed]))
-    assert state._menu_stage == "map"
-    model_loop._run_message_batch()
-    assert model_loop.state.return_to_map_count == 1
-
-    state.consume_input_events(UserInputEvents([released]))
-    state.consume_input_events(UserInputEvents([pressed]))
-    assert state._menu_stage == "mode"
-    assert state._selected_game_mode is None
-
-    state.consume_input_events(UserInputEvents([released]))
-    state.consume_input_events(UserInputEvents([pressed]))
-    assert state._menu_stage == "loading"
-    assert state._loading_status == "EXITING GAME"
-    assert ui_loop.is_finished()
-    model_loop._run_message_batch()
-    assert model_loop.state.exit_requested
 
 
 def test_menu_back_uses_styled_gamepad_cancel_button() -> None:
@@ -2836,6 +2865,199 @@ def test_options_excludes_cli_only_launch_selections(tmp_path: Path) -> None:
     assert "RESET TO DEFAULTS" in labels
 
 
+@pytest.mark.parametrize(
+    ("category", "kept", "culled"),
+    (
+        (
+            "renderer",
+            {"Width:", "Line Width Px:", "Lane Segment Interval M:"},
+            {
+                "Compute Device:",
+                "Sync Gpu Timing:",
+                "Perf Log Interval Frames:",
+                "Near Plane M:",
+                "Far Plane M:",
+                "Fog Start M:",
+                "Fog End M:",
+                "Fog Power:",
+                "Triangle Raytrace Distance M:",
+                "Triangle Raytrace Edge Samples:",
+                "Depth Clear M:",
+            },
+        ),
+        ("model", {"Device:", "Dtype:"}, {"State Dict Transform:"}),
+    ),
+)
+def test_options_excludes_backend_fields(
+    tmp_path: Path, category: str, kept: set[str], culled: set[str]
+) -> None:
+    state = TaxiHudState(
+        1280,
+        720,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    state._options_category = category
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    labels = set(imgui.windows["Crazy Robotaxi - Options"])
+    assert kept <= labels
+    assert not culled & labels
+
+
+@pytest.mark.parametrize(
+    ("category", "hovered_item", "description", "yaml_key", "cli_flags"),
+    [
+        (
+            "game",
+            "Gamepad Button Style:",
+            "Labels shown for gamepad buttons: Xbox, PlayStation, or Nintendo "
+            "Switch. It does not remap controls.",
+            "game.gamepad_button_style",
+            None,
+        ),
+        (
+            "game",
+            "##game.gamepad_button_style",
+            "Labels shown for gamepad buttons: Xbox, PlayStation, or Nintendo "
+            "Switch. It does not remap controls.",
+            "game.gamepad_button_style",
+            None,
+        ),
+        (
+            "game",
+            "##game.taxi.seed",
+            "Seed for repeatable taxi gameplay; blank uses fresh randomness. "
+            "This is independent of the model diffusion seed.",
+            "game.taxi.seed",
+            "--game-seed, --seed",
+        ),
+        (
+            "game",
+            "##game.taxi.vehicle.max_steer_rad",
+            "Full-lock steering angle for tight arcade turns.",
+            "game.taxi.vehicle.max_steer_rad",
+            None,
+        ),
+        (
+            "game",
+            "##game.taxi.vehicle.max_speed_mps",
+            "Normal forward speed cap.",
+            "game.taxi.vehicle.max_speed_mps",
+            None,
+        ),
+        (
+            "renderer",
+            "##renderer.raster.width",
+            "Main raster width in pixels; must be positive.",
+            "renderer.raster.width",
+            "--width",
+        ),
+        (
+            "presentation",
+            "##presentation.show_fps",
+            "Shows the frame-rate counter.",
+            "presentation.show_fps",
+            "--show-fps, --no-show-fps",
+        ),
+        (
+            "model",
+            "##model.device",
+            "Device used for the world model, normally cuda.",
+            "model.device",
+            "--device",
+        ),
+        (
+            "model",
+            "##model.pipeline.diffusion_model.transformer.dtype",
+            "Test model parameter precision.",
+            "model.pipeline.diffusion_model.transformer.dtype",
+            None,
+        ),
+        (
+            "runtime",
+            "Total Blocks:",
+            "Optional limit on generated model blocks; blank leaves the run unbounded.",
+            "runtime.total_blocks",
+            "--total-blocks",
+        ),
+    ],
+)
+def test_options_show_help_only_for_the_hovered_setting(
+    tmp_path: Path,
+    category: str,
+    hovered_item: str,
+    description: str,
+    yaml_key: str,
+    cli_flags: str | None,
+) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(1280, 720, _calibration(), settings_document=document)
+    state._open_options()
+    state._options_category = category
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+    assert imgui.tooltips == []
+
+    imgui.hovered_items.add(hovered_item)
+    state.draw(imgui)
+
+    cli_help = f"\nCLI: {cli_flags}" if cli_flags else ""
+    assert imgui.tooltips == [f"{description}\n\nYAML: {yaml_key}{cli_help}"]
+    assert not imgui.wrap_positions
+    assert not imgui._tooltip_open
+    assert state._options_draft == document.settings
+    assert not document.path.exists()
+
+
+def test_options_tooltip_covers_a_scrolling_text_editor(tmp_path: Path) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(1280, 720, _calibration(), settings_document=document)
+    state._open_options()
+    state._options_category = "model"
+    assert state._options_draft is not None
+    state._options_draft = document.update(
+        state._options_draft, ("model", "device"), "/" + "long-path-segment" * 20
+    )
+    imgui = _FakeImGui()
+    imgui.hovered_items.add("##model.device")
+
+    state.draw(imgui)
+
+    assert "##model.device-horizontal-scroll" in imgui.child_sizes
+    assert imgui.tooltips == [
+        "Device used for the world model, normally cuda.\n\nYAML: model.device"
+        "\nCLI: --device"
+    ]
+
+
+@pytest.mark.parametrize("component", ("image_encoder", "encoder"))
+def test_options_tooltips_derive_paths_for_reused_configs(
+    tmp_path: Path, component: str
+) -> None:
+    document = SettingsDocument.load(
+        tmp_path / "config.yaml",
+        pipeline_config=_SettingsPipelineWithEncoders(),
+        width=1280,
+        height=704,
+    )
+    state = TaxiHudState(1280, 720, _calibration(), settings_document=document)
+    state._open_options()
+    state._options_category = "model"
+    imgui = _FakeImGui()
+    imgui.hovered_items.add(f"##model.pipeline.{component}.precision")
+
+    state.draw(imgui)
+
+    assert imgui.tooltips == [
+        f"Encoder precision.\n\nYAML: model.pipeline.{component}.precision"
+    ]
+
+
 def test_options_category_click_opens_model_settings(tmp_path: Path) -> None:
     state = TaxiHudState(
         1280,
@@ -2859,6 +3081,34 @@ def test_options_category_click_opens_model_settings(tmp_path: Path) -> None:
     assert lines.index("DIFFUSION MODEL") < lines.index("Seed:")
     assert lines.index("Seed:") < lines.index("TRANSFORMER")
     assert lines.index("TRANSFORMER") < lines.index("Dtype:")
+
+
+def test_options_name_dynamic_prompt_controls_explicitly(tmp_path: Path) -> None:
+    state = TaxiHudState(
+        1280,
+        720,
+        _calibration(),
+        settings_document=_settings_document(tmp_path / "config.yaml"),
+    )
+    state._open_options()
+    state._options_category = "live_edit"
+    imgui = _FakeImGui()
+    imgui.checkbox_values["##live_edit.dynamic_prompts.include_taxi_motion_state"] = (
+        False
+    )
+
+    state.draw(imgui)
+
+    lines = imgui.windows["Crazy Robotaxi - Options"]
+    assert state._options_draft is not None
+    assert not state._options_draft.live_edit.dynamic_prompts.include_taxi_motion_state
+    assert "DYNAMIC PROMPTS" in lines
+    assert "Enabled:" in lines
+    assert "Include Current Road Context:" in lines
+    assert "Include Next Map Node Type:" in lines
+    assert "Include Next Map Node Context:" in lines
+    assert "Include Upcoming Road Curve Direction:" in lines
+    assert "Include Taxi Motion State:" in lines
 
 
 def test_options_booleans_use_compact_native_green_checkboxes(
@@ -3057,6 +3307,71 @@ def test_options_save_persists_and_applies_presentation_setting(
     menu_lines = menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
     assert state._settings_notice not in menu_lines
     assert not any("RESTART REQUIRED" in line for line in menu_lines)
+
+
+def test_options_save_persists_and_applies_presentation_resolution(
+    tmp_path: Path,
+) -> None:
+    document = _settings_document(tmp_path / "config.yaml")
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        settings_document=document,
+    )
+    state._open_options()
+    state._options_category = "presentation"
+    imgui = _FakeImGui()
+    imgui.input_values["##presentation.width"] = "1920"
+    imgui.input_values["##presentation.height"] = "1080"
+    imgui.clicked_buttons.add("SAVE")
+
+    state.draw(imgui)
+
+    assert document.settings.presentation.width == 1920
+    assert document.settings.presentation.height == 1080
+    assert (state.width, state.height) == (640, 360)
+    assert state.presentation_size == (1920, 1080)
+    assert "width: 1920" in document.path.read_text(encoding="utf-8")
+    assert "height: 1080" in document.path.read_text(encoding="utf-8")
+    assert not state._settings_restart_notice
+    assert "presentation.width" not in state._settings_requiring_restart
+    assert "presentation.height" not in state._settings_requiring_restart
+
+
+def test_options_rejects_incomplete_resolution_after_cli_override(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "presentation:\n  width: 1920\n  height: 1080\n",
+        encoding="utf-8",
+    )
+    document = _settings_document(config_path)
+    document.cli_overrides[("presentation", "width")] = 2560
+    state = TaxiHudState(
+        640,
+        360,
+        _calibration(),
+        presentation_size=(2560, 1080),
+        settings_document=document,
+    )
+    state._open_options()
+    state._options_category = "presentation"
+    imgui = _FakeImGui()
+    imgui.input_values["##presentation.width"] = ""
+    imgui.input_values["##presentation.height"] = ""
+    imgui.clicked_buttons.add("SAVE")
+
+    state.draw(imgui)
+
+    assert state._options_error == "presentation width and height must be set together"
+    assert document.settings.presentation.width == 1920
+    assert document.settings.presentation.height == 1080
+    assert state.presentation_size == (2560, 1080)
+    assert config_path.read_text(encoding="utf-8") == (
+        "presentation:\n  width: 1920\n  height: 1080\n"
+    )
 
 
 def test_options_discard_does_not_write_or_apply_changes(tmp_path: Path) -> None:

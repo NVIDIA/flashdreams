@@ -56,10 +56,10 @@ class SessionDesc:
     """Initial video rate and maximum model-loop iterations per second."""
 
     video_width: int = 1280
-    """Output video width in pixels."""
+    """Initial output video width in pixels for ClientWindow."""
 
     video_height: int = 720
-    """Output video height in pixels."""
+    """Initial output video height in pixels for ClientWindow."""
 
     metadata: dict[str, Any] = field(default_factory=dict)
     """Runtime and application extension values, including reserved runtime keys."""

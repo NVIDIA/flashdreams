@@ -6,14 +6,18 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
+import webbrowser
 from collections.abc import Callable, Sequence
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
+from unittest.mock import Mock, call
 
 import pytest
 import torch
 
+from flashdreams.api_v2.client_window import ClientWindowLink
 from flashdreams.runtime_v2 import native_window_client_window as native_window_module
 from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
@@ -22,6 +26,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
+    FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -34,6 +39,58 @@ if TYPE_CHECKING:
     import slangpy as spy
 
 pytestmark = pytest.mark.ci_cpu
+
+
+@pytest.mark.parametrize("fullscreen", [False, True])
+def test_fullscreen_creation_reports_size_on_first_poll(fullscreen: bool) -> None:
+    presenter = _Presenter()
+    presenter.size = (1920, 1080)
+    factory = Mock(return_value=presenter)
+    window = NativeWindowClientWindow(fullscreen=fullscreen, presenter_factory=factory)
+    for _ in range(2):
+        window.open(_session_desc())
+        events = window.get_user_input_events().get_events()
+        if fullscreen:
+            assert len(events) == 1
+            event = events[0]
+            assert isinstance(event, FullscreenEnabledOptimalWindowSizeUserInputEvent)
+            assert (event.width, event.height) == presenter.size
+        else:
+            assert events == []
+        assert window.get_user_input_events().get_events() == []
+    factory.assert_called_once_with(
+        width=2, height=2, title="FlashDreams", fullscreen=fullscreen
+    )
+    window.close()
+
+
+@pytest.mark.parametrize("fullscreen", [False, True])
+def test_presenter_uses_slangpy_creation_mode(
+    fullscreen: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    modes = SimpleNamespace(normal=object(), fullscreen=object())
+    native_window = Mock(width=1920, height=1080)
+    spy = SimpleNamespace(Window=Mock(return_value=native_window), WindowMode=modes)
+    monkeypatch.setitem(sys.modules, "slangpy", spy)
+    presentation = Mock(size=(1920, 1080))
+    context = Mock(return_value=presentation)
+    monkeypatch.setattr(native_window_module, "_PresentationContext", context)
+    presenter = native_window_module._SlangPyNativeWindowPresenter(
+        width=640, height=480, title="Test", fullscreen=fullscreen
+    )
+    spy.Window.assert_called_once_with(
+        width=640,
+        height=480,
+        title="Test",
+        mode=modes.fullscreen if fullscreen else modes.normal,
+        resizable=True,
+    )
+    context.assert_called_once_with(
+        spy=spy, window=native_window, width=1920, height=1080
+    )
+    assert presenter.resize(320, 240) == (1920, 1080)
+    native_window.resize.assert_called_once_with(320, 240)
+    presenter.close()
 
 
 def _session_desc() -> SessionDesc:
@@ -117,6 +174,24 @@ class _MouseMoveEvent:
         return False
 
 
+class _MouseButtonEvent(_MouseMoveEvent):
+    def __init__(
+        self, x: float, y: float, *, pressed: bool, button: str = "left"
+    ) -> None:
+        super().__init__(x, y)
+        self.button = SimpleNamespace(name=button)
+        self._pressed = pressed
+
+    def is_move(self) -> bool:
+        return False
+
+    def is_button_down(self) -> bool:
+        return self._pressed
+
+    def is_button_up(self) -> bool:
+        return not self._pressed
+
+
 class _GamepadEvent:
     def __init__(self, action: str) -> None:
         self.action = action
@@ -146,8 +221,14 @@ class _Presenter:
         self.presentation_threads: list[int] = []
         self.close_threads: list[int] = []
         self.presented: list[torch.Tensor] = []
+        self.resizes: list[tuple[int, int]] = []
+        self.size = (2, 2)
         self.cursor_options: list[tuple[bool, bool]] = []
         self.should_close = False
+
+    @property
+    def input_size(self) -> tuple[int, int]:
+        return self.size
 
     def configure_cursor(
         self, *, hide_cursor: bool, lock_cursor_to_window: bool
@@ -180,6 +261,11 @@ class _Presenter:
         self.presented.append(frame)
         return not self.should_close
 
+    def resize(self, width: int, height: int) -> tuple[int, int]:
+        self.resizes.append((width, height))
+        self.size = (width, height)
+        return self.size
+
     def close(self) -> None:
         self.close_threads.append(threading.get_ident())
 
@@ -188,6 +274,132 @@ def _presenter_factory(
     presenter: _Presenter,
 ) -> Callable[..., native_window_module._SlangPyNativeWindowPresenter]:
     return cast(Any, lambda **_kwargs: presenter)
+
+
+def test_native_window_accepts_manual_resize_and_restores_after_minimizing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native_window = SimpleNamespace(
+        width=2,
+        height=2,
+        process_events=Mock(),
+        should_close=lambda: False,
+        close=Mock(),
+    )
+    spy = SimpleNamespace(
+        Window=Mock(return_value=native_window),
+        WindowMode=SimpleNamespace(normal=object()),
+        CursorMode=SimpleNamespace(normal=object()),
+    )
+    presentation = SimpleNamespace(
+        size=(2, 2),
+        resize_surface=Mock(side_effect=lambda width, height: (width, height)),
+        present=Mock(),
+        close=Mock(),
+    )
+    monkeypatch.setitem(sys.modules, "slangpy", spy)
+    monkeypatch.setattr(
+        native_window_module, "_PresentationContext", Mock(return_value=presentation)
+    )
+    window = NativeWindowClientWindow()
+    window.open(_session_desc())
+    spy.Window.assert_called_once_with(
+        width=2,
+        height=2,
+        title="FlashDreams",
+        mode=spy.WindowMode.normal,
+        resizable=True,
+    )
+
+    pending_resizes: list[tuple[int, int]] = []
+
+    def process_resizes() -> None:
+        for width, height in pending_resizes:
+            native_window.on_resize(width, height)
+
+    for resizes, expected_size in (
+        ([(4, 3), (5, 4)], (5, 4)),
+        ([(0, 0)], (5, 4)),
+        ([(8, 6)], (8, 6)),
+    ):
+        pending_resizes[:] = resizes
+        native_window.process_events.side_effect = process_resizes
+        assert window.get_user_input_events().get_events() == []
+        window.write(_result())
+        (frame,) = presentation.present.call_args.args
+        width, height = expected_size
+        assert frame.shape == (height, width, 3)
+
+        native_window.process_events.side_effect = None
+        native_window.on_mouse_event(_MouseMoveEvent(width / 2, height / 4))
+        (event,) = window.get_user_input_events().get_events()
+        assert isinstance(event, MouseUserInputEvent)
+        assert (event.x, event.y) == (0.5, 0.25)
+
+    assert presentation.resize_surface.call_args_list == [call(5, 4), call(8, 6)]
+    window.close()
+
+
+@pytest.mark.parametrize(("position", "opens_link"), ((1.0, False), (2.0, True)))
+def test_native_mouse_and_links_use_resize_acknowledged_in_the_same_poll(
+    monkeypatch: pytest.MonkeyPatch, position: float, opens_link: bool
+) -> None:
+    native_window = SimpleNamespace(
+        width=2,
+        height=2,
+        process_events=Mock(),
+        should_close=lambda: False,
+        close=Mock(),
+    )
+    spy = SimpleNamespace(
+        Window=Mock(return_value=native_window),
+        WindowMode=SimpleNamespace(normal=object()),
+        CursorMode=SimpleNamespace(normal=object()),
+    )
+    presentation = SimpleNamespace(
+        size=(2, 2),
+        resize_surface=Mock(return_value=(4, 4)),
+        present=Mock(),
+        close=Mock(),
+    )
+    open_browser = Mock(return_value=True)
+    monkeypatch.setattr(native_window_module.webbrowser, "open_new_tab", open_browser)
+    monkeypatch.setitem(sys.modules, "slangpy", spy)
+    monkeypatch.setattr(
+        native_window_module, "_PresentationContext", Mock(return_value=presentation)
+    )
+    window = NativeWindowClientWindow()
+    window.open(_session_desc())
+    link = ClientWindowLink(
+        label="Project", url="https://example.com", bounds=(0.4, 0.4, 0.6, 0.6)
+    )
+    window.request_links((link,))
+
+    def process_events() -> None:
+        native_window.on_resize(4, 4)
+        native_window.on_mouse_event(_MouseMoveEvent(position, position))
+        for pressed in (True, False):
+            native_window.on_mouse_event(
+                _MouseButtonEvent(position, position, pressed=pressed)
+            )
+        presentation.resize_surface.assert_not_called()
+
+    native_window.process_events.side_effect = process_events
+    events = window.get_user_input_events().get_events()
+
+    assert len(events) == (1 if opens_link else 3)
+    for event in events:
+        assert isinstance(event, MouseUserInputEvent)
+        assert (event.x, event.y) == (position / 4, position / 4)
+    if opens_link:
+        open_browser.assert_called_once_with(link.url)
+    else:
+        open_browser.assert_not_called()
+    presentation.resize_surface.assert_called_once_with(4, 4)
+    window.write(_result())
+    (frame,) = presentation.present.call_args.args
+    assert frame.shape == (4, 4, 3)
+    window.close()
 
 
 def test_slangpy_presenter_uses_standard_window_event_pump() -> None:
@@ -200,10 +412,49 @@ def test_slangpy_presenter_uses_standard_window_event_pump() -> None:
     presenter = object.__new__(native_window_module._SlangPyNativeWindowPresenter)
     presenter._closed = False
     presenter._window = SimpleNamespace(process_events=process_events)
+    presenter._pending_resize = None
 
     presenter.process_events()
 
     assert process_count == 1
+
+
+def test_slangpy_presenter_configures_acknowledged_window_extent() -> None:
+    calls: list[tuple[object, ...]] = []
+    presenter = object.__new__(native_window_module._SlangPyNativeWindowPresenter)
+
+    def process_events() -> None:
+        calls.append(("process_events",))
+        presenter._on_resize(5, 4)
+
+    window = SimpleNamespace(
+        resize=lambda width, height: calls.append(("resize", width, height)),
+        process_events=process_events,
+    )
+    presentation = SimpleNamespace(
+        resize_surface=lambda width, height: (
+            calls.append(("resize_surface", width, height)) or (width, height)
+        )
+    )
+    presenter._closed = False
+    presenter._window = window
+    presenter._presentation = presentation
+    presenter._fullscreen = False
+    presenter._width = 2
+    presenter._height = 2
+    presenter._pending_resize = None
+
+    assert presenter.resize(8, 6) == (2, 2)
+    assert calls == [("resize", 8, 6)]
+
+    presenter.process_events()
+
+    assert presenter.size == (5, 4)
+    assert calls == [
+        ("resize", 8, 6),
+        ("process_events",),
+        ("resize_surface", 5, 4),
+    ]
 
 
 def test_slangpy_presenter_maps_cursor_options_independently() -> None:
@@ -238,6 +489,7 @@ def test_slangpy_presenter_waits_for_gpu_work_before_releasing_resources() -> No
         close=lambda: calls.append("presentation.close")
     )
     presenter._window = SimpleNamespace(
+        on_resize=object(),
         on_keyboard_event=object(),
         on_mouse_event=object(),
         on_gamepad_event=object(),
@@ -249,6 +501,7 @@ def test_slangpy_presenter_waits_for_gpu_work_before_releasing_resources() -> No
     presenter.close()
 
     assert calls == ["presentation.close", "window.close"]
+    assert presenter._window.on_resize is None
     assert presenter._window.on_keyboard_event is None
     assert presenter._window.on_mouse_event is None
     assert presenter._window.on_gamepad_event is None
@@ -312,6 +565,92 @@ def test_slangpy_presenter_delegates_plain_tensor_to_presentation_context() -> N
     assert presented == [frame]
 
 
+def test_presentation_recovers_from_failed_surface_acquisition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = object.__new__(native_window_module._PresentationContext)
+    acquire_next_image = Mock(side_effect=RuntimeError("SLANG_FAIL"))
+    context._surface = SimpleNamespace(
+        config=object(),
+        acquire_next_image=acquire_next_image,
+    )
+    context._width = 2
+    context._height = 2
+    resize_surface = Mock(return_value=(2, 2))
+    monkeypatch.setattr(context, "resize_surface", resize_surface)
+    frame = torch.zeros((2, 2, 3), dtype=torch.uint8)
+
+    context.present(frame)
+
+    acquire_next_image.assert_called_once_with()
+    resize_surface.assert_called_once_with(2, 2, force=True)
+
+
+def test_presentation_surface_resize_recreates_sized_upload_resources() -> None:
+    texture_requests: list[dict[str, Any]] = []
+    configured = SimpleNamespace(width=5, height=4)
+    surface = SimpleNamespace(
+        info=SimpleNamespace(formats=[1]),
+        config=configured,
+        configure=Mock(),
+    )
+    device = SimpleNamespace(
+        supports_cuda_interop=False,
+        wait_for_idle=Mock(),
+        create_texture=lambda **kwargs: texture_requests.append(kwargs) or object(),
+    )
+    context = object.__new__(native_window_module._PresentationContext)
+    context._spy = SimpleNamespace(
+        Format=SimpleNamespace(
+            rgba8_unorm=1,
+            bgra8_unorm=2,
+            bgrx8_unorm=3,
+        ),
+        TextureUsage=SimpleNamespace(
+            shader_resource=1,
+            copy_destination=2,
+        ),
+    )
+    context._width = 2
+    context._height = 2
+    context._device = device
+    context._surface = surface
+    context._display_texture = object()
+    context._cuda_buffer = object()
+    context._cuda_rgba = object()
+    context._render_device = torch.device("cuda")
+    context._has_cuda_submission = True
+
+    assert context.resize_surface(4, 3) == (5, 4)
+
+    device.wait_for_idle.assert_called_once_with()
+    surface.configure.assert_called_once_with(width=4, height=3, format=1)
+    assert texture_requests[-1]["width"] == 5
+    assert texture_requests[-1]["height"] == 4
+    assert context._host_upload.shape == (4, 5, 4)
+    assert context._cuda_buffer is None
+    assert context._cuda_rgba is None
+    assert context._render_device == torch.device("cpu")
+    assert context._has_cuda_submission is False
+
+
+def test_native_window_resamples_resized_ui_to_the_window_surface() -> None:
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    resized_ui = StepResult(
+        step_index=0,
+        output=torch.zeros((1, 3, 3, 4), dtype=torch.float32),
+        frame_count=1,
+        output_layout=VideoTensorLayout.tchw,
+    )
+
+    window.write(resized_ui)
+    window.close()
+
+    assert presenter.presented[0].shape == (2, 2, 3)
+
+
 def test_window_lifecycle_and_presentation_stay_on_the_ui_thread(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -325,9 +664,13 @@ def test_window_lifecycle_and_presentation_stay_on_the_ui_thread(
         factory_threads.append(threading.get_ident())
         return presenter
 
-    def record_conversion(result: StepResult, desc: SessionDesc) -> torch.Tensor:
+    def record_conversion(
+        result: StepResult,
+        desc: SessionDesc,
+        presentation_size: tuple[int, int],
+    ) -> torch.Tensor:
         conversion_threads.append(threading.get_ident())
-        return real_conversion(result, desc)
+        return real_conversion(result, desc, presentation_size)
 
     monkeypatch.setattr(
         native_window_module,
@@ -348,6 +691,35 @@ def test_window_lifecycle_and_presentation_stay_on_the_ui_thread(
         == conversion_threads
         == [ui_thread]
     )
+
+
+def test_replacement_session_reuses_native_window_and_rebases_input() -> None:
+    presenter = _Presenter()
+    factory_calls = 0
+    clock_values = iter((1_000_000, 1_001_000, 2_000_000, 2_001_000))
+
+    def create_presenter(**_kwargs: object) -> _Presenter:
+        nonlocal factory_calls
+        factory_calls += 1
+        return presenter
+
+    window = NativeWindowClientWindow(
+        presenter_factory=cast(Any, create_presenter),
+        clock_ns=lambda: next(clock_values),
+    )
+    window.open(_session_desc())
+    window._on_keyboard_event(
+        cast("spy.KeyboardEvent", _KeyboardEvent("up", pressed=True))
+    )
+    window.open(_session_desc())
+    presenter.pending_events.put(("keyboard", _KeyboardEvent("up", pressed=True)))
+
+    (event,) = window.get_user_input_events().get_events()
+    window.close()
+
+    assert factory_calls == 1
+    assert event.get_timestamp() == 1
+    assert len(presenter.close_threads) == 1
 
 
 def test_presentation_context_copies_frames_to_its_render_device() -> None:
@@ -402,7 +774,7 @@ def test_native_window_reports_input_and_close_from_event_pump() -> None:
     keyboard = events[0]
     mouse = events[1]
     assert isinstance(keyboard, KeyboardUserInputEvent)
-    assert keyboard.key == "up"
+    assert keyboard.key == "ArrowUp"
     assert keyboard.state is KeyboardInputState.PRESSED
     assert isinstance(mouse, MouseUserInputEvent)
     assert mouse.action == "move"
@@ -445,6 +817,153 @@ def test_cursor_options_can_change_while_native_window_is_running() -> None:
     unlocked_mouse = cast(MouseUserInputEvent, unlocked_events[0])
     assert (locked_mouse.x, locked_mouse.y) == (1.5, -0.5)
     assert (unlocked_mouse.x, unlocked_mouse.y) == (1.0, 0.0)
+
+
+@pytest.mark.parametrize("window_size", ((2, 2), (8, 6)))
+def test_native_link_consumes_click_and_opens_browser_on_release(
+    monkeypatch: pytest.MonkeyPatch, window_size: tuple[int, int]
+) -> None:
+    open_browser = Mock(return_value=True)
+    monkeypatch.setattr(native_window_module.webbrowser, "open_new_tab", open_browser)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    window.request_new_window_size(window_size)
+    link = ClientWindowLink(
+        label="Project",
+        url="https://example.com/project",
+        bounds=(0.25, 0.25, 0.75, 0.75),
+    )
+    window.request_links((link,))
+    open_browser.assert_not_called()
+
+    for pressed in (True, False):
+        presenter.pending_events.put(
+            (
+                "mouse",
+                _MouseButtonEvent(
+                    window_size[0] / 2, window_size[1] / 2, pressed=pressed
+                ),
+            )
+        )
+        assert window.get_user_input_events().get_events() == []
+        if pressed:
+            open_browser.assert_not_called()
+
+    open_browser.assert_called_once_with(link.url)
+    window.close()
+
+
+@pytest.mark.parametrize(
+    ("button", "locked", "press_x", "release_x", "event_count"),
+    (
+        ("right", False, 0.5, 0.5, 2),
+        ("left", True, 0.5, 0.5, 2),
+        ("left", False, 0.5, -0.25, 0),
+        ("left", False, 0.5, 0.75, 0),
+        ("left", False, 0.9, 0.5, 2),
+    ),
+)
+def test_native_link_ignores_other_buttons_capture_and_cancelled_clicks(
+    monkeypatch: pytest.MonkeyPatch,
+    button: str,
+    locked: bool,
+    press_x: float,
+    release_x: float,
+    event_count: int,
+) -> None:
+    open_browser = Mock()
+    monkeypatch.setattr(native_window_module.webbrowser, "open_new_tab", open_browser)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    window.request_links(
+        (
+            ClientWindowLink(
+                label="Project", url="https://example.com", bounds=(0, 0, 0.75, 1)
+            ),
+        )
+    )
+    window.request_lock_cursor_to_window(locked)
+    for pressed, x in ((True, press_x), (False, release_x)):
+        presenter.pending_events.put(
+            ("mouse", _MouseButtonEvent(x * 2, 1, pressed=pressed, button=button))
+        )
+
+    assert len(window.get_user_input_events().get_events()) == event_count
+    open_browser.assert_not_called()
+    window.close()
+
+
+@pytest.mark.parametrize("reset", ("replace_links", "open", "close"))
+def test_native_window_clears_links_on_replacement_and_session_lifecycle(
+    monkeypatch: pytest.MonkeyPatch, reset: str
+) -> None:
+    open_browser = Mock()
+    monkeypatch.setattr(native_window_module.webbrowser, "open_new_tab", open_browser)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    window.request_links(
+        (
+            ClientWindowLink(
+                label="Project", url="https://example.com", bounds=(0, 0, 1, 1)
+            ),
+        )
+    )
+    presenter.pending_events.put(("mouse", _MouseButtonEvent(1, 1, pressed=True)))
+    assert window.get_user_input_events().get_events() == []
+    if reset == "replace_links":
+        window.request_links(())
+    elif reset == "open":
+        window.open(_session_desc())
+    else:
+        window.close()
+        assert window._links == ()
+        window.open(_session_desc())
+    presenter.pending_events.put(("mouse", _MouseButtonEvent(1, 1, pressed=False)))
+    assert len(window.get_user_input_events().get_events()) == (
+        0 if reset == "replace_links" else 1
+    )
+    for pressed in (True, False):
+        presenter.pending_events.put(
+            ("mouse", _MouseButtonEvent(1, 1, pressed=pressed))
+        )
+
+    assert len(window.get_user_input_events().get_events()) == 2
+    open_browser.assert_not_called()
+    window.close()
+
+
+@pytest.mark.parametrize(
+    "error", (None, webbrowser.Error("unavailable"), OSError("missing"))
+)
+def test_native_link_warns_when_browser_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    error: Exception | None,
+) -> None:
+    open_browser = Mock(return_value=False, side_effect=error)
+    monkeypatch.setattr(native_window_module.webbrowser, "open_new_tab", open_browser)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    window.request_links(
+        (
+            ClientWindowLink(
+                label="Project", url="https://example.com", bounds=(0, 0, 1, 1)
+            ),
+        )
+    )
+    for pressed in (True, False):
+        presenter.pending_events.put(
+            ("mouse", _MouseButtonEvent(1, 1, pressed=pressed))
+        )
+
+    assert window.get_user_input_events().get_events() == []
+    open_browser.assert_called_once_with("https://example.com")
+    assert "open link" in caplog.text
+    window.close()
 
 
 def test_native_window_reports_standard_gamepad_events() -> None:
@@ -665,6 +1184,41 @@ def test_native_modifier_names_match_browser_key_values(
 
 @pytest.mark.parametrize(
     ("slangpy_name", "runtime_key"),
+    (
+        ("escape", "Escape"),
+        ("enter", "Enter"),
+        ("keypad_enter", "Enter"),
+        ("left", "ArrowLeft"),
+        ("right", "ArrowRight"),
+        ("up", "ArrowUp"),
+        ("down", "ArrowDown"),
+    ),
+)
+@pytest.mark.parametrize("pressed", (True, False))
+def test_native_navigation_keys_match_browser_key_values(
+    slangpy_name: str, runtime_key: str, pressed: bool
+) -> None:
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    try:
+        presenter.pending_events.put(
+            ("keyboard", _KeyboardEvent(slangpy_name, pressed=pressed))
+        )
+        events = window.get_user_input_events().get_events()
+        assert _keyboard_edges(events) == [
+            (
+                runtime_key,
+                KeyboardInputState.PRESSED if pressed else KeyboardInputState.RELEASED,
+            )
+        ]
+        assert window.get_user_input_events().get_events() == []
+    finally:
+        window.close()
+
+
+@pytest.mark.parametrize(
+    ("slangpy_name", "runtime_key"),
     (("space", " "), ("key7", "7"), ("minus", "-"), ("left_bracket", "[")),
 )
 def test_native_printable_key_names_become_text_input_values(
@@ -678,23 +1232,6 @@ def test_native_printable_key_names_become_text_input_values(
     assert data is not None
     assert data.key == runtime_key
     assert data.state is KeyboardInputState.PRESSED
-
-
-def test_device_conversion_does_not_materialize_a_host_array() -> None:
-    source = StepResult(
-        step_index=0,
-        output=torch.zeros((1, 3, 2, 2), dtype=torch.float32),
-        frame_count=1,
-        output_layout=VideoTensorLayout.tchw,
-    )
-
-    frames = result_to_rgb24_tensor(source, _session_desc())
-
-    assert isinstance(frames, torch.Tensor)
-    assert frames.device == source.read_output().device
-    assert frames.shape == (1, 2, 2, 3)
-    assert frames.dtype is torch.uint8
-    assert torch.all(frames == 128)
 
 
 def test_write_before_open_is_rejected() -> None:

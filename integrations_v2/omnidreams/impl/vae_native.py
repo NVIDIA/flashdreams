@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """OmniDreams VAE native acceleration wrappers."""
 
@@ -60,12 +48,25 @@ class OmnidreamsWanVAEEncoderConfig(WanVAEEncoderConfig):
     _target: type = field(default_factory=lambda: OmnidreamsWanVAEEncoder)
 
     native_vae_acceleration: NativeAccelerationMode = "disabled"
+    """Native VAE policy: disabled, auto, or required."""
+
     native_vae_build_root: str | None = None
+    """Native extension build and cache directory."""
+
     native_vae_max_jobs: int | str | None = None
+    """Parallel job cap for the native build."""
+
     native_vae_verbose_build: bool = False
+    """Enables detailed native build logs."""
+
     native_vae_backend: NativeVAEBackend = "fp8"
+    """Native VAE compute backend, currently fp8."""
+
     native_vae_fp8_state_path: str | None = None
+    """File containing the exported FP8 VAE state."""
+
     native_vae_fp8_auto_export: bool = False
+    """Automatically exports FP8 state when needed."""
 
 
 def _native_acceleration_config(

@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Configs for the Self-Forcing distilled model."""
 
@@ -22,7 +10,7 @@ from typing import cast
 from flashdreams.infra.config import derive_config
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.fm import FlowMatchSchedulerConfig
-from flashdreams.recipes.taehv import TeahvVAEDecoderConfig
+from flashdreams.recipes.taehv import TaehvVAEDecoderConfig
 from flashdreams.recipes.wan import (
     Wan21TransformerConfig,
     WanDiTNetwork1pt3BConfig,
@@ -38,7 +26,7 @@ CHECKPOINT_PATH = "https://huggingface.co/gdhe17/Self-Forcing/blob/main/checkpoi
 PIPELINE_WAN21_T2V_1PT3B = WanInferencePipelineConfig(
     name="self-forcing-wan2.1-t2v-1.3b",
     encoder=None,
-    decoder=WanVAEDecoderConfig(),
+    decoder=WanVAEDecoderConfig(use_compile=True),
     diffusion_model=DiffusionModelConfig(
         seed=42,
         transformer=Wan21TransformerConfig(
@@ -74,7 +62,7 @@ PIPELINE_WAN21_T2V_1PT3B_TAEHV = cast(
     derive_config(
         PIPELINE_WAN21_T2V_1PT3B,
         name="self-forcing-wan2.1-t2v-1.3b-taehv",
-        decoder=TeahvVAEDecoderConfig(),
+        decoder=TaehvVAEDecoderConfig(),
     ),
 )  # ty:ignore[redundant-cast]
 # Long-rollout streaming preset: static sink=5, rolling window=7

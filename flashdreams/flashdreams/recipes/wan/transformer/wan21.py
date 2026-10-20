@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Wan 2.1 DiT."""
 
@@ -190,6 +178,9 @@ class Wan21TransformerConfig(TransformerConfig):
     compile_network: bool = True
     """``torch.compile`` the network on init."""
 
+    compile_dynamic: bool | None = None
+    """Dynamic-shape policy forwarded to ``torch.compile``."""
+
     use_cuda_graph: bool = True
     """Wrap the network in ``CUDAGraphWrapper`` for steady-state replay.
     Caller must keep non-staged inputs at stable storage addresses across
@@ -281,11 +272,15 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         len_t = config.len_t // kt
         window_size_t = config.window_size_t // kt
         sink_size_t = config.sink_size_t // kt
-        cuda_graph_capture_ar_idx = cuda_graph_capture_ar_index(
-            sink_size_t=sink_size_t,
-            window_size_t=window_size_t,
-            len_t=len_t,
-            len_name="post-patch len_t",
+        cuda_graph_capture_ar_idx = (
+            cuda_graph_capture_ar_index(
+                sink_size_t=sink_size_t,
+                window_size_t=window_size_t,
+                len_t=len_t,
+                len_name="post-patch len_t",
+            )
+            if config.use_cuda_graph
+            else 0
         )
         self._output_height: int | None = None
         self._output_width: int | None = None
@@ -316,7 +311,10 @@ class Wan21Transformer(Transformer[Wan21TransformerCache]):
         self.network.update_parameters_after_loading_checkpoint()
 
         if config.compile_network:
-            self.network = compile_module(self.network)
+            self.network = compile_module(
+                self.network,
+                dynamic=config.compile_dynamic,
+            )
 
         # Cond and CFG-uncond branches each get their own CUDA-graph wrapper
         # since each mutates an independent rolling KV cache.

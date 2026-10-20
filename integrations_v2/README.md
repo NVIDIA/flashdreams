@@ -6,10 +6,10 @@ SPDX-License-Identifier: Apache-2.0
 Applications built on the v2 API. Each directory is a standalone package that
 depends on `flashdreams` and holds no framework code of its own.
 
-This is the guide to writing one. If the model generates video from a prompt,
-read [`apps/t2v`](../apps/t2v/README.md)
-instead, that path is a subclass and a `pyproject.toml`, and most of what
-follows is already done for you.
+For new work, follow the website's
+[Create a model](../docs/source/documentation/inferencing_api/guides/create_model.md)
+and [Integrate model adapter for a demo](../docs/source/documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md)
+guides. They are the canonical authoring instructions.
 
 ## What is here
 
@@ -23,8 +23,6 @@ follows is already done for you.
   shared interactive camera-to-video application.
 - `waypoint` — the Waypoint model binding to the shared `apps/action2v`
   application.
-- `hy_worldplay` — the HY-WorldPlay model and its `cam2v-hy-worldplay` binding,
-  including live PRoPE/action camera-history adaptation.
 - `waypoint` — the interactive Waypoint 1.5 image-established application
   with deterministic control replay and live keyboard/mouse input.
 - `self_forcing`, `causal_forcing`, `fastvideo_causal_wan22`, `wan21`,
@@ -44,7 +42,6 @@ follows is already done for you.
 ```text
 integrations_v2/<model>/
   pyproject.toml
-  README.md
   __init__.py
   config.py            # collection of pipeline definitions for a particular `<model>`
   impl/                # implementation details of a model
@@ -53,7 +50,8 @@ integrations_v2/<model>/
     <demo>/
       __init__.py
       adapter.py       # all entry point definitions for `<demo>` (ex: `create_app`)
-      README.md        # launch instructions only
+
+docs/source/models/<model>.md  # canonical website article
 ```
 
 The workspace glob in the root `pyproject.toml` picks up any directory here
@@ -209,7 +207,7 @@ channel into one frame, which is what most demos need (Refer to `slangpy_ui_demo
 
 ```bash
 uv sync --package flashdreams-color-fade --inexact
-uv run --no-sync flashdreams-run-v2 color-fade --output-path fade.mp4 -- --seconds 4
+uv run --no-sync flashdreams-run-v2 color-fade --output-path fade.mp4 --timeout unbound -- --seconds 4
 ```
 
 Arguments before `--` belong to the runtime, after it to the application, so
@@ -227,6 +225,10 @@ Driving it from Python takes the same two objects the command line builds:
 ```python
 ApplicationRunner(create_app(), Mp4ClientWindow(path)).run(session_desc, args)
 ```
+
+`timeout_seconds` and `steps` default to `Unbound` (no limit). Pass a number to
+bound the run; `None` is not a limit. A named `steps` count is remaining across
+replacement sessions.
 
 ## Testing it
 
@@ -276,5 +278,6 @@ halves for text-to-video models.
   in detail.
 - [Runtime](../flashdreams/flashdreams/runtime_v2/README.md) - the buffering
   between those threads, and the command line that starts them.
-- [`apps/t2v`](../apps/t2v/README.md) - adding a
-  text-to-video model.
+- [Create a model](../docs/source/documentation/inferencing_api/guides/create_model.md)
+  and [Integrate model adapter for a demo](../docs/source/documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md)
+  cover new model and text-to-video integrations.

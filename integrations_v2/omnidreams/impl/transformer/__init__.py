@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Multi-view, HDMap-conditioned Cosmos DiT for streaming omnidreams."""
 
@@ -225,7 +213,9 @@ class CosmosTransformerConfig(TransformerConfig):
     """Sink-token count (pre-patchify T)."""
 
     early_short_history_block_count: int | None = None
-    """Number of initial blocks limited to one chunk of visual history."""
+    """Number of initial blocks limited to one chunk of visual history.
+    ``None`` disables this policy.
+    """
 
     compile_network: bool = True
     """``torch.compile`` the network."""
@@ -260,7 +250,10 @@ class CosmosTransformerConfig(TransformerConfig):
 
     ``auto`` selects the current default, which resolves to the portable cuDNN
     FP8 SDPA path. Set ``sage2``, ``sparge``, ``sage3``, or ``sage3_fp8``
-    explicitly to opt into an experimental attention backend. The framework
+    explicitly to opt into an experimental attention backend.
+    ``prefer_sage3_fp8`` uses SageAttention-3 FP8 when the native build and
+    device support it and falls back to cuDNN otherwise (Windows, stub builds).
+    The framework
     ``self_attention_backend="sage2"`` setting also selects ``sage2`` when
     native DiT acceleration is enabled. With ``native_dit_acceleration="auto"``,
     an unavailable Native Sage2 kernel falls back to framework Sage2. An

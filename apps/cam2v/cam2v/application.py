@@ -108,7 +108,7 @@ class Cam2VApplication(IApplication):
             "--total-blocks",
             type=int,
             default=self.defaults.total_blocks,
-            help="Autoregressive chunks generated per rollout. Default: %(default)s.",
+            help="Autoregressive chunks generated per rollout. Reaching this count finishes the UI and ends the run. Default: %(default)s.",
         )
         parser.add_argument(
             "--warmup-blocks",

@@ -1,0 +1,68 @@
+[project]
+site_name = "FlashDreams"
+site_description = "Inference and serving for interactive video and world models"
+site_url = "https://nvidia.github.io/flashdreams/main/"
+repo_url = "https://github.com/NVIDIA/flashdreams"
+repo_name = "NVIDIA/flashdreams"
+edit_uri = "edit/main/docs/source/"
+docs_dir = "source"
+site_dir = "dist"
+extra_css = [
+    "stylesheets/custom.css",
+    "https://unpkg.com/katex@0/dist/katex.min.css",
+]
+extra_javascript = [
+    "javascripts/katex.js",
+    "https://unpkg.com/katex@0/dist/katex.min.js",
+    "https://unpkg.com/katex@0/dist/contrib/auto-render.min.js",
+]
+
+[project.theme]
+logo = "images/horizontal-light.svg"
+favicon = "favicon.svg"
+features = [
+    "content.action.edit",
+    "navigation.indexes",
+    "navigation.footer",
+    "navigation.tabs",
+    "navigation.tabs.sticky",
+]
+
+[[project.theme.palette]]
+scheme = "default"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to light mode"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+md_in_html = {}
+tables = {}
+pymdownx.details = {}
+pymdownx.superfences = {}
+pymdownx.snippets = { base_path = ["."], check_paths = true }
+pymdownx.arithmatex.generic = true
+
+[project.plugins.awesome-nav]
+
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["../flashdreams"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "google"
+members_order = "source"
+merge_init_into_class = true
+separate_signature = true
+show_root_full_path = true
+show_root_heading = true
+show_signature_annotations = true
+show_source = true
+signature_crossrefs = true
+
+[project.extra]
+generator = false

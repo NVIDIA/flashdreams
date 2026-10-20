@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Role-based visibility masks for multi-view autoregressive attention."""
 
@@ -121,10 +109,11 @@ def visibility(
     control_step_allowed = (
         (kv_step <= q_step) if control_uses_history else (kv_step == q_step)
     )
+    caption_reaches = kv_row(kv.view_id < 0) | same_view
 
     allowed = (
-        (q_is_target & (kv_role == ROLE_UND))
-        | (q_is_condition & (kv_role == ROLE_UND))
+        (q_is_target & (kv_role == ROLE_UND) & caption_reaches)
+        | (q_is_condition & (kv_role == ROLE_UND) & caption_reaches)
         | (q_is_control & (kv_role == ROLE_CONTROL) & same_view & (kv_step <= q_step))
         | (
             q_is_target_condition
@@ -212,10 +201,11 @@ def visibility_mask_mod(
         control_step_allowed = (
             (kv_step <= q_step) if control_uses_history else (kv_step == q_step)
         )
+        caption_reaches = (kv.view_id[kv_idx] < 0) | same_view
 
         allowed = (
-            (q_is_target & (kv_role == ROLE_UND))
-            | (q_is_condition & (kv_role == ROLE_UND))
+            (q_is_target & (kv_role == ROLE_UND) & caption_reaches)
+            | (q_is_condition & (kv_role == ROLE_UND) & caption_reaches)
             | (
                 q_is_control
                 & (kv_role == ROLE_CONTROL)

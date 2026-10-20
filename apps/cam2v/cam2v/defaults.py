@@ -56,6 +56,9 @@ class Cam2VConditioning:
     world_scale: float
     """Scale applied to camera translations by the model's camera encoder."""
 
+    camera_poses: torch.Tensor | None = None
+    """Optional fixed camera-to-world replay trajectory shaped ``[T, 4, 4]``."""
+
     def __post_init__(self) -> None:
         first_frame_path = Path(self.first_frame_path)
         intrinsics = torch.as_tensor(self.base_intrinsics, dtype=torch.float32)
@@ -65,9 +68,23 @@ class Cam2VConditioning:
             )
         if self.world_scale < 0:
             raise ValueError("Cam2VConditioning.world_scale must be >= 0.")
+        camera_poses = self.camera_poses
+        if camera_poses is not None:
+            camera_poses = torch.as_tensor(camera_poses, dtype=torch.float32)
+            if camera_poses.ndim != 3 or camera_poses.shape[1:] != (4, 4):
+                raise ValueError(
+                    "Cam2VConditioning.camera_poses must have shape [T, 4, 4]."
+                )
+            if camera_poses.shape[0] == 0:
+                raise ValueError("Cam2VConditioning.camera_poses must not be empty.")
         object.__setattr__(self, "prompt", self.prompt.strip())
         object.__setattr__(self, "first_frame_path", first_frame_path)
         object.__setattr__(self, "base_intrinsics", intrinsics.reshape(1, 4).clone())
+        object.__setattr__(
+            self,
+            "camera_poses",
+            None if camera_poses is None else camera_poses.clone(),
+        )
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

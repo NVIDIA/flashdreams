@@ -1,23 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Autoregressive inference pipeline: encode → diffuse → decode."""
 
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Generic
 
@@ -44,7 +33,8 @@ from flashdreams.infra.encoder import (
     StreamingEncoder,
     StreamingEncoderCacheT,
 )
-from flashdreams.infra.profiler import EventProfiler
+from flashdreams.infra.profiler import EventProfiler, format_result_as_ms
+from flashdreams.runtime_v2.profiler_utils import get_inference_profiler
 
 
 @dataclass(kw_only=True)
@@ -219,6 +209,23 @@ class StreamInferencePipeline(
             Decoded tensor (e.g. RGB video) when a decoder is configured;
             otherwise the unpatchified clean latent from the diffusion model.
         """
+        return self._generate(
+            autoregressive_index,
+            cache,
+            input=input,
+        )
+
+    def _generate(
+        self,
+        autoregressive_index: int,
+        cache: StreamInferencePipelineCache[
+            StreamingEncoderCacheT, TransformerCacheT, StreamingDecoderCacheT
+        ],
+        input: Any = None,
+        *,
+        on_diffusion_complete: Callable[[], None] | None = None,
+    ) -> Tensor:
+        """Run the shared stages with an optional pre-decode completion hook."""
         prev = cache.autoregressive_index
         expected = (prev + 1) if prev is not None else 0
         assert autoregressive_index == expected, (
@@ -226,50 +233,50 @@ class StreamInferencePipeline(
             f"{expected}, got {autoregressive_index}"
         )
         cache.autoregressive_index = autoregressive_index
+        profiler = get_inference_profiler()
+        # Counted like a frame, so the stats report generate() calls per second.
+        profiler.event("pipeline.generate")
 
-        events: EventProfiler | None = None
-        if self.config.enable_sync_and_profile:
-            events = EventProfiler()
-            cache.event_profiler = events
+        # Stages are timed under this cache, so a pipeline run before this one's
+        # finalize keeps its own. Opened even with no encoder, so the stage is
+        # timed either way.
+        with profiler.stage_scope(cache), profiler.range("pipeline.encode"):
+            if input is not None:
+                assert self.encoder is not None, (
+                    "input was provided but the pipeline has no encoder. "
+                    "Configure StreamInferencePipelineConfig.encoder (e.g. with "
+                    "NullEncoderConfig() for an identity passthrough)."
+                )
+                assert cache.encoder_cache is not None  # invariant: paired with encoder
+                input = self.encoder(
+                    input=input,
+                    autoregressive_index=autoregressive_index,
+                    cache=cache.encoder_cache,
+                )
 
-        if input is not None:
-            assert self.encoder is not None, (
-                "input was provided but the pipeline has no encoder. "
-                "Configure StreamInferencePipelineConfig.encoder (e.g. with "
-                "NullEncoderConfig() for an identity passthrough)."
-            )
-            assert cache.encoder_cache is not None  # invariant: paired with encoder
-            input = self.encoder(
-                input=input,
+        with profiler.stage_scope(cache), profiler.range("pipeline.diffuse"):
+            clean_latent, final_state = self.diffusion_model.generate(
                 autoregressive_index=autoregressive_index,
-                cache=cache.encoder_cache,
+                cache=cache.transformer_cache,
+                input=input,
             )
-
-        if events is not None:
-            events.record("encode")
-
-        clean_latent, final_state = self.diffusion_model.generate(
-            autoregressive_index=autoregressive_index,
-            cache=cache.transformer_cache,
-            input=input,
-        )
         cache.final_state = final_state
 
-        if events is not None:
-            events.record("diffuse")
+        # A caller hook, not a pipeline stage, so it sits outside both ranges.
+        if on_diffusion_complete is not None:
+            on_diffusion_complete()
 
-        if self.decoder is not None:
-            assert cache.decoder_cache is not None  # invariant: paired with decoder
-            output = self.decoder(
-                input=clean_latent,
-                autoregressive_index=autoregressive_index,
-                cache=cache.decoder_cache,
-            )
-        else:
-            output = clean_latent
-
-        if events is not None:
-            events.record("decode")
+        # Opened even with no decoder, so the stage is timed either way.
+        with profiler.stage_scope(cache), profiler.range("pipeline.decode"):
+            if self.decoder is not None:
+                assert cache.decoder_cache is not None  # invariant: paired with decoder
+                output = self.decoder(
+                    input=clean_latent,
+                    autoregressive_index=autoregressive_index,
+                    cache=cache.decoder_cache,
+                )
+            else:
+                output = clean_latent
 
         return output
 
@@ -290,8 +297,10 @@ class StreamInferencePipeline(
                 ``cache.final_state``.
 
         Returns:
-            ``None`` when profiling is disabled. Otherwise a snapshot of this
-            AR step's per-stage timings (ms) and GPU memory (GiB):
+            ``None`` unless stages were timed, either by the injected profiler
+            or by a pipeline that recorded onto ``cache.event_profiler``.
+            Otherwise a snapshot of this AR step's per-stage timings (ms) and
+            GPU memory (GiB):
             ``{<stage>_ms, total_ms, total_ms_wo_finalize, mem_alloc_gib,
             mem_reserved_gib, mem_peak_gib}``. The same numbers are also
             logged via ``logger.info``.
@@ -304,16 +313,21 @@ class StreamInferencePipeline(
         assert cache.final_state is not None, (
             "finalize() called before generate() — no FinalState on the cache."
         )
-        self.diffusion_model.finalize(final_state=cache.final_state)
-        if not self.config.enable_sync_and_profile:
+        profiler = get_inference_profiler()
+        with profiler.stage_scope(cache), profiler.range("pipeline.finalize"):
+            self.diffusion_model.finalize(final_state=cache.final_state)
+        if cache.event_profiler is not None:
+            # A pipeline that overrides generate() times its own stages onto
+            # the cache. Those are the ones to report.
+            cache.event_profiler.record("finalize")
+            stats_ms = cache.event_profiler.sync_and_summarize()
+        else:
+            with profiler.stage_scope(cache):
+                stats_ms = profiler.collect_stage_ms()
+        if not stats_ms:
             return None
 
-        assert cache.event_profiler is not None, (
-            "finalize() called before any generate() — no EventProfiler on the cache."
-        )
-        cache.event_profiler.record("finalize")
-        stats_ms = cache.event_profiler.sync_and_summarize()
-        stats = cache.event_profiler.format_result_as_ms(
+        stats = format_result_as_ms(
             stats_ms, collect_totals=True, collect_vram_info=True
         )
 

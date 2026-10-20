@@ -4,14 +4,13 @@
 """UI loop drawing SlangPy widgets over the model output."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar, final
+from typing import Any, Generic, TypeVar, cast, final
 
 from torch import Tensor
 
 from flashdreams.api_v2.loop import IUILoop
 from flashdreams.runtime_v2.slangpy_ui_renderer import (
     _SlangPyUIRenderer,
-    _UIRenderer,
 )
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.ui_compositing import prepare_ui_back_buffer
@@ -32,7 +31,7 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
     def __init__(
         self,
         *,
-        renderer: _UIRenderer | None = None,
+        renderer: _SlangPyUIRenderer | None = None,
         width: int | None = None,
         height: int | None = None,
     ) -> None:
@@ -54,6 +53,14 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
             renderer = _SlangPyUIRenderer(width=width, height=height)
         self.renderer = renderer
 
+    def resize_ui_loop(self, width: int, height: int) -> None:
+        """Resize the SlangPy renderer."""
+        self.renderer.resize(width, height)
+
+    def get_ui_loop_size(self) -> tuple[int, int]:
+        """Return the current SlangPy render-target size."""
+        return self.renderer.width, self.renderer.height
+
     @abstractmethod
     def step_ui(
         self, ui: Any, step_index: int, events: UserInputEvents
@@ -73,12 +80,12 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
         ...
 
     @final
-    def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+    def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Render the UI over the optional back-buffer returned by :meth:`step_ui`.
 
         Returns:
-            One composited frame, as ``[1, C, H, W]``. Sessions using this loop
-            therefore declare a ``tchw`` layout.
+            One composited frame in a list, as ``[1, C, H, W]``. Sessions using
+            this loop therefore declare a ``tchw`` layout.
         """
         back_buffer: Tensor | None = None
 
@@ -89,12 +96,14 @@ class SlangPyUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
         overlay = self.renderer.render(step_index, events, draw)
         back_buffer = prepare_ui_back_buffer(back_buffer, overlay)
         frame = self._presentation_manager.composite(back_buffer, overlay)
-        return StepResult(
-            step_index=step_index,
-            output=frame.unsqueeze(0),
-            frame_count=1,
-            output_layout=self.output_layout,
-        )
+        return [
+            StepResult(
+                step_index=step_index,
+                output=frame.unsqueeze(0),
+                frame_count=1,
+                output_layout=self.output_layout,
+            )
+        ]
 
     def reset(self) -> None:
         """Reset renderer state after a session reset event."""

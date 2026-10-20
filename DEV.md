@@ -1,4 +1,4 @@
-# Versioning and PyPI Publishing
+# Versioning and Release Preparation
 
 ## Version source of truth
 
@@ -17,13 +17,23 @@ by `.github/scripts/sync_version.py`, which runs as a pre-commit hook.
 1. Edit `__version__` in `flashdreams/flashdreams/_version.py`.
 2. Commit.  The pre-commit hook updates all integration `pyproject.toml`
    files to match.
-3. Push to `main`.  CI builds the wheel and uploads it.
+3. Push to `main`. CI builds and validates the `flashdreams` wheel, then stores
+   it as a temporary GitHub Actions artifact. CI does not publish the wheel.
 
 ## What gets published
 
 Only `flashdreams` is published to PyPI (pure-Python wheel, `py3-none-any`).
-The `publish-pypi` job in `.github/workflows/ci.yml` uploads to production
-PyPI on pushes to `main` after the CPU and GPU jobs pass.
+Automatic PyPI publication is intentionally disabled while the release process
+is updated to scan the final wheel for malware before publication. Do not
+publish a wheel built by CI unless the exact artifact has completed the
+approved malware-scanning process.
+
+After the CPU tests pass, CI stores the wheel, `SHA256SUMS`, and
+`build-provenance.json` for 30 days under an artifact name containing the full
+source commit and workflow attempt. This artifact is a temporary handoff for
+the controlled malware-scanning release process. Before promotion, the entire
+CI workflow, including the required GPU job, must have succeeded for that exact
+commit.
 
 ## Integration packages (git-installable)
 
@@ -49,7 +59,6 @@ uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.gi
 | flashdreams-cosmos-predict2 | git only | synced |
 | flashdreams-fastvideo-causal-wan22 | git only | synced |
 | flashdreams-flashvsr | git only | synced |
-| flashdreams-hy-worldplay | git only | synced |
 | flashdreams-lingbot | git only | synced |
 | flashdreams-omnidreams | git only | synced |
 | flashdreams-self-forcing | git only | synced |
@@ -57,10 +66,8 @@ uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.gi
 | flashdreams-wan22 | git only | synced |
 | ludus-renderer | git only | independent (0.9.0) |
 
-## CI secrets required
+## PyPI credentials
 
-| Secret name | Where to create | Purpose |
-|-------------|-----------------|---------|
-| `PYPI_API_TOKEN` | https://pypi.org/manage/account/token/ | Upload `flashdreams` to PyPI |
-
-Add secrets in GitHub repo Settings -> Secrets and variables -> Actions.
+The current CI workflow does not publish to PyPI and does not consume a PyPI
+token. Publication credentials must not be reintroduced into CI without the
+approved malware-scanning release gate.

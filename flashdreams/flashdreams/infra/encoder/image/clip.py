@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Wan CLIP image encoder, exposed as an infra Encoder."""
 
@@ -23,8 +11,6 @@ from typing import Literal, cast
 
 import torch
 from torch import Tensor
-from transformers import BatchFeature, CLIPImageProcessor, CLIPVisionModel
-from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from flashdreams.core.io.hf import maybe_download_hf_repo_on_rank0
 from flashdreams.infra.encoder import Encoder, EncoderConfig
@@ -58,6 +44,8 @@ class CLIPImageEncoder(Encoder):
     """
 
     def __init__(self, config: CLIPImageEncoderConfig) -> None:
+        from transformers import CLIPImageProcessor, CLIPVisionModel
+
         super().__init__(config)
         self.config: CLIPImageEncoderConfig = config
 
@@ -83,6 +71,9 @@ class CLIPImageEncoder(Encoder):
     @torch.no_grad()
     def forward(self, input: Tensor) -> Tensor:
         """Encode images ``[..., C, H, W]`` in ``[-1, 1]``; returns ``[..., 257, 1280]``."""
+        from transformers import BatchFeature
+        from transformers.modeling_outputs import BaseModelOutputWithPooling
+
         batch_shape = input.shape[:-3]
         batch_size = math.prod(batch_shape)
         images = input.reshape(batch_size, *input.shape[-3:])

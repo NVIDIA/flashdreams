@@ -13,7 +13,9 @@ from contextlib import contextmanager
 import torch
 from torch import Tensor
 
+from flashdreams.api_v2.profiler import IProfiler
 from flashdreams.runtime_v2.cuda_utils import resolve_cuda_device
+from flashdreams.runtime_v2.profiler import NullProfiler
 from flashdreams.runtime_v2.recent_frame_rate import RecentFrameRateTracker
 from flashdreams.runtime_v2.session_desc import BackpressureMode
 from flashdreams.runtime_v2.step_result import StepResult
@@ -185,6 +187,7 @@ class PresentationManager:
         self._backpressure_mode = BackpressureMode.BLOCK
         self._stop = threading.Event()
         self._put_timeout = 1.0 / 30.0
+        self._profiler: IProfiler = NullProfiler()
         self._counter_lock = threading.Lock()
         self._generation = 0
         self._presented_chunk: list[StepResult] | None = None
@@ -242,6 +245,10 @@ class PresentationManager:
         self._put_timeout = put_timeout
         self._trace_chunk_lifecycle = trace_chunk_lifecycle
 
+    def set_profiler(self, profiler: IProfiler) -> None:
+        """Record presented frames to ``profiler``."""
+        self._profiler = profiler
+
     def publish(
         self,
         generation: int,
@@ -255,21 +262,29 @@ class PresentationManager:
         queue is full, until there is room or the session stops;
         ``DROP_OLDEST`` evicts instead and returns.
 
+        **An empty chunk is a step that presented nothing**, and nothing is
+        queued or waited for. That is what a worker rank of a multi-process run
+        publishes: every rank generates the same frames and only one of them has
+        a client, so the rest would otherwise decode a copy nobody reads and
+        write a file nobody opens. A run whose steps all present nothing still
+        ends when its model loop does, since what ends it is the model thread
+        finishing with no frames left to show.
+
         Args:
             generation: Reset generation the chunk was generated in. A chunk
                 from an earlier one is discarded rather than presented.
-            chunk: One :class:`StepResult` per model channel.
+            chunk: One :class:`StepResult` per model channel, or empty to
+                present nothing for this step.
             step_elapsed_s: Cumulative time spent in model steps that produced
                 the result, including buffered steps; ``None`` leaves the
                 presentation cadence unchanged.
 
         Raises:
-            ValueError: ``chunk`` is empty, or its channels disagree about
-                ``frame_count``.
+            ValueError: ``chunk``'s channels disagree about ``frame_count``.
             TypeError: ``chunk`` holds something other than results.
         """
         if not chunk:
-            raise ValueError("A presented chunk must contain at least one channel.")
+            return
         if any(not isinstance(result, StepResult) for result in chunk):
             raise TypeError("Every model channel must be a StepResult.")
         frame_count = chunk[0].frame_count
@@ -393,6 +408,10 @@ class PresentationManager:
             self._presented_frame_count += 1
             self._trace_presented_frame(generation)
             self._presentation_clock.mark_advanced(now, backlog=backlog)
+            self._profiler.event(
+                "present.frame",
+                step=(generation, self._presented_chunk[0].step_index),
+            )
             return True, None
 
         chunk = self._take_buffered_chunk(
@@ -406,6 +425,9 @@ class PresentationManager:
         self._presented_frame_count += 1
         self._trace_presented_frame(generation)
         self._presentation_clock.mark_advanced(now, backlog=backlog)
+        step = (generation, chunk[0].step_index)
+        self._profiler.event("present.frame", step=step)
+        self._profiler.step_presented(step)
         return True, chunk
 
     @property

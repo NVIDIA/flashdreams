@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """CUDA correctness tests for Torch and Triton tensor quantization."""
 
@@ -23,6 +11,10 @@ from flashdreams.accelerated.quantization.quantizer import (
     Granularity,
     dequantize,
     quantize,
+)
+from flashdreams.accelerated.quantization.quantizer_kernel import (
+    requires_triton_rowwise_fp8_mm,
+    rowwise_fp8_mm_triton,
 )
 
 pytestmark = pytest.mark.ci_gpu
@@ -286,13 +278,23 @@ def test_quantized_gemm(
         scaled_out_dtype = (
             torch.bfloat16 if granularity is Granularity.SLICE else torch.float32
         )
-        restored = torch._scaled_mm(
-            left_quantized,
-            right_quantized,
-            left_scale,
-            right_scale,
-            out_dtype=scaled_out_dtype,
-        ).float()
+        if granularity is Granularity.SLICE and requires_triton_rowwise_fp8_mm(
+            left_quantized
+        ):
+            restored = rowwise_fp8_mm_triton(
+                left_quantized,
+                right_quantized,
+                left_scale,
+                right_scale,
+            ).float()
+        else:
+            restored = torch._scaled_mm(
+                left_quantized,
+                right_quantized,
+                left_scale,
+                right_scale,
+                out_dtype=scaled_out_dtype,
+            ).float()
     expected = left @ right
 
     if granularity is Granularity.SLICE:

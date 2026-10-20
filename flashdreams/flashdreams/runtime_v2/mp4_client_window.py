@@ -37,6 +37,19 @@ class Mp4ClientWindow(IClientWindow):
         """Return an empty input batch."""
         return UserInputEvents([])
 
+    def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
+        """Change the MP4 presentation dimensions without replacing the session.
+
+        Args:
+            new_window_size: Requested ``(width, height)`` in pixels.
+
+        Raises:
+            RuntimeError: The window is not open or video migration fails.
+            ValueError: An expanded MP4 canvas dimension is odd and cannot be
+                encoded as ``yuv420p``.
+        """
+        self._video_sink.request_new_window_size(new_window_size)
+
     def open(self, session_desc: SessionDesc) -> None:
         """Prepare to write a session's output."""
         self._video_sink.open(session_desc)
