@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/models/omnidreams/">
       
       
-        <link rel="prev" href="../">
+        <link rel="prev" href="../cosmos3_nano_sim_auto/">
       
       
         <link rel="next" href="../self_forcing/">
@@ -600,6 +600,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -641,6 +645,60 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cosmos3_nano_sim_bimanual/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Bimanual
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cosmos3_nano_sim_auto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Auto
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -1388,6 +1446,8 @@
       
         
       
+        
+      
     
     
     
@@ -1429,6 +1489,33 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../demos/hand_dreams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  HandDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -3033,17 +3120,23 @@ runtime throughput.</p>
 
 <h2 id="quick-start">Quick Start</h2>
 <h3 id="crazy-robotaxi">Crazy Robotaxi</h3>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--extra<span class="w"> </span>interactive-drive<span class="w"> </span>--inexact
+<p>Ensure you are using a 48GB+ VRAM GPU, have CUDA installed, and have the CUDA toolkit installed (version that supports your GPU, likely 13+). Have a C++ compiler installed and added to your <code>PATH</code>. Ensure you have available 100 GB+ free storage.</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">HF_TOKEN</span><span class="o">=</span><span class="s2">&quot;&lt;your-hugging-face-token&gt;&quot;</span>
+uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--extra<span class="w"> </span>interactive-drive<span class="w"> </span>--inexact
 uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>crazy-robotaxi-omnidreams<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span>
-<span class="c1"># Open http://127.0.0.1:8089/</span>
+
+<span class="c1"># use `--mode native-window` for launching a local-window to display gameplay intead of browser.</span>
 </code></pre></div>
+<p>Open <code>http://&lt;server-address&gt;:8089/</code> (<code>localhost</code> for a local browser).</p>
+<p>Continue with mode and map selection <a href="../../demos/crazy_robotaxi/#start-playing">here</a>.</p>
 <div class="fd-cta-row">
   <a class="fd-button" href="#crazy-robotaxi-presets">Demo Presets</a>
   <a class="fd-button" href="../../demos/crazy_robotaxi/#demo-arguments">Demo Arguments</a>
 </div>
 
 <h3 id="interactive-drive">Interactive Drive</h3>
+<p>Ensure you are using a 48GB+ VRAM GPU, have CUDA installed, and have the CUDA toolkit installed (version that supports your GPU, likely 13+). Have a C++ compiler installed and added to your <code>PATH</code>. Ensure you have available 100 GB+ free storage.</p>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--extra<span class="w"> </span>interactive-drive<span class="w"> </span>--inexact
 <span class="c1"># Optional: preload assets and validate the first model block.</span>
 uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>interactive-drive-omnidreams<span class="w"> </span><span class="se">\</span>
@@ -3064,6 +3157,8 @@ uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> <
 <p><a id="crazy-robotaxi-presets"></a></p>
 <h3 id="crazy-robotaxi_1">Crazy Robotaxi</h3>
 <p>Fastest preset: <code>crazy-robotaxi-omnidreams-fast-perf</code>.</p>
+<p>Lowest VRAM: <code>crazy-robotaxi-omnidreams-rtx-5090-fast</code>.</p>
+<p>Works best with a GB300: <code>crazy-robotaxi-omnidreams</code>.</p>
 <table>
 <thead>
 <tr>
@@ -3294,7 +3389,7 @@ uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> <
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../" class="md-footer__link md-footer__link--prev" aria-label="Previous: Overview">
+          <a href="../cosmos3_nano_sim_auto/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Cosmos3 Nano Sim Auto">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
@@ -3304,7 +3399,7 @@ uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> <
                 Previous
               </span>
               <div class="md-ellipsis">
-                Overview
+                Cosmos3 Nano Sim Auto
               </div>
             </div>
           </a>

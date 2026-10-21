@@ -19,6 +19,9 @@
         <loc>https://nvidia.github.io/flashdreams/main/demos/crazy_robotaxi/</loc>
       </url>
       <url>
+        <loc>https://nvidia.github.io/flashdreams/main/demos/hand_dreams/</loc>
+      </url>
+      <url>
         <loc>https://nvidia.github.io/flashdreams/main/demos/interactive_drive/</loc>
       </url>
       <url>
@@ -101,6 +104,12 @@
       </url>
       <url>
         <loc>https://nvidia.github.io/flashdreams/main/models/causal_wan22/</loc>
+      </url>
+      <url>
+        <loc>https://nvidia.github.io/flashdreams/main/models/cosmos3_nano_sim_auto/</loc>
+      </url>
+      <url>
+        <loc>https://nvidia.github.io/flashdreams/main/models/cosmos3_nano_sim_bimanual/</loc>
       </url>
       <url>
         <loc>https://nvidia.github.io/flashdreams/main/models/cosmos_predict2/</loc>

@@ -593,6 +593,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -634,6 +638,60 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../models/cosmos3_nano_sim_bimanual/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Bimanual
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../models/cosmos3_nano_sim_auto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Auto
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -1223,6 +1281,8 @@
       
         
       
+        
+      
     
     
     
@@ -1264,6 +1324,33 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hand_dreams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  HandDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -2959,7 +3046,7 @@
 <p><a id="interactive-drive"></a></p>
 <p>Interactive Drive is a long-running FlashDreams v2 driving application with
 scene and variant selection, driving telemetry, post-processing controls, and a
-BEV minimap.</p>
+(only <code>omnidreams</code>) BEV minimap.</p>
 <div class="fd-card fd-model-card">
   <img class="fd-card-preview" src="../../_static/demo_clips/interactive-drive.avif" alt="" />
 </div>
@@ -2970,6 +3057,7 @@ BEV minimap.</p>
 <h2 id="quick-start">Quick Start:</h2>
 <div class="fd-cta-row">
   <a class="fd-button" href="../../models/omnidreams/#interactive-drive">OmniDreams</a>
+  <a class="fd-button" href="../../models/cosmos3_nano_sim_auto/#interactive-drive">Cosmos3 Nano Sim Auto</a>
 </div>
 <p><a id="apps-interactivedrive-readme--controls"></a></p>
 <hr>
@@ -3000,6 +3088,10 @@ BEV minimap.</p>
 <tr>
 <td><code>D</code> or Right arrow</td>
 <td>Steer right.</td>
+</tr>
+<tr>
+<td><code>R</code></td>
+<td>Restart the current scene.</td>
 </tr>
 <tr>
 <td>Space</td>
@@ -3084,124 +3176,145 @@ access to <code>/dev/input/*</code> and the appropriate Linux driver:</p>
 </tr>
 </tbody>
 </table>
-<p>Its <code>InteractiveDriveUILoop</code> HUD contains steering-wheel and pedal sprites.
-Dear ImGui builds the immediate-mode HUD and SlangPy renders it with GPU
-textures; the application does not use CSS.</p>
-<p>The package also owns its model-neutral scene loading, simulation, rendering,
-input handling, and wheel-configuration support. Its world-model binding is
-supplied by an integration adapter.</p>
 <p><a id="apps-interactivedrive-readme--application-arguments"></a></p>
 <hr>
 
 <h2 id="demo-arguments">Demo Arguments</h2>
+<p><code>Unsupported</code> is a section to note partially/fully non-functional commands for a given model.</p>
 <table>
 <thead>
 <tr>
 <th>Argument</th>
 <th>Description</th>
+<th>Unsupported</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>--scene PATH</code></td>
-<td>Use a local USDZ scene instead of downloading the default scene.</td>
+<td>Choose a local scene file: <code>OmniDreams</code> uses a USDZ scene; <code>Cosmos3 Nano Sim Auto</code> uses a Scene bundle.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>--prompt TEXT</code></td>
 <td>Override the prompt stored in the selected scene variant.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>--camera NAME</code></td>
-<td>Select a camera from the scene. Default: <code>camera_front_wide_120fov</code>.</td>
+<td>Select a camera from the scene. Default: <code>camera_front_wide_120fov</code>. <code>Cosmos3 Nano Sim Auto</code> accepts an ordered comma-separated subset, do not mix with <code>--views</code>.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>--variant NAME</code></td>
 <td>Select the scene&#x27;s initial-frame and prompt variant. Default: <code>default</code>.</td>
+<td><code>cosmos3-nano-sim-auto</code></td>
 </tr>
 <tr>
 <td><code>--total-blocks N</code></td>
 <td>Stop after this many generated blocks; <code>0</code> runs until the session is stopped. Default: <code>0</code>.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>--fps N</code></td>
 <td>Set the application frame rate. Default: <code>30</code>.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>--width N</code></td>
 <td>Set the output width. The selected demo-model slug supplies the default.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>--height N</code></td>
 <td>Set the output height. The selected demo-model slug supplies the default.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>--view {rgb,hdmap,physx}</code></td>
 <td>Select the initial RGB, HD-map conditioning, or PhysX collider view. Default: <code>rgb</code>.</td>
+<td><code>cosmos3-nano-sim-auto</code> (<code>physx</code>)</td>
 </tr>
 <tr>
 <td><code>--no-ui</code></td>
 <td>Present model output directly without creating the HUD or rendering its BEV minimap.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>--game-mode</code></td>
-<td>Enable the speed limit and collisions with scene actors and static map geometry.</td>
+<td>Enable the speed limit.</td>
+<td><code>cosmos3-nano-sim-auto</code> (missing collision)</td>
 </tr>
 <tr>
 <td><code>--postprocess-preset NAME</code></td>
 <td>Start with a registered video post-processing preset enabled. Default: none.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>--postprocess-device DEVICE</code></td>
 <td>Select the postprocessor device independently. Default: <code>cuda:0</code>.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>--world-model-device DEVICE</code></td>
 <td>Select the model device. Default: <code>cuda:0</code>.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>--raster-device DEVICE</code></td>
 <td>Select the Ludus raster device independently. Default: <code>cuda:0</code>.</td>
+<td><code>cosmos3-nano-sim-auto</code></td>
 </tr>
 <tr>
 <td><code>--world-model-seed N</code></td>
 <td>Pin the seed used for each rollout.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>--world-model-debug-condition-frame-dir PATH</code></td>
 <td>Override first-chunk condition frames for debugging.</td>
+<td><code>cosmos3-nano-sim-auto</code></td>
+</tr>
+<tr>
+<td><code>--views N</code></td>
+<td>Select the number of cameras to display. Allowed: <code>1</code>, <code>4</code> or <code>7</code>. Do not mix with <code>--camera</code></td>
+<td><code>omnidreams</code></td>
+</tr>
+<tr>
+<td><code>--lidar</code></td>
+<td>Show the LiDAR point cloud. Default: <code>False</code>. <code>Cosmos3 Nano Sim Auto</code> accepts this option.</td>
+<td><code>omnidreams</code></td>
 </tr>
 </tbody>
 </table>
-<p>For example, use the default scene, select its rain variant, override its prompt,
+<p>For <code>OmniDreams</code>, use the default scene, select its rain variant, override its prompt,
 and enable RTX super resolution:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>DEMO_MODEL_SLUG<span class="w"> </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>interactive-drive-omnidreams<span class="w"> </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--variant<span class="w"> </span>rain<span class="w"> </span>--prompt<span class="w"> </span><span class="s2">&quot;A rainy night drive&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--game-mode<span class="w"> </span>--postprocess-preset<span class="w"> </span>rtx-super-resolution
 </code></pre></div>
-<p>For example, render every generated frame once, in order, with the HUD disabled (for quality evaluation):</p>
+<p>For <code>Cosmos3 Nano Sim Auto</code>, use the rain scene, override its prompt,
+and enable RTX super resolution:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>interactive-drive-cosmos3-nano-sim-auto<span class="w"> </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--scene<span class="w"> </span>clipgt-residential-rain-iter1500<span class="w"> </span>--prompt<span class="w"> </span><span class="s2">&quot;A rainy night drive&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--game-mode<span class="w"> </span>--postprocess-preset<span class="w"> </span>rtx-super-resolution
+</code></pre></div>
+<p>Render a video of the demo without ui or dropped frames:
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>DEMO_MODEL_SLUG<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--mode<span class="w"> </span>mp4<span class="w"> </span>--output-path<span class="w"> </span>artifacts/test/interactive-drive.mp4<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--timeout<span class="w"> </span>unbound<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--backpressure-mode<span class="w"> </span>block<span class="w"> </span>--presentation-mode<span class="w"> </span>on_demand<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--no-ui<span class="w"> </span>--total-blocks<span class="w"> </span><span class="m">60</span>
-</code></pre></div>
-<p>This is frame-lossless presentation: the runtime neither drops nor repeats
-generated frames. The MP4 itself is currently encoded as H.264 at CRF 18, so it
-is not mathematically lossless at the pixel/codec level.</p>
-<p>For example, render a native-window with game-mode collisions enabled:
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>DEMO_MODEL_SLUG<span class="w"> </span>--mode<span class="w"> </span>native-window<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--game-mode
 </code></pre></div></p>
-<p>The HUD's view button cycles through <strong>RGB → HDMAP → PHYSX</strong>.</p>
+<p>The HUD's view button cycles through <strong>RGB → HDMAP → PHYSX</strong> for <code>omnidreams</code>
+and <strong>RGB → HDMAP</strong> for <code>cosmos3-nano-sim-auto</code>.</p>
 <p>When <code>--postprocess-preset</code> is set, the preset starts enabled and the HUD's
 <strong>Post-processing</strong> checkbox can toggle it between generated chunks. Without a
-preset, the checkbox is hidden. Run the application-help command above to see the presets registered in the
-current environment. The built-in <code>rtx-*</code> presets require
+preset, the checkbox is hidden. Run
+<code>uv run --no-sync flashdreams-run-v2 DEMO_MODEL_SLUG -- --help</code> to list registered
+post-processing presets. The built-in <code>rtx-*</code> presets require
 the optional NVIDIA VFX dependency, installable with
 <code>uv pip install 'flashdreams[rtx-postprocess]'</code>, and supported RTX hardware.</p>
-<p>The downloaded default scene is
-<code>scenes/clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4.usdz</code>. Pass
-<code>-- --scene scene.usdz</code> to use a local scene instead.</p>
 <p><a id="apps-interactivedrive-readme--tests"></a></p>
 <hr>
 

@@ -593,6 +593,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -634,6 +638,60 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos3_nano_sim_bimanual/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Bimanual
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos3_nano_sim_auto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Auto
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -1216,6 +1274,8 @@
       
         
       
+        
+      
     
     
     
@@ -1257,6 +1317,33 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/hand_dreams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  HandDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -2932,9 +3019,16 @@ docs/source/
     <span class="p">)</span>
 </code></pre></div>
 <h2 id="register-the-application">Register the application</h2>
-<p>In <code>integrations_v2/wan21/pyproject.toml</code>, add our application's package name to <code>tool.uv.sources</code></p>
-<p>Then add our <code>slug</code> to run our new application entry point to <code>[project.entry-points."flashdreams.applications_v2"]</code></p>
-<p>This is seen in <code>integrations_v2/wan21/pyproject.toml</code>:
+<p>In <code>integrations_v2/wan21/pyproject.toml</code>:</p>
+<ul>
+<li>Add <code>flashdreams-minimal-t2v</code> to <code>project.dependencies</code> and map it to
+  <code>{ workspace = true }</code> in <code>tool.uv.sources</code>.</li>
+<li>Include <code>wan21.apps.minimal_t2v</code> in the setuptools packages.</li>
+<li>Register <code>minimal-t2v-wan21</code> under <code>project.entry-points."flashdreams.applications_v2"</code>,
+  pointing to <code>wan21.apps.minimal_t2v.adapter:create_app</code>.</li>
+</ul>
+<p>The app must not depend on this integration. The existing package shows all
+three declarations:
 <div class="highlight"><pre><span></span><code><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
 <span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
 
@@ -2983,9 +3077,17 @@ docs/source/
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-wan21<span class="w"> </span>--inexact
 uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>minimal-t2v-wan21<span class="w"> </span>--mode<span class="w"> </span>native-window<span class="w"> </span>--<span class="w"> </span>--default-prompt<span class="w"> </span><span class="s2">&quot;A cat surfing&quot;</span>
 </code></pre></div>
+<p>Check argument parsing without constructing the model:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>minimal-t2v-wan21<span class="w"> </span>--<span class="w"> </span>--help
+</code></pre></div>
+<p>Keep startup and presets on the model page, with controls and arguments on the
+app page. Update navigation and gallery cards when adding either page; see
+<a href="../create_demo/#check-and-document">Create a demo</a>.</p>
 <h2 id="adding-a-new-pipeline-configuration-to-pick-from">Adding a new pipeline configuration to pick from</h2>
 <p>Modify <code>integrations_v2/wan21/config.py</code> to add a new pipeline config to <code>wan21</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="n">PIPELINE_WAN21_T2V_SEED123</span> <span class="o">=</span> <span class="n">derive_config</span><span class="p">(</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">flashdreams.infra.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">derive_config</span>
+
+<span class="n">PIPELINE_WAN21_T2V_SEED123</span> <span class="o">=</span> <span class="n">derive_config</span><span class="p">(</span>
     <span class="n">PIPELINE_WAN21_T2V_1PT3B_480P</span><span class="p">,</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;wan21-t2v-1.3b-480p-seed123&quot;</span><span class="p">,</span>
     <span class="n">diffusion_model</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;seed&quot;</span><span class="p">:</span> <span class="mi">123</span><span class="p">},</span>

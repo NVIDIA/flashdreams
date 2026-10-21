@@ -593,6 +593,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -634,6 +638,60 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos3_nano_sim_bimanual/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Bimanual
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos3_nano_sim_auto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Auto
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -1216,6 +1274,8 @@
       
         
       
+        
+      
     
     
     
@@ -1257,6 +1317,33 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/hand_dreams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  HandDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -2208,10 +2295,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-test-the-integration" class="md-nav__link">
+  <a href="#4-test-the-integration" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        5. Test the integration
+        4. Test the integration
       </span>
     </span>
   </a>
@@ -2219,10 +2306,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-add-documentation" class="md-nav__link">
+  <a href="#5-add-documentation" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        6. Add documentation
+        5. Add documentation
       </span>
     </span>
   </a>
@@ -2230,10 +2317,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#7-optional-add-a-demo-adapter" class="md-nav__link">
+  <a href="#6-optional-add-a-demo-adapter" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        7. [Optional] Add a demo adapter
+        6. [Optional] Add a demo adapter
       </span>
     </span>
   </a>
@@ -2841,10 +2928,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-test-the-integration" class="md-nav__link">
+  <a href="#4-test-the-integration" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        5. Test the integration
+        4. Test the integration
       </span>
     </span>
   </a>
@@ -2852,10 +2939,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-add-documentation" class="md-nav__link">
+  <a href="#5-add-documentation" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        6. Add documentation
+        5. Add documentation
       </span>
     </span>
   </a>
@@ -2863,10 +2950,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#7-optional-add-a-demo-adapter" class="md-nav__link">
+  <a href="#6-optional-add-a-demo-adapter" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        7. [Optional] Add a demo adapter
+        6. [Optional] Add a demo adapter
       </span>
     </span>
   </a>
@@ -2969,7 +3056,7 @@ name:</p>
 <p>Use <code>derive_config</code> for small variants. Set these values explicitly:
 checkpoint, scheduler, steps, chunk and cache sizes, guidance, precision,
 compile, CUDA graphs, and attention backend.</p>
-<h2 id="5-test-the-integration">5. Test the integration</h2>
+<h2 id="4-test-the-integration">4. Test the integration</h2>
 <p>Put model tests in <code>integrations_v2/&lt;model&gt;/tests/</code>. Every pytest test must have
 exactly one of <code>ci_cpu</code>, <code>ci_gpu</code>, or <code>manual</code>.</p>
 <p>Keep these checks CPU-safe when possible:</p>
@@ -2988,9 +3075,14 @@ models, because rolling-window bugs often appear only after the boundary.</p>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-&lt;model&gt;<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--inexact
 uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>pytest<span class="w"> </span>integrations_v2/&lt;model&gt;/tests<span class="w"> </span>-m<span class="w"> </span>ci_cpu
 </code></pre></div></p>
-<h2 id="6-add-documentation">6. Add documentation</h2>
-<p>Add or update <code>docs/source/models/&lt;model&gt;.md</code> with the new model. Example: <a href="../../../../models/wan21/">Wan 2.1</a></p>
-<h2 id="7-optional-add-a-demo-adapter">7. [Optional] Add a demo adapter</h2>
+<h2 id="5-add-documentation">5. Add documentation</h2>
+<p>Follow an existing model page such as <a href="../../../../models/wan21/">Wan 2.1</a>:
+model/card and research links, a runnable quick start with requirements,
+demo presets, and developer details. Link to the demo page for controls and
+arguments. Include a meaningful AVIF preview with source attribution.
+Add the page to the matching category in <code>models/.nav.yml</code>, <code>models/index.md</code>,
+and the home gallery. <a href="../../../tools/build_website/">Build the website</a> to check it.</p>
+<h2 id="6-optional-add-a-demo-adapter">6. [Optional] Add a demo adapter</h2>
 <p>A model package can exist without a demo implementation. To add one, follow the <a href="../../../demo_api/guides/integrate_model_adapter_for_a_demo/">integrate model adapter for a demo</a> guide.</p>
 
 

@@ -647,6 +647,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -688,6 +692,60 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./models/cosmos3_nano_sim_bimanual/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Bimanual
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./models/cosmos3_nano_sim_auto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Auto
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -1270,6 +1328,8 @@
       
         
       
+        
+      
     
     
     
@@ -1311,6 +1371,33 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./demos/hand_dreams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  HandDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -2798,9 +2885,9 @@
     Whether the application is a game world, an autonomous-vehicle simulator, robotic policy testing, or a virtual training environment, FlashDreams is the runtime to make it possible.
   </p>
     <div class="fd-cta-row">
-      <a class="fd-button fd-button-primary" href="quickstart/">Get Started!</a>
+      <a class="fd-button" href="quickstart/">Get Started!</a>
       <a class="fd-button" href="https://github.com/NVIDIA/flashdreams">GitHub</a>
-      <a class="fd-button" href="community/">Contribute</a>
+      <a class="fd-button" href="https://github.com/NVIDIA/flashdreams/blob/main/CONTRIBUTING.md">Contribute</a>
     </div>
   </div>
   <div class="fd-hero-visual">
@@ -2828,14 +2915,14 @@
     <h2>Serving World Models is Hard</h2>
     <p class="fd-why-lede">Building a <strong>static clip generator is not enough</strong> for world-model serving.</p>
 
-    <img class="fd-why-comparison" alt="Offline video generation runs once from a prompt to a finished clip. Online world-model serving loops live controls through streaming encode, state update, inference, and decode for low-latency output while carrying world state forward." src="_static/diagrams/compare-offline-online-video-model-v2-transparent.webp" />
+    <img class="fd-why-comparison" alt="Offline video generation makes one pass from prompt through model to clip. Online serving receives low-latency input from a user or policy, passes it through FlashDreams encoding, state update, model inference, and decoding, and feeds low-latency output back to the input continuously." src="_static/diagrams/offline-generation-vs-online-serving-light.svg" />
 
     <div class="fd-why-row">
       <div class="fd-why-copy">
         <h4>Worlds evolve over time</h4>
         <p>World models are taught to generate and evolve an environment over time. They support robotics-policy testing, autonomous-vehicle simulation, interactive worlds, and other applications.</p>
       </div>
-      <img class="fd-why-supporting-image" alt="World models support autonomous systems using sensor input, robotics policy testing, and interactive worlds with live controls." data-generated-by="GPT-5.6 Sol - High" src="_static/diagrams/world-model-use-cases-simple.webp" />
+      <img class="fd-why-supporting-image fd-why-use-cases" alt="World models support autonomous systems using sensor input, robotics policy testing, and interactive worlds with live controls." src="_static/diagrams/world-model-applications-light.svg" />
     </div>
 
     <div class="fd-why-row">
@@ -2857,7 +2944,7 @@
           <li>The <a href="documentation/demo_api/">Demo API</a> helps application developers build experiences around the constraints of world-model serving.</li>
         </ol>
       </div>
-      <img class="fd-why-supporting-image" alt="Model Inference maintains state and cache for GPU inference. The Demo API coordinates controls, sensors, and presentation. Actions and state flow to Model Inference; streamed frames flow to the Demo API." data-generated-by="GPT-5.6 Sol - High" src="_static/diagrams/flashdreams-model-inference-demo-api.webp" />
+      <img class="fd-why-supporting-image" alt="Model Inference maintains state and cache for GPU inference. The Demo API coordinates controls, sensors, and presentation. Actions and state flow to Model Inference; streamed output flow to the Demo API." data-generated-by="GPT-5.6 Sol - High" src="_static/diagrams/flashdreams-model-inference-demo-api.webp" />
     </div>
   </div>
 
@@ -2906,6 +2993,8 @@
 
   <div class="fd-card-grid fd-card-grid-three fd-overview-grid">
     <a class="fd-card fd-model-card" href="models/omnidreams/"><img class="fd-card-preview" loading="lazy" src="_static/model_clips/omnidreams/omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-239560dc-33d1-11ef-9720-00044bcbccac-pip.avif" alt="" /><span class="fd-card-title">OmniDreams</span><span>Interactive world simulator for autonomous vehicles.</span></a>
+    <a class="fd-card fd-model-card" href="models/cosmos3_nano_sim_auto/"><img class="fd-card-preview" loading="lazy" src="_static/model_clips/cosmos3_nano_sim_auto/drive-7-view-lidar.avif" alt="" /><span class="fd-card-title">Cosmos3 Nano Sim Auto</span><span>Driving video with multiple cameras and optional LiDAR.</span></a>
+    <a class="fd-card fd-model-card" href="models/cosmos3_nano_sim_bimanual/"><img class="fd-card-preview" loading="lazy" src="_static/demo_clips/handdreams.avif" alt="" /><span class="fd-card-title">Cosmos3 Nano Sim Bimanual</span><span>Controller-driven robot-manipulation video.</span></a>
     <a class="fd-card fd-model-card" href="models/self_forcing/"><img class="fd-card-preview" loading="lazy" src="_static/model_clips/self_forcing/self-forcing-wan2.1-t2v-1.3b-flash-1.avif" alt="" /><span class="fd-card-title">Self-Forcing</span><span>Autoregressive text-to-video based on Wan 2.1.</span></a>
     <a class="fd-card fd-model-card" href="models/causal_forcing/"><img class="fd-card-preview" loading="lazy" src="_static/model_clips/causal_forcing/causal-forcing-wan2.1-t2v-1.3b-framewise.avif" alt="" /><span class="fd-card-title">Causal-Forcing</span><span>Autoregressive text/image-to-video based on Wan 2.1.</span></a>
     <a class="fd-card fd-model-card" href="models/causal_wan22/"><img class="fd-card-preview" loading="lazy" src="_static/model_clips/causal_wan22/fastvideo-causal-wan2.2-t2v-14b-1.avif" alt="" /><span class="fd-card-title">Causal Wan 2.2</span><span>Autoregressive text-to-video based on Wan 2.2 from FastVideo.</span></a>

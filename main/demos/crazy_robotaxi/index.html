@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://nvidia.github.io/flashdreams/main/demos/crazy_robotaxi/">
       
       
-        <link rel="prev" href="../">
+        <link rel="prev" href="../hand_dreams/">
       
       
         <link rel="next" href="../interactive_drive/">
@@ -593,6 +593,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -634,6 +638,60 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../models/cosmos3_nano_sim_bimanual/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Bimanual
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../models/cosmos3_nano_sim_auto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Auto
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -1223,6 +1281,8 @@
       
         
       
+        
+      
     
     
     
@@ -1264,6 +1324,33 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hand_dreams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  HandDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -1334,6 +1421,23 @@
       </span>
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Quick Start:">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start-playing" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Start playing
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1428,6 +1532,23 @@
       </span>
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Optional live-edit abilities">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#live-edit-abilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Live-edit abilities
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2864,6 +2985,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Quick Start:">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start-playing" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Start playing
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2958,6 +3096,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Optional live-edit abilities">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#live-edit-abilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Live-edit abilities
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3001,17 +3156,10 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 <p><a id="crazy-robotaxi"></a></p>
-<p>Crazy Robotaxi is an interactive FlashDreams v2 driving application. Drive a
-taxi through authored maps, collect fares, race against the clock, or explore
-freely using a keyboard, gamepad, or steering wheel.</p>
-<p>Crazy Robotaxi's game engine simulates vehicle motion, uses PhysX to resolve
-collisions, and applies rules for fares, checkpoints, and scoring. Ludus Renderer
-converts the simulated road layout and actor poses into semantic HD-map images:
-lane markings, road boundaries, and actor boxes.</p>
-<p>The OmniDreams AI world model uses those images, a text prompt, and visual
-history to generate the detailed street view. Crazy Robotaxi draws HUD text and
-navigation markers over that video using conventional rendering; their state
-and placement come from the game engine.</p>
+<p>Drive a taxi, collect fares, race, or explore with a keyboard, gamepad, or
+steering wheel. The game engine handles motion, collisions, and scoring.</p>
+<p>OmniDreams generates the street view from the simulated HD map (RGB image of color-coded boxes and lines).</p>
+<p>HUD and navigation markers come from the game engine.</p>
 <div class="fd-card fd-model-card">
   <img class="fd-card-preview" src="../../_static/demo_clips/crazy-robotaxi.avif" alt="" />
 </div>
@@ -3023,6 +3171,18 @@ and placement come from the game engine.</p>
 <div class="fd-cta-row">
   <a class="fd-button" href="../../models/omnidreams/#crazy-robotaxi">OmniDreams</a>
 </div>
+<p>The model guide covers installation, GPU preset selection, and browser or
+native-window startup.</p>
+<h3 id="start-playing">Start playing</h3>
+<ol>
+<li>Select <strong>Taxi</strong> (pick up and drop off passengers before time expires),
+   <strong>Race</strong> (timed checkpoints), or <strong>Free Roam</strong> (explore without objectives).</li>
+<li>Choose <strong>Boulevard District</strong> for suburban streets and traffic, or
+   <strong>FlashDreams Raceway</strong> for a curved four-lane course.</li>
+<li>Drive with <strong>WASD</strong> and brake with <strong>Space</strong>. Press <strong>Escape</strong> for menus.</li>
+</ol>
+<p>Visuals of this game are expected to drift from the HDMap over-time.</p>
+<p>For optional dynamic-prompts/weather, refer to  <a href="#optional-live-edit-abilities">Optional live-edit abilities</a> section.</p>
 <p><a id="apps-crazyrobotaxi-readme--controls"></a></p>
 <hr>
 
@@ -3304,8 +3464,30 @@ a timer, or a score. No race-course selection is needed.</p>
 <hr>
 
 <h2 id="optional-live-edit-abilities">Optional live-edit abilities</h2>
-<p>Live-edit features are disabled by default. Enable them on the <strong>LIVE EDIT</strong>
-Options page or with application arguments:</p>
+<p>Live-edit features are disabled by default due to performance overhead.</p>
+<p>Enable them via one of the following:</p>
+<ul>
+<li>
+<p>Game menu:</p>
+<ol>
+<li>
+<p>open <strong>OPTIONS → LIVE EDIT</strong></p>
+</li>
+<li>
+<p>enable the feature</p>
+</li>
+<li>
+<p><strong>SAVE</strong></p>
+</li>
+<li>
+<p>restart the application.</p>
+</li>
+</ol>
+</li>
+<li>
+<p>Command-line arguments:</p>
+</li>
+</ul>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>DEMO_MODEL_SLUG<span class="w"> </span>--mode<span class="w"> </span>native-window<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--live-edit-coins<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--live-edit-items<span class="w"> </span><span class="se">\</span>
@@ -3314,11 +3496,17 @@ Options page or with application arguments:</p>
 <span class="w">  </span>--live-edit-obstacle<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--live-edit-dynamic-prompts
 </code></pre></div>
-<p>When enabled, <code>C</code> toggles coins, <code>K</code> cycles style skins, <code>V</code> cycles weather,
-and <code>O</code> spawns a crossing obstacle. The same enabled actions appear as buttons
-in the live-edit HUD card alongside frame-aligned ability status. Weather cannot
-change while a non-base style is active. When enabled, style mode downloads
-missing model assets during application startup and caches them under
+<h3 id="live-edit-abilities">Live-edit abilities</h3>
+<p>When enabled:</p>
+<ul>
+<li><code>C</code> toggles coins</li>
+<li><code>K</code> cycles style skins</li>
+<li><code>V</code> cycles weather</li>
+<li><code>O</code> spawns a crossing obstacle</li>
+</ul>
+<p>Actions will appear as buttons in the HUD.
+Weather cannot change while a style is active (i.e. non-default style).
+When enabled, style mode downloads missing model assets during application startup and caches them under
 <code>artifacts/crazy_robotaxi/live_edit</code>. Explicit checkpoint paths skip the
 corresponding downloads.</p>
 <p>Dynamic prompts append selected descriptions of the current road, upcoming
@@ -3383,7 +3571,7 @@ appended to that base, falling back to <code>prompt</code> when <code>prompt_con
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../" class="md-footer__link md-footer__link--prev" aria-label="Previous: Overview">
+          <a href="../hand_dreams/" class="md-footer__link md-footer__link--prev" aria-label="Previous: HandDreams">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
@@ -3393,7 +3581,7 @@ appended to that base, falling back to <code>prompt</code> when <code>prompt_con
                 Previous
               </span>
               <div class="md-ellipsis">
-                Overview
+                HandDreams
               </div>
             </div>
           </a>

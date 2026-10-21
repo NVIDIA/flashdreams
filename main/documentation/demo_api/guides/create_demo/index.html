@@ -87,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#new-application-files" class="md-skip">
+        <a href="#files" class="md-skip">
           Skip to content
         </a>
       
@@ -593,6 +593,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -634,6 +638,60 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos3_nano_sim_bimanual/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Bimanual
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos3_nano_sim_auto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Auto
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -1216,6 +1274,8 @@
       
         
       
+        
+      
     
     
     
@@ -1257,6 +1317,33 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/hand_dreams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  HandDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -1833,10 +1920,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#new-application-files" class="md-nav__link">
+  <a href="#files" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        New application files
+        Files
       </span>
     </span>
   </a>
@@ -1855,10 +1942,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#iapplication" class="md-nav__link">
+  <a href="#application" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        IApplication
+        Application
       </span>
     </span>
   </a>
@@ -1892,6 +1979,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         UI loop
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#check-and-document" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check and document
       </span>
     </span>
   </a>
@@ -2808,10 +2906,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#new-application-files" class="md-nav__link">
+  <a href="#files" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        New application files
+        Files
       </span>
     </span>
   </a>
@@ -2830,10 +2928,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#iapplication" class="md-nav__link">
+  <a href="#application" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        IApplication
+        Application
       </span>
     </span>
   </a>
@@ -2873,6 +2971,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#check-and-document" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check and document
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2905,9 +3014,9 @@
 <p>A demo implements <code>IApplication</code> and <code>ISession</code> from <code>flashdreams.api_v2</code>.
 Reuse an app from the <a href="../../../../demos/">demo gallery</a> when it already
 supports your interaction; then <a href="../integrate_model_adapter_for_a_demo/">add a model adapter</a>.</p>
-<p>This tutorial builds the <a href="https://github.com/NVIDIA/flashdreams/tree/main/apps/minimal_t2v">Minimal T2V app</a>
-(<code>minimal_t2v</code>), which sends ImGui prompts to a model loop. All source below is included from the repository.</p>
-<h2 id="new-application-files">New application files</h2>
+<p>This tutorial uses <a href="../../../../demos/minimal_t2v/">Minimal T2V</a>, an ImGui prompt
+field connected to a model loop. Source snippets below come from the repository.</p>
+<h2 id="files">Files</h2>
 <div class="highlight"><pre><span></span><code>apps/minimal_t2v/
   pyproject.toml
   minimal_t2v/
@@ -2917,14 +3026,13 @@ supports your interaction; then <a href="../integrate_model_adapter_for_a_demo/"
     model_loop.py
     ui_loop.py
   tests/test_application.py
-
-docs/source/demos/minimal_t2v.md # Add the app page with controls, arguments, and a link to its model&#39;s quick start.
-docs/source/demos/.nav.yml # Add `Minimal T2V: minimal_t2v.md` to the sidebar.
-docs/source/demos/index.md # Add a Minimal T2V gallery card linking to `minimal_t2v/`.
 </code></pre></div>
+<p>Keep model-specific pipeline construction and defaults in an integration adapter.
+The app defines the pipeline contract and must work against a stub pipeline;
+its tests must not import <code>integrations_v2</code>.</p>
 <h2 id="package">Package</h2>
-<p>Define a new demo package and export its application slug.</p>
-<p><code>apps/minimal_t2v/pyproject.toml</code>:
+<p><code>apps/*</code> is already a workspace member. Define the app's dependencies and export
+its application class. The model adapter registers the runnable entry point.</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
 <span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
 
@@ -2944,8 +3052,7 @@ docs/source/demos/index.md # Add a Minimal T2V gallery card linking to `minimal_
 
 <span class="k">[tool.setuptools.packages.find]</span>
 <span class="n">include</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;minimal_t2v*&quot;</span><span class="p">]</span>
-</code></pre></div></p>
-<p><code>apps/minimal_t2v/minimal_t2v/__init__.py</code>:
+</code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
 <span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
 
@@ -2954,23 +3061,17 @@ docs/source/demos/index.md # Add a Minimal T2V gallery card linking to `minimal_
 <span class="kn">from</span><span class="w"> </span><span class="nn">.application</span><span class="w"> </span><span class="kn">import</span> <span class="n">MinimalT2VApplication</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;MinimalT2VApplication&quot;</span><span class="p">]</span>
-</code></pre></div></p>
-<h2 id="iapplication">IApplication</h2>
-<p>Implement an <a href="../../api_reference/application/#flashdreams.api_v2.application.IApplication"><code>IApplication</code></a> to be implemented by <em>every model</em> that desires to integrate with this demo:</p>
-<ul>
-<li><code>__init__</code> is your constructor/contract to any implementor of this demo.<ul>
-<li><code>pipeline_config</code> is the model's pipeline configuration.</li>
-<li><code>desc</code> is our session description - more on this later.</li>
-<li><code>total_blocks</code> is the model's total number of blocks to generate for the entire session.</li>
-</ul>
-</li>
-<li><code>init()</code> parses arguments &amp; is where we load/download our model.</li>
-<li><code>session_desc()</code> is how our <a href="../../api_reference/application/#flashdreams.api_v2.session.ISession"><code>ISession</code></a> collects a session description from our IApplication.<ul>
-<li><a href="../../api_reference/application/#flashdreams.runtime_v2.session_desc.SessionDesc"><code>SessionDesc</code></a></li>
-</ul>
-</li>
-<li><code>create_session()</code> is called every time a session is made, passing <code>IApplication</code> data to <code>ISession</code></li>
-<li><code>close()</code> is called when the application is shutting down.
+</code></pre></div>
+<h2 id="application">Application</h2>
+<p><a href="../../api_reference/application/#flashdreams.api_v2.application.IApplication"><code>IApplication</code></a>
+holds resources shared by its sessions. Keep the constructor and
+<code>session_desc()</code> free of model loading: the runtime requests the description
+before <code>init()</code>. Here <code>init()</code> parses arguments and creates the pipeline;
+<code>create_session()</code> validates dimensions, layout, and frame rate before creating
+an uninitialized session. <code>close()</code> releases the shared pipeline reference.</p>
+<p>The adapter supplies <code>pipeline_config</code>, a <code>SessionDesc</code>, and <code>total_blocks</code>,
+the maximum blocks <strong>per prompt</strong>. This app requires <code>tchw</code> output and a pipeline
+with <code>initialize_cache</code>, <code>generate</code>, and <code>finalize</code> methods.</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
 <span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
 
@@ -3045,15 +3146,12 @@ docs/source/demos/index.md # Add a Minimal T2V gallery card linking to `minimal_
     <span class="k">def</span><span class="w"> </span><span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Release the shared pipeline reference.&quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">pipeline</span> <span class="o">=</span> <span class="kc">None</span>
-</code></pre></div></li>
-</ul>
+</code></pre></div>
 <h2 id="session">Session</h2>
-<p><a href="../../api_reference/application/#flashdreams.api_v2.session.ISession"><code>ISession</code></a> owns the two main loops driving our application <em>session</em> (running in separate threads):</p>
-<ul>
-<li><a href="../../api_reference/application/#flashdreams.api_v2.loop.IModelLoop"><code>IModelLoop</code></a>: Drives model inference/logic.</li>
-<li><a href="../../api_reference/application/#flashdreams.api_v2.loop.IUILoop"><code>IUILoop</code></a>: Drives UI/user-interaction.</li>
-</ul>
-<p>These are set with <code>register_*_loop()</code> methods part of <code>ISession</code>. These must be called during <code>ISession.init()</code>.</p>
+<p><a href="../../api_reference/application/#flashdreams.api_v2.session.ISession"><code>ISession</code></a>
+registers its model and UI loops during <code>init()</code>. Each loop owns its mutable
+state. The model loop runs inference; the UI loop handles input and presentation.
+Omit UI registration when the runtime's default frame display is sufficient.</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
 <span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
 
@@ -3101,18 +3199,12 @@ docs/source/demos/index.md # Add a Minimal T2V gallery card linking to `minimal_
         <span class="p">)</span>
 </code></pre></div>
 <h2 id="model-loop">Model loop</h2>
-<p><code>IModelLoop</code> governs all model logic and will be where we run our model inference:</p>
-<ul>
-<li><code>MinimalT2VModelState</code> is the type of <code>ILoop.state</code> for our <code>IModelLoop</code>.</li>
-<li><code>step()</code> is called for each loop of our <code>IModelLoop</code>.<ul>
-<li><code>pipeline.initialize_cache()</code> is called to initialize our model's cache.</li>
-<li><code>pipeline.generate()</code> is called to generate a chunk of frames given our current model's state (<code>pipeline</code>).</li>
-<li><code>pipeline.finalize()</code> is called to finalize the generated chunk &amp; produce metrics.</li>
-</ul>
-</li>
-<li><code>reset()</code> is called when the session is reset.</li>
-<li><code>close()</code> is called when the session is closed.</li>
-</ul>
+<p><code>TextToVideoState</code> keeps the prompt, cache, and per-prompt block index.
+<code>TextToVideoLoop.step()</code> initializes the cache lazily, generates and finalizes
+one block, and returns a <code>StepResult</code> with its frame count, layout, and metrics.
+Empty prompts or completed rollouts return <code>[]</code> while waiting for another
+prompt; the session remains open. <code>reset()</code> restarts the prompt, and <code>close()</code>
+releases its cache.</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
 <span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
 
@@ -3192,12 +3284,10 @@ docs/source/demos/index.md # Add a Minimal T2V gallery card linking to `minimal_
         <span class="bp">self</span><span class="o">.</span><span class="n">state</span><span class="o">.</span><span class="n">cache</span> <span class="o">=</span> <span class="kc">None</span>
 </code></pre></div>
 <h2 id="ui-loop">UI loop</h2>
-<p><code>IUILoop</code> governs all UI logic and will be where we handle user-interaction:</p>
-<ul>
-<li><code>MinimalT2VUIState</code> is the type of <code>ILoop.state</code> for our <code>IUILoop</code>.</li>
-<li><code>invoke_async(self.state.model_loop, lambda...)</code> is called when the user submits a new prompt (via imgui button) to submit a <code>lambda</code> to run on our <code>IModelLoop</code> thread before the next new <code>IModelLoop.step()</code>.</li>
-<li><code>step_ui(...)</code> is called for each loop of our <code>IUILoop</code>. It contains <code>imgui</code> state when <code>IUILoop</code> inherits from <a href="../../api_reference/application/#flashdreams.runtime_v2.imgui_ui_loop.ImGuiUILoop"><code>ImGuiUILoop</code></a>.</li>
-</ul>
+<p><code>MinimalT2VUILoop.step_ui()</code> draws the prompt field and <strong>Send</strong> button.
+<code>invoke_async</code> queues a prompt update on the model thread; capture the submitted
+text so later edits cannot change that queued message. The UI presents the
+latest model frame without directly modifying model state.</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
 <span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
 
@@ -3245,6 +3335,17 @@ docs/source/demos/index.md # Add a Minimal T2V gallery card linking to `minimal_
             <span class="n">imgui</span><span class="o">.</span><span class="n">end</span><span class="p">()</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">presented_model_frame</span><span class="p">()</span>
 </code></pre></div>
+<h2 id="check-and-document">Check and document</h2>
+<p>Run the existing CPU checks against a stub pipeline, without downloading weights:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>pytest<span class="w"> </span>apps/minimal_t2v/tests<span class="w"> </span>-m<span class="w"> </span>ci_cpu
+</code></pre></div>
+<p>After <a href="../integrate_model_adapter_for_a_demo/">adding an adapter</a>, put install
+commands, requirements, and presets on its model page. Put controls and demo
+arguments on <code>docs/source/demos/&lt;demo&gt;.md</code> and link to the model's quick start.
+Add the demo to <code>demos/.nav.yml</code> and the matching category in <code>demos/index.md</code>.
+For a new model, also update <code>models/.nav.yml</code>, <code>models/index.md</code>, and the home
+gallery. Use <a href="../interactive_serving/#record-a-preview">Interactive serving</a> to
+record a preview, then <a href="../../../tools/build_website/">build the website</a>.</p>
 
 
 

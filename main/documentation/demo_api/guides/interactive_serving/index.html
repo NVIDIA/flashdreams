@@ -593,6 +593,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -634,6 +638,60 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos3_nano_sim_bimanual/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Bimanual
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos3_nano_sim_auto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Auto
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -1216,6 +1274,8 @@
       
         
       
+        
+      
     
     
     
@@ -1257,6 +1317,33 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/hand_dreams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  HandDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -1924,6 +2011,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         Input and display
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#record-a-preview" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Record a preview
       </span>
     </span>
   </a>
@@ -2841,6 +2939,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#record-a-preview" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Record a preview
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#multiple-gpus" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2881,7 +2990,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 <p>Run a demo in a browser or a local window with <code>flashdreams-run-v2</code>.
-Use a registered name from <code>--help</code> or the <a href="../../../../models/">model pages</a>.</p>
+First install the integration using its <a href="../../../../models/">model page</a>.</p>
 <h2 id="browser">Browser</h2>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>APPLICATION_SLUG<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">127</span>.0.0.1<span class="w"> </span>--port<span class="w"> </span><span class="m">0</span>
@@ -2907,6 +3016,16 @@ over the generated frames; otherwise, the runtime displays the frames directly.<
 <p>Model and UI loops run on separate threads. Use <code>invoke_async</code> to send changes
 between them. <a href="../create_demo/">Create a demo</a> shows an ImGui text field sending
 a prompt to the model loop.</p>
+<h2 id="record-a-preview">Record a preview</h2>
+<p>Use an app that starts generating without menu or controller input. Supply its
+prompt, scene, or recorded actions explicitly; recording an idle UI produces
+no useful demonstration. For example, with the Wan 2.1 integration installed:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>t2v-wan21-t2v-1.3b-480p<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--mode<span class="w"> </span>mp4<span class="w"> </span>--output-path<span class="w"> </span>artifacts/t2v.mp4<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--total-model-steps<span class="w"> </span><span class="m">1</span><span class="w"> </span>--timeout<span class="w"> </span>unbound<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--backpressure-mode<span class="w"> </span>block<span class="w"> </span>--presentation-mode<span class="w"> </span>on_demand<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--prompt<span class="w"> </span><span class="s2">&quot;A cat surfing a wave&quot;</span><span class="w"> </span>--no-ui
+</code></pre></div>
 <h2 id="multiple-gpus">Multiple GPUs</h2>
 <p>For a model adapter that supports distributed execution, launch all ranks:</p>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>torchrun<span class="w"> </span>--nproc_per_node<span class="o">=</span><span class="m">2</span><span class="w"> </span>--no-python<span class="w"> </span>flashdreams-run-v2<span class="w"> </span><span class="se">\</span>
