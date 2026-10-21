@@ -104,6 +104,8 @@ reportIncompatibleVariableOverride = "none"
 [tool.ty.environment]
 # The complete workspace includes demos that require Python 3.12, as used in CI.
 python-version = "3.12"
+# Check applications independently of the lint host's OS (Some demos are Linux only, this is valid for CI).
+python-platform = "all"
 extra-paths = [
     "flashdreams",
     "apps",

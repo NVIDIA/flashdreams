@@ -190,13 +190,14 @@ def _get_plugin():
     if os.name == "nt":
         os.environ["VSCMD_SKIP_SENDTELEMETRY"] = "1"
         try:
-            import distutils._msvccompiler
             import functools
+            from importlib import import_module
 
-            get_vc_env = getattr(distutils._msvccompiler, "_get_vc_env", None)
+            msvccompiler = import_module("distutils._msvccompiler")
+            get_vc_env = getattr(msvccompiler, "_get_vc_env", None)
             if get_vc_env is not None and not hasattr(get_vc_env, "__wrapped__"):
                 setattr(
-                    distutils._msvccompiler,
+                    msvccompiler,
                     "_get_vc_env",
                     functools.lru_cache()(get_vc_env),
                 )
