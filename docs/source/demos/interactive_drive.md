@@ -9,7 +9,7 @@ title: 'Interactive Drive'
 
 Interactive Drive is a long-running FlashDreams v2 driving application with
 scene and variant selection, driving telemetry, post-processing controls, and a
-BEV minimap.
+(only `omnidreams`) BEV minimap.
 
 <div class="fd-card fd-model-card">
   <img class="fd-card-preview" src="../_static/demo_clips/interactive-drive.avif" alt="" />
@@ -22,6 +22,7 @@ BEV minimap.
 
 <div class="fd-cta-row" markdown="span">
   [OmniDreams](../models/omnidreams.md#interactive-drive){ .fd-button }
+  [Cosmos3 Nano Sim Auto](../models/cosmos3_nano_sim_auto.md#interactive-drive){ .fd-button }
 </div>
 
 <a id="apps-interactivedrive-readme--controls"></a>
@@ -40,6 +41,7 @@ BEV minimap.
 | `S` or Down arrow | Accelerate in reverse. |
 | `A` or Left arrow | Steer left. |
 | `D` or Right arrow | Steer right. |
+| `R` | Restart the current scene. |
 | Space | Brake; while held, throttle is suppressed. |
 | `1` | Show the RGB view. |
 | `2` | Show the HD-map conditioning view. |
@@ -83,14 +85,6 @@ access to `/dev/input/*` and the appropriate Linux driver:
 | Fanatec | [`hid-fanatecff`](https://github.com/gotzl/hid-fanatecff), with the base in PC mode |
 | Logitech | In-kernel `hid-lg4ff`, [`new-lg4ff`](https://github.com/berarma/new-lg4ff), or the HID++ driver for the G920 and Xbox/PC G923 |
 
-Its `InteractiveDriveUILoop` HUD contains steering-wheel and pedal sprites.
-Dear ImGui builds the immediate-mode HUD and SlangPy renders it with GPU
-textures; the application does not use CSS.
-
-The package also owns its model-neutral scene loading, simulation, rendering,
-input handling, and wheel-configuration support. Its world-model binding is
-supplied by an integration adapter.
-
 <a id="apps-interactivedrive-readme--application-arguments"></a>
 
 <hr>
@@ -99,39 +93,51 @@ supplied by an integration adapter.
 
 
 
-| Argument | Description |
-| --- | --- |
-| `--scene PATH` | Use a local USDZ scene instead of downloading the default scene. |
-| `--prompt TEXT` | Override the prompt stored in the selected scene variant. |
-| `--camera NAME` | Select a camera from the scene. Default: `camera_front_wide_120fov`. |
-| `--variant NAME` | Select the scene&#x27;s initial-frame and prompt variant. Default: `default`. |
-| `--total-blocks N` | Stop after this many generated blocks; `0` runs until the session is stopped. Default: `0`. |
-| `--fps N` | Set the application frame rate. Default: `30`. |
-| `--width N` | Set the output width. The selected demo-model slug supplies the default. |
-| `--height N` | Set the output height. The selected demo-model slug supplies the default. |
-| `--view {rgb,hdmap,physx}` | Select the initial RGB, HD-map conditioning, or PhysX collider view. Default: `rgb`. |
-| `--no-ui` | Present model output directly without creating the HUD or rendering its BEV minimap. |
-| `--game-mode` | Enable the speed limit and collisions with scene actors and static map geometry. |
-| `--postprocess-preset NAME` | Start with a registered video post-processing preset enabled. Default: none. |
-| `--postprocess-device DEVICE` | Select the postprocessor device independently. Default: `cuda:0`. |
-| `--world-model-device DEVICE` | Select the model device. Default: `cuda:0`. |
-| `--raster-device DEVICE` | Select the Ludus raster device independently. Default: `cuda:0`. |
-| `--world-model-seed N` | Pin the seed used for each rollout. |
-| `--world-model-debug-condition-frame-dir PATH` | Override first-chunk condition frames for debugging. |
+`Unsupported` is a section to note partially/fully non-functional commands for a given model.
 
-For example, use the default scene, select its rain variant, override its prompt,
+| Argument | Description | Unsupported |
+| --- | --- | --- |
+| `--scene PATH` | Choose a local scene file: `OmniDreams` uses a USDZ scene; `Cosmos3 Nano Sim Auto` uses a Scene bundle. | — |
+| `--prompt TEXT` | Override the prompt stored in the selected scene variant. | — |
+| `--camera NAME` | Select a camera from the scene. Default: `camera_front_wide_120fov`. `Cosmos3 Nano Sim Auto` accepts an ordered comma-separated subset, do not mix with `--views`. | — |
+| `--variant NAME` | Select the scene&#x27;s initial-frame and prompt variant. Default: `default`. | `cosmos3-nano-sim-auto`|
+| `--total-blocks N` | Stop after this many generated blocks; `0` runs until the session is stopped. Default: `0`. | — |
+| `--fps N` | Set the application frame rate. Default: `30`. | — |
+| `--width N` | Set the output width. The selected demo-model slug supplies the default. | — |
+| `--height N` | Set the output height. The selected demo-model slug supplies the default. | — |
+| `--view {rgb,hdmap,physx}` | Select the initial RGB, HD-map conditioning, or PhysX collider view. Default: `rgb`. | `cosmos3-nano-sim-auto` (`physx`) |
+| `--no-ui` | Present model output directly without creating the HUD or rendering its BEV minimap. | — |
+| `--game-mode` | Enable the speed limit. | `cosmos3-nano-sim-auto` (missing collision) |
+| `--postprocess-preset NAME` | Start with a registered video post-processing preset enabled. Default: none. | — |
+| `--postprocess-device DEVICE` | Select the postprocessor device independently. Default: `cuda:0`. | — |
+| `--world-model-device DEVICE` | Select the model device. Default: `cuda:0`. | — |
+| `--raster-device DEVICE` | Select the Ludus raster device independently. Default: `cuda:0`. | `cosmos3-nano-sim-auto` |
+| `--world-model-seed N` | Pin the seed used for each rollout. | — |
+| `--world-model-debug-condition-frame-dir PATH` | Override first-chunk condition frames for debugging. | `cosmos3-nano-sim-auto` |
+| `--views N` | Select the number of cameras to display. Allowed: `1`, `4` or `7`. Do not mix with `--camera` | `omnidreams` |
+| `--lidar` | Show the LiDAR point cloud. Default: `False`. `Cosmos3 Nano Sim Auto` accepts this option. | `omnidreams` |
+
+For `OmniDreams`, use the default scene, select its rain variant, override its prompt,
 and enable RTX super resolution:
 
 ```bash
 
-uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode webrtc -- \
+uv run flashdreams-run-v2 interactive-drive-omnidreams --mode webrtc -- \
     --variant rain --prompt "A rainy night drive" \
     --game-mode --postprocess-preset rtx-super-resolution
 
 ```
 
-For example, render every generated frame once, in order, with the HUD disabled (for quality evaluation):
+For `Cosmos3 Nano Sim Auto`, use the rain scene, override its prompt,
+and enable RTX super resolution:
 
+```bash
+uv run flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto --mode webrtc -- \
+    --scene clipgt-residential-rain-iter1500 --prompt "A rainy night drive" \
+    --game-mode --postprocess-preset rtx-super-resolution
+```
+
+Render a video of the demo without ui or dropped frames:
 ```bash
 
 uv run flashdreams-run-v2 DEMO_MODEL_SLUG \
@@ -142,30 +148,16 @@ uv run flashdreams-run-v2 DEMO_MODEL_SLUG \
 
 ```
 
-This is frame-lossless presentation: the runtime neither drops nor repeats
-generated frames. The MP4 itself is currently encoded as H.264 at CRF 18, so it
-is not mathematically lossless at the pixel/codec level.
-
-For example, render a native-window with game-mode collisions enabled:
-```bash
-
-uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window -- \
-    --game-mode
-
-```
-
-The HUD's view button cycles through **RGB → HDMAP → PHYSX**.
+The HUD's view button cycles through **RGB → HDMAP → PHYSX** for `omnidreams`
+and **RGB → HDMAP** for `cosmos3-nano-sim-auto`.
 
 When `--postprocess-preset` is set, the preset starts enabled and the HUD's
 **Post-processing** checkbox can toggle it between generated chunks. Without a
-preset, the checkbox is hidden. Run the application-help command above to see the presets registered in the
-current environment. The built-in `rtx-*` presets require
+preset, the checkbox is hidden. Run
+`uv run --no-sync flashdreams-run-v2 DEMO_MODEL_SLUG -- --help` to list registered
+post-processing presets. The built-in `rtx-*` presets require
 the optional NVIDIA VFX dependency, installable with
 `uv pip install 'flashdreams[rtx-postprocess]'`, and supported RTX hardware.
-
-The downloaded default scene is
-`scenes/clipgt-0d404ff7-2b66-498c-b047-1ed8cded60d4.usdz`. Pass
-`-- --scene scene.usdz` to use a local scene instead.
 
 <a id="apps-interactivedrive-readme--tests"></a>
 

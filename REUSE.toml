@@ -11,9 +11,9 @@ SPDX-PackageDownloadLocation = "https://github.com/NVIDIA/flashdreams"
 # fills the gaps for config, build, asset, and documentation files where an
 # inline header would be intrusive or break tooling.
 #
-# Third-party dependencies are NOT declared here: they are consumed at
-# runtime through Python's import system (no source redistribution). Their
-# attributions live in THIRD-PARTY-NOTICES.
+# Installed third-party dependencies are documented in THIRD-PARTY-NOTICES.
+# Vendored source has path-specific annotations below so its upstream
+# copyrights and licenses take precedence over the first-party defaults.
 
 # --- Default: every other file in the repo is NVIDIA-authored Apache-2.0 ---
 [[annotations]]
@@ -44,7 +44,7 @@ path = [
     "docker/**",
     "tests/run_tests_*.sh",
     "assets/*.sh",
-    "agentic/skills/**",
+    "skills/**",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
@@ -65,6 +65,16 @@ SPDX-FileCopyrightText = [
     "Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
 ]
 SPDX-License-Identifier = "Apache-2.0"
+
+# --- Cosmos decoder adaptations retain their upstream MIT terms. ---
+[[annotations]]
+path = "integrations_v2/cosmos_interactive/cosmos_interactive/_taehv_super.py"
+precedence = "aggregate"
+SPDX-FileCopyrightText = [
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+    "Copyright (c) 2025 Ollin Boer Bohan",
+]
+SPDX-License-Identifier = "Apache-2.0 AND MIT"
 
 # --- Binary assets (images, video clips, model snapshots, lock files) carry
 #     no inline header. They are NVIDIA-authored unless otherwise noted in
@@ -133,3 +143,35 @@ SPDX-FileCopyrightText = [
     "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
 ]
 SPDX-License-Identifier = "Apache-2.0 AND MIT"
+
+# Pinned vLLM-Omni LiDAR source retains upstream authorship and file terms.
+[[annotations]]
+path = [
+    "integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/rope.py",
+    "integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/encoding.py",
+    "integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/neighborhood_attention.py",
+    "integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/LICENSE.vllm-omni",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright contributors to the vLLM-Omni project"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = [
+    "integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/transformer_vae.py",
+]
+precedence = "override"
+SPDX-FileCopyrightText = [
+    "Copyright contributors to the vLLM-Omni project",
+    "Copyright (c) 2022 Katherine Crowson",
+    "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+]
+SPDX-License-Identifier = "Apache-2.0 AND MIT"
+
+[[annotations]]
+path = [
+    "integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/LICENSE.k-diffusion",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright (c) 2022 Katherine Crowson"
+SPDX-License-Identifier = "MIT"

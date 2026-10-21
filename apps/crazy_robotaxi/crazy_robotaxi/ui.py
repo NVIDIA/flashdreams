@@ -92,6 +92,7 @@ from flashdreams.runtime_v2.user_input_event import (
     GameWheelUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
+    UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -106,6 +107,9 @@ _SHOW_RESTART_REQUIRED_SETTINGS = False
 
 _SETTINGS_NOTICE_DURATION_S = 5.0
 """Number of seconds to show an Options save confirmation."""
+
+_EXIT_HOLD_DURATION_S = 1.5
+"""Continuous hold required to confirm application shutdown."""
 
 _RESTART_REQUIRED_NOTICE = "RESTART REQUIRED FOR SETTINGS TO TAKE EFFECT"
 _NATIVE_DIT_DISABLED_NOTICE = "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
@@ -319,6 +323,17 @@ class TaxiHudState:
 
     model_loop: ILoop[Any] | None = None
     """Model-loop endpoint used only through ``invoke_async``."""
+
+    allow_exit: bool = True
+    """Whether the root menu exposes and accepts application shutdown."""
+
+    _exit_confirmation_pending: bool = False
+    """Whether the player is deciding whether to exit the application."""
+
+    _exit_hold_started_at_s: dict[tuple[str, int, str], float] = field(
+        default_factory=dict
+    )
+    """Start time of each independently held keyboard or controller exit input."""
 
     _exit_requested: bool = False
     """Whether the root menu requested application shutdown."""
@@ -590,6 +605,7 @@ class TaxiHudState:
                 else:
                     self._latest_wheel_event = None
                     self._active_control_device = "keyboard"
+        self._update_exit_hold(received)
         if not self.profile_input_latency:
             return
         profile_keys = {
@@ -634,6 +650,32 @@ class TaxiHudState:
             )
         while len(self._input_received_at_ns) > _MAX_BUFFERED_INPUT_EVENTS:
             self._input_received_at_ns.popitem(last=False)
+
+    def _update_exit_hold(self, events: Sequence[UserInputEvent]) -> None:
+        """Track uninterrupted exit holds, clearing them on release or focus loss."""
+        if not self._exit_confirmation_pending or not self.allow_exit:
+            self._exit_hold_started_at_s.clear()
+            return
+        now = time.monotonic()
+        for event in events:
+            if isinstance(event, FocusUserInputEvent) and not event.focused:
+                self._exit_hold_started_at_s.clear()
+                continue
+            if isinstance(event, KeyboardUserInputEvent):
+                if canonical_key(str(event.key)) != "escape":
+                    continue
+                source = ("keyboard", 0, "")
+                held = event.state is KeyboardInputState.PRESSED
+            elif isinstance(event, GamepadUserInputEvent):
+                source = ("gamepad", event.index, event.controller_id)
+                values = event.buttons if len(event.buttons) > 1 else event.pressed
+                held = event.action == "state" and len(values) > 1 and values[1] > 0.5
+            else:
+                continue
+            if held:
+                self._exit_hold_started_at_s.setdefault(source, now)
+            else:
+                self._exit_hold_started_at_s.pop(source, None)
 
     def _record_presented_input(
         self,
@@ -743,6 +785,8 @@ class TaxiHudState:
         return f"ESC / {gamepad}"
 
     def _handle_escape(self) -> None:
+        if self._exit_confirmation_pending:
+            return
         model_loop = self.model_loop
         if self._menu_stage == "controls":
             if self._controls_capture is not None:
@@ -769,16 +813,9 @@ class TaxiHudState:
             self._selected_map_option = None
             self._selected_game_mode = None
             self._menu_stage = "mode"
-        elif self._menu_stage == "mode":
-            self._loading_status = "EXITING GAME"
-            self._loading_started_at_s = time.monotonic()
-            self._menu_stage = "loading"
-            self._exit_requested = True
-            if model_loop is not None:
-                invoke_async(
-                    model_loop,
-                    lambda model_state: model_state.request_exit(),
-                )
+        elif self._menu_stage == "mode" and self.allow_exit:
+            self._exit_hold_started_at_s.clear()
+            self._exit_confirmation_pending = True
 
     def _select_mode(self, mode: GameMode) -> None:
         self._selected_game_mode = mode
@@ -1275,6 +1312,7 @@ class TaxiHudState:
         if self._menu_stage == "mode":
             self._draw_fps_counter(imgui)
             self._draw_mode_selection(imgui)
+            self._draw_exit_confirmation(imgui)
             return
         if self._menu_stage == "map":
             self._draw_fps_counter(imgui)
@@ -1914,6 +1952,8 @@ class TaxiHudState:
     def reset(self) -> None:
         """Clear per-generation HUD snapshots and editable UI state."""
         self._exit_requested = False
+        self._exit_confirmation_pending = False
+        self._exit_hold_started_at_s.clear()
         self._clear_presented_game()
         self._validation_message = ""
         self._submission_pending = False
@@ -2754,22 +2794,145 @@ class TaxiHudState:
             ):
                 self._open_options()
                 return
-            if _centered_imgui_button(
+            if self.allow_exit and _centered_imgui_button(
                 imgui, "EXIT", imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
             ):
                 self._handle_escape()
                 return
             self._draw_settings_notices(imgui, scale)
-            _centered_imgui_text(
-                imgui,
-                f"{self._menu_back_display()} - EXIT",
-                font_size=max(12.0, 13.0 * scale),
-                color=(0.58, 0.58, 0.64, 1.0),
-            )
+            if self.allow_exit:
+                _centered_imgui_text(
+                    imgui,
+                    f"{self._menu_back_display()} - EXIT",
+                    font_size=max(12.0, 13.0 * scale),
+                    color=(0.58, 0.58, 0.64, 1.0),
+                )
         finally:
             imgui.end()
             imgui.pop_style_color(style_color_count)
             imgui.pop_style_var(style_var_count)
+
+    def _draw_exit_confirmation(self, imgui: Any) -> None:
+        """Require explicit confirmation before shutting down the application."""
+        title = "EXIT GAME?"
+        if not imgui.is_popup_open(title):
+            if not self._exit_confirmation_pending or not self.allow_exit:
+                return
+            imgui.open_popup(title)
+        scale = min(
+            1.0,
+            max(1.0, float(self.width) - 28.0) / 500.0,
+            max(1.0, float(self.height) - 28.0) / 520.0,
+        )
+        _prepare_window(
+            imgui,
+            position=(self.width / 2.0, self.height / 2.0),
+            size=None,
+            alpha=0.97,
+            pivot=(0.5, 0.5),
+        )
+        imgui.set_next_window_size_constraints(
+            imgui.ImVec2(1.0, 1.0),
+            imgui.ImVec2(
+                max(1.0, float(self.width) - 28.0),
+                max(1.0, float(self.height) - 28.0),
+            ),
+        )
+        style_var_count, style_color_count = _push_arcade_card_style(
+            imgui, _TAXI_ACCENT_RGB
+        )
+        imgui.push_style_color(
+            imgui.Col_.popup_bg, imgui.ImVec4(0.047, 0.047, 0.071, 0.98)
+        )
+        imgui.push_style_color(
+            imgui.Col_.plot_histogram, imgui.ImVec4(*_TAXI_ACCENT_RGB, 1.0)
+        )
+        imgui.push_style_var(imgui.StyleVar_.popup_border_size, 2.0)
+        visible, _ = imgui.begin_popup_modal(
+            title,
+            flags=(
+                imgui.WindowFlags_.always_auto_resize
+                | imgui.WindowFlags_.no_move
+                | imgui.WindowFlags_.no_resize
+                | imgui.WindowFlags_.no_saved_settings
+                | imgui.WindowFlags_.no_title_bar
+            ),
+        )
+        try:
+            if not visible:
+                return
+            if not self._exit_confirmation_pending or not self.allow_exit:
+                imgui.close_current_popup()
+                return
+            _centered_imgui_text(
+                imgui,
+                title,
+                font=self._gameplay_overlay_font(imgui),
+                font_size=max(24.0, 40.0 * scale),
+                color=(*_TAXI_ACCENT_RGB, 1.0),
+            )
+            description = "ARE YOU SURE YOU WANT TO EXIT?"
+            description_font_size = max(12.0, 13.0 * scale)
+            _centered_imgui_text(
+                imgui,
+                description,
+                font_size=description_font_size,
+                color=(0.72, 0.72, 0.76, 1.0),
+            )
+            imgui.separator()
+            button_width = max(
+                _overlay_text_size(imgui, description, description_font_size)[0],
+                _button_content_width(imgui, "CANCEL"),
+                _button_content_width(imgui, "EXIT GAME"),
+            )
+            button_size = imgui.ImVec2(button_width, max(34.0, 42.0 * scale))
+            if _centered_imgui_button(imgui, "CANCEL", button_size):
+                self._exit_confirmation_pending = False
+                self._exit_hold_started_at_s.clear()
+                imgui.close_current_popup()
+                return
+            imgui.set_item_default_focus()
+            hold_fraction = (
+                min(
+                    1.0,
+                    (time.monotonic() - min(self._exit_hold_started_at_s.values()))
+                    / _EXIT_HOLD_DURATION_S,
+                )
+                if self._exit_hold_started_at_s
+                else 0.0
+            )
+            if (
+                _centered_imgui_button(imgui, "EXIT GAME", button_size)
+                or hold_fraction >= 1.0
+            ):
+                self._exit_confirmation_pending = False
+                self._exit_hold_started_at_s.clear()
+                imgui.close_current_popup()
+                self._loading_status = "EXITING GAME"
+                self._loading_started_at_s = time.monotonic()
+                self._menu_stage = "loading"
+                self._exit_requested = True
+                if self.model_loop is not None:
+                    invoke_async(
+                        self.model_loop,
+                        lambda model_state: model_state.request_exit(),
+                    )
+                return
+            _centered_imgui_text(
+                imgui,
+                f"HOLD {self._menu_back_display()} TO EXIT",
+                font_size=max(12.0, 13.0 * scale),
+                color=(0.58, 0.58, 0.64, 1.0),
+            )
+            _center_imgui_item(imgui, button_width)
+            imgui.progress_bar(
+                hold_fraction, imgui.ImVec2(button_width, 10.0), overlay=""
+            )
+        finally:
+            if visible:
+                imgui.end_popup()
+            imgui.pop_style_color(style_color_count + 2)
+            imgui.pop_style_var(style_var_count + 1)
 
     def _draw_map_selection(self, imgui: Any) -> None:
         mode = self._selected_game_mode

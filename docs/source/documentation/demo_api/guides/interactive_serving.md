@@ -6,7 +6,7 @@ title: 'Interactive serving'
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 Run a demo in a browser or a local window with `flashdreams-run-v2`.
-Use a registered name from `--help` or the [model pages](../../../models/index.md).
+First install the integration using its [model page](../../../models/index.md).
 
 ## Browser
 
@@ -47,6 +47,20 @@ over the generated frames; otherwise, the runtime displays the frames directly.
 Model and UI loops run on separate threads. Use `invoke_async` to send changes
 between them. [Create a demo](create_demo.md) shows an ImGui text field sending
 a prompt to the model loop.
+
+## Record a preview
+
+Use an app that starts generating without menu or controller input. Supply its
+prompt, scene, or recorded actions explicitly; recording an idle UI produces
+no useful demonstration. For example, with the Wan 2.1 integration installed:
+
+```bash
+uv run --no-sync flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p \
+  --mode mp4 --output-path artifacts/t2v.mp4 \
+  --total-model-steps 1 --timeout unbound \
+  --backpressure-mode block --presentation-mode on_demand -- \
+  --prompt "A cat surfing a wave" --no-ui
+```
 
 ## Multiple GPUs
 

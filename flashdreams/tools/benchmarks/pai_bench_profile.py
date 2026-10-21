@@ -575,14 +575,35 @@ def _build_paibench_invocation(
         env = {}
         cwd = checkout.path / "generation"
 
+    if nproc_per_node == 1 and os.name == "nt":
+        # torchrun's elastic rendezvous creates a TCPStore that requests libuv,
+        # and the Windows CUDA wheels are built without it -- every launch dies
+        # with RendezvousConnectionError before the evaluator starts. The
+        # single-process case needs no elastic agent at all: run the entrypoint
+        # directly and let the evaluator's env:// init_process_group create the
+        # store, which (unlike the elastic handlers) honors USE_LIBUV=0.
+        launcher = [*python_command, training_script]
+        env = {
+            **env,
+            "RANK": "0",
+            "LOCAL_RANK": "0",
+            "WORLD_SIZE": "1",
+            "MASTER_ADDR": "127.0.0.1",
+            "MASTER_PORT": os.environ.get("MASTER_PORT", "29513"),
+            "USE_LIBUV": "0",
+        }
+    else:
+        launcher = [
+            *python_command,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            "--nproc_per_node",
+            str(nproc_per_node),
+            training_script,
+        ]
     command = [
-        *python_command,
-        "-m",
-        "torch.distributed.run",
-        "--standalone",
-        "--nproc_per_node",
-        str(nproc_per_node),
-        training_script,
+        *launcher,
         "--mode",
         "custom_input",
         "--prompt_file",

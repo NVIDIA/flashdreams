@@ -1,0 +1,40 @@
+NVIDIA Cosmos Interactive runtime — Third-Party Notices
+Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+Source-level redistributions
+
+TAEHV-super adaptation
+Path: cosmos_interactive/_taehv_super.py
+License: Apache-2.0 AND MIT; full terms reproduced in LICENSE.
+Copyright (c) 2025 Ollin Boer Bohan
+Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Upstream: https://github.com/madebyollin/taehv
+The decoder adapts TAEHV-super for streaming caches and checkpoint loading.
+Weights are supplied separately.
+
+--------------------------------------------------------------------------------
+vLLM-Omni LiDAR inference blocks
+--------------------------------------------------------------------------------
+
+Path:     cosmos_interactive/_lidar_codec/
+          transformer_vae.py, rope.py, encoding.py, neighborhood_attention.py
+Version:  8ef7df57219688835f3752accb2c3b2f444b4058 (cosmos3_gtc_berlin_release)
+License:  Apache-2.0; transformer_vae.py retains Apache-2.0 AND MIT.
+          Full texts: cosmos_interactive/_lidar_codec/LICENSE.vllm-omni
+          and cosmos_interactive/_lidar_codec/LICENSE.k-diffusion.
+Copyright contributors to the vLLM-Omni project
+Copyright (c) 2022 Katherine Crowson (inherited k-diffusion portions)
+Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+          (FlashDreams modifications and adapter)
+Upstream: https://github.com/MaciejBalaNV/vllm-omni/tree/8ef7df57219688835f3752accb2c3b2f444b4058/vllm_omni/diffusion/models/cosmos3/lidar_encoder
+License URL: https://github.com/MaciejBalaNV/vllm-omni/blob/8ef7df57219688835f3752accb2c3b2f444b4058/LICENSE
+MIT:      https://github.com/crowsonkb/k-diffusion/blob/e95849c23340e78c4bca5ef6cea6dd60611acad8/LICENSE
+
+These blocks are copied into this package. transformer_vae.py has local
+relative imports and CPU constructor shape arithmetic for meta-device
+inspection; the other three implementation files are unchanged. network.py
+adapts the upstream encoder/decoder to FlashDreams streaming and checkpoint
+interfaces. The codec's NOTICE retains the attribution with the packaged
+source. No vLLM runtime package, model weights or sample data is included.
+
+================================================================================

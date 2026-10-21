@@ -10,22 +10,31 @@
   --fd-accent-hover: #4b7600;
   --fd-accent-soft: rgb(94 148 0 / 12%);
   --fd-border: #e4e7ec;
-  --fd-border-strong: #cdd2da;
+  --fd-border-strong: #a7a7a74d;
   --fd-surface: #fff;
   --fd-surface-muted: #f7f8fa;
   --fd-text-muted: #5a6271;
 }
 
 [data-md-color-scheme="slate"] {
+  --md-default-bg-color: #242424;
+  --md-default-bg-color--light: rgb(36 36 36 / 54%);
+  --md-default-bg-color--lighter: rgb(36 36 36 / 26%);
+  --md-default-bg-color--lightest: rgb(36 36 36 / 7%);
+  --md-code-bg-color: #2c2c2c;
+  --md-code-bg-color--light: rgb(44 44 44 / 90%);
+  --md-code-bg-color--lighter: rgb(44 44 44 / 54%);
+  --md-footer-bg-color: #202020;
+  --md-footer-bg-color--dark: #1c1c1c;
   --md-primary-fg-color: #76b900;
   --md-accent-fg-color: #a9d951;
   --fd-accent: #a9d951;
   --fd-accent-hover: #bce96c;
   --fd-accent-soft: rgb(169 217 81 / 16%);
-  --fd-border: #2a313d;
-  --fd-border-strong: #3a4150;
-  --fd-surface: #1a1f29;
-  --fd-surface-muted: #161a22;
+  --fd-border: #3c3c3c;
+  --fd-border-strong: #505050;
+  --fd-surface: #2c2c2c;
+  --fd-surface-muted: #202020;
   --fd-text-muted: #a8b0bf;
 }
 
@@ -159,9 +168,17 @@
   justify-content: center;
   min-height: 2.5rem;
   padding: 0.55rem 1.1rem;
-  border: 1px solid var(--fd-border-strong);
-  border-radius: 0.5rem;
+  box-shadow: 0 0 5px 3px
+    color-mix(in srgb, var(--fd-border-strong) 100%, transparent);
+  border-radius: 1rem;
   color: var(--md-default-fg-color);
+
+  background: linear-gradient(
+    10deg,
+    color-mix(in srgb, var(--fd-accent) 50%, transparent) 20%,
+    color-mix(in srgb, var(--fd-accent-soft) 50%, transparent) 100%
+  );
+
   font-weight: 600;
   text-decoration: none;
   transition: border-color 150ms ease-out, box-shadow 150ms ease-out,
@@ -170,25 +187,26 @@
 
 .md-typeset .fd-button:hover,
 .md-typeset .fd-button:focus-visible {
-  border-color: var(--fd-accent);
-  box-shadow: 0 2px 5px rgb(15 23 42 / 10%);
+  box-shadow: 0 0 4px 2px
+    color-mix(in srgb, var(--fd-border-strong) 100%, transparent);
   transform: translateY(-1px);
 }
 
-.md-typeset .fd-button-primary {
+[data-md-color-scheme="slate"] .md-typeset .fd-button {
+  border: 1px solid var(--fd-border-strong);
+  background: var(--fd-surface);
+  box-shadow: none;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .fd-button:hover,
+[data-md-color-scheme="slate"] .md-typeset .fd-button:focus-visible {
   border-color: var(--fd-accent);
-  background: var(--fd-accent);
-  color: #fff;
+  background: var(--fd-accent-soft);
 }
 
-[data-md-color-scheme="slate"] .md-typeset .fd-button-primary {
-  color: #0f1218;
-}
-
-.md-typeset .fd-button-primary:hover,
-.md-typeset .fd-button-primary:focus-visible {
-  border-color: var(--fd-accent-hover);
-  background: var(--fd-accent-hover);
+[data-md-color-scheme="slate"] .md-typeset .fd-button:focus-visible {
+  outline: 2px solid var(--fd-accent);
+  outline-offset: 3px;
 }
 
 .fd-split {
@@ -223,7 +241,12 @@
   padding: 1rem;
   border: 1px solid var(--fd-border);
   border-radius: 0.5rem;
-  background: var(--fd-surface);
+  box-shadow: 0 0 5px 3px
+    color-mix(in srgb, var(--fd-border-strong) 100%, transparent);
+  border-radius: 1rem;
+
+  background: color-mix(in srgb, var(--fd-accent-soft) 30%, transparent);
+
   box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
   color: var(--fd-text-muted);
 }
@@ -245,6 +268,7 @@
   font-size: 0.9rem;
   font-weight: 700;
   line-height: 1.35;
+  text-align: center;
 }
 
 .md-typeset a.fd-card {
@@ -348,10 +372,6 @@
 }
 
 @media (max-width: 480px) {
-  .fd-cta-row .fd-button {
-    flex: 1 1 100%;
-  }
-
   .fd-card-grid-four,
   .fd-card-grid-three {
     grid-template-columns: 1fr;
@@ -401,9 +421,18 @@
   margin: 1rem auto 2.5rem;
 }
 
-[data-md-color-scheme="slate"] .md-typeset .fd-why-comparison,
-[data-md-color-scheme="slate"] .md-typeset .fd-why-supporting-image {
-  filter: invert(1) hue-rotate(180deg);
+[data-md-color-scheme="slate"] .md-typeset .fd-why-comparison {
+  content: url("../_static/diagrams/offline-generation-vs-online-serving-dark.svg");
+}
+
+[data-md-color-scheme="slate"] .md-typeset .fd-why-use-cases {
+  content: url("../_static/diagrams/world-model-applications-dark.svg");
+  filter: brightness(0.8) saturate(0.65);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .fd-why-supporting-image:not(.fd-why-use-cases) {
+  filter: invert(1) hue-rotate(180deg) brightness(0.8);
+  mix-blend-mode: lighten;
 }
 
 .fd-why-row {

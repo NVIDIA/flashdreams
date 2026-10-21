@@ -29,10 +29,13 @@ from flashdreams.infra.config import derive_config
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.infra.postprocess import VideoPostprocessChainConfig, VideoSpec
 from flashdreams.plugins.registry import discover_postprocess_presets
-from flashdreams.runtime.keyboard import normalize_key
+from flashdreams.runtime.keyboard import DRIVING_SUPPORTED_KEYS, normalize_key
+from flashdreams.runtime_v2.input_timeline import InputWindow, RealtimeInputTimeline
+from flashdreams.runtime_v2.keyboard_input import KeyboardStateTrack
 from flashdreams.runtime_v2.session_desc import BackpressureMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEvent,
     GamepadUserInputEvent,
     GameWheelUserInputEvent,
     KeyboardInputState,
@@ -233,6 +236,8 @@ class DriveTelemetry:
     variant: str
     postprocess_enabled: bool
     model_loop_ms: float
+    warning: str | None = None
+    """Backend guidance associated with the latest generated block."""
 
 
 @dataclass(slots=True)
@@ -256,6 +261,9 @@ class DriveInputState:
                     self.pressed_keys.add(key)
                 else:
                     self.pressed_keys.discard(key)
+            elif isinstance(event, FocusUserInputEvent):
+                if not event.focused:
+                    self.pressed_keys.clear()
             elif isinstance(event, GameWheelUserInputEvent):
                 self.controller_command = (
                     None
@@ -313,6 +321,19 @@ class InteractiveDriveModelState:
     drive_input: DriveInputState = field(default_factory=DriveInputState)
     """Driving input updated on the model thread."""
 
+    keyboard_track: KeyboardStateTrack = field(
+        default_factory=lambda: KeyboardStateTrack(
+            supported_keys=DRIVING_SUPPORTED_KEYS
+        )
+    )
+    """Keyboard transitions retained until the vehicle simulation samples them."""
+
+    input_timeline: RealtimeInputTimeline | None = None
+    """Session-relative input clock, initialized at the driving frame rate."""
+
+    input_times_s: tuple[float, ...] = ()
+    """New transition times aligned to the next unsampled input window."""
+
     last_command: DriverCommand = field(default_factory=DriverCommand)
     view_mode: ViewMode = "rgb"
     postprocess_enabled: bool = True
@@ -325,6 +346,9 @@ class InteractiveDriveModelState:
     """Where that telling happens. See :meth:`_control_group`."""
 
     controller_reset_pressed: bool = False
+    keyboard_reset_pressed: bool = False
+    """Whether the restart key is held; cleared on release or focus loss."""
+
     ui_loop: IUILoop[Any] | None = None
     backend: RenderBackend | None = None
     owns_backend: bool = True
@@ -470,6 +494,7 @@ class InteractiveDriveModelState:
             variant=self.config.app.variant,
             postprocess_enabled=self.postprocess_enabled,
             model_loop_ms=model_loop_ms,
+            warning=chunk.warning,
         )
         invoke_async(
             self.ui_loop,
@@ -497,10 +522,12 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
         )
         command = self._command()
         state.last_command = command
+        commands, command_times_s = self._commands(chunk_size)
         trajectory = sample_chunk_trajectory(
             start_state=state.vehicle,
             start_timestamp_us=state.next_timestamp_us,
-            command=command,
+            command=commands,
+            command_times_s=command_times_s,
             chunk_size=chunk_size,
             chunk_config=state.config.app.chunk,
             vehicle_config=state.config.app.vehicle,
@@ -669,8 +696,17 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
     def _apply_events(self, events: UserInputEvents) -> None:
         state = self.state
         for event in events.get_events():
-            if isinstance(event, KeyboardUserInputEvent):
-                view_mode = _VIEW_MODE_KEYS.get(event.key.strip().lower())
+            if isinstance(event, FocusUserInputEvent):
+                if not event.focused:
+                    state.keyboard_reset_pressed = False
+            elif isinstance(event, KeyboardUserInputEvent):
+                key = event.key.strip().lower()
+                if key == "r":
+                    reset_pressed = event.state is KeyboardInputState.PRESSED
+                    if reset_pressed and not state.keyboard_reset_pressed:
+                        state.restart()
+                    state.keyboard_reset_pressed = reset_pressed
+                view_mode = _VIEW_MODE_KEYS.get(key)
                 if view_mode is not None and view_mode in view_modes_for(
                     state.config.app.physics
                 ):
@@ -685,9 +721,78 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
                     state._notify("Restart queued.")
                 state.controller_reset_pressed = reset_pressed
         state.drive_input.apply(events)
+        keyboard_events = [
+            event
+            for event in events.get_events()
+            if (
+                isinstance(event, KeyboardUserInputEvent)
+                and state.keyboard_track.supports_key(event.key)
+            )
+            or (isinstance(event, FocusUserInputEvent) and not event.focused)
+        ]
+        if keyboard_events and state.input_timeline is not None:
+            start_us = math.ceil(state.input_timeline.next_window_start_s * 1_000_000)
+            offset_us = max(
+                0,
+                start_us - min(int(event.get_timestamp()) for event in keyboard_events),
+            )
+            # Shift newly received edges together past already sampled time,
+            # retaining the duration and ordering of complete taps.
+            if offset_us:
+                keyboard_events = [
+                    replace(
+                        event,
+                        timestamp=np.uint64(int(event.get_timestamp()) + offset_us),
+                    )
+                    for event in keyboard_events
+                ]
+        state.input_times_s = tuple(
+            disposition.timestamp_s
+            for disposition in state.keyboard_track.ingest(
+                UserInputEvents(keyboard_events)
+            )
+            if disposition.tracked
+        )
 
-    def _command(self) -> DriverCommand:
-        command = self.state.drive_input.command()
+    def _commands(
+        self, frames: int
+    ) -> tuple[tuple[DriverCommand, ...], tuple[float, ...]]:
+        """Fit unsampled keyboard segments into one chunk in timestamp order."""
+        state = self.state
+        if state.input_timeline is None:
+            state.input_timeline = RealtimeInputTimeline(
+                samples_per_second=state.config.app.chunk.fps
+            )
+        start_s = state.input_timeline.next_window_start_s
+        if state.input_times_s:
+            start_s = max(start_s, min(state.input_times_s))
+        window = state.input_timeline.next_window(
+            frames, input_times_s=state.input_times_s
+        )
+        # Keep the earliest unsampled tap when the realtime clock catches up.
+        # Long batches share one chunk's simulation time, without input backlog.
+        if start_s < window.start_s:
+            window = InputWindow(
+                start_s=start_s,
+                end_s=window.end_s,
+                sample_times_s=(window.end_s,),
+            )
+        segments = state.keyboard_track.segments(window)
+        if state.drive_input.controller_command is not None:
+            return (self._command(),), (0.0,)
+        duration_s = frames / state.config.app.chunk.fps
+        scale = duration_s / (window.end_s - window.start_s)
+        commands = tuple(
+            self._command(command_from_snapshot(ControlSnapshot(pressed=set(keys))))
+            for _, _, keys in segments
+        )
+        return commands, tuple(
+            (start - window.start_s) * scale for start, _, _ in segments
+        )
+
+    def _command(self, command: DriverCommand | None = None) -> DriverCommand:
+        if command is None:
+            command = self.state.drive_input.command()
         if command.reverse and not self.state.config.app.reverse:
             # Braking rather than nothing: the keyboard reads S as reverse and
             # gives it full throttle, so dropping the gear alone would send the

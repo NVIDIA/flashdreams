@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="340" viewBox="0 0 900 340" style="--a:#A9D951;--b:#5CD6DE;--c:#B6C2D3;--fg:#D6DBDD;--muted:#CCD2D6;--line:#50565F;--surface:#202020;font-family:Arial,sans-serif">
+  <text x="450" y="34" font-size="30" fill="var(--fg)" font-weight="700" text-anchor="middle">World models in action</text>
+  <g transform="translate(148 163) scale(1.5)" stroke="var(--fg)" stroke-width="2.8" stroke-linejoin="round">
+    <path d="M-57 48 -34 10H34L57 48" fill="var(--surface)" stroke="var(--line)"/>
+    <path d="M0 30V37M0 43V49" stroke="var(--muted)"/>
+    <rect x="-45" y="15" width="13" height="23" rx="4" fill="var(--fg)"/>
+    <rect x="32" y="15" width="13" height="23" rx="4" fill="var(--fg)"/>
+    <path d="M-36-10 -29-31Q-27-35-21-35H21Q27-35 29-31L36-10Q44-6 45 5V25Q45 30 39 30H-39Q-45 30-45 25V5Q-44-6-36-10Z" fill="var(--surface)"/>
+    <path d="M-30-13 -24-29H24L30-13Z" fill="var(--c)"/>
+    <path d="M-17-27H-8L-17-15H-26" fill="var(--surface)" opacity=".35" stroke="none"/>
+    <path d="M-36-10Q0-5 36-10M-31 18H31" fill="none" stroke="var(--line)" stroke-width="1.4"/>
+    <path d="M-42-10H-49Q-54-10-52-4L-45 0M42-10H49Q54-10 52-4L45 0" fill="var(--surface)"/>
+    <path d="M-37 0 -18 3 -20 10H-34Q-39 8-37 0ZM37 0 18 3 20 10H34Q39 8 37 0Z" fill="var(--a)"/>
+    <path d="M-17 28 -12 17H12L17 28" fill="var(--c)"/>
+    <path d="M-8 21H8M-10 25H10" stroke="var(--surface)" stroke-width="1"/>
+    <path d="M-37 17V22M37 17V22" stroke-linecap="round"/>
+    <rect x="-10" y="-42" width="20" height="7" rx="3" fill="var(--a)"/>
+    <rect x="-6" y="-47" width="12" height="5" rx="2" fill="var(--c)"/>
+    <path d="M-25-68Q0-86 25-68M-18-58Q0-71 18-58M-10-50Q0-57 10-50" fill="none" stroke="var(--b)" stroke-width="3.5" stroke-linecap="round"/>
+  </g>
+  <text x="148" y="274" font-size="23" fill="var(--fg)" font-weight="700" text-anchor="middle">Autonomous systems</text>
+  <text x="148" y="307" font-size="21" fill="var(--muted)" font-weight="400" text-anchor="middle">Sensor input</text>
+  <g transform="translate(450 163) scale(1.5)" stroke="var(--fg)" stroke-width="3" stroke-linejoin="round">
+    <rect x="-45" y="39" width="79" height="9" rx="3" fill="var(--c)"/>
+    <path d="M-37 39V20Q-37 15-32 15H17Q22 15 22 20V39Z" fill="var(--a)"/>
+    <rect x="-27" y="10" width="39" height="6" rx="2" fill="var(--c)"/>
+    <path d="M-25 10 -39-26 -25-33 -7 10Z" fill="var(--a)"/>
+    <path d="M-35-34 -2-66 10-51 -23-22Z" fill="var(--a)"/>
+    <path d="M8-65 36-39 25-27 -4-51Z" fill="var(--a)"/>
+    <path d="M-29-27 -2-54M-27-19 -17 6M10-55 27-39" stroke="var(--surface)" stroke-width="2" fill="none" opacity=".6"/>
+    <circle cx="-30" cy="-27" r="13" fill="var(--a)"/>
+    <circle cx="-30" cy="-27" r="6" fill="var(--c)"/>
+    <circle cx="4" cy="-59" r="12" fill="var(--a)"/>
+    <circle cx="4" cy="-59" r="5" fill="var(--c)"/>
+    <circle cx="31" cy="-33" r="8" fill="var(--c)"/>
+    <path d="M27-26V-15H37V-26" fill="var(--c)"/>
+    <path d="M27-15 18-6V5L26 11M37-15 46-6V5L38 11" fill="none" stroke-width="5"/>
+    <path d="M15 13 33 6 51 13 33 21Z" fill="#E8B74D"/>
+    <path d="M15 13V34L33 43V21ZM33 21V43L51 34V13" fill="#D99A29"/>
+    <path d="M33 21V43M15 13 33 21 51 13" fill="none"/>
+    <path d="M-32 34H15" stroke="var(--surface)" opacity=".5" stroke-width="1.5"/>
+  </g>
+  <text x="450" y="274" font-size="23" fill="var(--fg)" font-weight="700" text-anchor="middle">Robotics</text>
+  <text x="450" y="307" font-size="21" fill="var(--muted)" font-weight="400" text-anchor="middle">Policy testing</text>
+  <g transform="translate(752 163) scale(1.5)" stroke="var(--fg)" stroke-width="3" stroke-linejoin="round">
+    <path d="M-10 24V36H12V24M-23 39H25" fill="var(--c)" stroke-linecap="round"/>
+    <rect x="-53" y="-49" width="106" height="75" rx="5" fill="var(--c)"/>
+    <svg x="-48" y="-44" width="96" height="64" viewBox="0 0 96 64" overflow="hidden" stroke="none">
+      <path d="M0 0H96V64H0Z" fill="#65C5E8"/>
+      <circle cx="74" cy="14" r="7" fill="#F4DB87"/>
+      <path d="M0 40 27 17 57 44 77 28 96 43V64H0Z" fill="#599F68"/>
+      <path d="M0 46 16 34 34 48 60 34 96 48V64H0Z" fill="#37755C"/>
+      <path d="M0 54Q25 45 48 51T96 53V64H0Z" fill="#8FCB43"/>
+      <path d="M48 49Q36 55 62 58L76 64H39Q16 57 39 49Z" fill="#48B7D5"/>
+    </svg>
+    <circle cx="0" cy="23" r="1" fill="var(--surface)" stroke="none"/>
+    <g transform="translate(34 29)">
+      <path d="M-17-15H17Q24-15 28-2L33 18Q34 26 27 27Q22 28 12 15H-12Q-22 28-27 27Q-34 26-33 18L-28-2Q-24-15-17-15Z" fill="var(--surface)"/>
+      <path d="M-20-4H-8M-14-10V2" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="-8" cy="9" r="4" fill="var(--c)" stroke-width="1.5"/>
+      <circle cx="9" cy="9" r="4" fill="var(--c)" stroke-width="1.5"/>
+      <g fill="var(--a)" stroke="none"><circle cx="15" cy="-8" r="2.7"/><circle cx="22" cy="-2" r="2.7"/><circle cx="8" cy="-2" r="2.7"/><circle cx="15" cy="4" r="2.7"/></g>
+      <path d="M-3-6H2" stroke="var(--line)" stroke-width="2"/>
+    </g>
+  </g>
+  <text x="752" y="274" font-size="23" fill="var(--fg)" font-weight="700" text-anchor="middle">Interactive worlds</text>
+  <text x="752" y="307" font-size="21" fill="var(--muted)" font-weight="400" text-anchor="middle">Live controls</text>
+</svg>

@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-handdreams"
+version = "0.1.0"
+description = "HandDreams controller demo application on the FlashDreams V2 API."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "flashdreams[runners,serving]",
+    "flashdreams-controller-input[runtime,webxr]",
+    "pillow",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+flashdreams-controller-input = { workspace = true }
+
+[tool.setuptools]
+packages = [
+    "handdreams",
+    "handdreams.controllers",
+]
+
+[tool.setuptools.package-data]
+"handdreams" = [
+    "assets/tutorials/*.mp4",
+]
+
+[tool.uv]
+managed = true

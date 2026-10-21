@@ -86,7 +86,7 @@ Use `derive_config` for small variants. Set these values explicitly:
 checkpoint, scheduler, steps, chunk and cache sizes, guidance, precision,
 compile, CUDA graphs, and attention backend.
 
-## 5. Test the integration
+## 4. Test the integration
 
 Put model tests in `integrations_v2/<model>/tests/`. Every pytest test must have
 exactly one of `ci_cpu`, `ci_gpu`, or `manual`.
@@ -110,10 +110,15 @@ uv sync --package flashdreams-<model> --extra dev --inexact
 uv run --no-sync pytest integrations_v2/<model>/tests -m ci_cpu
 ```
 
-## 6. Add documentation
+## 5. Add documentation
 
-Add or update `docs/source/models/<model>.md` with the new model. Example: [Wan 2.1](../../../models/wan21.md)
+Follow an existing model page such as [Wan 2.1](../../../models/wan21.md):
+model/card and research links, a runnable quick start with requirements,
+demo presets, and developer details. Link to the demo page for controls and
+arguments. Include a meaningful AVIF preview with source attribution.
+Add the page to the matching category in `models/.nav.yml`, `models/index.md`,
+and the home gallery. [Build the website](../../tools/build_website.md) to check it.
 
-## 7. [Optional] Add a demo adapter
+## 6. [Optional] Add a demo adapter
 
 A model package can exist without a demo implementation. To add one, follow the [integrate model adapter for a demo](../../demo_api/guides/integrate_model_adapter_for_a_demo.md) guide.

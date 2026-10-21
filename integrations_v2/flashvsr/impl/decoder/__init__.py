@@ -145,8 +145,7 @@ class FlashVSRDecoder(StreamingDecoder[FlashVSRDecoderCache]):
 
         assert config.tcdecoder_checkpoint_path is not None, (
             "FlashVSRDecoderConfig.tcdecoder_checkpoint_path must be set "
-            "(point at the staged TCDecoder.ckpt -- see "
-            "internal/upsampler/scripts/download_flashvsr_weights.sh)."
+            "(point at the staged TCDecoder.ckpt)."
         )
         self.tcdecoder = (
             FlashVSR_TAEHV(

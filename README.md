@@ -38,6 +38,9 @@ Checkout our game-like crazy-robotaxi demo [here](https://nvidia.github.io/flash
 
 ![](docs/source/_static/demo_clips/crazy-robotaxi.avif)
 
+Try [Cosmos3 Nano Sim Auto](integrations_v2/cosmos3_nano_sim_auto/README.md)
+for multiview driving with prepared HD maps and optional LiDAR.
+
 ## Developer guides
 
 ### For Demo Developers
@@ -74,6 +77,10 @@ repository is REUSE-compliant; see [`REUSE.toml`](REUSE.toml) and
 [Ludus renderer](integrations_v2/omnidreams/impl/ludus-renderer/LICENSE) retains its own Apache license file;
 [upstream cudaraster terms](integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/LICENSE)
 and per-file exceptions are described in the third-party notices.
+
+## External materials
+
+**NOTICE AND DISCLAIMER: This software automatically retrieves, accesses or interacts with external materials.  Those retrieved materials are not distributed with this software and are governed solely by separate terms, conditions and licenses.  You are solely responsible for finding, reviewing and complying with all applicable terms, conditions, and licenses, and for verifying the security, integrity and suitability of any retrieved materials for your specific use case. This software is provided "AS IS", without warranty of any kind. The author makes no representations or warranties regarding any retrieved materials, and assumes no liability for any losses, damages, liabilities or legal consequences from your use or inability to use this software or any retrieved materials. Use this software and the retrieved materials at your own risk.**
 
 ## Citation
 

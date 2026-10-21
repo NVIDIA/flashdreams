@@ -7,19 +7,12 @@ title: 'Crazy Robotaxi'
 
 <a id="crazy-robotaxi"></a>
 
-Crazy Robotaxi is an interactive FlashDreams v2 driving application. Drive a
-taxi through authored maps, collect fares, race against the clock, or explore
-freely using a keyboard, gamepad, or steering wheel.
+Drive a taxi, collect fares, race, or explore with a keyboard, gamepad, or
+steering wheel. The game engine handles motion, collisions, and scoring.
 
-Crazy Robotaxi's game engine simulates vehicle motion, uses PhysX to resolve
-collisions, and applies rules for fares, checkpoints, and scoring. Ludus Renderer
-converts the simulated road layout and actor poses into semantic HD-map images:
-lane markings, road boundaries, and actor boxes.
+OmniDreams generates the street view from the simulated HD map (RGB image of color-coded boxes and lines).
 
-The OmniDreams AI world model uses those images, a text prompt, and visual
-history to generate the detailed street view. Crazy Robotaxi draws HUD text and
-navigation markers over that video using conventional rendering; their state
-and placement come from the game engine.
+HUD and navigation markers come from the game engine.
 
 <div class="fd-card fd-model-card">
   <img class="fd-card-preview" src="../_static/demo_clips/crazy-robotaxi.avif" alt="" />
@@ -33,6 +26,21 @@ and placement come from the game engine.
 <div class="fd-cta-row" markdown="span">
   [OmniDreams](../models/omnidreams.md#crazy-robotaxi){ .fd-button }
 </div>
+
+The model guide covers installation, GPU preset selection, and browser or
+native-window startup.
+
+### Start playing
+
+1. Select **Taxi** (pick up and drop off passengers before time expires),
+   **Race** (timed checkpoints), or **Free Roam** (explore without objectives).
+2. Choose **Boulevard District** for suburban streets and traffic, or
+   **FlashDreams Raceway** for a curved four-lane course.
+3. Drive with **WASD** and brake with **Space**. Press **Escape** for menus.
+
+Visuals of this game are expected to drift from the HDMap over-time.
+
+For optional dynamic-prompts/weather, refer to  [Optional live-edit abilities](#optional-live-edit-abilities) section.
 
 <a id="apps-crazyrobotaxi-readme--controls"></a>
 
@@ -220,8 +228,21 @@ a timer, or a score. No race-course selection is needed.
 
 ## Optional live-edit abilities
 
-Live-edit features are disabled by default. Enable them on the **LIVE EDIT**
-Options page or with application arguments:
+Live-edit features are disabled by default due to performance overhead.
+
+Enable them via one of the following:
+
+- Game menu:
+
+    1. open **OPTIONS → LIVE EDIT**
+
+    2. enable the feature
+
+    3. **SAVE**
+
+    4. restart the application.
+
+- Command-line arguments:
 
 ```bash
 
@@ -235,11 +256,18 @@ uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window -- \
 
 ```
 
-When enabled, `C` toggles coins, `K` cycles style skins, `V` cycles weather,
-and `O` spawns a crossing obstacle. The same enabled actions appear as buttons
-in the live-edit HUD card alongside frame-aligned ability status. Weather cannot
-change while a non-base style is active. When enabled, style mode downloads
-missing model assets during application startup and caches them under
+### Live-edit abilities
+
+When enabled:
+
+- `C` toggles coins
+- `K` cycles style skins
+- `V` cycles weather
+- `O` spawns a crossing obstacle
+
+Actions will appear as buttons in the HUD.
+Weather cannot change while a style is active (i.e. non-default style).
+When enabled, style mode downloads missing model assets during application startup and caches them under
 `artifacts/crazy_robotaxi/live_edit`. Explicit checkpoint paths skip the
 corresponding downloads.
 

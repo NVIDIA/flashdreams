@@ -61,6 +61,7 @@ from omnidreams_game_engine.types import CameraCalibration
 
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEvent,
     FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
@@ -279,6 +280,7 @@ class _FakeImGui:
         item_spacing=4,
         frame_rounding=5,
         frame_padding=6,
+        popup_border_size=7,
     )
     Col_ = SimpleNamespace(
         text=1,
@@ -292,6 +294,8 @@ class _FakeImGui:
         button_hovered=9,
         button_active=10,
         check_mark=11,
+        popup_bg=12,
+        plot_histogram=13,
     )
     TableFlags_ = SimpleNamespace(
         row_bg=1,
@@ -306,6 +310,8 @@ class _FakeImGui:
 
     def __init__(self) -> None:
         self.windows: dict[str, list[str]] = {}
+        self.open_popups: set[str] = set()
+        self.progress_values: list[float] = []
         self.text_fonts: list[tuple[str, object, float]] = []
         self.text_positions: list[tuple[str, float]] = []
         self.dummies: list[tuple[float, float]] = []
@@ -468,6 +474,30 @@ class _FakeImGui:
 
     def end(self) -> None:
         self.current_window = None
+
+    def is_popup_open(self, title: str) -> bool:
+        return title in self.open_popups
+
+    def open_popup(self, title: str) -> None:
+        self.open_popups.add(title)
+
+    def begin_popup_modal(self, title: str, *, flags: int) -> tuple[bool, None]:
+        if not self.is_popup_open(title):
+            return False, None
+        return self.begin(title, flags=flags), None
+
+    def close_current_popup(self) -> None:
+        assert self.current_window is not None
+        self.open_popups.remove(self.current_window)
+
+    def end_popup(self) -> None:
+        self.end()
+
+    def set_item_default_focus(self) -> None:
+        pass
+
+    def progress_bar(self, fraction: float, size: Any, *, overlay: str) -> None:
+        self.progress_values.append(fraction)
 
     def begin_child(
         self,
@@ -2181,12 +2211,14 @@ def test_explicit_race_mode_and_map_skip_to_course_screen() -> None:
     assert state._selected_map_option is option
 
 
-def test_menu_back_uses_styled_gamepad_cancel_button() -> None:
+@pytest.mark.parametrize("allow_exit", (False, True))
+def test_menu_back_uses_styled_gamepad_cancel_button(allow_exit: bool) -> None:
     state = TaxiHudState(
         640,
         360,
         _calibration(),
         gamepad_button_style="Xbox",
+        allow_exit=allow_exit,
     )
     state._selected_game_mode = "taxi"
     state._menu_stage = "map"
@@ -2206,10 +2238,13 @@ def test_menu_back_uses_styled_gamepad_cancel_button() -> None:
     assert state._menu_stage == "mode"
     imgui = _FakeImGui()
     state.draw(imgui)
-    assert "ESC / B - EXIT" in imgui.windows["Crazy Robotaxi - Select Game Mode"]
+    assert (
+        "ESC / B - EXIT" in imgui.windows["Crazy Robotaxi - Select Game Mode"]
+    ) is allow_exit
 
 
-def test_gameplay_return_to_map_uses_rebindable_controls() -> None:
+@pytest.mark.parametrize("allow_exit", (False, True))
+def test_gameplay_return_to_map_uses_rebindable_controls(allow_exit: bool) -> None:
     defaults = ControlsConfig()
     controls = replace(
         defaults,
@@ -2218,7 +2253,9 @@ def test_gameplay_return_to_map_uses_rebindable_controls() -> None:
             return_to_menu=(InputBinding("key", "m"), None),
         ),
     )
-    state = TaxiHudState(640, 360, _calibration(), controls=controls)
+    state = TaxiHudState(
+        640, 360, _calibration(), controls=controls, allow_exit=allow_exit
+    )
     state._selected_game_mode = "taxi"
     state._menu_stage = "game"
     model_loop = _SelectionLoop()
@@ -2260,8 +2297,10 @@ def test_gameplay_return_to_map_uses_rebindable_controls() -> None:
     assert model_loop.state.return_to_map_count == 1
 
 
-def test_mode_exit_button_requests_exit() -> None:
-    state = TaxiHudState(640, 360, _calibration())
+@pytest.mark.parametrize("allow_exit", (False, True))
+@pytest.mark.parametrize("exit_input", ("button", "keyboard", "gamepad"))
+def test_mode_exit_respects_allow_exit(allow_exit: bool, exit_input: str) -> None:
+    state = TaxiHudState(640, 360, _calibration(), allow_exit=allow_exit)
     model_loop = _SelectionLoop()
     model_loop.register_session_loop_objects(
         state=_SelectionState(),
@@ -2271,14 +2310,179 @@ def test_mode_exit_button_requests_exit() -> None:
     )
     state.model_loop = model_loop
     imgui = _FakeImGui()
-    imgui.clicked_buttons.add("EXIT")
-
     state.draw(imgui)
 
-    assert state._menu_stage == "loading"
-    assert state._loading_status == "EXITING GAME"
+    assert ("EXIT" in imgui.buttons) is allow_exit
+    assert (
+        "ESC / B - EXIT" in imgui.windows["Crazy Robotaxi - Select Game Mode"]
+    ) is allow_exit
+
+    if exit_input == "button":
+        imgui.clicked_buttons.add("EXIT")
+        state.draw(imgui)
+    elif exit_input == "keyboard":
+        state.consume_input_events(
+            UserInputEvents(
+                [
+                    KeyboardUserInputEvent(
+                        timestamp=np.uint64(1),
+                        key="Escape",
+                        state=KeyboardInputState.PRESSED,
+                    )
+                ]
+            )
+        )
+    else:
+        state.consume_input_events(
+            UserInputEvents(
+                [
+                    GamepadUserInputEvent(
+                        timestamp=np.uint64(1),
+                        action="state",
+                        pressed=(False, True),
+                    )
+                ]
+            )
+        )
+
+    assert state._menu_stage == "mode"
+    assert state._exit_confirmation_pending is allow_exit
+    assert not state._exit_requested
     model_loop._run_message_batch()
-    assert model_loop.state.exit_requested
+    assert not model_loop.state.exit_requested
+
+    imgui.clicked_buttons.clear()
+    state.draw(imgui)
+    assert imgui.is_popup_open("EXIT GAME?") is allow_exit
+    imgui.clicked_buttons.add("EXIT GAME")
+    state.draw(imgui)
+
+    assert not imgui.is_popup_open("EXIT GAME?")
+    assert not state._exit_confirmation_pending
+    assert state._menu_stage == ("loading" if allow_exit else "mode")
+    if allow_exit:
+        assert state._loading_status == "EXITING GAME"
+    assert state._exit_requested is allow_exit
+    model_loop._run_message_batch()
+    assert model_loop.state.exit_requested is allow_exit
+
+
+def test_exit_confirmation_can_be_cancelled_and_reopened() -> None:
+    state = TaxiHudState(640, 360, _calibration())
+    imgui = _FakeImGui()
+    imgui.clicked_buttons.add("EXIT")
+    state.draw(imgui)
+    assert imgui.is_popup_open("EXIT GAME?")
+    imgui.clicked_buttons.clear()
+
+    imgui.clicked_buttons.add("CANCEL")
+    state.draw(imgui)
+    assert not imgui.is_popup_open("EXIT GAME?")
+    assert not state._exit_confirmation_pending
+    assert not state._exit_requested
+    assert state._menu_stage == "mode"
+
+    imgui.clicked_buttons.clear()
+    imgui.clicked_buttons.add("EXIT")
+    state.draw(imgui)
+    assert imgui.is_popup_open("EXIT GAME?")
+    assert not state._exit_requested
+
+
+@pytest.mark.parametrize("device", ("keyboard", "gamepad", "analog_gamepad"))
+@pytest.mark.parametrize("allow_exit", (False, True))
+def test_exit_requires_a_continuous_hold(
+    monkeypatch: pytest.MonkeyPatch, device: str, allow_exit: bool
+) -> None:
+    now = 10.0
+    monkeypatch.setattr(time, "monotonic", lambda: now)
+    state = TaxiHudState(640, 360, _calibration(), allow_exit=allow_exit)
+    model_loop = _SelectionLoop()
+    model_loop.register_session_loop_objects(
+        state=_SelectionState(),
+        frequency=0,
+        shutdown_event=threading.Event(),
+        failure_queue=queue.Queue(),
+    )
+    state.model_loop = model_loop
+    imgui = _FakeImGui()
+
+    def send(held: bool) -> None:
+        if device == "keyboard":
+            event = KeyboardUserInputEvent(
+                timestamp=np.uint64(1),
+                key="Escape",
+                state=(
+                    KeyboardInputState.PRESSED if held else KeyboardInputState.RELEASED
+                ),
+            )
+        else:
+            event = GamepadUserInputEvent(
+                timestamp=np.uint64(1),
+                pressed=(False, held),
+                buttons=(0.0, float(held)) if device == "analog_gamepad" else (),
+            )
+        state.consume_input_events(UserInputEvents([event]))
+
+    send(True)
+    state.draw(imgui)
+    assert state._exit_confirmation_pending is allow_exit
+    now += 0.75
+    send(True)
+    state.draw(imgui)
+    assert not state._exit_requested
+    if allow_exit:
+        assert imgui.progress_values[-1] == pytest.approx(0.5)
+        assert "HOLD ESC / B TO EXIT" in imgui.windows["EXIT GAME?"]
+
+    send(False)
+    now += 5.0
+    state.draw(imgui)
+    assert not state._exit_requested
+    assert state._exit_confirmation_pending is allow_exit
+    if allow_exit:
+        assert imgui.progress_values[-1] == 0.0
+
+    send(True)
+    now += 1.49
+    state.draw(imgui)
+    model_loop._run_message_batch()
+    assert not state._exit_requested
+    assert not model_loop.state.exit_requested
+    now += 0.02
+    state.draw(imgui)
+    model_loop._run_message_batch()
+    assert state._exit_requested is allow_exit
+    assert model_loop.state.exit_requested is allow_exit
+
+
+@pytest.mark.parametrize("interruption", ("focus_loss", "disconnect", "reset"))
+def test_exit_hold_does_not_survive_input_interruption(
+    monkeypatch: pytest.MonkeyPatch, interruption: str
+) -> None:
+    now = 10.0
+    monkeypatch.setattr(time, "monotonic", lambda: now)
+    state = TaxiHudState(640, 360, _calibration())
+    state.consume_input_events(
+        UserInputEvents(
+            [GamepadUserInputEvent(timestamp=np.uint64(1), pressed=(False, True))]
+        )
+    )
+    state.draw(_FakeImGui())
+    now += 1.0
+    if interruption == "reset":
+        state.reset()
+    else:
+        event = (
+            FocusUserInputEvent(timestamp=np.uint64(2), focused=False)
+            if interruption == "focus_loss"
+            else GamepadUserInputEvent(timestamp=np.uint64(2), action="disconnected")
+        )
+        state.consume_input_events(UserInputEvents([event]))
+    now += 5.0
+    state.draw(_FakeImGui())
+    assert not state._exit_requested
+    assert not state._exit_hold_started_at_s
 
 
 def test_h_toggles_gameplay_control_tooltips() -> None:

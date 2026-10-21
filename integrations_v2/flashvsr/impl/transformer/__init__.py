@@ -117,9 +117,7 @@ class FlashVSRTransformerConfig(Wan21TransformerConfig):
     autotune; the wrapper will fail at capture time otherwise (lazy
     triton autotunes are illegal during capture).
 
-    Phase 2 of the optimization plan in
-    ``internal/upsampler/PERF_NOTES.md``. Empirical ceiling on H100 is
-    ~5-10% off ``dit_concat`` (~30-60 ms);
+    Empirical ceiling on H100 is ~5-10% off ``dit_concat`` (~30-60 ms);
     the headline ``dit_concat`` budget is dominated by the
     Triton block-sparse attention kernel which CUDA graphs do not affect."""
 

@@ -21,7 +21,9 @@ example:
 
 ## Install
 
-First, clone FlashDreams:
+Ensure you are using a 48GB+ VRAM GPU, have CUDA installed, and have the CUDA toolkit installed (version that supports your GPU, likely 13+). Have a C++ compiler installed and added to your `PATH`. Ensure you have available 100 GB+ free storage.
+
+Next, clone FlashDreams:
 ```bash
 git clone https://github.com/NVIDIA/flashdreams.git
 cd flashdreams
