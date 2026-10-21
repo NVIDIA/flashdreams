@@ -66,6 +66,7 @@ def _launcher(
     set_success: bool = True,
     require_physical_wake: bool = True,
     block_hold: bool = False,
+    block_reinforce: bool = False,
 ):
     """Run the real headset hold against a controllable fake ADB."""
     power_file = tmp_path / "power"
@@ -81,6 +82,9 @@ case " $* " in
     *" --method GET_PROPERTY "*) printf 'Result: Bundle[{%s}]\\n' "$QUEST_TEST_PROPERTIES" ;;
     *" --method SET_PROPERTY "*) printf 'Result: Bundle[{Success=%s}]\\n' "$QUEST_TEST_SET_SUCCESS" ;;
     *" com.oculus.vrpowermanager.prox_close "*)
+        if [[ -n "$QUEST_TEST_REINFORCE_RELEASE" ]] && (( $(grep -c 'prox_close' "$QUEST_TEST_ADB_LOG") >= 2 )); then
+            while [[ ! -e "$QUEST_TEST_REINFORCE_RELEASE" ]]; do sleep 0.01; done
+        fi
         if [[ -n "$QUEST_TEST_HOLD_RELEASE" ]]; then
             while [[ ! -e "$QUEST_TEST_HOLD_RELEASE" ]]; do sleep 0.01; done
         fi
@@ -125,6 +129,9 @@ exit 0
                 "QUEST_TEST_POWER_FILE": str(power_file),
                 "QUEST_TEST_PROPERTIES": properties,
                 "QUEST_TEST_SET_SUCCESS": str(set_success).lower(),
+                "QUEST_TEST_REINFORCE_RELEASE": str(tmp_path / "release-reinforce")
+                if block_reinforce
+                else "",
                 "QUEST_TEST_HOLD_RELEASE": str(tmp_path / "release-hold")
                 if block_hold
                 else "",
@@ -352,7 +359,13 @@ def test_browser_hold_without_pin_ignores_saved_pin_and_sets_no_properties(
 
 
 def test_shutdown_sleep_failure_warns_after_restoring_proximity(tmp_path) -> None:
-    with _launcher(tmp_path, "Awake", require_physical_wake=False, fail_sleep=True) as (
+    with _launcher(
+        tmp_path,
+        "Awake",
+        require_physical_wake=False,
+        fail_sleep=True,
+        block_reinforce=True,
+    ) as (
         launcher,
         _,
         _,
@@ -361,7 +374,11 @@ def test_shutdown_sleep_failure_warns_after_restoring_proximity(tmp_path) -> Non
     ):
         _wait(lambda: bool(select.select([ready_fd], [], [], 0)[0]))
         assert os.read(ready_fd, 1) == b"1"
-        _stop(launcher)
+        # Stop inside the redirected call to exercise signal-trap diagnostics.
+        _wait(lambda: adb_log.read_text().count("prox_close") >= 2)
+        launcher.terminate()
+        (tmp_path / "release-reinforce").touch()
+        launcher.wait(timeout=8)
         assert launcher.returncode == 0
         calls = adb_log.read_text()
         assert calls.index("prox_far") < calls.index("KEYCODE_SLEEP")

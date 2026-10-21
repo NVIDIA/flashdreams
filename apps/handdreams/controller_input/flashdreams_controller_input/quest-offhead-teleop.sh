@@ -238,7 +238,10 @@ cleanup() {
 }
 
 
-trap cleanup EXIT INT TERM HUP
+# Signal traps may run while adb_run has /dev/null redirections in force.
+# Keep cleanup diagnostics on the launcher's original output streams.
+exec {QUEST_CLEANUP_STDOUT_FD}>&1 {QUEST_CLEANUP_STDERR_FD}>&2
+trap 'cleanup >&"$QUEST_CLEANUP_STDOUT_FD" 2>&"$QUEST_CLEANUP_STDERR_FD"' EXIT INT TERM HUP
 
 [[ "$REQUIRE_PHYSICAL_WAKE" == 0 || "$REQUIRE_PHYSICAL_WAKE" == 1 ]] ||
     die "QUEST_REQUIRE_PHYSICAL_WAKE must be 0 or 1"
