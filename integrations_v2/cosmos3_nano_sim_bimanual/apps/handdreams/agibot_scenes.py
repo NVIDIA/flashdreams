@@ -28,6 +28,7 @@ from huggingface_hub import cached_assets_path, hf_hub_download, try_to_load_fro
 
 from flashdreams.core.io.disk import (
     CACHE_MIN_FREE_ENV,
+    DiskSpaceContext,
     cache_min_free_bytes,
     ensure_free_disk,
     raise_if_disk_space_error,
@@ -93,13 +94,18 @@ def _frame(video: Path, index: int):
 def _episode(manifest: dict, scene: dict) -> dict:
     source = dict(
         repo_id=manifest["repo_id"],
-        repo_type="dataset",
         revision=manifest["revision"],
         filename=f"task_info/task_{scene['task']}.json",
     )
-    path = try_to_load_from_cache(**source)
+    path = try_to_load_from_cache(**source, repo_type="dataset")
     if not isinstance(path, str):
-        path = hf_hub_download(**source, token=True)
+        path = hf_hub_download(
+            repo_id=source["repo_id"],
+            filename=source["filename"],
+            revision=source["revision"],
+            repo_type="dataset",
+            token=True,
+        )
     matches = [
         episode
         for episode in json.loads(Path(path).read_text(encoding="utf-8"))
@@ -137,7 +143,7 @@ def prepare_default_scenes() -> Path:
     with FileLock(str(root / ".prepare.lock")):
         if _prepared(root, manifest):
             return root
-        disk_context = dict(
+        disk_context: DiskSpaceContext = dict(
             label="prepared HandDreams scene cache",
             required_bytes=cache_min_free_bytes(),
             env_vars=("HF_HOME", "HF_ASSETS_CACHE", CACHE_MIN_FREE_ENV),

@@ -17,6 +17,7 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 import h5py
 import numpy as np
@@ -36,7 +37,9 @@ def test_replay_sequence_shares_initial_calibration_and_includes_base_motion(tmp
             (np.arange(40) * 0.01, np.zeros((40, 2)))
         )
         source["state/robot/orientation"] = np.tile([0, 0, 0, 1], (40, 1))
-    kwargs = dict(frame_index=7, frame_count=40, gripper_hardware="robotiq")
+    kwargs: dict[str, Any] = dict(
+        frame_index=7, frame_count=40, gripper_hardware="robotiq"
+    )
     head, wrists, grippers = load_pose_sequence(state, camera, **kwargs)
     initial, opened = load_initial_pose(state, camera, **kwargs)
     assert head.shape == (33, 4, 4)
@@ -153,7 +156,7 @@ def test_rejects_invalid_frame_index(tmp_path: Path, frame: object) -> None:
     with pytest.raises(ValueError, match="frame index"):
         load_initial_pose(
             *_source(tmp_path),
-            frame_index=frame,
+            frame_index=frame,  # ty: ignore[invalid-argument-type]  # Exercise invalid-input validation.
             frame_count=40,
             gripper_hardware="robotiq",
         )
@@ -284,5 +287,5 @@ def test_rejects_unknown_gripper_hardware(tmp_path: Path, hardware: object) -> N
             *_source(tmp_path),
             frame_index=0,
             frame_count=40,
-            gripper_hardware=hardware,
+            gripper_hardware=hardware,  # ty: ignore[invalid-argument-type]  # Exercise invalid-input validation.
         )

@@ -258,6 +258,7 @@ def control_window(geometry: ClipGeometry, history_slots: int) -> list[tuple[int
         geometry, first_frame=geometry.condition_frames, count=history_slots + 1
     )
     reach = generated[-1][1] if generated else geometry.frames_per_view
+    assert reach is not None
     window: list[tuple[int, int]] = []
     frame = 0
     while (chunk := ar_chunk_range(geometry, frame)) is not None:

@@ -353,12 +353,14 @@ def _parser() -> argparse.ArgumentParser:
 def _command(
     args: argparse.Namespace, extra: list[str], credentials: Path | None
 ) -> list[str]:
+    command: list[str]
     replay = getattr(args, "replay", False)
     if not replay and not args.accept_eula:
         raise ValueError("CloudXR startup requires --accept-eula.")
     if not replay and credentials is None:
         raise ValueError("Live control requires prepared transport credentials.")
     if args.command == "remote-vr":
+        assert credentials is not None
         package = REPOSITORY / "apps/handdreams/controller_input"
         command = "uv run --no-project --python 3.12 --with-editable".split() + [
             f"{package}[webxr]",
@@ -388,9 +390,14 @@ def _command(
             command.append("--keep-browser-open-on-error")
         return command + extra
     application = "handdreams-replay" if replay else "handdreams"
-    command = (
-        f"uv run --package {MODEL_PACKAGE} flashdreams-run-v2 {application}".split()
-    )
+    command = [
+        "uv",
+        "run",
+        "--package",
+        MODEL_PACKAGE,
+        "flashdreams-run-v2",
+        application,
+    ]
     command.extend(["--mode", args.mode])
     if not replay:
         command.extend(["--fps", "36"])
@@ -406,6 +413,7 @@ def _command(
         if args.checkpoint:
             command.extend(["--checkpoint", args.checkpoint])
         return command + extra
+    assert credentials is not None
     command.extend(
         [
             "--controller-host",

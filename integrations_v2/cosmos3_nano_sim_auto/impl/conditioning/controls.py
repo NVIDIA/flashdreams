@@ -230,7 +230,9 @@ def loaded_control_clips(
             device=torch.device(device),
             dtype=dtype,
             start_frame=start_frame,
-            frame_count=min(pixel_frames, loop_frames) if loop else pixel_frames,
+            frame_count=min(pixel_frames, loop_frames)
+            if loop and loop_frames is not None
+            else pixel_frames,
         )
         if loop and clip.shape[0] < pixel_frames:
             clip = clip.repeat(

@@ -4,6 +4,7 @@
 """CPU checks for picker controller status and the live status strip."""
 
 from dataclasses import replace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -213,20 +214,21 @@ def test_picker_status_follows_missing_hands_disconnect_and_recovery(
             ["Left: Tracked", "Right: Tracked", "Battery: 0%"],
         ),
     ):
+        event_options: dict[str, Any] = (
+            dict(
+                left=hands[0],
+                right=hands[1],
+                frame_id=1,
+                client_capture_ns=1,
+                pose_convention=OPENXR_LOCAL_GRIP_POSE_CONVENTION,
+            )
+            if hands
+            else {}
+        )
         event = ControllerFrameEvent(
             timestamp=np.uint64(1),
             action="state" if hands else "disconnected",
-            **(
-                dict(
-                    left=hands[0],
-                    right=hands[1],
-                    frame_id=1,
-                    client_capture_ns=1,
-                    pose_convention=OPENXR_LOCAL_GRIP_POSE_CONVENTION,
-                )
-                if hands
-                else {}
-            ),
+            **event_options,
         )
         state.observe_events(UserInputEvents([event]))
         messages.clear()

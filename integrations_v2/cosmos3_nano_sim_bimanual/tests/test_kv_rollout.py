@@ -28,6 +28,7 @@ import pytest
 import torch
 import torch.nn as nn
 from cosmos3_nano_sim_bimanual import action_format as _agibot
+from cosmos3_nano_sim_bimanual.encoder import HandActionInput
 from cosmos3_nano_sim_bimanual.spec import (
     Cosmos3InteractiveSpec,
     LLMSpec,
@@ -79,7 +80,7 @@ class _Session:
             setattr(self.cache_object, name, value)
 
     def step(
-        self, actions: torch.Tensor, *, profile: bool = False
+        self, actions: torch.Tensor | HandActionInput, *, profile: bool = False
     ) -> list[torch.Tensor]:
         self.cache_object.profile = profile
         clean, final_state = self.model.generate(

@@ -33,7 +33,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 from urllib.parse import urlencode, urlsplit, urlunsplit
 from urllib.request import urlopen
 
@@ -242,10 +242,14 @@ def _debugger_url(url: str, port: int) -> str:
     return urlunsplit(("ws", f"127.0.0.1:{port}", parts.path, parts.query, ""))
 
 
+class _HeadsetHealth(Protocol):
+    def check_alive(self) -> None: ...
+
+
 @contextmanager
 def _page(
     serial: str,
-    headset: ManagedHeadset,
+    headset: _HeadsetHealth,
     timeout: float,
     server_origin: str,
     adb_executable: str,
@@ -329,7 +333,7 @@ def _page_error_summary(banner: str) -> str:
 
 def _run_page(
     cdp: _CDP,
-    headset: ManagedHeadset,
+    headset: _HeadsetHealth,
     args: argparse.Namespace,
     url: str,
     *,
@@ -622,8 +626,10 @@ class QuestWebXRProducer:
         if self._headset is not None:
             self._headset.check_alive()
         if self._usb_started:
+            assert self._usb is not None
             self._usb.check_alive()
         if self._source_started:
+            assert self._source is not None
             self._source.check_alive()
 
     def poll(self) -> Observation | None:
@@ -633,6 +639,7 @@ class QuestWebXRProducer:
         self.check_alive()
         if not self.wake_ready or not self._source_started:
             return None
+        assert self._source is not None
         observation = self._source.poll()
         return None if observation is None else replace(observation, source=self.name)
 

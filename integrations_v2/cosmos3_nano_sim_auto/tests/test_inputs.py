@@ -679,6 +679,7 @@ def test_a_hand_written_prompt_is_pointed_at_each_camera_in_turn(monkeypatch) ->
 
     prompt = prompt_token_ids(sample, pixel_frames=200)
 
+    assert prompt.view_text_tokens is not None
     assert len(prompt.view_text_tokens) == len(sample.cameras)
     assert seen[0].startswith(CAMERA_CAPTION_PREFIXES[sample.cameras[0]])
     assert seen[0].endswith(sample.prompt)

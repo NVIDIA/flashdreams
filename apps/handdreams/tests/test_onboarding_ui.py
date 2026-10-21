@@ -214,6 +214,7 @@ def test_trigger_tutorial_shows_relative_motion_without_changing_input(conventio
         left=ControllerSnapshot(position=(-0.2, 1, -0.4), orientation=(0, 0, 0, 1)),
         right=ControllerSnapshot(position=(0.2, 1, -0.4), orientation=(0, 0, 0, 1)),
     )
+    assert event.left is not None
     shifted = replace(
         event,
         left=replace(event.left, position=(-0.2, 1.5, -0.4)),
@@ -233,7 +234,9 @@ def test_trigger_tutorial_shows_relative_motion_without_changing_input(conventio
     original = render(event)
     assert not torch.equal(original[:, 80:248], render(shifted)[:, 80:248])
     assert not torch.equal(original[:, 80:248], render(rotated)[:, 80:248])
+    assert rotated.left is not None
     assert rotated.left.orientation == (0, 1, 0, 0)
+    assert shifted.left is not None
     assert shifted.left.position == (-0.2, 1.5, -0.4)
     closed = replace(rotated, left=replace(rotated.left, trigger=1))
     assert not torch.equal(original[:, 80:248], render(closed)[:, 80:248])

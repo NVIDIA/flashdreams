@@ -110,6 +110,8 @@ def test_guard_and_stationary_counter_are_independent_of_chunk_boundaries(chunk_
     assert state.rows == expected_state.rows
     assert state.stationary_rows == expected_state.stationary_rows
     assert state.gripper_guard_rows == expected_state.gripper_guard_rows
+    assert state.wrist_anchors is not None
+    assert expected_state.wrist_anchors is not None
     for actual, reference in zip(
         state.wrist_anchors, expected_state.wrist_anchors, strict=True
     ):

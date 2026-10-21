@@ -42,7 +42,7 @@ from handdreams.config import (
 )
 from PIL import Image
 
-from apps.handdreams.tests.helpers import (
+from apps.handdreams.tests.helpers import (  # ty: ignore[unresolved-import]  # pytest exposes these shared helpers via the repository root.
     _FakeInferencePipeline,
     _FakePipeline,
     _FakePostprocessStream,
@@ -537,6 +537,7 @@ def test_standard_cli_selects_controller_plugin_before_initializing(
     assert len(captured) == 1
     args = captured[0]
     assert args.mode == selected.name
+    assert hasattr(selected, "output_mode")
     assert selected.output_mode == output_mode
     assert (args.host, args.port, args.window_title) == (
         "0.0.0.0",
@@ -608,6 +609,7 @@ def test_model_configuration_preserves_control_cadence() -> None:
     arguments = vars(parser.parse_args(["--device", "cpu"]))
     arguments["control_fps"] = 60
     config = app_module._resolve_pipeline_config(arguments)
+    assert isinstance(config.diffusion_model.transformer, HandTransformerConfig)
     assert config.diffusion_model.transformer.model_fps == 60
 
 
@@ -635,6 +637,8 @@ def test_implicit_optimizations_follow_selected_device(
         "cuda_graph_denoise",
     ):
         assert getattr(transformer, name) is optimized
+    assert isinstance(transformer, HandTransformerConfig)
+    assert isinstance(config.decoder, HandDecoderConfig)
     assert transformer.device == config.decoder.device == device
     assert config.compile_prewarm_steps == (1 if optimized else 0)
     if not optimized:
@@ -671,6 +675,7 @@ def test_cpu_explicit_optimization_is_preserved(option: str) -> None:
     )
     transformer = config.diffusion_model.transformer
     assert getattr(transformer, option.replace("-", "_"))
+    assert isinstance(transformer, HandTransformerConfig)
     assert not transformer.valid_length_cache_attention
     assert not transformer.cuda_graph_denoise
     assert config.compile_prewarm_steps == (33 if option == "compile-denoise" else 0)

@@ -165,6 +165,7 @@ def test_scene_previews_use_external_titles_and_first_frames(tmp_path) -> None:
     assert tuple(preview.name for preview in previews) == ("first", "second")
     for preview in previews:
         assert preview.title == "Synthetic scene"
+        assert preview.thumbnail is not None
         assert preview.thumbnail.shape == (352, 640, 3)
         assert not preview.thumbnail.flags.writeable
         np.testing.assert_array_equal(preview.thumbnail, 64)

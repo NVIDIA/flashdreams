@@ -158,6 +158,9 @@ class _FakeWebRTCWindow:
 
 
 class _FakeQuestSource:
+    name = "quest"
+    status_message: str
+
     def __init__(self, *, start_error: BaseException | None = None) -> None:
         self.start_error = start_error
         self.started = threading.Event()
@@ -519,6 +522,7 @@ def test_keyboard_b_restarts_only_once_per_press_and_preserves_active_input(key)
         assert len(events) == 2
         assert isinstance(events[1], ControllerFrameEvent)
         assert events[1].action == "state" and events[1].frame_id == 1
+        assert events[1].right is not None
         assert events[1].right.secondary_button  # Physical B is not keyboard B.
         assert source.stop_count == 0
 

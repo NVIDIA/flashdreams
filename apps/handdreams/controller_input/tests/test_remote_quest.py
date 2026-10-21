@@ -26,6 +26,7 @@ import subprocess
 import threading
 import time
 from contextlib import contextmanager
+from typing import Any, Callable, cast
 
 import pytest
 from flashdreams_controller_input import quest_relay, remote_quest
@@ -203,6 +204,7 @@ def test_isaac_transport_preserves_wrist_poses_and_uses_seconds(
         assert observation.frame[SOURCE_CLIENT_CAPTURE_NS_KEY] == 123456000000
         local_frame = local.snapshot()
         for side in ("left", "right"):
+            assert local_frame is not None
             assert observation.frame[side] == local_frame[side]
         assert source._store.pose_convention == WRIST_PROXY_POSE_CONVENTION
         assert source.poll() is None
@@ -522,7 +524,7 @@ def _relay(source, certificate, *, require_physical_wake=False):
         port=source.port,
         ca_cert=certificate[0],
         token=_TOKEN,
-        webxr=_FakeWebXRProducer(wake_ready=not require_physical_wake),
+        webxr=cast(Any, _FakeWebXRProducer(wake_ready=not require_physical_wake)),
     )
 
 
@@ -577,8 +579,8 @@ class _FakeWebXRProducer:
     def __init__(self, *, wake_ready=True):
         self.wake_ready = wake_ready
         self.lifecycle = []
-        self.on_message = None
-        self.on_disconnect = None
+        self.on_message: Callable[[str | bytes], None] | None = None
+        self.on_disconnect: Callable[[], None] | None = None
 
     def start(self, on_message, on_disconnect):
         self.on_message = on_message
@@ -602,7 +604,7 @@ def test_webxr_relay_forwards_raw_isaac_frames_and_stops_on_dgx_disconnect(
         port=source.port,
         ca_cert=certificate[0],
         token=_TOKEN,
-        webxr=producer,
+        webxr=cast(Any, producer),
     )
 
     batches = []
@@ -634,6 +636,7 @@ def test_webxr_relay_forwards_raw_isaac_frames_and_stops_on_dgx_disconnect(
     thread.start()
     try:
         _wait(lambda: producer.lifecycle == ["start"] and len(batches) >= 5)
+        assert producer.on_message is not None
         if wait_for_wake:
             producer.on_message(_HELLO)
             producer.on_message(_frame(12.25))
@@ -667,7 +670,7 @@ def test_webxr_relay_auth_failure_never_starts_producer(source, certificate):
         port=source.port,
         ca_cert=certificate[0],
         token="wrong" * 12,
-        webxr=producer,
+        webxr=cast(Any, producer),
     )
     with pytest.raises(ValueError, match="authentication failed"):
         relay.run()

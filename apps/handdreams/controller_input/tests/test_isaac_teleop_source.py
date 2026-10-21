@@ -632,7 +632,7 @@ def test_client_readiness_preserves_frames_and_requires_a_live_compatible_bridge
     source = _source()
     process = SimpleNamespace(returncode=None)
     process.poll = lambda: process.returncode
-    source._process = process
+    setattr(source, "_process", process)
     source._consume(json.dumps({"type": "status", "stage": stage}))
     assert not source.ready_for_clients
     source._consume(json.dumps(_hello()))
@@ -653,7 +653,7 @@ def test_client_readiness_preserves_frames_and_requires_a_live_compatible_bridge
     source._stopped = True
     assert not source.ready_for_clients
     source._stopped = False
-    source._process = None
+    setattr(source, "_process", None)
     assert not source.ready_for_clients
 
 
@@ -713,8 +713,8 @@ def test_bridge_constructs_the_pinned_cloudxr_launcher_contract(
         bindings.append((handler, kwargs))
         return "listener"
 
-    wss.ws_serve = serve
-    cloudxr.wss = wss
+    setattr(wss, "ws_serve", serve)
+    setattr(cloudxr, "wss", wss)
     monkeypatch.setattr(env_config, "EnvConfig", FakeEnvConfig, raising=False)
     monkeypatch.setattr(cloudxr, "CloudXRLauncher", FakeLauncher, raising=False)
     monkeypatch.setattr(package, "cloudxr", cloudxr, raising=False)
@@ -790,8 +790,8 @@ def test_cloudxr_proxy_keeps_usb_loopback_on_the_selected_interfaces(
 
     cloudxr = ModuleType("isaacteleop.cloudxr")
     wss = ModuleType("isaacteleop.cloudxr.wss")
-    wss.ws_serve = serve
-    cloudxr.wss = wss
+    setattr(wss, "ws_serve", serve)
+    setattr(cloudxr, "wss", wss)
     monkeypatch.setitem(sys.modules, "isaacteleop.cloudxr", cloudxr)
     isaac_teleop_bridge._bind_cloudxr_proxy(address)
 
@@ -1022,8 +1022,8 @@ def test_bridge_restores_the_environment_when_cloudxr_startup_fails(
     package = ModuleType("isaacteleop")
     cloudxr = ModuleType("isaacteleop.cloudxr")
     wss = ModuleType("isaacteleop.cloudxr.wss")
-    wss.ws_serve = lambda **kwargs: kwargs
-    cloudxr.wss = wss
+    setattr(wss, "ws_serve", lambda **kwargs: kwargs)
+    setattr(cloudxr, "wss", wss)
     monkeypatch.setattr(cloudxr, "CloudXRLauncher", FailingLauncher, raising=False)
     monkeypatch.setattr(package, "cloudxr", cloudxr, raising=False)
     monkeypatch.setitem(sys.modules, "isaacteleop", package)
@@ -1196,6 +1196,7 @@ def test_offline_source_requires_cached_assets_and_pins_child_path(
     try:
         if complete:
             source.start()
+            assert launcher.command is not None
             assert "--offline-web-client" in launcher.command
             assert launcher.kwargs["env"]["TELEOP_WEB_CLIENT_STATIC_DIR"] == str(cache)
         else:
@@ -1218,8 +1219,12 @@ def test_offline_bridge_rejects_env_file_redirecting_checked_assets(monkeypatch)
         isaac_teleop_bridge, "cached_web_client_dir", lambda: Path("/cached/client")
     )
     config = ModuleType("isaacteleop.cloudxr.env_config")
-    config.EnvConfig = SimpleNamespace(
-        _load_env_file=lambda _: {"TELEOP_WEB_CLIENT_STATIC_DIR": "/missing/client"}
+    setattr(
+        config,
+        "EnvConfig",
+        SimpleNamespace(
+            _load_env_file=lambda _: {"TELEOP_WEB_CLIENT_STATIC_DIR": "/missing/client"}
+        ),
     )
     monkeypatch.setitem(sys.modules, "isaacteleop.cloudxr.env_config", config)
     args = build_bridge_parser().parse_args(

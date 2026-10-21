@@ -60,8 +60,8 @@ else:
         cloudxr_64k_workaround_required,
         prepare_cloudxr_64k_preload,
     )
-    from cloudxr_client_identity import (
-        CloudXRClientIdentity,  # ty: ignore[unresolved-import]
+    from cloudxr_client_identity import (  # ty: ignore[unresolved-import]
+        CloudXRClientIdentity,
     )
     from controller_types import (  # ty: ignore[unresolved-import]
         CLOUDXR_EULA_HELP,

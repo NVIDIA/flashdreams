@@ -140,8 +140,11 @@ def test_attention_arena_is_bitwise_equal_to_concatenation() -> None:
         current_tokens=CHUNK,
         memory_tokens=MEMORY,
     )
-    arena_text = tuple(tensor[:, :, :TEXT] for tensor in arena)
-    arena_memory = tuple(tensor[:, :, layout.memory_start :] for tensor in arena)
+    arena_text = (arena[0][:, :, :TEXT], arena[1][:, :, :TEXT])
+    arena_memory = (
+        arena[0][:, :, layout.memory_start :],
+        arena[1][:, :, layout.memory_start :],
+    )
 
     reference = chunk_layer_forward(
         layer, h, cos, sin, text_kv=text_kv, memory_kv=memory_kv, mask=all_visible()

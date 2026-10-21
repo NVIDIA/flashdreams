@@ -139,6 +139,7 @@ def test_round_trip_preserves_float_bits_timestamps_and_light_lifetimes(bundle):
     )
     assert scene.scene.polyline_pools[0].vertices.dtype == torch.float32
     assert scene.scene.polyline_pools[0].vertices[0, 0].item() == 1.0000001192092896
+    assert scene.scene.cube_pools is not None
     assert scene.scene.cube_pools[0].track_timestamps_us[-1].item() == 2**62 + 3
     assert scene.scene.cube_pools[1].track_timestamps_us.tolist() == [
         1000000,
@@ -315,6 +316,7 @@ def test_v2_calibration_metadata_is_camera_independent_and_hash_checked(
             optimized=optimized,
         )
         worlds.append(anchor @ stream._sensor_to_rig.astype(np.float64))
+        assert scene.lidar is not None
         np.testing.assert_allclose(scene.lidar.sensor_to_ego[:3, 3], [0, 0, 2])
     np.testing.assert_allclose(worlds[0], worlds[1])
     np.testing.assert_allclose(worlds[0][:3, 3], [1, 0, 2])

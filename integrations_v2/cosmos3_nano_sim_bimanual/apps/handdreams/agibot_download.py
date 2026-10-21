@@ -33,6 +33,7 @@ from huggingface_hub.utils import build_hf_headers
 
 from flashdreams.core.io.disk import (
     CACHE_MIN_FREE_ENV,
+    DiskSpaceContext,
     cache_min_free_bytes,
     ensure_free_disk,
     raise_if_disk_space_error,
@@ -129,7 +130,7 @@ def download_archive_member(
                 "Disable HF_HUB_OFFLINE and download with your Hugging Face login."
             )
         min_bytes = cache_min_free_bytes()
-        disk_context = dict(
+        disk_context: DiskSpaceContext = dict(
             label="AgiBot scene cache",
             required_bytes=min_bytes,
             env_vars=("HF_HOME", "HF_ASSETS_CACHE", CACHE_MIN_FREE_ENV),

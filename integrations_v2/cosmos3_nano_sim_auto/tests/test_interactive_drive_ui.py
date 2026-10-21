@@ -229,5 +229,6 @@ def test_no_ui_keeps_one_mosaic_or_selected_camera(tmp_path, focused):
 def test_recorded_scene_can_select_fractional_fps_without_rounding(tmp_path):
     app = create_app()
     app.init(["--scene", str(tmp_path), "--fps", "32.7"])
+    assert app._config is not None
     assert app._config.app.chunk.fps == 32.7
     assert app.session_desc().frames_per_second_for_step == 32.7

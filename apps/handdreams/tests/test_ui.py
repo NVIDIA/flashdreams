@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -100,7 +101,7 @@ def test_left_face_buttons_do_not_navigate_scenes(primary, secondary, phase) -> 
     loop.session_desc = SessionDesc(video_width=64, video_height=32)
     loop.output_layout = VideoTensorLayout.tchw
     loop._ui_loop_requests = None
-    loop.presented_model_frame = lambda: None
+    setattr(loop, "presented_model_frame", lambda channel_index=0: None)
     pressed = _event(
         left=_controller(
             primary_button=primary,
@@ -307,13 +308,19 @@ def test_connection_links_follow_stage_bounds_and_clear_during_setup(
     # Setup removes the old regions; returning to selection restores them.
     loop.state.status = replace(loop.state.status, phase=HandDreamsPhase.ALIGNING)
     loop.step(1, _events())
-    assert loop.flush_ui_loop_requests().links == ()
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None
+    assert requests.links == ()
     loop.state.status = replace(loop.state.status, phase=HandDreamsPhase.SELECTING)
     loop.step(2, _events())
-    assert len(loop.flush_ui_loop_requests().links) == 1
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None and requests.links is not None
+    assert len(requests.links) == 1
     loop.state.connection_status = replace(connection, web_client_url="")
     loop.step(3, _events())
-    assert loop.flush_ui_loop_requests().links == ()
+    requests = loop.flush_ui_loop_requests()
+    assert requests is not None
+    assert requests.links == ()
     loop.step(4, _events())
     assert loop.flush_ui_loop_requests() is None
 
@@ -354,7 +361,12 @@ def test_connection_guidance_and_links_follow_controller_tracking(
     transitions = [
         (_events(), True),
         (_events(_event()), False),
-        (_events(_event(**{lost_side: _controller(tracked=False)})), True),
+        (
+            _events(
+                _event(**cast(dict[str, Any], {lost_side: _controller(tracked=False)}))
+            ),
+            True,
+        ),
         (_events(_event()), False),
         (_events(_event(disconnected=True)), True),
         (_events(_event()), False),
@@ -364,6 +376,7 @@ def test_connection_guidance_and_links_follow_controller_tracking(
         loop.step(step, events)
         requests = loop.flush_ui_loop_requests()
         assert requests is not None
+        assert requests.links is not None
         assert len(requests.links) == int(visible)
         assert any(message.startswith("Headset: ") for message in messages) is visible
         assert ("Isaac Teleop Web Client: " in messages) is visible
@@ -629,7 +642,7 @@ def scene_picker():
     loop.session_desc = SessionDesc(video_width=640, video_height=468)
     loop.output_layout = VideoTensorLayout.tchw
     loop._ui_loop_requests = None
-    loop.presented_model_frame = lambda: None
+    setattr(loop, "presented_model_frame", lambda channel_index=0: None)
     return loop
 
 
@@ -672,7 +685,7 @@ def test_replay_has_no_controller_ui(
     monkeypatch.setattr(ui_module.ImageDraw.ImageDraw, "text", text)
     monkeypatch.setattr(ui_module, "_draw_controller_hud", unexpected_hud)
     frame = torch.full((3, 360, 640), 200, dtype=torch.uint8)
-    loop.presented_model_frame = lambda: frame if video_available else None
+    setattr(loop, "presented_model_frame", lambda: frame if video_available else None)
     loop.step(
         0,
         _events(
@@ -1076,7 +1089,7 @@ def test_postprocess_button_updates_ui_and_model_without_replacing_session(
     )
     loop.session_desc = SessionDesc(video_width=640, video_height=468)
     loop.output_layout = VideoTensorLayout.tchw
-    loop._model_loop = object()
+    setattr(loop, "_model_loop", object())
     loop._ui_loop_requests = None
     left, top, right, bottom = ui_module._postprocess_button_rect(640, 360)
 

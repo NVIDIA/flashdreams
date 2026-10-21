@@ -17,6 +17,7 @@ import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from multiprocessing.connection import Connection
+from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +92,7 @@ class ControlWorker:
     """
 
     def __init__(self, conn: Connection, *, device: torch.device) -> None:
+        self._process: BaseProcess | None = None
         self._conn = conn
         self._device = device
         self._pending: tuple[int, int] | None = None
@@ -155,6 +157,7 @@ class ControlWorker:
             RuntimeError: the worker failed; its traceback is the message.
         """
         self.request(start, end)
+        assert self._pending is not None
         if self._pending != (start, end):
             raise ValueError(
                 f"[{start}, {end}) was asked for but [{self._pending[0]}, "

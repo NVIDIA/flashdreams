@@ -8,7 +8,9 @@ from __future__ import annotations
 import argparse
 import math
 import re
+from collections.abc import Mapping
 from pathlib import Path
+from typing import cast
 
 import matplotlib.pyplot as plt
 
@@ -80,26 +82,30 @@ def _load_results(input_path: Path) -> tuple[dict[CellKey, float], str]:
     for record in benchmark_records:
         if not isinstance(record, dict):
             continue
-        group = record.get("group")
+        group = cast(Mapping[object, object], record).get("group")
         match = _GROUP_PATTERN.fullmatch(group) if isinstance(group, str) else None
         if match is None:
             continue
 
-        extra_info = record.get("extra_info")
+        extra_info = cast(Mapping[object, object], record).get("extra_info")
         implementation = (
-            extra_info.get("implementation") if isinstance(extra_info, dict) else None
+            cast(Mapping[object, object], extra_info).get("implementation")
+            if isinstance(extra_info, dict)
+            else None
         )
         if (
             not isinstance(implementation, str)
             or implementation not in _IMPLEMENTATIONS
         ):
             raise SystemExit(
-                f"Benchmark {record.get('name', '<unnamed>')} has no supported "
+                f"Benchmark {cast(Mapping[object, object], record).get('name', '<unnamed>')} has no supported "
                 "implementation metadata"
             )
 
         scale_count = (
-            extra_info.get("scale_count", 1) if isinstance(extra_info, dict) else 1
+            cast(Mapping[object, object], extra_info).get("scale_count", 1)
+            if isinstance(extra_info, dict)
+            else 1
         )
         if (
             isinstance(scale_count, bool)
@@ -107,7 +113,7 @@ def _load_results(input_path: Path) -> tuple[dict[CellKey, float], str]:
             or scale_count < 1
         ):
             raise SystemExit(
-                f"Benchmark {record.get('name', '<unnamed>')} has an invalid "
+                f"Benchmark {cast(Mapping[object, object], record).get('name', '<unnamed>')} has an invalid "
                 "scale count"
             )
         cell = (

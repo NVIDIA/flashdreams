@@ -17,6 +17,7 @@
 
 import sys
 from types import ModuleType
+from typing import Any
 from unittest.mock import Mock, sentinel
 
 import pytest
@@ -32,7 +33,7 @@ pytestmark = pytest.mark.ci_cpu
     ids=["omitted", "false", "true"],
 )
 def test_eula_acceptance_reaches_sdk_without_becoming_implicit(
-    monkeypatch: pytest.MonkeyPatch, options: dict[str, bool]
+    monkeypatch: pytest.MonkeyPatch, options: dict[str, Any]
 ) -> None:
     """Preserve the caller's acceptance through the real sidecar command and parser."""
     launcher = Mock(return_value=sentinel.launcher)

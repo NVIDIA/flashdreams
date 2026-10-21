@@ -22,7 +22,9 @@ import traceback
 from collections.abc import Iterator
 from dataclasses import dataclass
 from multiprocessing.connection import Connection
+from multiprocessing.process import BaseProcess
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import torch
@@ -163,7 +165,7 @@ class LidarAssets:
     sample: LidarSample
     checkpoint: str | None = None
     """Where the tokenizer came from, so a decode worker can load its own copy."""
-    version: str = "v1p2"
+    version: Literal["v1p1", "v1p2"] = "v1p2"
 
     def stream(self):
         return LidarStream(self)
@@ -181,13 +183,19 @@ class LidarDecodeWorker:
     """
 
     def __init__(self, conn: Connection, *, device: torch.device) -> None:
+        self._process: BaseProcess | None = None
         self._conn = conn
         self._device = device
         self._pending = False
 
     @classmethod
     def spawn(
-        cls, checkpoint: str, version: str, worker_device: int, *, device: torch.device
+        cls,
+        checkpoint: str,
+        version: Literal["v1p1", "v1p2"],
+        worker_device: int,
+        *,
+        device: torch.device,
     ) -> LidarDecodeWorker:
         """Start the process on ``worker_device`` and wait until its tokenizer is loaded."""
         ctx = torch.multiprocessing.get_context("spawn")
@@ -253,7 +261,10 @@ class LidarDecodeWorker:
 
 
 def _serve_decode(
-    conn: Connection, checkpoint: str, version: str, worker_device: int
+    conn: Connection,
+    checkpoint: str,
+    version: Literal["v1p1", "v1p2"],
+    worker_device: int,
 ) -> None:
     """The worker's whole life: load the tokenizer, then decode what the pipe sends."""
     try:

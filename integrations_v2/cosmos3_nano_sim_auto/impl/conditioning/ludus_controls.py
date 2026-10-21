@@ -86,7 +86,7 @@ class LudusControls:
         fps: float,
         widths: dict[int, float],
         device: torch.device | str = "cuda",
-        frames: Sequence[int] | None = None,
+        frames: Sequence[int] | np.ndarray | None = None,
         note: Callable[[str], None] = lambda _: None,
         drive: PoseSource | None = None,
     ) -> None:

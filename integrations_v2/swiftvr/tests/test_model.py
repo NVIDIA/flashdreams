@@ -372,7 +372,8 @@ def test_swiftvr_preserves_native_wan_checkpoint_layout() -> None:
     assert remapped_shapes == native_shapes
     assert all(isinstance(block, SwiftVRBlock) for block in swiftvr.blocks)
     assert [
-        cast(SwiftVRBlock, block).self_attn.shifted for block in swiftvr.blocks[:4]
+        cast(SwiftVRBlock, block).self_attn.shifted
+        for block in list(swiftvr.blocks)[:4]
     ] == [
         False,
         True,

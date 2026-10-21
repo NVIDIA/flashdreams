@@ -171,6 +171,7 @@ def test_the_gather_walks_the_target_item_s_own_stride() -> None:
     """
     pack = build_prefill_pack(CLIP, text_tokens=TEXT_TOKENS, target_frames=2)
 
+    assert CLIP.frames_per_view is not None
     controls = CLIP.num_views * CLIP.frames_per_view * CLIP.spatial_tokens
     assert controls == 30
     # The controls whole, and then the target's conditioning frames. Target rows
@@ -227,6 +228,7 @@ def test_the_pack_holds_the_three_roles_it_should() -> None:
         CLIP, text_tokens=TEXT_TOKENS, target_frames=CLIP.frames_per_view
     )
     roles = pack.gen.token_role_id
+    assert CLIP.frames_per_view is not None
     per_view = CLIP.frames_per_view * CLIP.spatial_tokens
     conditions = CLIP.condition_frames * CLIP.spatial_tokens
 
@@ -284,6 +286,9 @@ def test_conditions_do_look_at_the_target_item() -> None:
     )
 
     assert bool(mask[condition_rows][:, generated_columns].all())
+
+
+assert CLIP.frames_per_view is not None
 
 
 @pytest.mark.parametrize(
@@ -407,6 +412,7 @@ def test_controls_after_the_opening_frame_depend_on_the_clean_target() -> None:
         layers, target_frames=CLIP.frames_per_view, target_fill=3.0
     )
 
+    assert CLIP.frames_per_view is not None
     controls = CLIP.num_views * CLIP.frames_per_view * CLIP.spatial_tokens
     first = pack.gen.causal_step_id[:controls] == 0
     moved = []
@@ -438,6 +444,7 @@ def test_the_conditioning_cache_does_depend_on_the_target_item() -> None:
         layers, target_frames=CLIP.frames_per_view, target_fill=3.0
     )
 
+    assert CLIP.frames_per_view is not None
     controls = CLIP.num_views * CLIP.frames_per_view * CLIP.spatial_tokens
     moved = [
         not torch.allclose(quiet_k[:, :, controls:], loud_k[:, :, controls:], atol=1e-4)
@@ -489,6 +496,7 @@ def test_prefill_memory_drops_straight_into_a_chunk() -> None:
 
 def control_rows(frames: range) -> list[int]:
     """Rows of a whole-clip control track holding ``frames``, view-outer."""
+    assert CLIP.frames_per_view is not None
     spatial, per_view = CLIP.spatial_tokens, CLIP.frames_per_view * CLIP.spatial_tokens
     return [
         view * per_view + frame * spatial + index
@@ -539,6 +547,7 @@ def windowed_prefill(layers, *, control_frames: int):
     )
 
 
+assert CLIP.frames_per_view is not None
 CONTROL_H = torch.randn(
     1,
     CLIP.num_views * CLIP.frames_per_view * CLIP.spatial_tokens,
@@ -600,6 +609,7 @@ def test_streamed_control_gives_the_keys_front_loading_would_have() -> None:
 
     window = 3
     _pack, (text_kv, memory_kv) = windowed_prefill(layers, control_frames=window)
+    assert CLIP.frames_per_view is not None
     added = range(window, CLIP.frames_per_view)
     metadata = build_chunk_metadata(
         CLIP,

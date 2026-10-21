@@ -61,8 +61,8 @@ def network_lidar_to_metric_clip(
     normalized: Tensor,
     validity: Tensor,
     *,
-    min_range: float,
-    max_range: float,
+    min_range: float | Tensor,
+    max_range: float | Tensor,
     apply_validity_mask: bool = True,
     validity_threshold: float = 0.5,
 ) -> Tensor:

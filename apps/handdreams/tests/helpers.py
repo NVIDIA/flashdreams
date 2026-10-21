@@ -249,7 +249,7 @@ class _FakeInferencePipeline:
         self.close_count += 1
 
 
-def _scene(name: str = "scene-a") -> Any:
+def _scene(name: str | None = "scene-a") -> Any:
     identity = np.eye(3, dtype=np.float32)
     poses = {side: np.eye(4, dtype=np.float32) for side in ("left", "right")}
     poses["left"][:3, 3] = [-0.24, 0.0, 1.0]

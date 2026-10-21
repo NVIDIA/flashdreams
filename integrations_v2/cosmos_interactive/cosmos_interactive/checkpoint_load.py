@@ -71,10 +71,11 @@ def _load_raw_state_dict(
 
     from flashdreams.core.checkpoint.load import load_single_checkpoint
 
-    kwargs: dict[str, object] = {"map_location": device}
     if credential_path:
-        kwargs["credential_path"] = credential_path
-    return load_single_checkpoint(source, **kwargs)  # type: ignore[arg-type]
+        return load_single_checkpoint(
+            source, map_location=device, credential_path=credential_path
+        )
+    return load_single_checkpoint(source, map_location=device)
 
 
 def load_exported_checkpoint(
@@ -101,9 +102,12 @@ def load_exported_checkpoint(
     """
     started = time.perf_counter()
     raw = _load_raw_state_dict(str(source), device, credential_path)
-    remapped = {remap_key(k): v for k, v in raw.items()}
-    if None in remapped:
-        raise RuntimeError("some source keys did not remap")
+    remapped: dict[str, torch.Tensor] = {}
+    for key, value in raw.items():
+        mapped = remap_key(key)
+        if mapped is None:
+            raise RuntimeError("some source keys did not remap")
+        remapped[mapped] = value
 
     # Auto-detect optional pathways from the remapped keys so the tree matches the
     # checkpoint for a strict load: the full export carries ``visual.*`` (ViT); the

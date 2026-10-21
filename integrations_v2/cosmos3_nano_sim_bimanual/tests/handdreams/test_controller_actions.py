@@ -27,7 +27,7 @@ from cosmos3_nano_sim_bimanual.apps.handdreams.actions import (
 )
 from handdreams.rotations import matrix_to_rot6d, quat_xyzw_to_matrix
 
-from apps.handdreams.tests.test_teleop_pipeline import (
+from apps.handdreams.tests.test_teleop_pipeline import (  # ty: ignore[unresolved-import]  # pytest exposes these shared helpers via the repository root.
     _frame,
     _pipeline,
     _through_atomic_event,

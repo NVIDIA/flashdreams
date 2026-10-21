@@ -13,6 +13,7 @@ a stand-in so these tests do not need the Qwen tokenizer on disk.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 from cosmos3_nano_sim_auto.impl.conditioning.captions import (
@@ -40,7 +41,7 @@ def _captions(count: int) -> list[dict[str, str]]:
 
 
 def _payload(count: int = 3, **overrides):
-    settings = {
+    settings: dict[str, Any] = {
         "num_frames": 200,
         "fps": 30.0,
         "pixel_height": 480,
@@ -127,7 +128,7 @@ def test_key_order_survives_serialization() -> None:
 
 def test_caption_json_refuses_a_list() -> None:
     with pytest.raises(TypeError, match="mapping"):
-        caption_json([{"summary": "a road"}])
+        caption_json([{"summary": "a road"}])  # ty: ignore[invalid-argument-type]  # Exercise invalid-input validation.
 
 
 def test_mismatched_counts_raise() -> None:
@@ -227,7 +228,7 @@ def test_a_missing_chunk_key_names_what_was_there() -> None:
 
 
 def _per_view(count: int = 3, **overrides):
-    settings = {
+    settings: dict[str, Any] = {
         "num_frames": 200,
         "fps": 30.0,
         "pixel_height": 480,

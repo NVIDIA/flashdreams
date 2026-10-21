@@ -11,6 +11,8 @@ conversion being wrong, and the drawing is the thing under examination.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 import torch
 from cosmos3_nano_sim_auto.impl.conditioning.controls import (
@@ -124,7 +126,9 @@ def test_looped_cameras_share_one_seam(monkeypatch, tmp_path) -> None:
             float(min(frame_count, lengths[path.name]))
         ).view(-1, 1, 1, 1),
     )
-    load = dict(pixel_frames=12, pixel_height=1, pixel_width=1, loop=True)
+    load: dict[str, Any] = dict(
+        pixel_frames=12, pixel_height=1, pixel_width=1, loop=True
+    )
     short, long = controls.loaded_control_clips(paths, **load)
     assert torch.equal(short, long)
     # A rank reading only the long camera still loops at the rig's length.

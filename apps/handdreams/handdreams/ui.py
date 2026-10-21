@@ -629,7 +629,8 @@ def _draw_setup_screen(
                     fill=color,
                 )
 
-    clip_bounds = tuple(round(value) for value in bounds)
+    left, top, right, bottom = (round(value) for value in bounds)
+    clip_bounds = (left, top, right, bottom)
     geometry = geometry.crop(clip_bounds)
     panel.paste(geometry, clip_bounds[:2], geometry)
 

@@ -19,6 +19,7 @@ whose keys are committed was handed ``vae2llm(denoised)`` and nothing else.
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 import pytest
 import torch
@@ -77,6 +78,7 @@ GEOMETRY = ClipGeometry(
     frames_per_chunk=4,
     condition_frames=0,
 )
+assert GEOMETRY.frames_per_view is not None
 CONTROL_TOKENS = GEOMETRY.num_views * GEOMETRY.frames_per_view * GEOMETRY.spatial_tokens
 
 
@@ -674,6 +676,7 @@ nothing is streamed, exactly as in the 61-frame clip the demo runs.
 
 def rolling(history_frames, geometry=ROLLING, seed=0) -> ChunkRollout:
     controls, text_ids = inputs()
+    assert geometry.frames_per_view is not None
     controls = torch.randn(
         geometry.num_views * geometry.frames_per_view * geometry.spatial_tokens,
         PATCH_DIM,
@@ -779,6 +782,7 @@ def test_a_window_can_evict_the_short_chunk_a_clip_opens_with() -> None:
         condition_frames=0,
     )
     _controls, text_ids = inputs()
+    assert geometry.frames_per_view is not None
     rollout = ChunkRollout(
         build(),
         geometry=geometry,
@@ -812,6 +816,7 @@ def test_a_window_can_evict_the_short_chunk_two_supplied_frames_leave() -> None:
         condition_frames=2,
     )
     _controls, text_ids = inputs()
+    assert geometry.frames_per_view is not None
     rollout = ChunkRollout(
         build(),
         geometry=geometry,
@@ -861,6 +866,7 @@ def test_control_is_retained_and_evicted_with_its_rgb() -> None:
     run_to_end(rollout)
 
     assert rollout._slots == 1
+    assert rollout._control_ranges is not None
     assert rollout._control_ranges[0] == (0, 1)
     assert set(rollout._control_ranges) == {(0, 1), (9, 13), (13, 17)}
 
@@ -1006,6 +1012,7 @@ def test_a_streaming_rollout_asks_for_control_a_chunk_at_a_time() -> None:
     following a live ego pose cannot have. The calls are contiguous and in
     order, which is what ``RenderedControls`` requires.
     """
+    assert ROLLING.frames_per_view is not None
     controls = torch.randn(
         ROLLING.num_views * ROLLING.frames_per_view * ROLLING.spatial_tokens, PATCH_DIM
     )
@@ -1039,6 +1046,7 @@ def test_an_unbounded_rollout_counts_every_rolling_chunk_as_warmup() -> None:
     grow the cache, so only the last is worth quoting -- and it is the slowest.
     Reading slow is the safe way to be wrong about a rate.
     """
+    assert ROLLING.frames_per_view is not None
     controls = torch.randn(
         ROLLING.num_views * ROLLING.frames_per_view * ROLLING.spatial_tokens, PATCH_DIM
     )
@@ -1073,6 +1081,7 @@ def test_a_clip_whose_only_chunk_is_its_last_has_nothing_to_fill() -> None:
         condition_frames=0,
     )
     _controls, text_ids = inputs()
+    assert geometry.frames_per_view is not None
     rollout = ChunkRollout(
         build(),
         geometry=geometry,
@@ -1153,6 +1162,7 @@ def test_a_stopped_rollout_will_not_pass_off_a_part_clip_as_the_whole_one() -> N
 
 
 def windowed(token_frames, geometry=ROLLING, seed=0) -> ChunkRollout:
+    assert geometry.frames_per_view is not None
     controls = torch.randn(
         geometry.num_views * geometry.frames_per_view * geometry.spatial_tokens,
         PATCH_DIM,
@@ -1217,6 +1227,7 @@ def test_a_window_the_clip_fits_stores_every_frame_at_its_own_index() -> None:
     rollout = windowed(None, FITTING)
 
     assert rollout._tokens.capacity == FITTING.frames_per_view
+    assert FITTING.frames_per_view is not None
     assert rollout._tokens._ring(0, FITTING.frames_per_view).tolist() == list(
         range(FITTING.frames_per_view)
     )
@@ -1612,6 +1623,7 @@ def test_a_run_with_no_end_keeps_generating_past_any_clip_length() -> None:
             trace, _tokens = rollout.step()
 
     assert not rollout.is_finished
+    assert ROLLING.frames_per_view is not None
     assert trace.end > ROLLING.frames_per_view * 2
 
 
@@ -1651,6 +1663,7 @@ def test_a_run_with_no_end_draws_its_control_one_chunk_at_a_time() -> None:
             rollout.step()
 
     provider = rollout._controls
+    assert isinstance(provider, DrawnControls)
     assert len(provider.asked) > 12
     for (_, previous_end), (start, _) in zip(
         provider.asked, provider.asked[1:], strict=False
@@ -1723,6 +1736,7 @@ def test_fused_merge_policy_reaches_prefill_topup_denoise_and_replay(monkeypatch
     from cosmos3_nano_sim_auto.impl.transformer.fold import FoldPlan
 
     generator = torch.Generator().manual_seed(91)
+    assert ROLLING.frames_per_view is not None
     controls = torch.randn(
         ROLLING.num_views * ROLLING.frames_per_view * ROLLING.spatial_tokens,
         PATCH_DIM,
@@ -1733,7 +1747,7 @@ def test_fused_merge_policy_reaches_prefill_topup_denoise_and_replay(monkeypatch
     )
     _, text_ids = inputs()
     network = build()
-    kwargs = dict(
+    kwargs: dict[str, Any] = dict(
         geometry=ROLLING,
         control_tokens=controls,
         condition_tokens=conditions,
@@ -1829,12 +1843,13 @@ def test_final_rig_checkpoint_runs_prefill_topups_and_replay_with_physical_ids(
         rig_view_ids=(6, 4),
         seconds_per_frame=4 / 30,
     )
+    assert geometry.frames_per_view is not None
     controls = torch.randn(
         geometry.num_views * geometry.frames_per_view * geometry.spatial_tokens,
         PATCH_DIM,
     )
     conditions = torch.randn(geometry.num_views * geometry.spatial_tokens, PATCH_DIM)
-    common = dict(
+    common: dict[str, Any] = dict(
         geometry=geometry,
         control_tokens=controls,
         condition_tokens=conditions,

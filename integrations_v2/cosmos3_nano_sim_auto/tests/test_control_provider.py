@@ -12,6 +12,7 @@ Neither raises, and both look like the model having a bad day.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any, cast
 
 import pytest
 import torch
@@ -45,6 +46,7 @@ def track(geometry: ClipGeometry = CLIP) -> torch.Tensor:
     So a misplaced slice is an assertion about numbers rather than a picture
     someone has to look at.
     """
+    assert geometry.frames_per_view is not None
     tokens = torch.zeros(
         geometry.num_views * geometry.frames_per_view * geometry.spatial_tokens, WIDTH
     )
@@ -83,6 +85,7 @@ def test_the_whole_track_comes_back_as_it_went_in() -> None:
     tokens = track()
     provider = EncodedControls(tokens, CLIP)
 
+    assert CLIP.frames_per_view is not None
     assert provider.tokens(0, CLIP.frames_per_view) is tokens
 
 
@@ -90,6 +93,7 @@ def test_consecutive_ranges_rebuild_the_track_they_came_from() -> None:
     """Streaming a chunk at a time has to add up to encoding the clip at once."""
     provider = EncodedControls(track(), CLIP)
 
+    assert CLIP.frames_per_view is not None
     pieces = [
         provider.tokens(start, start + 1) for start in range(CLIP.frames_per_view)
     ]
@@ -274,6 +278,7 @@ def test_a_run_can_carry_on_past_the_clip_it_was_cut_to() -> None:
     provider = rendered()
     provider.tokens(0, 1)
 
+    assert RIG.frames_per_view is not None
     assert provider.tokens(1, RIG.frames_per_view + 8).shape[0] == (
         RIG.num_views * (RIG.frames_per_view + 7) * RIG.spatial_tokens
     )
@@ -451,7 +456,7 @@ class _FakePipe:
 
 def rendered_ahead() -> tuple[RenderedControls, _FakePipe]:
     pipe = _FakePipe()
-    worker = ControlWorker(pipe, device=torch.device("cpu"))  # type: ignore[arg-type]
+    worker = ControlWorker(cast(Any, pipe), device=torch.device("cpu"))
     provider = RenderedControls(
         rig_render,
         [make_fake_encode_stream() for _ in range(RIG.num_views)],
@@ -529,7 +534,7 @@ def _ignores_the_pipe(conn, spec) -> None:  # noqa: ANN001 - a spawn target
 
 
 def _spawned(target) -> ControlWorker:  # noqa: ANN001
-    return ControlWorker.spawn(None, device=torch.device("cpu"), target=target)  # type: ignore[arg-type]
+    return ControlWorker.spawn(None, device=torch.device("cpu"), target=target)  # ty: ignore[invalid-argument-type]  # The custom worker target does not consume a WorkerSpec.
 
 
 def test_a_worker_that_dies_hard_fails_the_take_instead_of_hanging_it() -> None:
@@ -560,6 +565,7 @@ def test_close_stops_the_worker_and_a_restart_gets_a_new_one() -> None:
     assert first.take(0, 1) == ([], 1)
 
     first.close()
+    assert first._process is not None
     assert not first._process.is_alive()
 
     second = _spawned(_echoes)
@@ -572,6 +578,7 @@ def test_close_terminates_a_worker_that_does_not_stop_when_asked() -> None:
 
     worker.close()
 
+    assert worker._process is not None
     assert not worker._process.is_alive()
 
 

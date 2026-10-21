@@ -887,7 +887,7 @@ def _build(
                 )
             state.metrics["control_encode_s"] = 0.0
             controls = RenderedControls(
-                lambda *_a, **_k: None,
+                None,
                 [lambda clip: clip] * geometry.num_views,
                 geometry=geometry,
                 latent_patch_size=spec.vfm.latent_patch_size,

@@ -61,11 +61,13 @@ def test_lidar_cli_downloads_and_selects_matching_hf_codec(
             *(["--checkpoint", source] if source_kind == "cli" else []),
         ]
     )
+    assert isinstance(app._backend, MultiViewRenderBackend)
     assert app._backend._settings.lidar_checkpoint == cached
     assert app._backend._settings.culled_lidar_renderer
     assert app._backend._settings.checkpoint == (
         module.DEFAULT_CHECKPOINT if source_kind == "default" else source
     )
+    assert app._config is not None
     assert app._config.app.presentation.cells == 2
     assert [call["revision"] for call in calls] == [
         "main" if source_kind == "default" else "pinned-qa"
@@ -107,6 +109,7 @@ def test_range_culling_default_and_explicit_override(
     )
     app = CosmosInteractiveDriveApplication(settings=MultiViewSettings())
     app.init(["--scene", str(tmp_path), "--no-ui", *flags])
+    assert isinstance(app._backend, MultiViewRenderBackend)
     assert app._backend._settings.culled_lidar_renderer is expected
     assert not app._backend._settings.lidar_codec_tf32
     assert not app._backend._settings.lidar_contiguous_linears

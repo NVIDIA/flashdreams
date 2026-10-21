@@ -17,6 +17,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 import torch
@@ -442,6 +443,7 @@ def _joint_worker(rank, tp, init_file, output):
         values = []
         while not rollout.is_finished:
             _, rgb = rollout.step()
+            assert rollout.last_lidar is not None
             values.append((rgb.clone(), rollout.last_lidar.clone()))
         torch.save(values, output + str(rank) + ".pt")
     finally:
@@ -540,7 +542,7 @@ def test_sample_rejects_clock_gaps_and_short_controls(tmp_path):
     from cosmos3_nano_sim_auto.impl.lidar import LidarSample
 
     path = tmp_path / "lidar.npz"
-    values = dict(
+    values: dict[str, Any] = dict(
         controls=np.zeros((3, 3, 128, 1800), dtype=np.float32),
         timestamps=np.array([0.0, 0.1, 0.2]),
         ray_directions=np.broadcast_to(
@@ -580,24 +582,28 @@ def test_app_presents_lidar_beside_rgb_and_resets_stream(use_ui, sample_dir):
     app.init(
         ["--device", "cpu", "--views", "2", "--frames", "13", "--sample", sample_dir]
     )
+    assert app._config is not None
     config = replace(app._config, lidar=SimpleNamespace(), ui=use_ui)
     sample = SimpleNamespace(view_size=(8, 8), cameras=("a", "b"))
-    session = Cosmos3NanoSimAutoSession(config, SessionDesc(), sample)
+    session = Cosmos3NanoSimAutoSession(config, SessionDesc(), cast(Any, sample))
     assert session.session_desc.video_width == (1280 if use_ui else 24)
     rollout = make_rollout(conditioned=True, frames=4)
     state = Cosmos3NanoSimAutoModelState(
         config=config,
         session_desc=session.session_desc,
-        sample=sample,
+        sample=cast(Any, sample),
         network=rollout.network,
         rollout=rollout,
         decode=lambda latent: torch.zeros(
             2, 1 if latent.shape[2] == 1 else 12, 3, 8, 8
         ),
-        lidar_stream=SimpleNamespace(
-            ranges=lambda x: x,
-            close=lambda: None,
-            frames=lambda x, **kw: torch.zeros(kw["pixel_count"], 3, 8, 8),
+        lidar_stream=cast(
+            Any,
+            SimpleNamespace(
+                ranges=lambda x: x,
+                close=lambda: None,
+                frames=lambda x, **kw: torch.zeros(kw["pixel_count"], 3, 8, 8),
+            ),
         ),
     )
     loop = Cosmos3NanoSimAutoModelLoop()
@@ -618,6 +624,7 @@ def test_app_presents_lidar_beside_rgb_and_resets_stream(use_ui, sample_dir):
         assert len(frames) == (3 if use_ui else 1)
         assert frames[0].shape == (expected, 3, 8, 8 if use_ui else 24)
         assert ((frames[-1] if use_ui else frames[0][:, :, :, -8:]) == -1).all()
+        assert metrics is not None
         assert metrics["lidar_enabled"] == 1
         assert metrics["lidar_decode_s"] >= 0 and metrics["lidar_render_s"] >= 0
     loop.reset()
@@ -667,6 +674,8 @@ def test_app_prepares_lidar_assets_during_init(monkeypatch, explicit):
             *(["--lidar-checkpoint", "tokenizer.pt"] if explicit else []),
         ]
     )
+    assert app._config is not None
+    assert app._config.lidar is not None
     assert app._config.lidar.tokenizer is tokenizer
     assert app._config.lidar.sample is prepared_sample
     assert app._config.lidar.checkpoint == ("tokenizer.pt" if explicit else str(cached))
@@ -754,7 +763,7 @@ def test_lidar_ui_queues_view_change_without_resetting_rollout():
     state = SimpleNamespace(lidar_view=LidarView.POINT_CLOUD, rollout=rollout)
     model = Cosmos3NanoSimAutoModelLoop()
     model.register_session_loop_objects(
-        state=state,
+        state=cast(Any, state),
         frequency=0,
         shutdown_event=threading.Event(),
         failure_queue=queue.Queue(),
@@ -817,9 +826,12 @@ def test_lidar_session_registers_selector_only_when_enabled(
         ]
     )
     rollout = make_rollout()
+    assert app._config is not None
     config = replace(
         app._config,
-        lidar=LidarAssets(rollout.tokenizer, object()) if use_lidar else None,
+        lidar=LidarAssets(rollout.tokenizer, cast(Any, object()))
+        if use_lidar
+        else None,
         ui=use_ui,
         device="cuda",
     )
@@ -835,9 +847,11 @@ def test_lidar_session_registers_selector_only_when_enabled(
         MultiviewSample.load(TEST_SAMPLE).trimmed_to(2),
     )
     session.init()
+    assert session._registered_model_loop is not None
     assert session._registered_model_loop.state.lidar_view is LidarView.RANGE
     assert isinstance(session._registered_ui_loop, CosmosMultiviewUILoop) == use_ui
     if use_ui:
+        assert session._registered_ui_loop is not None
         assert len(session._registered_ui_loop.state.auxiliary_views) == int(use_lidar)
         assert session.session_desc.video_width == SessionDesc().video_width
 
@@ -946,9 +960,12 @@ def test_session_selects_lidar_patches_before_streaming(
     )
     prepared = LidarTokenizer(object(), LidarGeometry(height=8, width=113))
     # A recorded sample with nothing to pre-encode: the stream is built, no controls are read.
+    assert app._config is not None
     config = replace(
-        app._config, lidar=LidarAssets(prepared, SimpleNamespace(controls=()))
+        app._config,
+        lidar=LidarAssets(prepared, cast(Any, SimpleNamespace(controls=()))),
     )
+    assert app._sample is not None
     session = application.Cosmos3NanoSimAutoSession(config, SessionDesc(), app._sample)
     states = []
     monkeypatch.setattr(
@@ -1031,7 +1048,7 @@ def test_lidar_stream_serves_preencoded_tokens_once(monkeypatch):
         controls=torch.arange(6.0).reshape(6, 1, 1, 1), condition=None
     )
     stream = LidarStream.__new__(LidarStream)
-    stream.assets = LidarAssets(tokenizer, sample)
+    stream.assets = LidarAssets(cast(Any, tokenizer), cast(Any, sample))
     stream.encoder = lambda clip: calls.append(clip.shape[2]) or clip
     stream.next_sweep, stream._ready = 0, {}
     monkeypatch.setattr("cosmos3_nano_sim_auto.impl.lidar.CHUNKS_AHEAD", 1)
@@ -1083,7 +1100,7 @@ def test_lidar_decode_worker_round_trips_one_chunk_and_reports_failures():
             return self.replies.pop(0)
 
     pipe = Pipe()
-    worker = LidarDecodeWorker(pipe, device=torch.device("cpu"))  # type: ignore[arg-type]
+    worker = LidarDecodeWorker(cast(Any, pipe), device=torch.device("cpu"))
     stream = LidarStream.__new__(LidarStream)
     stream._worker = worker
     stream.decoder = lambda z: pytest.fail("the worker decodes, not this process")
@@ -1120,9 +1137,9 @@ def test_lidar_decode_worker_flag_parses_and_assets_carry_the_checkpoint():
     assert args.lidar_decode_worker
     with pytest.raises(ValueError, match="needs --lidar-sample"):
         _parse(["--sample", "s", "--lidar-decode-worker"])
-    assert LidarAssets(object(), object()).checkpoint is None
+    assert LidarAssets(cast(Any, object()), cast(Any, object())).checkpoint is None
     stream = LidarAssets(
-        object(), SimpleNamespace(controls=()), checkpoint=None
+        cast(Any, object()), cast(Any, SimpleNamespace(controls=())), checkpoint=None
     ).stream()
     with pytest.raises(ValueError, match="checkpoint"):
         stream.decode_in_worker(worker_device=0, device=torch.device("cpu"))

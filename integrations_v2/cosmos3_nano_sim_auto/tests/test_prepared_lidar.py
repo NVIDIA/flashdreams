@@ -10,6 +10,7 @@ The geometry/projection operations are covered by ``test_lidar_geometry.py`` and
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -136,7 +137,11 @@ def test_live_stream_rejects_before_cached_renderer_codec_or_collectives(
     monkeypatch.setattr(lidar, "lidar_ranks", forbidden)
     with pytest.raises(NotImplementedError, match=UNAVAILABLE):
         lidar.make_live_lidar(
-            scene, checkpoint="unused", patch_dim=128, device="cpu", parallel=parallel
+            scene,
+            checkpoint="unused",
+            patch_dim=128,
+            device="cpu",
+            parallel=cast(Any, parallel),
         )
 
 

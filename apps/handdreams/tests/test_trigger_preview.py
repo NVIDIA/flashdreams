@@ -58,6 +58,8 @@ def test_room_heading_and_origin_do_not_turn_the_trigger_preview(yaw):
     for actual, expected in zip(
         trigger_preview(turned), trigger_preview(event), strict=True
     ):
+        assert actual is not None
+        assert expected is not None
         np.testing.assert_allclose(actual.position, expected.position, atol=1e-6)
         np.testing.assert_allclose(actual.rotation, expected.rotation, atol=1e-6)
 
@@ -76,6 +78,7 @@ def test_shared_pointing_direction_faces_forward_without_mutating_input(degrees)
     )
     before = turned.to_controller_frame()
     for claw in trigger_preview(turned):
+        assert claw is not None
         np.testing.assert_allclose(
             np.reshape(claw.rotation, (3, 3))[:, 2], (0, 0, 1), atol=1e-6
         )
@@ -86,10 +89,15 @@ def test_relative_translation_pitch_and_roll_remain_visible():
     event = _event()
     neutral = trigger_preview(event)
     moved = replace(event, left=replace(event.left, position=(-0.3, 1.1, -0.5)))
-    assert trigger_preview(moved)[0].position != neutral[0].position
+    assert neutral[0] is not None
+    moved_claw = trigger_preview(moved)[0]
+    assert moved_claw is not None
+    assert moved_claw.position != neutral[0].position
     for orientation in ((0.3, 0, 0, 0.95), (0, 0, 0.3, 0.95)):
         turned = replace(event, left=replace(event.left, orientation=orientation))
-        assert not np.allclose(trigger_preview(turned)[0].rotation, neutral[0].rotation)
+        turned_claw = trigger_preview(turned)[0]
+        assert turned_claw is not None
+        assert not np.allclose(turned_claw.rotation, neutral[0].rotation)
 
 
 @pytest.mark.parametrize(
@@ -108,6 +116,7 @@ def test_opposing_vertical_and_antipodal_poses_have_a_finite_display(left, right
         right=replace(event.right, orientation=right),
     )
     for claw in trigger_preview(event):
+        assert claw is not None
         rotation = np.reshape(claw.rotation, (3, 3))
         assert np.isfinite(claw.position).all()
         np.testing.assert_allclose(rotation @ rotation.T, np.eye(3), atol=1e-6)
@@ -125,6 +134,7 @@ def test_tracking_loss_and_coincident_hands_do_not_use_invalid_poses():
     )
     left, right = trigger_preview(missing)
     assert right is None
+    assert left is not None
     np.testing.assert_allclose(left.position, (-0.18, 0, 0))
     missing = replace(missing, left=replace(missing.left, tracked=False))
     assert trigger_preview(missing) == (None, None)

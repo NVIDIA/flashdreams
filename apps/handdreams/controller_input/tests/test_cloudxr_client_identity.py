@@ -101,8 +101,8 @@ def test_missing_or_malformed_metrics_do_not_identify_an_emulator(metrics):
 def _install_sdk(monkeypatch, factory):
     sdk, cloudxr = ModuleType("isaacteleop"), ModuleType("isaacteleop.cloudxr")
     wss = SimpleNamespace(_make_http_handler=factory)
-    cloudxr.wss = wss
-    sdk.cloudxr = cloudxr
+    setattr(cloudxr, "wss", wss)
+    setattr(sdk, "cloudxr", cloudxr)
     monkeypatch.setitem(sys.modules, "isaacteleop", sdk)
     monkeypatch.setitem(sys.modules, "isaacteleop.cloudxr", cloudxr)
     return wss
@@ -356,6 +356,7 @@ def test_lifecycle_mutation_invalidates_identity_before_the_hub_await(
             }[mutation]
             assert tracker.sample() == expected
         with suppress(asyncio.CancelledError):
+            assert tracker._task is not None
             await tracker._task
 
     asyncio.run(run())
@@ -388,6 +389,7 @@ def test_an_old_snapshot_cannot_restore_iwer_during_a_physical_handoff(monkeypat
             await handoff
             assert tracker.sample() == ("browser-1:123", False)
         with suppress(asyncio.CancelledError):
+            assert tracker._task is not None
             await tracker._task
 
     asyncio.run(run())
@@ -423,6 +425,7 @@ def test_same_connection_updates_do_not_interrupt_emulated_setup(
             await pending
             assert tracker.sample() == ("browser-1:123", True)
         with suppress(asyncio.CancelledError):
+            assert tracker._task is not None
             await tracker._task
 
     asyncio.run(run())
@@ -456,6 +459,7 @@ def test_idle_peer_registration_and_disconnect_preserve_active_identity(monkeypa
             await disconnection
             assert tracker.sample() == ("browser-1:123", True)
         with suppress(asyncio.CancelledError):
+            assert tracker._task is not None
             await tracker._task
 
     asyncio.run(run())
@@ -479,7 +483,7 @@ def test_confirmed_handoff_during_poll_failure_does_not_inherit_iwer(
                 failed.set()
                 raise RuntimeError("temporary polling outage")
 
-            hub.get_snapshot = unavailable
+            setattr(hub, "get_snapshot", unavailable)
             await asyncio.wait_for(failed.wait(), 1)
             assert tracker.sample() == ("browser-1:123", True)
             if boundary == "disconnect":
@@ -496,11 +500,13 @@ def test_confirmed_handoff_during_poll_failure_does_not_inherit_iwer(
                 physical_ws, "streamStatus", {"streaming": True}
             )
             assert tracker.sample() == (None, False)
-            hub.get_snapshot = get_snapshot
+            setattr(hub, "get_snapshot", get_snapshot)
             await tracker._refresh(hub)
             assert tracker.sample() == ("physical:124", False)
+            assert tracker._task is not None
             assert not tracker._task.done()
         with suppress(asyncio.CancelledError):
+            assert tracker._task is not None
             await tracker._task
 
     asyncio.run(run())
@@ -552,6 +558,7 @@ def test_disconnection_clears_iwer_before_waiting_for_a_new_snapshot(monkeypatch
             await pending
             assert tracker.sample() == (None, False)
         with suppress(asyncio.CancelledError):
+            assert tracker._task is not None
             await tracker._task
         assert hub.handle_connection == original
 

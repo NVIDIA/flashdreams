@@ -10,6 +10,7 @@ attention visibility.
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 import pytest
 import torch
@@ -372,6 +373,7 @@ def test_asking_one_range_at_a_time_walks_the_same_partition(
 
 def test_there_is_no_chunk_past_the_end_of_the_clip() -> None:
     """How a rollout of known length learns it is done, without holding a list."""
+    assert BRING_UP.frames_per_view is not None
     assert ar_chunk_range(BRING_UP, BRING_UP.frames_per_view) is None
     assert ar_chunk_range(BRING_UP, BRING_UP.frames_per_view - 1) is not None
 
@@ -440,6 +442,7 @@ def test_a_slot_each_is_enough_for_every_chunk_a_clip_commits(condition, chunk) 
     plan = ar_chunk_plan(geometry)
     committed = [(s, e) for s, e in ar_chunk_ranges(geometry) if e < 50]
 
+    assert plan.committed_frames is not None
     slots = -(-plan.committed_frames // chunk)
 
     assert slots >= len(committed)
@@ -489,7 +492,7 @@ def test_a_clean_query_reads_its_own_step_and_a_current_one_does_not() -> None:
     # The asymmetry the replay exists for. Frame 1 is in memory as clean history
     # at the same causal step the chunk generating frame 1 would occupy.
     memory = build_memory_layout(CLIP, history_frame_ranges=[(1, 2)])
-    same_step = {"chunk_start": 1, "chunk_frames": 1, "text_tokens": 1}
+    same_step: dict[str, Any] = {"chunk_start": 1, "chunk_frames": 1, "text_tokens": 1}
     noisy = build_chunk_metadata(CLIP, memory, **same_step)
     clean = build_chunk_metadata(CLIP, memory, **same_step, pass_kind="clean")
 

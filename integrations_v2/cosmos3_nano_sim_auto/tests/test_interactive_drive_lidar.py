@@ -4,6 +4,7 @@
 """Live LiDAR path ownership, scan timing and rig calibration checks."""
 
 from types import SimpleNamespace
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -137,11 +138,13 @@ def _split_worker(rank, init_file, output):
             stream.assets,
             sensor_to_rig=np.eye(4),
             render_sweep=stream._render_sweep,
-            parallel=ctx,  # type: ignore[arg-type]
+            parallel=cast(Any, ctx),
             renderers=[1, 2],
         )
         encoded = []
-        stream.encoder = lambda metric: encoded.append(metric.shape[2]) or metric  # type: ignore[assignment]
+        setattr(
+            stream, "encoder", lambda metric: encoded.append(metric.shape[2]) or metric
+        )
         results = []
         stream.supply(_path(0, 1))
         stream.prefetch(0, 1)
@@ -218,7 +221,7 @@ def _mesh_worker(rank, world, init_file, output):
                 or [torch.empty(0, 2, 2, 4, dtype=torch.uint8)]
             ),
         )
-        drawn = backend._DrawnRig(ludus, parallel=ctx)  # type: ignore[arg-type]
+        drawn = backend._DrawnRig(ludus, parallel=cast(Any, ctx))
         worker = SimpleNamespace(
             request=lambda *args, **kwargs: None,
             take=lambda start, end: ([], span),
@@ -228,7 +231,7 @@ def _mesh_worker(rank, world, init_file, output):
         )
         driven = backend._DrivenWorker(
             worker,
-            poses=SimpleNamespace(supplied=10**6, poses=lambda a, b: None),  # type: ignore[arg-type]
+            poses=cast(Any, SimpleNamespace(supplied=10**6, poses=lambda a, b: None)),
             drawn=drawn,
             owned=owned,
         )
@@ -241,12 +244,12 @@ def _mesh_worker(rank, world, init_file, output):
                 stream.assets,
                 sensor_to_rig=np.eye(4),
                 render_sweep=stream._render_sweep,
-                parallel=ctx,  # type: ignore[arg-type]
-                renderers=lidar_ranks(ctx, cameras),  # type: ignore[arg-type]
+                parallel=cast(Any, ctx),
+                renderers=lidar_ranks(cast(Any, ctx), cameras),
             )
-            stream.encoder = lambda metric: metric  # type: ignore[assignment]
+            setattr(stream, "encoder", lambda metric: metric)
             decodes = []
-            stream.decoder = lambda z: decodes.append(z.shape[2]) or z * 3  # type: ignore[assignment]
+            setattr(stream, "decoder", lambda z: decodes.append(z.shape[2]) or z * 3)
             for (first, last), sweeps in (((0, 1), (0, 1)), ((1, 13), (1, 5))):
                 stream.supply(_path(first, last))
                 stream.prefetch(*sweeps)
@@ -259,7 +262,9 @@ def _mesh_worker(rank, world, init_file, output):
                 )
                 pending = stream.start_decode(generated)
                 views = decoded_views(
-                    latent, (lambda x: x * 2) if owned else None, parallel=ctx
+                    latent,
+                    (lambda x: x * 2) if owned else None,
+                    parallel=cast(Any, ctx),
                 )
                 assert (pending is not None) == (rank == 0)
                 if pending is not None:

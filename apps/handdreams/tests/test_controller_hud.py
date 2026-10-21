@@ -17,6 +17,7 @@
 
 from dataclasses import FrozenInstanceError, replace
 from types import SimpleNamespace
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -95,7 +96,7 @@ def claw_lines(monkeypatch):
             line=lambda xy, **kw: lines.append(np.asarray(xy).reshape(2, 2)),
             ellipse=lambda *args, **kw: None,
         )
-        original(recorder, *args, **kwargs)
+        original(cast(Any, recorder), *args, **kwargs)
         captured.append(np.asarray(lines))
 
     monkeypatch.setattr(ui, "_draw_claw", draw_claw)
@@ -336,6 +337,7 @@ def test_preview_matches_calibrator_with_off_axis_basis_gain_and_scene_rotation(
     reference = _calibration(neutral, targets=targets, basis=basis, gain=1.2)
     preview = ControllerPreview(reference)
     for claw, target in zip(preview.observe(neutral), targets.values(), strict=True):
+        assert claw is not None
         np.testing.assert_allclose(claw.position, target[:3, 3], atol=1e-6)
         np.testing.assert_allclose(
             np.asarray(claw.rotation).reshape(3, 3), target[:3, :3], atol=1e-6
@@ -353,6 +355,7 @@ def test_preview_matches_calibrator_with_off_axis_basis_gain_and_scene_rotation(
     )
     expected = calibrator.transform(moved.to_controller_frame())
     for side, claw in zip(("left", "right"), preview.observe(moved), strict=True):
+        assert claw is not None
         np.testing.assert_allclose(
             claw.position,
             targets[side][:3, 3]
@@ -393,7 +396,7 @@ def test_preview_snapshot_detaches_source_data_and_never_changes_input():
     assert ControllerPreview(reference).observe(event) == expected
     assert event.left.position == (-0.18, 1.0, -0.45)
     with pytest.raises(FrozenInstanceError):
-        reference.position_gain = 2
+        reference.position_gain = 2  # ty: ignore[invalid-assignment]  # Verify the read-only property.
 
 
 @pytest.mark.parametrize("dtype", [torch.uint8, torch.float32])

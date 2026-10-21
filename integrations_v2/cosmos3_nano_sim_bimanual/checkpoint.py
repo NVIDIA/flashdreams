@@ -94,6 +94,7 @@ def _shard_files(exported_dir: Path) -> list[str]:
     weight_map = index.get("weight_map") if isinstance(index, dict) else None
     if not isinstance(weight_map, dict) or not weight_map:
         raise ValueError(f"Invalid or empty weight_map in {indexes[0]}")
+    shards: set[str] = set()
     for key, shard in weight_map.items():
         if (
             not isinstance(key, str)
@@ -107,7 +108,8 @@ def _shard_files(exported_dir: Path) -> list[str]:
             raise ValueError(
                 f"Checkpoint shard must be a relative path without '..': {shard!r}"
             )
-    return sorted(set(weight_map.values()))
+        shards.add(shard)
+    return sorted(shards)
 
 
 def _load_raw_state_dict(

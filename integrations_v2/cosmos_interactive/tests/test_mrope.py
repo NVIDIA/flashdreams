@@ -46,16 +46,18 @@ def test_mrope_cos_sin_matches_hf_qwen3_vl() -> None:
     mrope_section = (4, 2, 2)  # sums to head_dim/2 = 8
     theta = 1_000_000.0
 
-    cfg = Qwen3VLTextConfig(
-        hidden_size=64,
-        num_attention_heads=4,
-        num_key_value_heads=2,
-        head_dim=head_dim,
-        num_hidden_layers=1,
-        intermediate_size=128,
-        rope_theta=theta,
-        rope_scaling={"rope_type": "default", "mrope_section": list(mrope_section)},
-        max_position_embeddings=128,
+    cfg = Qwen3VLTextConfig.from_dict(
+        dict(
+            hidden_size=64,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            head_dim=head_dim,
+            num_hidden_layers=1,
+            intermediate_size=128,
+            rope_theta=theta,
+            rope_scaling={"rope_type": "default", "mrope_section": list(mrope_section)},
+            max_position_embeddings=128,
+        )
     )
     hf_rotary = Qwen3VLTextRotaryEmbedding(cfg)
 

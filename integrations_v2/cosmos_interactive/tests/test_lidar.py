@@ -93,7 +93,7 @@ def test_codec_version_preserves_semantic_rays_across_streaming_boundary(
     with pytest.raises(ValueError, match="model canvas"):
         tokenizer.to_semantic_canvas(canvas[..., :-1])
     with pytest.raises(ValueError, match="version"):
-        lidar.LidarTokenizer.from_checkpoint("anything.pt", version="guessed")
+        lidar.LidarTokenizer.from_checkpoint("anything.pt", version="guessed")  # ty: ignore[invalid-argument-type]  # Exercise invalid-version validation.
 
 
 @pytest.mark.parametrize("patch_dim", [-128, 0, 127, 129, 256, 513])

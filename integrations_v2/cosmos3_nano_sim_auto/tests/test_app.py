@@ -1136,7 +1136,7 @@ def test_a_worker_rank_does_not_build_an_unused_decoder(
             ),
         )
     network = build_network()
-    network.rig_view_embed = torch.nn.Identity()
+    setattr(network, "rig_view_embed", torch.nn.Identity())
     state = Cosmos3NanoSimAutoModelState(
         config=replace(config, device="cpu", parallel=_worker_context()),
         session_desc=SessionDesc(),

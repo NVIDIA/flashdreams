@@ -11,6 +11,7 @@ import threading
 import weakref
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 import torch
@@ -94,7 +95,8 @@ def test_application_rejects_empty_catalog_before_starting() -> None:
 @pytest.mark.parametrize("field", ["scene_path", "sample_dir"])
 def test_scenario_rejects_missing_local_assets(tmp_path: Path, field: str) -> None:
     with pytest.raises(FileNotFoundError, match="does not exist"):
-        HanddreamsScenario(**{field: tmp_path / "missing"})
+        options: dict[str, Any] = {field: tmp_path / "missing"}
+        HanddreamsScenario(**options)
 
 
 def test_scenario_rejects_wrong_local_asset_types(tmp_path: Path) -> None:

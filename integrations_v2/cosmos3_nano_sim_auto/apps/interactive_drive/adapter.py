@@ -42,7 +42,6 @@ from cosmos3_nano_sim_auto.impl.conditioning.camera_rig import CAMERAS
 from cosmos3_nano_sim_auto.impl.distributed.parallel import init_parallel
 from cosmos3_nano_sim_auto.inputs import VIEW_SIZES
 from cosmos3_nano_sim_auto.scenes import SCENE_NAMES, prepare_scene
-from flashdreams.api_v2.application import IApplication
 from flashdreams.core.visualization.lidar import LidarView
 from flashdreams.infra.postprocess import VideoSpec
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -372,7 +371,7 @@ class CosmosInteractiveDriveApplication(InteractiveDriveApplication):
         return session
 
 
-def create_app() -> IApplication:
+def create_app() -> CosmosInteractiveDriveApplication:
     """Create Interactive Drive driving the multiview checkpoint.
 
     The mesh is built here rather than in the backend because the app needs it

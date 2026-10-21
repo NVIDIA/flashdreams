@@ -43,6 +43,8 @@ pytestmark = pytest.mark.ci_cpu
 
 
 class _Source:
+    name = "cpu-test"
+
     def __init__(self):
         self.sequence = 0
         self.stopped = False

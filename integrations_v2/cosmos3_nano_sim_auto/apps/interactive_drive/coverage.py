@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 if TYPE_CHECKING:
     from ludus_renderer import TimestampedScene
@@ -54,7 +55,7 @@ class MapCoverage:
         """Return recovery guidance after sustained loss of map coverage."""
         return OUTSIDE_MAP_WARNING if self._outside_blocks >= 2 else None
 
-    def update(self, xy: np.ndarray) -> str | None:
+    def update(self, xy: ArrayLike) -> str | None:
         """Check the last presented conditioning pose and advance the warning."""
         if not len(self._segments):
             # An empty map cannot establish where its coverage should be.
@@ -65,7 +66,7 @@ class MapCoverage:
             self._outside_blocks = min(2, self._outside_blocks + 1)
         return self.warning
 
-    def contains(self, xy: np.ndarray, *, margin: float = 30.0) -> bool:
+    def contains(self, xy: ArrayLike, *, margin: float = 30.0) -> bool:
         """Check nearby primitives, preserving gaps between mapped regions."""
         xy = np.asarray(xy, dtype=np.float64)
         nearby = (

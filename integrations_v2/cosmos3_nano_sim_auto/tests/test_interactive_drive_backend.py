@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -678,6 +678,7 @@ def test_the_batch_commands_pipelining_flags_reach_the_drives_settings(
         + ["--compile-denoise", "max-autotune", "--compile-control-encode"]
         + ["--prefetch-controls", "--prefetch-controls-gpu-offset", "2"]
     )
+    assert isinstance(app._backend, MultiViewRenderBackend)
     settings = app._backend._settings
 
     assert settings.parallel_decode and settings.decoder_compile
@@ -766,13 +767,13 @@ def _driven(*, delay: int) -> tuple[Any, Any, _DrawnRig, _DrivenPipe]:
     drawn = _DrawnRig(None, cameras=1)
     pipe = _DrivenPipe()
     worker = backend_module._DrivenWorker(
-        ControlWorker(pipe, device=torch.device("cpu")),  # type: ignore[arg-type]
+        ControlWorker(cast(Any, pipe), device=torch.device("cpu")),
         poses=poses,
         drawn=drawn,
         owned=[0],
     )
     controls = RenderedControls(
-        lambda *_a, **_k: None,
+        None,
         [lambda clip: clip],
         geometry=_geometry(1, frames_per_chunk=3),
         latent_patch_size=2,
@@ -802,15 +803,20 @@ def test_prefetch_draws_the_next_chunk_a_chunk_late_along_the_hosts_own_path() -
     supplied, generated = 0, 1
     in_flight = []
     for _ in range(5):  # what ChunkRollout.step does, a chunk at a time
-        start, end = ar_chunk_range(geometry, generated)
+        current = ar_chunk_range(geometry, generated)
+        assert current is not None
+        start, end = current
         pixels = 13 if start == 1 else 12
         poses.supply(_host(range(supplied, supplied + pixels)))
         supplied += pixels
         while ready < end:
             following = ar_chunk_range(geometry, ready)
+            assert following is not None
             controls.tokens(*following)
             ready = following[1]
-        controls.prefetch(*ar_chunk_range(geometry, ready))
+        following = ar_chunk_range(geometry, ready)
+        assert following is not None
+        controls.prefetch(*following)
         in_flight.append(pipe.sent[-1])
         generated = end
 

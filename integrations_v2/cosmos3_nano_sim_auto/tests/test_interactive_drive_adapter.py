@@ -16,6 +16,7 @@ from cosmos3_nano_sim_auto.apps.interactive_drive.adapter import (
     create_app,
     defaults,
 )
+from cosmos3_nano_sim_auto.apps.interactive_drive.backend import MultiViewRenderBackend
 from cosmos3_nano_sim_auto.apps.interactive_drive.scene import load_scene_bundle
 from cosmos3_nano_sim_auto.impl.conditioning.camera_rig import CAMERAS, view_ids
 from interactive_drive import InteractiveDriveApplication
@@ -150,9 +151,11 @@ def test_view_presets_preserve_camera_identity_with_optional_lidar(
             *(["--lidar"] if lidar else []),
         ]
     )
+    assert app._config is not None
     config = app._config.app
     assert view_ids(config.camera_names) == ids
     assert config.presentation.cells >= views + int(lidar)
+    assert isinstance(app._backend, MultiViewRenderBackend)
     assert app._backend._settings.lidar_checkpoint == (codec if lidar else None)
     assert app._backend._settings.lidar_view == LidarView.POINT_CLOUD
 
@@ -174,12 +177,15 @@ def test_short_launch_matches_explicit_launch_defaults(tmp_path):
             "off",
         ]
     )
+    assert short._config is not None and explicit._config is not None
     assert (
         short._config.app.camera_names
         == explicit._config.app.camera_names
         == (CAMERAS[0],)
     )
     assert short._config.app.start_frame == explicit._config.app.start_frame == 0
+    assert isinstance(short._backend, MultiViewRenderBackend)
+    assert isinstance(explicit._backend, MultiViewRenderBackend)
     assert short._backend._settings == explicit._backend._settings
     assert short._backend._settings.seed == 0
     assert short._backend._settings.compile_denoise is None
@@ -211,6 +217,7 @@ def test_camera_selection_preserves_other_explicit_options(tmp_path, selection):
             "default",
         ]
     )
+    assert app._config is not None
     assert app._config.app.camera_names == (
         tuple(CAMERAS[index] for index in (0, 1, 3, 5))
         if selection.startswith("--views")
@@ -219,6 +226,7 @@ def test_camera_selection_preserves_other_explicit_options(tmp_path, selection):
     assert app._config.view_mode == "hdmap"
     assert app._config.no_ui
     assert app._config.app.start_frame == 4
+    assert isinstance(app._backend, MultiViewRenderBackend)
     assert app._backend._settings.seed == 37
     assert app._backend._settings.compile_denoise == "default"
 

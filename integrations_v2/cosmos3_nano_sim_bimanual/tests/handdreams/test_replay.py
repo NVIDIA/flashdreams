@@ -276,6 +276,7 @@ def test_replay_passes_exact_chunks_and_restarts_from_a_fresh_cache(
         for index in range(2):
             (result,) = loop.step(index, UserInputEvents([]))
             actual_index, cache, actions = pipeline.generated[-1]
+            assert isinstance(actions, torch.Tensor)
             assert actual_index == index
             assert cache is first_cache
             torch.testing.assert_close(
@@ -561,7 +562,7 @@ def test_fractional_scene_fps_rejects_replay_and_closes_the_pipeline(
     assert pipeline.close_count == 1
     assert not pipeline.prepared
     with pytest.raises(RuntimeError):
-        app.create_session(app.session_desc())
+        app.create_session(app.session_desc())  # ty: ignore[invalid-argument-type]  # Closed apps have no session description.
 
 
 @pytest.mark.parametrize("failure", ["actions", "config"])
@@ -598,7 +599,7 @@ def test_scene_preparation_failure_closes_the_loaded_pipeline_once(
     app.close()
     assert pipeline.close_count == 1
     with pytest.raises(RuntimeError):
-        app.create_session(app.session_desc())
+        app.create_session(app.session_desc())  # ty: ignore[invalid-argument-type]  # Closed apps have no session description.
 
 
 def test_generation_failure_preserves_action_cursor_and_allows_cleanup(

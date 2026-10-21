@@ -134,9 +134,11 @@ def _state(
                 sample_dir,
             ]
         )
+    assert application._config is not None
     config = replace(application._config, device="cpu", parallel=ctx)
 
     generator = torch.Generator().manual_seed(SEED + 2)
+    assert GEOMETRY.frames_per_view is not None
     tokens = GEOMETRY.num_views * GEOMETRY.frames_per_view * GEOMETRY.spatial_tokens
     rollout = ChunkRollout(
         network,

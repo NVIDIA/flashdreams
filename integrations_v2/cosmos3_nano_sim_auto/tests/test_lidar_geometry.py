@@ -365,7 +365,7 @@ def test_B01_B02_budget_semantics():
     budget = geometry.PointBudget(3)
     for bad in (4, -1, 1.5, True, "2"):
         with pytest.raises(ValueError):
-            budget.reserve(bad)
+            budget.reserve(bad)  # ty: ignore[invalid-argument-type]  # Exercise invalid-input validation.
         assert budget.remaining == 3
 
 

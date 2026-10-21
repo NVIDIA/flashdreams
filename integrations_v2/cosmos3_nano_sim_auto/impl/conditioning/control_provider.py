@@ -95,6 +95,8 @@ class EncodedControls:
         Raises:
             ValueError: the token count disagrees with the geometry.
         """
+        if geometry.frames_per_view is None:
+            raise ValueError("Encoded controls require a finite clip")
         expected = (
             geometry.num_views * geometry.frames_per_view * geometry.spatial_tokens
         )
@@ -106,6 +108,7 @@ class EncodedControls:
             )
         self._tokens = tokens
         self._geometry = geometry
+        self._frames = geometry.frames_per_view
 
     def tokens(self, start: int, end: int) -> Tensor:
         """The patches for frames ``[start, end)``, still view-outer.
@@ -114,14 +117,14 @@ class EncodedControls:
         off the front, since the whole track for view 0 comes before view 1.
         """
         geometry = self._geometry
-        if not 0 <= start < end <= geometry.frames_per_view:
+        if not 0 <= start < end <= self._frames:
             raise ValueError(
                 f"Control frames [{start}, {end}) run outside the clip's "
                 f"{geometry.frames_per_view}."
             )
         if (start, end) == (0, geometry.frames_per_view):
             return self._tokens
-        per_view = geometry.frames_per_view, geometry.spatial_tokens
+        per_view = self._frames, geometry.spatial_tokens
         return (
             self._tokens.reshape(geometry.num_views, *per_view, -1)[:, start:end]
             .reshape(-1, self._tokens.shape[-1])
@@ -172,7 +175,7 @@ class RenderedControls:
 
     def __init__(
         self,
-        render: RigRenderFn,
+        render: RigRenderFn | None,
         encode_streams: Sequence[Callable[[Tensor], Tensor]],
         *,
         geometry: ClipGeometry,
@@ -213,6 +216,8 @@ class RenderedControls:
                 f"expected one encode stream per camera, got "
                 f"{len(encode_streams)} for {geometry.num_views} view(s)."
             )
+        if render is None and worker is None:
+            raise ValueError("Rendered controls require a renderer or worker")
         self._render = render
         self._streams = list(encode_streams)
         self._geometry = geometry
@@ -243,6 +248,7 @@ class RenderedControls:
             encoded, pixel_frames = self._worker.take(start, end)
             latents = self._gathered(encoded, pixel_frames=pixel_frames)
         else:
+            assert self._render is not None
             frames = (
                 self._render(first, last)
                 if self._parallel is None

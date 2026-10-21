@@ -12,7 +12,9 @@ strict loading. The consuming integration owns autoregressive rollout.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import cast
 
 import torch
 import torch.nn as nn
@@ -27,6 +29,10 @@ from cosmos_interactive._attention import (
 from cosmos_interactive._rope import mrope_cos_sin
 from cosmos_interactive._spec import SPEC, Cosmos3InteractiveSpec, LLMSpec
 from flashdreams.core.attention import BlockKVCache
+from flashdreams.core.distributed.tensor_parallel import (
+    ColumnParallelLinear,
+    RowParallelLinear,
+)
 from flashdreams.infra.config import InstantiateConfig
 
 
@@ -98,16 +104,16 @@ class _Attention(nn.Module):
         self.num_kv_groups = llm.num_attention_heads // llm.num_key_value_heads
         q_dim = llm.num_attention_heads * llm.head_dim
         kv_dim = llm.num_key_value_heads * llm.head_dim
-        self.q_proj = nn.Linear(
+        self.q_proj: nn.Linear | ColumnParallelLinear = nn.Linear(
             llm.hidden_size, q_dim, bias=llm.attention_bias, dtype=dtype
         )
-        self.k_proj = nn.Linear(
+        self.k_proj: nn.Linear | ColumnParallelLinear = nn.Linear(
             llm.hidden_size, kv_dim, bias=llm.attention_bias, dtype=dtype
         )
-        self.v_proj = nn.Linear(
+        self.v_proj: nn.Linear | ColumnParallelLinear = nn.Linear(
             llm.hidden_size, kv_dim, bias=llm.attention_bias, dtype=dtype
         )
-        self.o_proj = nn.Linear(
+        self.o_proj: nn.Linear | RowParallelLinear = nn.Linear(
             q_dim, llm.hidden_size, bias=llm.attention_bias, dtype=dtype
         )
         self.q_norm = RMSNorm(llm.head_dim, eps=llm.rms_norm_eps, dtype=dtype)
@@ -134,13 +140,13 @@ class _SwiGLUMLP(nn.Module):
 
     def __init__(self, llm: LLMSpec, dtype: torch.dtype) -> None:
         super().__init__()
-        self.gate_proj = nn.Linear(
+        self.gate_proj: nn.Linear | ColumnParallelLinear = nn.Linear(
             llm.hidden_size, llm.intermediate_size, bias=False, dtype=dtype
         )
-        self.up_proj = nn.Linear(
+        self.up_proj: nn.Linear | ColumnParallelLinear = nn.Linear(
             llm.hidden_size, llm.intermediate_size, bias=False, dtype=dtype
         )
-        self.down_proj = nn.Linear(
+        self.down_proj: nn.Linear | RowParallelLinear = nn.Linear(
             llm.intermediate_size, llm.hidden_size, bias=False, dtype=dtype
         )
 
@@ -438,6 +444,7 @@ class _MoTLayer(nn.Module):
         )  # incl. current chunk at tail
         if text_k is not None:
             k_all = torch.cat([text_k, gk], dim=2)
+            assert text_v is not None
             v_all = torch.cat([text_v, gv], dim=2)
         else:
             k_all, v_all = gk, gv
@@ -618,7 +625,9 @@ class _TimeEmbedder(nn.Module):
 
     def forward(self, t: Tensor) -> Tensor:
         """``t`` ``[N]`` (already scaled by ``timestep_scale``) -> ``[N, hidden]``."""
-        t_freq = _timestep_embedding(t, self.freq_dim).to(self.mlp[0].weight.dtype)
+        t_freq = _timestep_embedding(t, self.freq_dim).to(
+            cast(nn.Linear, self.mlp[0]).weight.dtype
+        )
         return self.mlp(t_freq)
 
 
@@ -804,8 +813,9 @@ class CosmosMoTNetwork(nn.Module):
         llm = spec.llm
 
         self.embed_tokens = nn.Embedding(llm.vocab_size, llm.hidden_size, dtype=dtype)
-        self.layers = nn.ModuleList(
-            _MoTLayer(llm, dtype) for _ in range(llm.num_layers)
+        self.layers = cast(
+            Sequence[_MoTLayer],
+            nn.ModuleList(_MoTLayer(llm, dtype) for _ in range(llm.num_layers)),
         )
         self.norm = RMSNorm(llm.hidden_size, eps=llm.rms_norm_eps, dtype=dtype)
         self.norm_moe_gen = RMSNorm(llm.hidden_size, eps=llm.rms_norm_eps, dtype=dtype)

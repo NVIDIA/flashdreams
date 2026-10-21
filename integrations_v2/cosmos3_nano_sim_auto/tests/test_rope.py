@@ -43,7 +43,7 @@ OFFSET = 15_007.0
 def geometry(
     *,
     num_views: int = 3,
-    frames_per_view: int = 4,
+    frames_per_view: int | None = 4,
     patch_h: int = 1,
     patch_w: int = 1,
 ):

@@ -32,7 +32,9 @@ _SPEC = importlib.util.spec_from_file_location(
     "handdreams_launcher",
     Path(__file__).resolve().parents[2] / "apps/handdreams/launch.py",
 )
+assert _SPEC is not None
 launch = importlib.util.module_from_spec(_SPEC)
+assert _SPEC.loader is not None
 _SPEC.loader.exec_module(launch)
 transport_credentials = launch._credentials
 

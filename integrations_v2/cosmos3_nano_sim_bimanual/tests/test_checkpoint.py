@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import cosmos3_nano_sim_bimanual.fetch_checkpoint as fetch_checkpoint_module
 import pytest
@@ -37,7 +38,10 @@ from cosmos3_nano_sim_bimanual.fetch_checkpoint import (
     read_dcp_key_metadata,
     resolve_checkpoint_arg,
 )
+from cosmos3_nano_sim_bimanual.transformer import HandTransformerConfig
 from cosmos3_nano_sim_bimanual.transformer.network import CosmosMoTNetworkConfig
+
+from flashdreams.infra.diffusion.scheduler import FlowMatchSchedulerConfig
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -118,10 +122,13 @@ def test_hf_default_matches_ga_sampling_and_action_contract() -> None:
     )
 
     config = DEFAULT_HAND_PIPELINE_CONFIG
+    assert isinstance(config.diffusion_model.transformer, HandTransformerConfig)
+    assert config.diffusion_model.transformer.checkpoint is not None
     assert (
         resolve_checkpoint_arg(config.diffusion_model.transformer.checkpoint)
         == HAND_CHECKPOINT_URL
     )
+    assert isinstance(config.diffusion_model.scheduler, FlowMatchSchedulerConfig)
     assert config.diffusion_model.scheduler.num_inference_steps == 4
     assert config.diffusion_model.scheduler.denoising_timesteps == [1000, 750, 500, 250]
     assert config.diffusion_model.scheduler.shift == 5.0
@@ -570,7 +577,7 @@ def test_fetch_and_convert_validates_existing_cache(
         sort_keys=True,
     )
     key = "model.net.vae2llm.weight"
-    index = {
+    index: dict[str, Any] = {
         "metadata": {"flashdreams_conversion": identity},
         "weight_map": {key: "model.safetensors"},
     }

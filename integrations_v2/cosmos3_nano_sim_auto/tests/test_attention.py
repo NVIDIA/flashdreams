@@ -210,6 +210,7 @@ def test_no_chunk_of_a_rollout_has_an_all_true_mask() -> None:
     future controls are in memory throughout and must stay hidden. Every
     attention in this model pays for a dense mask.
     """
+    assert CLIP.frames_per_view is not None
     for frame in range(CLIP.condition_frames, CLIP.frames_per_view):
         assert not chunk_at(frame).mask().all()
 
@@ -252,7 +253,7 @@ def test_hyperion_expresses_attention_as_shared_optimization_policy() -> None:
 @pytest.mark.parametrize("field", ["compile_dynamic", "prescale_qk", "use_tma"])
 def test_flex_tri_state_options_do_not_accept_integer_booleans(field: str) -> None:
     with pytest.raises(TypeError, match="bool or None"):
-        FlexAttentionOptions(**{field: 1})  # type: ignore[arg-type]
+        FlexAttentionOptions(**{field: 1})  # ty: ignore[invalid-argument-type]  # Exercise invalid-input validation.
 
 
 def test_flex_kernel_backend_is_validated_before_compilation() -> None:

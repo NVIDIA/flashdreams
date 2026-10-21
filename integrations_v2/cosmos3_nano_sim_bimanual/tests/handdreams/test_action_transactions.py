@@ -4,6 +4,7 @@
 """Model-owned action anchors follow diffusion acceptance and rollout resets."""
 
 from types import SimpleNamespace
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -52,10 +53,13 @@ class _Pipeline:
 
 def _builder():
     return CosmosHandDreamsRolloutBuilder(
-        pipeline=_Pipeline(),
-        scene=SimpleNamespace(
-            wrist_rotations={side: np.eye(3) for side in ("left", "right")},
-            fps=30.0,
+        pipeline=cast(Any, _Pipeline()),
+        scene=cast(
+            Any,
+            SimpleNamespace(
+                wrist_rotations={side: np.eye(3) for side in ("left", "right")},
+                fps=30.0,
+            ),
         ),
     )
 

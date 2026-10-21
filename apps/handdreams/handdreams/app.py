@@ -62,7 +62,7 @@ class HandDreamsV2Application(IApplication):
         self._pipeline: TeleopControllerPipeline | None = None
         self._scene_catalog: tuple[str, ...] = ()
         self._scene_previews: tuple[ScenePreview, ...] = ()
-        self._prepared_scenes: dict[str, Any] = {}
+        self._prepared_scenes: dict[str | None, Any] = {}
         """Keep each scene's conditioning identical across warmed-cache reuse."""
         self._closed = False
 

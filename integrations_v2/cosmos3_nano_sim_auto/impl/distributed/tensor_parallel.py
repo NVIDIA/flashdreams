@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
+from typing import cast
 
 import torch
 from cosmos_interactive._network import (
@@ -14,6 +15,7 @@ from cosmos_interactive._network import (
     _MoTLayer,
 )
 from cosmos_interactive._spec import LLMSpec
+from torch import nn
 
 from flashdreams.core.distributed.parallel import ParallelContext, balanced_ranges
 from flashdreams.core.distributed.tensor_parallel import (
@@ -100,11 +102,19 @@ def shard_layers(
 
     for half in _halves(layers):
         attn = half.self_attn
-        attn.q_proj = ColumnParallelLinear(attn.q_proj, q_start, q_end)
-        attn.k_proj = ColumnParallelLinear(attn.k_proj, kv_start, kv_end)
-        attn.v_proj = ColumnParallelLinear(attn.v_proj, kv_start, kv_end)
+        attn.q_proj = ColumnParallelLinear(cast(nn.Linear, attn.q_proj), q_start, q_end)
+        attn.k_proj = ColumnParallelLinear(
+            cast(nn.Linear, attn.k_proj), kv_start, kv_end
+        )
+        attn.v_proj = ColumnParallelLinear(
+            cast(nn.Linear, attn.v_proj), kv_start, kv_end
+        )
         attn.o_proj = RowParallelLinear(
-            attn.o_proj, q_start, q_end, group=ctx.tp_group, keeps_bias=keeps_bias
+            cast(nn.Linear, attn.o_proj),
+            q_start,
+            q_end,
+            group=ctx.tp_group,
+            keeps_bias=keeps_bias,
         )
         # The network reshapes projections with these, so they have to follow the
         # weights down. ``num_kv_groups`` deliberately does not move: grouped-query
@@ -114,10 +124,18 @@ def shard_layers(
         attn.num_kv_heads = group_end - group_start
 
         mlp = half.mlp
-        mlp.gate_proj = ColumnParallelLinear(mlp.gate_proj, mlp_start, mlp_end)
-        mlp.up_proj = ColumnParallelLinear(mlp.up_proj, mlp_start, mlp_end)
+        mlp.gate_proj = ColumnParallelLinear(
+            cast(nn.Linear, mlp.gate_proj), mlp_start, mlp_end
+        )
+        mlp.up_proj = ColumnParallelLinear(
+            cast(nn.Linear, mlp.up_proj), mlp_start, mlp_end
+        )
         mlp.down_proj = RowParallelLinear(
-            mlp.down_proj, mlp_start, mlp_end, group=ctx.tp_group, keeps_bias=keeps_bias
+            cast(nn.Linear, mlp.down_proj),
+            mlp_start,
+            mlp_end,
+            group=ctx.tp_group,
+            keeps_bias=keeps_bias,
         )
     return layers
 

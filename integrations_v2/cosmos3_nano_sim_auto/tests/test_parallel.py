@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 import torch
 from cosmos3_nano_sim_auto.impl.distributed import parallel
@@ -43,7 +45,7 @@ def test_stream_fields_narrow_keeps_every_field_in_step() -> None:
 def test_a_restricted_mask_is_narrower_and_no_shorter() -> None:
     """The queries are one rank's; the keys are still everyone's."""
     memory = build_memory_layout(GEOMETRY)
-    args = {"chunk_start": 1, "chunk_frames": 4, "text_tokens": 8}
+    args: dict[str, Any] = {"chunk_start": 1, "chunk_frames": 4, "text_tokens": 8}
     whole = build_chunk_metadata(GEOMETRY, memory, **args).mask()
     part = build_chunk_metadata(GEOMETRY, memory, query_range=(0, 66), **args).mask()
     assert part.shape == (66, whole.shape[1])
@@ -93,6 +95,6 @@ def test_owned_views_deal_cameras_round_robin() -> None:
         owners = {
             view: rank
             for rank in range(world)
-            for view in parallel.owned_views(Mesh(rank, world), 3)  # type: ignore[arg-type]
+            for view in parallel.owned_views(cast(Any, Mesh(rank, world)), 3)
         }
         assert owners == {view: view % world for view in range(3)}

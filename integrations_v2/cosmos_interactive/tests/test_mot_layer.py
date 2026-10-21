@@ -45,20 +45,22 @@ def test_mot_layer_all_und_matches_hf_qwen3() -> None:
     torch.manual_seed(0)
     layer = _MoTLayer(_LLM, torch.float32).eval()
 
-    cfg = Qwen3Config(
-        hidden_size=_LLM.hidden_size,
-        num_hidden_layers=1,
-        num_attention_heads=_LLM.num_attention_heads,
-        num_key_value_heads=_LLM.num_key_value_heads,
-        head_dim=_LLM.head_dim,
-        intermediate_size=_LLM.intermediate_size,
-        vocab_size=_LLM.vocab_size,
-        rms_norm_eps=_LLM.rms_norm_eps,
-        rope_theta=_LLM.rope_theta,
-        attention_bias=False,
-        hidden_act="silu",
-        max_position_embeddings=128,
-        attn_implementation="eager",
+    cfg = Qwen3Config.from_dict(
+        dict(
+            hidden_size=_LLM.hidden_size,
+            num_hidden_layers=1,
+            num_attention_heads=_LLM.num_attention_heads,
+            num_key_value_heads=_LLM.num_key_value_heads,
+            head_dim=_LLM.head_dim,
+            intermediate_size=_LLM.intermediate_size,
+            vocab_size=_LLM.vocab_size,
+            rms_norm_eps=_LLM.rms_norm_eps,
+            rope_theta=_LLM.rope_theta,
+            attention_bias=False,
+            hidden_act="silu",
+            max_position_embeddings=128,
+            attn_implementation="eager",
+        )
     )
     hf = Qwen3DecoderLayer(cfg, layer_idx=0).eval()
     hf.load_state_dict(layer.und.state_dict())  # HF mirrors the und pathway

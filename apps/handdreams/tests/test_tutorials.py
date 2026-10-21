@@ -114,11 +114,14 @@ def test_pts_timing_bounded_catchup_switch_and_close(monkeypatch) -> None:
     assert len(opened) == 1 and opened[0].decoded == 2
     assert player.frame("press_triggers.mp4", 10, 12, now=7.05) is first
     second = player.frame("press_triggers.mp4", 10, 12, now=7.1)
+    assert second is not None
     assert second.getpixel((0, 0)) == (1, 0, 0)
     decoded = opened[0].decoded
     player.frame("press_triggers.mp4", 10, 12, now=500.0)
     assert opened[0].decoded - decoded <= 3
-    assert player.frame("press_triggers.mp4", 5, 6, now=500.0).size == (5, 6)
+    resized = player.frame("press_triggers.mp4", 5, 6, now=500.0)
+    assert resized is not None
+    assert resized.size == (5, 6)
 
     player.frame("align_arms.mp4", 10, 12, now=500.0)
     assert opened[0].closed == 1 and len(opened) == 2

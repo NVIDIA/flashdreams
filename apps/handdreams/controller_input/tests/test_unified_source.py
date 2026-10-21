@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import threading
 from collections import deque
+from typing import Any, cast
 
 import pytest
 from flashdreams_controller_input.controller_types import InputSource, Observation
@@ -39,6 +40,8 @@ class _Clock:
 
 
 class _Source:
+    status_message: str
+
     def __init__(self, name, events):
         self.name = name
         self.events = events
@@ -57,6 +60,7 @@ class _Source:
         self.events.append((self.name, "start", options))
         if self.start_entered is not None:
             self.start_entered.set()
+            assert self.start_release is not None
             assert self.start_release.wait(3)
         self.active = True
         if self.start_error:
@@ -81,14 +85,14 @@ def _setup():
     clock, events = _Clock(), []
     remote = _Source("remote-quest", events)
     local = _Source("isaac-teleop", events)
-    source = UnifiedControllerSource(remote, local, _clock_ns=clock)
+    source = UnifiedControllerSource(remote, cast(Any, local), _clock_ns=clock)
     return source, remote, local, clock, events
 
 
 def _sample(
     clock, producer, *, tracked=(True, True), generation=0, index=0, capture=90
 ):
-    frame = {
+    frame: dict[str, Any] = {
         side: {
             "position": [0.1, 1.2, -0.3],
             "orientation": [0.0, 0.0, 0.0, 1.0],
@@ -138,7 +142,7 @@ def test_headset_setup_does_not_block_shared_browser_input_or_consume_poses(
     source = UnifiedControllerSource(
         remote,
         local,
-        headset=headset,
+        headset=cast(Any, headset),
         web_client_url="https://teleop.example/?serverIP=10.0.0.1",
         certificate_url="https://10.0.0.1:48322/",
         _clock_ns=clock,
@@ -165,7 +169,9 @@ def test_headset_setup_does_not_block_shared_browser_input_or_consume_poses(
     assert status.web_client_url == "https://teleop.example/?serverIP=10.0.0.1"
     assert status.certificate_url == "https://10.0.0.1:48322/"
     assert status.active_input == "Waiting for controllers"
-    assert source.poll().frame is sample.frame
+    observation = source.poll()
+    assert observation is not None
+    assert observation.frame is sample.frame
     assert source.connection_status().active_input == "Isaac Teleop"
     assert not source.can_connect_headset()
     assert headset.poll_calls == 0

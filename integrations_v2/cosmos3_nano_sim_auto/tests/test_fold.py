@@ -18,6 +18,8 @@ after the gathered one replaced it.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 import torch
 from cosmos3_nano_sim_auto.impl.packing import (
@@ -286,7 +288,9 @@ def test_the_rectangles_cover_each_windowed_pass_exactly() -> None:
     reaches the other camera's history that the same-instant pass never reads.
     """
     metadata = chunk_at()
-    window = {"decomposed_temporal_window_seconds": CLIP.seconds_per_frame}
+    window: dict[str, Any] = {
+        "decomposed_temporal_window_seconds": CLIP.seconds_per_frame
+    }
     plan = build_fold_plan(metadata.query, metadata.kv, scope="decomposed", **window)
     partitions = maskless_partitions(
         metadata.query, metadata.kv, scope="decomposed", **window
@@ -371,6 +375,7 @@ def test_deduplicated_fold_matches_union_attention(window):
         | (metadata.kv.token_role_id[None, :] == ROLE_UND)
     )
     coverage = sum(spread(plan, i, union.shape).int() for i in range(len(plan.passes)))
+    assert isinstance(coverage, torch.Tensor)
     assert torch.equal(
         coverage, union.int()
     )  # Every allowed edge appears exactly once.

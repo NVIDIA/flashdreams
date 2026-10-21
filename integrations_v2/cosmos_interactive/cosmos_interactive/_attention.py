@@ -11,12 +11,17 @@ mask is the correctness reference for decomposed attention implementations.
 
 from __future__ import annotations
 
+from typing import Callable, cast
+
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 
+varlen_attn: Callable[..., Tensor | tuple[Tensor, Tensor]] | None
 try:
-    from torch.nn.attention.varlen import varlen_attn
+    from torch.nn.attention.varlen import varlen_attn as _varlen_attn
+
+    varlen_attn = _varlen_attn
 except ImportError:  # pragma: no cover - exercised only on older PyTorch builds
     varlen_attn = None
 
@@ -184,7 +189,8 @@ def valid_length_cached_attention(
     The cumulative sequence length is a device tensor, so one captured CUDA
     graph can replay while ``valid_cached`` grows from frame zero to saturation.
     """
-    if varlen_attn is None:
+    attend_varlen = varlen_attn
+    if attend_varlen is None:
         raise RuntimeError(
             "valid-length cache attention requires PyTorch varlen FlashAttention"
         )
@@ -214,7 +220,7 @@ def valid_length_cached_attention(
         query_tokens = int(query.shape[-2])
         cu_seq_q = torch.arange(2, device=q.device, dtype=torch.int32) * query_tokens
         cu_seq_k = torch.stack((torch.zeros_like(valid_total), valid_total))
-        out = varlen_attn(
+        out = attend_varlen(
             query[0].transpose(0, 1),
             packed_k,
             packed_v,
@@ -223,7 +229,8 @@ def valid_length_cached_attention(
             query_tokens,
             int(k_all.shape[-2]),
         )
-        return out.transpose(0, 1).unsqueeze(0)
+        # No auxiliary outputs were requested.
+        return cast(Tensor, out).transpose(0, 1).unsqueeze(0)
 
     valid_cached = valid_cached.to(dtype=torch.int32)
     if causal_block_tokens is None:

@@ -167,7 +167,7 @@ def map_data(scene: TimestampedScene) -> dict:
                 or pool.varrays_prefix_sum.tolist()
                 != list(range(corners, count * corners + 1, corners))
                 or (
-                    corners == 3
+                    isinstance(pool, TimestampedPolygonPool)
                     and (
                         pool.triangle_prefix_sum.tolist() != list(range(1, count + 1))
                         or pool.triangles.tolist() != [[0, 1, 2]] * count
@@ -189,7 +189,7 @@ def map_data(scene: TimestampedScene) -> dict:
 def track_data(scene: TimestampedScene) -> list:
     """Export ordered cuboid tracks with exact lifetimes and face colors."""
     result = []
-    for pool in scene.cube_pools:
+    for pool in scene.cube_pools or ():
         tracks = []
         first = 0
         for index, last in enumerate(pool.cube_ts_prefix_sum.tolist()):
@@ -245,14 +245,14 @@ def reconstruct(
                     corners, count * corners + 1, corners, dtype=torch.int32
                 ),
                 vertices=torch.from_numpy(vertices.reshape(-1, 3)),
-                prim_type_id=prim,
             )
             if corners == 2:
-                target.append(TimestampedPolylinePool(**kwargs))
+                target.append(TimestampedPolylinePool(**kwargs, prim_type_id=prim))
             else:
                 target.append(
                     TimestampedPolygonPool(
                         **kwargs,
+                        prim_type_id=prim,
                         triangle_prefix_sum=torch.arange(
                             1, count + 1, dtype=torch.int32
                         ),
@@ -351,7 +351,7 @@ class PreparedScene:
         return TimestampedScene(
             [move(p) for p in self.scene.polyline_pools],
             [move(p) for p in self.scene.polygon_pools],
-            [move(p) for p in self.scene.cube_pools],
+            [move(p) for p in self.scene.cube_pools or ()],
         )
 
     def intrinsics(self, name: str) -> np.ndarray:

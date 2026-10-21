@@ -12,13 +12,16 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable, Sequence
+from typing import cast
 
 import torch
 import torch.nn.functional as F
 from cosmos_interactive._network import (
+    RMSNorm,
     _apply_rope,
     _kv_for_attention,
     _MoTLayer,
+    _SwiGLUMLP,
 )
 from cosmos_interactive._rope import mrope_cos_sin
 from cosmos_interactive._spec import LLMSpec
@@ -52,7 +55,8 @@ def _rms_norm(module: nn.Module, input: Tensor, *, accelerated: bool) -> Tensor:
     """Use the shared fused primitive or the checkpoint module unchanged."""
     if not accelerated:
         return module(input)
-    return rms_norm(input, module.weight, module.eps)
+    norm = cast(RMSNorm, module)
+    return rms_norm(input, norm.weight, norm.eps)
 
 
 @functools.cache
@@ -76,7 +80,7 @@ def _compiled_silu_mul() -> Callable[[Tensor, Tensor], Tensor]:
     return torch.compile(_silu_mul, dynamic=False)
 
 
-def _mlp(mlp: nn.Module, x: Tensor) -> Tensor:
+def _mlp(mlp: _SwiGLUMLP, x: Tensor) -> Tensor:
     """The checkpoint's MLP with ``silu(gate) * up`` as one compiled kernel on CUDA."""
     if x.is_cuda:
         return mlp.down_proj(_compiled_silu_mul()(mlp.gate_proj(x), mlp.up_proj(x)))

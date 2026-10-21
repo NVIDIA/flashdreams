@@ -266,6 +266,7 @@ def build_tiny_network() -> CosmosMoTNetwork:
 
 def rollout_inputs():
     generator = torch.Generator().manual_seed(SEED + 2)
+    assert ROLLOUT_GEOMETRY.frames_per_view is not None
     tokens = (
         ROLLOUT_GEOMETRY.num_views
         * ROLLOUT_GEOMETRY.frames_per_view

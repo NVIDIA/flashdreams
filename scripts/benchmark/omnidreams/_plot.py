@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Mapping
 from pathlib import Path
+from typing import cast
 
 import matplotlib.pyplot as plt
 
@@ -82,13 +84,13 @@ def _load_results(
     for record in benchmark_records:
         if not isinstance(record, dict):
             continue
-        group = record.get("group")
+        group = cast(Mapping[object, object], record).get("group")
         if not isinstance(group, str) or group not in values:
             continue
-        param = record.get("param")
+        param = cast(Mapping[object, object], record).get("param")
         if not isinstance(param, str) or not param:
             raise SystemExit(
-                f"Benchmark {record.get('name', '<unnamed>')} has no parameter ID"
+                f"Benchmark {cast(Mapping[object, object], record).get('name', '<unnamed>')} has no parameter ID"
             )
         implementation = param
         if implementation in values[group]:

@@ -254,6 +254,7 @@ def test_registered_modes_select_the_builtin_display(tmp_path, monkeypatch, disp
         window, "ControllerSourceWindow", lambda **kwargs: SimpleNamespace(**kwargs)
     )
     wrapped = client_window_factory.create_client_window(args)
+    assert isinstance(wrapped, SimpleNamespace)
     assert wrapped.output_window is output
     assert created == [display]
     mode = client_window_factory.client_window_mode(

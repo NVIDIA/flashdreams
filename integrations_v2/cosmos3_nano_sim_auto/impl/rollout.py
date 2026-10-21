@@ -11,10 +11,10 @@ stable across chunks and denoising steps.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from math import prod
-from typing import Protocol
+from typing import Protocol, TypedDict
 
 import torch
 from cosmos_interactive._compile_modes import torch_compile_mode_arg
@@ -115,6 +115,20 @@ class ChunkTrace:
     denoising_passes: int
     clean_pass: bool
     memory_tokens: int
+
+
+class _ChunkMaskArgs(TypedDict):
+    """Shared mask arguments for the noisy and clean passes of one chunk."""
+
+    chunk_start: int
+    chunk_frames: int
+    device: torch.device
+    attention_impl: OptimizedImplConfig
+    scope: AttentionScope
+    maskless: bool
+    deduplicate_cross_view: bool
+    decomposed_temporal_window_seconds: float | None
+    query_range: tuple[int, int] | None
 
 
 class _KVCache:
@@ -688,6 +702,7 @@ class ChunkRollout:
             kept = (
                 history_frames if committed is None else min(history_frames, committed)
             )
+        assert kept is not None
         self._slots = -(-kept // geometry.frames_per_chunk)
 
         chunk = geometry.frames_per_chunk
@@ -706,7 +721,7 @@ class ChunkRollout:
         )
         self._control_slots = len(window) if streaming and window else 0
         self._control_ranges: list[tuple[int, int]] | None = (
-            list(window) if streaming else None
+            list(window) if streaming and window is not None else None
         )
         self._control_frames = (
             self._control_ranges[-1][1]
@@ -714,12 +729,14 @@ class ChunkRollout:
             else geometry.frames_per_view
         )
 
+        assert self._control_frames is not None
+
         # A short opening range still occupies a whole slot, so the control
         # region is sized by its slots rather than by the frames it holds.
-        control_tokens = per_frame * (
+        control_capacity = per_frame * (
             self._control_slots * chunk if streaming else self._control_frames
         )
-        capacity = control_tokens + per_frame * (
+        capacity = control_capacity + per_frame * (
             geometry.condition_frames + self._slots * chunk
         )
 
@@ -784,11 +801,13 @@ class ChunkRollout:
         # The last thing in the rollout still sized by the run's length. Kept
         # that way by default, because `result` can then hand back the whole
         # clip; a window instead is what a run of unknown length asks for.
-        self._token_frames = (
+        token_capacity = (
             geometry.frames_per_view
             if token_frames is None
             else max(token_frames, geometry.condition_frames + chunk)
         )
+        assert token_capacity is not None
+        self._token_frames = token_capacity
         self._tokens = _TokenWindow(
             num_views=geometry.num_views,
             frames=self._token_frames,
@@ -864,7 +883,7 @@ class ChunkRollout:
         return self._geometry
 
     @property
-    def chunk_count(self) -> int:
+    def chunk_count(self) -> int | None:
         """Chunks the whole clip takes, known before any of them run."""
         return self._chunk_count
 
@@ -1048,7 +1067,7 @@ class ChunkRollout:
         # keys have to land in the same places. Derived from the token count
         # alone, so the layers rebuild the identical split without being told.
         query_range = local_query_range(count, self._ctx)
-        mask_args = {
+        mask_args: _ChunkMaskArgs = {
             "chunk_start": start,
             "chunk_frames": frames,
             "device": self._device,
@@ -1185,7 +1204,7 @@ class ChunkRollout:
         *,
         positions: Tensor,
         memory: MemoryLayout,
-        mask_args: Mapping[str, object],
+        mask_args: _ChunkMaskArgs,
         frames: tuple[int, int],
     ) -> None:
         """Replay a finished chunk clean, so later chunks read settled keys.
@@ -1264,6 +1283,7 @@ class ChunkRollout:
                 f"{self._chunk_count - self._next} of {self._chunk_count} chunks "
                 "are still to generate."
             )
+        assert self._geometry.frames_per_view is not None
         if self._token_frames < self._geometry.frames_per_view:
             raise RuntimeError(
                 f"this rollout keeps {self._token_frames} of the clip's "

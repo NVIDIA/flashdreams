@@ -25,6 +25,7 @@ import sys
 from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -73,7 +74,7 @@ def _frame(cdp, direction, kind, payload, request_id="owned-socket"):
 
 def _websockets(monkeypatch, connect):
     module = ModuleType("websockets.sync.client")
-    module.connect = connect
+    setattr(module, "connect", connect)
     monkeypatch.setitem(sys.modules, "websockets.sync.client", module)
 
 
@@ -209,7 +210,9 @@ def test_page_restarts_browser_and_cleans_up_only_owned_resources(
     headset = SimpleNamespace(check_alive=lambda: None)
 
     def visit():
-        with webxr._page("quest", headset, 1, _ORIGIN, "/resolved/adb") as cdp:
+        with webxr._page(
+            "quest", cast(Any, headset), 1, _ORIGIN, "/resolved/adb"
+        ) as cdp:
             assert cdp.server_origin == _ORIGIN
             if failure == "body":
                 raise RuntimeError("navigation failed")
@@ -266,7 +269,7 @@ def test_page_does_not_launch_after_cancellation_or_browser_stop_failure(
     with pytest.raises(RuntimeError, match="cancelled|browser stop failed"):
         with webxr._page(
             "quest",
-            SimpleNamespace(check_alive=check_alive),
+            cast(Any, SimpleNamespace(check_alive=check_alive)),
             1,
             _ORIGIN,
             "/resolved/adb",
@@ -302,7 +305,10 @@ def test_button_text_does_not_confirm_streaming_and_override_is_reverted(
     cdp = SimpleNamespace(call=call, registered=False, streaming=False)
     with pytest.raises(TimeoutError, match="did not start streaming"):
         webxr._run_page(
-            cdp, SimpleNamespace(check_alive=lambda: None), args, "https://client/"
+            cast(Any, cdp),
+            cast(Any, SimpleNamespace(check_alive=lambda: None)),
+            cast(Any, args),
+            "https://client/",
         )
     assert "streaming confirmed" not in capsys.readouterr().out
     security = [
@@ -344,9 +350,11 @@ def test_page_errors_report_only_safe_summary_and_restore_certificate_override(
 
     with pytest.raises(RuntimeError) as error:
         webxr._run_page(
-            SimpleNamespace(call=call),
-            SimpleNamespace(check_alive=lambda: None),
-            SimpleNamespace(accept_server_certificate=True, startup_timeout=10),
+            cast(Any, SimpleNamespace(call=call)),
+            cast(Any, SimpleNamespace(check_alive=lambda: None)),
+            cast(
+                Any, SimpleNamespace(accept_server_certificate=True, startup_timeout=10)
+            ),
             "https://client/?turnCredential=secret",
         )
     assert str(error.value) == (
@@ -364,7 +372,10 @@ def test_disconnect_after_confirmed_stream_is_reported(monkeypatch, capsys):
     args = SimpleNamespace(accept_server_certificate=False, startup_timeout=10)
     with pytest.raises(RuntimeError, match="disconnected"):
         webxr._run_page(
-            cdp, SimpleNamespace(check_alive=lambda: None), args, "https://client/"
+            cast(Any, cdp),
+            cast(Any, SimpleNamespace(check_alive=lambda: None)),
+            cast(Any, args),
+            "https://client/",
         )
     assert "streaming confirmed" in capsys.readouterr().out
 
@@ -395,9 +406,11 @@ def test_browser_waits_for_owner_without_timing_out_and_remains_cancellable(
     cdp.call = call
     with pytest.raises(KeyboardInterrupt):
         webxr._run_page(
-            cdp,
-            SimpleNamespace(check_alive=check_alive),
-            SimpleNamespace(accept_server_certificate=True, startup_timeout=4),
+            cast(Any, cdp),
+            cast(Any, SimpleNamespace(check_alive=check_alive)),
+            cast(
+                Any, SimpleNamespace(accept_server_certificate=True, startup_timeout=4)
+            ),
             "https://127.0.0.1:48322/client/",
             can_connect=lambda: release_owner and clock[0] >= 6,
             on_status=statuses.append,
@@ -596,7 +609,7 @@ def test_invalid_urls_fail_before_headset_actions(overrides):
         startup_timeout=120,
     )
     with pytest.raises(ValueError):
-        webxr._urls(SimpleNamespace(**(options | overrides)))
+        webxr._urls(cast(Any, SimpleNamespace(**(options | overrides))))
 
 
 def test_usb_url_hosts_assets_and_signaling_on_one_origin_with_tcp_turn(monkeypatch):
@@ -604,11 +617,14 @@ def test_usb_url_hosts_assets_and_signaling_on_one_origin_with_tcp_turn(monkeypa
     monkeypatch.setenv("CONTROL_TOKEN", token)
     monkeypatch.setenv("FLASHDREAMS_CONTROLLER_TOKEN", "relay-test-token")
     origin, url = webxr._urls(
-        SimpleNamespace(
-            cloudxr_port=48323,
-            startup_timeout=120,
-            usb_turn_port=45678,
-            usb_turn_credential="per-run-secret",
+        cast(
+            Any,
+            SimpleNamespace(
+                cloudxr_port=48323,
+                startup_timeout=120,
+                usb_turn_port=45678,
+                usb_turn_credential="per-run-secret",
+            ),
         )
     )
     assert origin == "https://127.0.0.1:48323"
