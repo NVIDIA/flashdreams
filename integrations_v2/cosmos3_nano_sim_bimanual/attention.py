@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from inspect import signature
 from typing import cast
 
 import torch
@@ -31,6 +32,11 @@ except ImportError:  # pragma: no cover - exercised only on older PyTorch builds
     varlen_attn = None
 else:
     varlen_attn = _torch_varlen_attn
+
+_VARLEN_ACCEPTS_GQA = (
+    varlen_attn is not None and "enable_gqa" in signature(varlen_attn).parameters
+)
+"""Whether the installed varlen API accepts an explicit GQA opt-in."""
 
 
 def varlen_attention_available() -> bool:
@@ -167,6 +173,11 @@ def valid_length_cached_attention(
         query_tokens = int(query.shape[-2])
         cu_seq_q = torch.arange(2, device=q.device, dtype=torch.int32) * query_tokens
         cu_seq_k = torch.stack((torch.zeros_like(valid_total), valid_total))
+        gqa_kwargs = (
+            {"enable_gqa": query.shape[1] != packed_k.shape[1]}
+            if _VARLEN_ACCEPTS_GQA
+            else {}
+        )
         out = attention_fn(
             query[0].transpose(0, 1),
             packed_k,
@@ -175,6 +186,7 @@ def valid_length_cached_attention(
             cu_seq_k,
             query_tokens,
             int(k_all.shape[-2]),
+            **gqa_kwargs,
         )
         return cast(Tensor, out).transpose(0, 1).unsqueeze(0)
 
