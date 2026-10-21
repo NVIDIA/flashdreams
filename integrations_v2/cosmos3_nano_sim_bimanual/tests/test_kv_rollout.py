@@ -229,9 +229,19 @@ def test_session_constructs_and_seeds_frame_zero() -> None:
     assert session.cache, "the KV cache was never populated"
 
 
-def test_frozen_tiny_rollout_through_cache_eviction() -> None:
+def test_frozen_tiny_rollout_through_cache_eviction(monkeypatch) -> None:
     torch.manual_seed(17)
     session = _session(window_frames=4, cache_mode="block")
+    # Seeded BF16 CPU noise differs across PyTorch versions. Freeze this
+    # fixture's inputs with FP32 draws rounded to the requested dtype.
+    randn = torch.randn
+
+    def fixture_noise(size, *, device, dtype, generator):
+        return randn(size, device=device, dtype=torch.float32, generator=generator).to(
+            dtype
+        )
+
+    monkeypatch.setattr(torch, "randn", fixture_noise)
     # GA stationary unified actions, 30 FPS conditioning, four-step SDE.
     expected = [
         [

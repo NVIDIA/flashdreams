@@ -314,9 +314,10 @@ def test_vllm_spatial_levels_preserve_causal_stream_and_cache_ownership(levels):
     decoder_keys = set(decoder_cache)
     output2, _ = model.decode_stream(joined[:, :, 1:], decoder_cache)
     assert set(decoder_cache) == decoder_keys
+    # Chunk sizes select different CPU kernels; allow accumulated FP32 roundoff.
     torch.testing.assert_close(
         torch.cat((output1, output2), dim=2),
         model.decode_stream(joined)[0],
         rtol=2e-5,
-        atol=1e-5,
+        atol=2e-5,
     )

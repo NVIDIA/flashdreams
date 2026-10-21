@@ -299,6 +299,15 @@ class QuantizedNonPersistentLinear(NonPersistentLinear):
                 weight_scale,
                 dtype=out_dtype,
             )
+        elif x.device.type == "cpu":
+            # CPU FP8 GEMM does not support rowwise scaling. Accumulate the
+            # quantized values in FP32, then apply both broadcast scales.
+            output = dequantize(
+                input_2d.float() @ self.weight.float().T,
+                input_scale,
+                weight_scale,
+                dtype=out_dtype,
+            )
         else:
             # ``_scaled_mm`` accepts either two ``[1, 1]`` scales or rowwise
             # ``[R, 1]`` and ``[1, O]`` scales. Expand only the scalar side for

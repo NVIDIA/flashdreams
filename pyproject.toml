@@ -179,6 +179,8 @@ replace-imports-with-any = ["flash_attn.**", "transformer_engine.**", "triton.**
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
+# Spawned test workers must be able to import their repository test modules.
+pythonpath = ["."]
 norecursedirs = [
     "artifacts",
     "parity_check",

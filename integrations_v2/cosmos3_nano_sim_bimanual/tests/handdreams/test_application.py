@@ -857,6 +857,11 @@ def test_mvp_imports_do_not_load_legacy_launchers_or_observer(
         app.close()
         """
     )
+    # This subprocess runs outside the checkout but uses repository test helpers.
+    script = (
+        f"import sys\nsys.path.insert(0, {str(Path(__file__).resolve().parents[4])!r})\n"
+        + script
+    )
     result = subprocess.run(
         [sys.executable, "-c", script, *scene_arguments],
         cwd=tmp_path,
