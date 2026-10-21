@@ -75,8 +75,6 @@ tests/
 **Lane A — in-tree (`integrations/<name>/`)**, for upstreaming into flashdreams (mirror
 `integrations_v2/wan22/`):
 - The repo-root `integrations/*` glob auto-adds it to the uv workspace.
-- `pyproject.toml` `version` must match `flashdreams._version.__version__`; the
-  `sync-version` pre-commit hook enforces it (CI fails otherwise).
 - `[project.entry-points."flashdreams.runner_configs"]` maps slug → config (see
   the runner-plugin template):
   ```toml
