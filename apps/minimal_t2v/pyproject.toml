@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-minimal-t2v"
-version = "0.1.0"
+version = "0.2.0"
 description = "Reference implementation for the Create a demo tutorial"
 requires-python = ">=3.10"
 dependencies = ["flashdreams[local-window]"]

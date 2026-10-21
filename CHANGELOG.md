@@ -10,7 +10,9 @@ This changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Changes for the 0.2 release candidate since [v0.1.0].
+## [v0.2.0] - 2026-10-21
+
+Changes since [v0.1.0].
 
 ### Added
 
@@ -67,5 +69,6 @@ Changes for the 0.2 release candidate since [v0.1.0].
 - PyTorch checkpoint loading now uses `weights_only=True` for local files,
   S3 downloads, and merged distributed-checkpoint caches.
 
-[Unreleased]: https://github.com/NVIDIA/flashdreams/compare/v0.1.0...main
+[Unreleased]: https://github.com/NVIDIA/flashdreams/compare/v0.2.0...main
+[v0.2.0]: https://github.com/NVIDIA/flashdreams/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/NVIDIA/flashdreams/releases/tag/v0.1.0

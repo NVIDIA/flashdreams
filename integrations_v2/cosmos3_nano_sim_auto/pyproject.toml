@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-cosmos3-nano-sim-auto"
-version = "0.1.0"
+version = "0.2.0"
 description = "Multiview Cosmos3 Nano Sim Auto inference and interactive driving."
 readme = "README.md"
 license = "Apache-2.0"

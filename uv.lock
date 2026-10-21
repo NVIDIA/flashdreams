@@ -430,7 +430,7 @@ wheels = [
 
 [[package]]
 name = "crazy-robotaxi"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/crazy_robotaxi" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window"] },
@@ -865,7 +865,7 @@ cuda13 = [
 
 [[package]]
 name = "flashdreams-action2v"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/action2v" }
 dependencies = [
     { name = "flashdreams", extra = ["serving"] },
@@ -876,7 +876,7 @@ requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flash
 
 [[package]]
 name = "flashdreams-cam2v"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/cam2v" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window", "runners", "serving"] },
@@ -887,7 +887,7 @@ requires-dist = [{ name = "flashdreams", extras = ["local-window", "runners", "s
 
 [[package]]
 name = "flashdreams-causal-forcing"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/causal_forcing" }
 dependencies = [
     { name = "flashdreams" },
@@ -913,7 +913,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-color-fade"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/color_fade" }
 dependencies = [
     { name = "flashdreams" },
@@ -924,7 +924,7 @@ requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-controller-input"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/handdreams/controller_input" }
 dependencies = [
     { name = "numpy" },
@@ -952,7 +952,7 @@ provides-extras = ["runtime", "webxr", "dev"]
 
 [[package]]
 name = "flashdreams-cosmos-interactive"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/cosmos_interactive" }
 dependencies = [
     { name = "einops" },
@@ -977,7 +977,7 @@ requires-dist = [
 
 [[package]]
 name = "flashdreams-cosmos-predict2"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/cosmos_predict2" }
 dependencies = [
     { name = "flashdreams" },
@@ -1005,7 +1005,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-cosmos3-nano-sim-auto"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/cosmos3_nano_sim_auto" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window", "runners", "serving"] },
@@ -1031,7 +1031,7 @@ provides-extras = ["interactive-drive"]
 
 [[package]]
 name = "flashdreams-cosmos3-nano-sim-bimanual"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/cosmos3_nano_sim_bimanual" }
 dependencies = [
     { name = "flashdreams" },
@@ -1057,7 +1057,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-fastvideo-causal-wan22"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/fastvideo_causal_wan22" }
 dependencies = [
     { name = "flashdreams" },
@@ -1081,7 +1081,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-flashvsr"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/flashvsr" }
 dependencies = [
     { name = "flashdreams" },
@@ -1105,7 +1105,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-handdreams"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/handdreams" }
 dependencies = [
     { name = "flashdreams", extra = ["runners", "serving"] },
@@ -1129,7 +1129,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-imgui-ui-demo"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/imgui_ui_demo" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window", "serving"] },
@@ -1140,7 +1140,7 @@ requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], e
 
 [[package]]
 name = "flashdreams-interactive-drive-v2"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/interactive_drive" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window", "serving"] },
@@ -1159,7 +1159,7 @@ requires-dist = [
 
 [[package]]
 name = "flashdreams-lingbot"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/lingbot" }
 dependencies = [
     { name = "flashdreams" },
@@ -1185,7 +1185,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-minimal-t2v"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/minimal_t2v" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window"] },
@@ -1196,7 +1196,7 @@ requires-dist = [{ name = "flashdreams", extras = ["local-window"], editable = "
 
 [[package]]
 name = "flashdreams-null-model"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/null_model" }
 dependencies = [
     { name = "flashdreams" },
@@ -1207,7 +1207,7 @@ requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-omnidreams"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/omnidreams" }
 dependencies = [
     { name = "crazy-robotaxi" },
@@ -1287,7 +1287,7 @@ provides-extras = ["interactive-drive", "rtx-postprocess", "dev"]
 
 [[package]]
 name = "flashdreams-red-screen"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/red_screen" }
 dependencies = [
     { name = "flashdreams", extra = ["serving"] },
@@ -1298,7 +1298,7 @@ requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flash
 
 [[package]]
 name = "flashdreams-sana-wm"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/sana_wm" }
 dependencies = [
     { name = "diffusers" },
@@ -1336,7 +1336,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-self-forcing"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/self_forcing" }
 dependencies = [
     { name = "flashdreams" },
@@ -1360,7 +1360,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-slangpy-ui-demo"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/slangpy_ui_demo" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window", "serving"] },
@@ -1371,7 +1371,7 @@ requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], e
 
 [[package]]
 name = "flashdreams-swiftvr"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/swiftvr" }
 dependencies = [
     { name = "flashdreams" },
@@ -1395,7 +1395,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-t2v"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/t2v" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window", "serving"] },
@@ -1417,7 +1417,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-v2v"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/v2v" }
 dependencies = [
     { name = "av" },
@@ -1447,7 +1447,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-wan21"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/wan21" }
 dependencies = [
     { name = "flashdreams" },
@@ -1475,7 +1475,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-wan22"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/wan22" }
 dependencies = [
     { name = "flashdreams" },
@@ -1501,7 +1501,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "flashdreams-waypoint"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "integrations_v2/waypoint" }
 dependencies = [
     { name = "flashdreams" },
@@ -2686,7 +2686,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/37/b4/58e1bbb8d6fc9ed78
 
 [[package]]
 name = "omnidreams-game-engine"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/omnidreams_game_engine" }
 dependencies = [
     { name = "filelock" },

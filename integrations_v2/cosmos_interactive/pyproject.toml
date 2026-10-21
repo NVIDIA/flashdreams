@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-cosmos-interactive"
-version = "0.1.0"
+version = "0.2.0"
 description = "Shared native Cosmos Interactive model, tokenizer and codec components."
 readme = "README.md"
 license = "Apache-2.0 AND MIT"

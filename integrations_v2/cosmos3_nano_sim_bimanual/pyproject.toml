@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-cosmos3-nano-sim-bimanual"
-version = "0.1.0"
+version = "0.2.0"
 description = "Cosmos3 Nano Sim bimanual model pipeline for FlashDreams V2"
 readme = "README.md"
 requires-python = ">=3.12"
