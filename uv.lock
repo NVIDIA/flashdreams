@@ -1013,28 +1013,22 @@ source = { editable = "integrations_v2/cosmos3_nano_sim_auto" }
 dependencies = [
     { name = "flashdreams", extra = ["local-window", "runners", "serving"] },
     { name = "flashdreams-cosmos-interactive" },
+    { name = "flashdreams-interactive-drive-v2" },
     { name = "imageio", extra = ["ffmpeg"] },
     { name = "ludus-renderer" },
     { name = "pillow" },
     { name = "scipy" },
 ]
 
-[package.optional-dependencies]
-interactive-drive = [
-    { name = "flashdreams-interactive-drive-v2" },
-    { name = "slangpy" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "flashdreams", extras = ["local-window", "runners", "serving"], editable = "flashdreams" },
     { name = "flashdreams-cosmos-interactive", editable = "integrations_v2/cosmos_interactive" },
-    { name = "flashdreams-interactive-drive-v2", marker = "extra == 'interactive-drive'", editable = "apps/interactive_drive" },
+    { name = "flashdreams-interactive-drive-v2", editable = "apps/interactive_drive" },
     { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.31" },
     { name = "ludus-renderer", editable = "integrations_v2/omnidreams/impl/ludus-renderer" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "scipy", specifier = ">=1.15.3" },
-    { name = "slangpy", marker = "extra == 'interactive-drive'", specifier = "==0.42.0" },
 ]
 provides-extras = ["interactive-drive"]
 

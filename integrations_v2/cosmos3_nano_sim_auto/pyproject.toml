@@ -15,6 +15,8 @@ license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "flashdreams-cosmos-interactive",
+    # Recorded RGB/LiDAR runs also use the shared multiview UI.
+    "flashdreams-interactive-drive-v2",
     "flashdreams[local-window,runners,serving]",
     # Prepared scenes use Ludus for live HD map rendering.
     "ludus-renderer",
@@ -26,13 +28,9 @@ dependencies = [
 # No test extra here on purpose. pytest and friends live in the workspace root's
 # test dependency group.
 [project.optional-dependencies]
-# Only the interactive-drive binding needs the app and its presentation stack.
-# A clip-generating run should not pay the install cost for a desktop demo it
-# never starts, so the dependency is named after the consumer.
-interactive-drive = [
-    "flashdreams-interactive-drive-v2",
-    "slangpy==0.42.0",
-]
+# Compatibility extra for existing installation commands; the app and its
+# presentation stack are included in the base dependencies.
+interactive-drive = []
 
 [project.entry-points."flashdreams.applications_v2"]
 "cosmos3-nano-sim-auto" = "cosmos3_nano_sim_auto.impl.app:create_app"
