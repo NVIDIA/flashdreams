@@ -20,7 +20,13 @@ Run the tool from the repository root. Use `:::` to separate packager options
 from the complete `flashdreams-run-v2` command:
 
 ```bash
-uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
+# sync with target application dependencies
+uv sync --package flashdreams-omnidreams --inexact
+
+# sync with packager dependencies
+uv sync --group offline-exe --inexact
+
+uv run --no-sync python tools/package-as-offline-exe/package_as_offline_exe.py \
   --output artifacts/taxi-omnidreams-bundle \
   ::: flashdreams-run-v2 crazy-robotaxi-omnidreams-fast-perf \
   --mode native-window --fullscreen
@@ -47,7 +53,7 @@ Use `--help` for the authoritative option list:
 
 ```bash
 
-uv run python tools/package-as-offline-exe/package_as_offline_exe.py --help
+uv run --no-sync python tools/package-as-offline-exe/package_as_offline_exe.py --help
 
 ```
 

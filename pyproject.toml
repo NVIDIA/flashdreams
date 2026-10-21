@@ -199,6 +199,13 @@ markers = [
 ]
 
 [dependency-groups]
+# Build tools and presentation assets collected by the offline executable packager.
+offline-exe = [
+    "flashdreams[local-window]",
+    "ninja>=1.11",
+    "packaging>=24",
+    "pyinstaller>=6.22.2",
+]
 # Test-specific dependencies shared across workspace members. Listed here so
 # that the type checker (ty) can resolve imports in test files and in
 # flashdreams/_pytest_plugins.

@@ -843,7 +843,9 @@ def package(
         raise PackageError("Only Windows and Linux bundles are supported.")
     if importlib.util.find_spec("PyInstaller") is None:
         raise PackageError(
-            "PyInstaller is unavailable in this environment. Install pyinstaller>=6.22.2."
+            "PyInstaller is unavailable. After syncing the application package, run "
+            "uv sync --group offline-exe --inexact from the repository root, "
+            "then run this tool with uv run --no-sync."
         )
 
     destination = output.expanduser().resolve()
