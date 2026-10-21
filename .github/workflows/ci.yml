@@ -242,10 +242,9 @@ jobs:
       # the checkout directory owned by the runner.
       UV_PROJECT_ENVIRONMENT: /tmp/flashdreams-venv
       UV_LINK_MODE: copy
-      # imgui-bundle publishes Linux ARM64 wheels for Python 3.11+, but not
-      # 3.10. Keep GB300 CI on a wheel-supported interpreter and fail instead
-      # of attempting its large, platform-sensitive native source build.
-      UV_PYTHON: "3.11"
+      # Match CPU CI and the workspace's Python 3.12 requirements. Require
+      # imgui-bundle wheels to avoid its large, platform-sensitive source build.
+      UV_PYTHON: "3.12"
       UV_NO_BUILD_PACKAGE: imgui-bundle
       # Limit parallel CUDA compilation jobs to avoid OOM (each nvcc job
       # uses ~9GB peak memory).
