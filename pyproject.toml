@@ -17,7 +17,7 @@ exclude = [
 ]
 
 # Override nvidia-cublas to >=13.4.1.3 because transformer-engine-cu13 2.14.0 was
-# compiled against cuBLAS 13.4.x, while torch 2.11 pins nvidia-cublas 13.1.0.3.
+# compiled against cuBLAS 13.4.x, while torch 2.12 caps nvidia-cublas at 13.1.1.3.
 # cuBLAS 13.4 is backwards compatible with 13.1.
 # Require 13.4.1.3 or newer for Windows wheels; 13.4.1.1 only ships Linux wheels.
 [tool.uv]
@@ -25,9 +25,6 @@ managed = true
 required-version = ">=0.11.8"
 override-dependencies = [
     "nvidia-cublas>=13.4.1.3",
-    # PyTorch 2.11 pins Triton 3.6.0, which miscompiles SANA-WM's 2D FP4
-    # weight quantization. Pin the working compiler until PyTorch updates it.
-    "triton==3.7.1; sys_platform == 'linux'",
     # Temporary cap for mediapy 1.2.6: numpy 2.5 makes npt.NDArray a PEP 695
     # TypeAliasType that mediapy subclasses during import.
     # https://github.com/NVIDIA/flashdreams/issues/355
