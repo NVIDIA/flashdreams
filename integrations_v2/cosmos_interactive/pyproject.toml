@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-cosmos-interactive"
+version = "0.1.0"
+description = "Shared native Cosmos Interactive model, tokenizer and codec components."
+readme = "README.md"
+license = "Apache-2.0 AND MIT"
+license-files = ["LICENSE", "NOTICE", "THIRD-PARTY-NOTICES"]
+requires-python = ">=3.12"
+dependencies = [
+    "flashdreams",
+    "torch>=2.11",
+    "einops>=0.8",
+    "safetensors>=0.5",
+    "transformers>=5.17,<6",
+    "loguru>=0.6",
+]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["cosmos_interactive", "cosmos_interactive.*"]
+
+[tool.uv]
+managed = true
+
+[tool.setuptools.package-data]
+"cosmos_interactive._lidar_codec" = [
+    "LICENSE.vllm-omni",
+    "LICENSE.k-diffusion",
+    "NOTICE",
+    "README.md",
+]

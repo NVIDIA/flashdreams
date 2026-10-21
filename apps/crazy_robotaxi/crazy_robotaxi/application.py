@@ -119,6 +119,9 @@ class ApplicationConfig:
     presentation_resolution_wh: tuple[int, int] | None
     """Presentation size, or ``None`` to use the model output dimensions."""
 
+    allow_exit: bool = True
+    """Whether the root menu may shut down the application."""
+
     show_current_prompt: bool = False
     """Whether the HUD displays the prompt currently driving generation."""
 
@@ -213,6 +216,12 @@ class CrazyRobotaxiApplication(IApplication):
         self._scenes: dict[SceneRequest, SceneDefinition] = {}
         self._config: ApplicationConfig | None = None
         self._map_options: tuple[GameMapOption, ...] = ()
+        self._allow_exit = True
+
+    def resolve_client_window_mode(self, mode: str) -> str:
+        """Disable menu shutdown when serving browser clients over WebRTC."""
+        self._allow_exit = mode != "webrtc"
+        return mode
 
     def session_desc(self) -> SessionDesc:
         """Declare the trained single-view output contract without loading."""
@@ -347,6 +356,7 @@ class CrazyRobotaxiApplication(IApplication):
             ),
             show_fps=settings.presentation.show_fps,
             presentation_resolution_wh=presentation_resolution,
+            allow_exit=self._allow_exit,
             show_current_prompt=settings.presentation.show_current_prompt,
             hud_enabled=settings.presentation.hud_enabled,
             show_control_hints=settings.presentation.show_control_hints,

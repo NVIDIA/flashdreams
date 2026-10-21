@@ -53,11 +53,16 @@ In our case we then make in `integrations_v2/wan21/apps/minimal_t2v/adapter.py`:
 
 ## Register the application
 
-In `integrations_v2/wan21/pyproject.toml`, add our application's package name to `tool.uv.sources`
+In `integrations_v2/wan21/pyproject.toml`:
 
-Then add our `slug` to run our new application entry point to `[project.entry-points."flashdreams.applications_v2"]`
+- Add `flashdreams-minimal-t2v` to `project.dependencies` and map it to
+  `{ workspace = true }` in `tool.uv.sources`.
+- Include `wan21.apps.minimal_t2v` in the setuptools packages.
+- Register `minimal-t2v-wan21` under `project.entry-points."flashdreams.applications_v2"`,
+  pointing to `wan21.apps.minimal_t2v.adapter:create_app`.
 
-This is seen in `integrations_v2/wan21/pyproject.toml`:
+The app must not depend on this integration. The existing package shows all
+three declarations:
 ```toml
 --8<-- "integrations_v2/wan21/pyproject.toml"
 ```
@@ -68,11 +73,24 @@ This is seen in `integrations_v2/wan21/pyproject.toml`:
 uv sync --package flashdreams-wan21 --inexact
 uv run --no-sync flashdreams-run-v2 minimal-t2v-wan21 --mode native-window -- --default-prompt "A cat surfing"
 ```
+
+Check argument parsing without constructing the model:
+
+```bash
+uv run --no-sync flashdreams-run-v2 minimal-t2v-wan21 -- --help
+```
+
+Keep startup and presets on the model page, with controls and arguments on the
+app page. Update navigation and gallery cards when adding either page; see
+[Create a demo](create_demo.md#check-and-document).
+
 ## Adding a new pipeline configuration to pick from
 
 Modify `integrations_v2/wan21/config.py` to add a new pipeline config to `wan21`:
 
 ```python
+from flashdreams.infra.config import derive_config
+
 PIPELINE_WAN21_T2V_SEED123 = derive_config(
     PIPELINE_WAN21_T2V_1PT3B_480P,
     name="wan21-t2v-1.3b-480p-seed123",

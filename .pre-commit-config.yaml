@@ -6,6 +6,9 @@ exclude: |
     ^agents/|
     /protos/|
     ^docker/model_specific/cfg_parallel_state\.py$|
+    # Preserve the pinned vLLM-Omni implementation for source/license review.
+    # Local adapter and tests remain covered by the hooks.
+    ^integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/(transformer_vae|rope|encoding|neighborhood_attention)\.py$|
     # Patch files reproduce upstream source byte-for-byte in their context
     # lines, including trailing whitespace and newline-at-eof. Any hook that
     # normalizes whitespace (`trailing-whitespace`, `end-of-file-fixer`) will

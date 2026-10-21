@@ -652,10 +652,17 @@ def load_extension(
                         *([] if cudnn_include is None else [str(cudnn_include)]),
                     ],
                     extra_cflags=[
-                        # Assume MSVC for Windows
-                        *(["/Zc:preprocessor"] if os.name == "nt" else []),
-                        "-O3",
-                        "-std=c++20",
+                        # MSVC flags; lean Windows headers avoid RPC's `small` macro.
+                        *(
+                            [
+                                "/Zc:preprocessor",
+                                "/O2",
+                                "/std:c++20",
+                                "-DWIN32_LEAN_AND_MEAN",
+                            ]
+                            if os.name == "nt"
+                            else ["-O3", "-std=c++20"]
+                        ),
                         "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA",
                         "-DOMNIDREAMS_SINGLEVIEW_USE_CUTLASS",
                         f"-DOMNIDREAMS_SINGLEVIEW_HAS_SAGE3={has_sage3}",
@@ -681,7 +688,11 @@ def load_extension(
                     ],
                     extra_cuda_cflags=[
                         # Assume MSVC for Windows
-                        *(["-Xcompiler=/Zc:preprocessor"] if os.name == "nt" else []),
+                        *(
+                            ["-Xcompiler=/Zc:preprocessor", "-DWIN32_LEAN_AND_MEAN"]
+                            if os.name == "nt"
+                            else []
+                        ),
                         "-O3",
                         "-std=c++20",
                         "--expt-relaxed-constexpr",

@@ -48,6 +48,37 @@ def hf_repo(*, kind: RepoKind, org: str | None = None) -> str:
     return f"{actual_org}/omni-dreams-{kind}"
 
 
+def omni_dreams_hf_repo(repo_name: str, org: str | None = None) -> str:
+    """Return an arbitrary omni-dreams HF repo id under the resolved org.
+
+    Unlike :func:`hf_repo`, this takes the full repo name (e.g.
+    ``"omni-dreams-models"``, ``"omni-dreams-samples"``) so the
+    world-model checkpoint map can build LHA-org URLs without
+    hardcoding the org. ``org`` defaults to :func:`resolve_hf_org`.
+    """
+    return f"{org or resolve_hf_org()}/{repo_name}"
+
+
+def omni_dreams_hf_url(
+    repo_name: str,
+    path: str,
+    *,
+    repo_type: str | None = None,
+    org: str | None = None,
+) -> str:
+    """Return a download/browser URL for an omni-dreams HF repo path.
+
+    Pass ``repo_type="dataset"`` for dataset repos (inserts the
+    ``/datasets`` path segment). The org is resolved from
+    ``OMNI_DREAMS_HF_ORG`` so flipping that env var to
+    ``nvidia-omni-dreams-lha`` retargets every built URL.
+    """
+    base = "https://huggingface.co"
+    if repo_type == "dataset":
+        base += "/datasets"
+    return f"{base}/{omni_dreams_hf_repo(repo_name, org)}/{path.lstrip('/')}"
+
+
 def rewrite_omni_dreams_urls(text: str, org: str | None = None) -> str:
     """Rewrite ``nvidia/omni-dreams-scenes`` substrings in ``text`` to ``<org>/...``.
 

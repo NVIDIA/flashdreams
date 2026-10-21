@@ -261,7 +261,7 @@ def test_build_and_tuning_controls_round_trip(
     document = SettingsDocument.load(
         path, pipeline_config=config, width=1280, height=704
     )
-    overrides = {
+    overrides: dict[str, Any] = {
         "model.pipeline.diffusion_model.transformer.window_size_t": 8,
         "model.pipeline.diffusion_model.scheduler.shift": 3.5,
         "game.taxi.vehicle.max_speed_mps": 25.0,

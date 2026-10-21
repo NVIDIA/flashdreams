@@ -21,9 +21,24 @@ and each file's license notice:
     example under MIT, with Apache-2.0 NVIDIA modifications. The full
     upstream notice is retained in that file.
 
+  * integrations_v2/cosmos_interactive/cosmos_interactive/_taehv_super.py
+    retains MIT upstream portions with Apache-2.0 NVIDIA modifications.
+    See LICENSES/MIT.txt and THIRD-PARTY-NOTICES.
+
+  * integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/
+    contains Apache-2.0 vLLM-Omni inference blocks. transformer_vae.py retains
+    inherited k-diffusion MIT terms. Complete upstream license texts are in
+    that directory's LICENSE.vllm-omni and LICENSE.k-diffusion.
+
 Nested license files, relative to this repository root:
+  integrations_v2/cosmos_interactive/LICENSE (Apache-2.0 and MIT)
+  integrations_v2/cosmos3_nano_sim_auto/LICENSE (Apache-2.0)
+  integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/LICENSE.vllm-omni
+  integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/LICENSE.k-diffusion
   integrations_v2/omnidreams/impl/ludus-renderer/LICENSE
   integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/LICENSE
+The Cosmos Interactive and Cosmos3 Nano Sim Auto component license files
+support standalone packaging of each integration.
 The renderer retains its own Apache license file because it is packaged
 independently. Its bundled-source exceptions remain separately licensed.
 

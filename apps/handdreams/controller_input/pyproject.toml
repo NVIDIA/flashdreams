@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-controller-input"
+version = "0.1.0"
+description = "Quest WebXR and Isaac Teleop controller input for FlashDreams V2."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+runtime = ["flashdreams[serving]"]
+webxr = ["websockets>=16.0"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+flashdreams-controller-input = "flashdreams_controller_input.setup:main"
+flashdreams-quest-relay = "flashdreams_controller_input.quest_relay:main"
+
+[project.entry-points."flashdreams.setup"]
+isaac-teleop = "flashdreams_controller_input.isaac_teleop_setup:main"
+
+[project.entry-points."flashdreams.client_windows_v2"]
+isaac-teleop-webrtc = "flashdreams_controller_input.isaac_teleop_v2_window:ISAAC_TELEOP_WEBRTC_MODE"
+quest-remote-webrtc = "flashdreams_controller_input.quest_remote_v2_window:QUEST_REMOTE_WEBRTC_MODE"
+quest-remote-native-window = "flashdreams_controller_input.quest_remote_v2_window:QUEST_REMOTE_NATIVE_WINDOW_MODE"
+
+[tool.uv]
+managed = true
+
+[tool.setuptools]
+include-package-data = false
+packages = [
+    "flashdreams_controller_input",
+]
+
+[tool.setuptools.package-data]
+"flashdreams_controller_input" = ["quest-offhead-teleop.sh", "../isaac_teleop/requirements-*.txt"]

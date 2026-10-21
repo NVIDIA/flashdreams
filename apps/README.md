@@ -28,6 +28,7 @@ model or its adapter belongs in `integrations_v2/<model>/tests/`.
 - `minimal_t2v` — Minimal T2V app from the Create a demo tutorial.
 - `t2v` — text-to-video: prompt in, frames out. The reference app to copy.
 - `cam2v` — interactive camera-to-video.
+- `handdreams` — bimanual controller input, calibration, and the HandDreams UI.
 - `action2v` — world models driven by direct action input.
 - `v2v` — video-to-video, used for super-resolution.
 - `interactive_drive` — the interactive driving demo, keyboard and wheel input.

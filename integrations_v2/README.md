@@ -13,6 +13,9 @@ guides. They are the canonical authoring instructions.
 
 ## What is here
 
+- `cosmos3_nano_sim_auto` — multiview RGB and optional LiDAR generation,
+  including Interactive Drive with prepared JSON scene bundles.
+- `cosmos_interactive` — shared Cosmos Interactive model and codec components.
 - `color_fade` — the smallest integration that writes a file. No model, CPU
   only, and the worked example for the rest of this guide.
 - `red_screen` — the smallest interactive one, streaming to a browser.
@@ -21,6 +24,8 @@ guides. They are the canonical authoring instructions.
 - `imgui_ui_demo` — an editable ImGui text field rendered over model output.
 - `lingbot` — the Lingbot World model and its `cam2v-lingbot` binding to the
   shared interactive camera-to-video application.
+- `cosmos3_nano_sim_bimanual` — the Cosmos3 Nano Sim Bimanual model and its
+  `handdreams` binding to the shared HandDreams application.
 - `waypoint` — the Waypoint model binding to the shared `apps/action2v`
   application.
 - `waypoint` — the interactive Waypoint 1.5 image-established application

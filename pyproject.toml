@@ -6,7 +6,8 @@ members = [
     # plugins, ``omnidreams`` / ``lingbot`` integrations).
     "integrations_v2/*",
     "apps/*",
-    # Nested sub-packages that the integration globs do not reach.
+    # Nested sub-packages that the app/integration globs do not reach.
+    "apps/handdreams/controller_input",
     "integrations_v2/omnidreams/impl/ludus-renderer",
 ]
 exclude = [
@@ -15,14 +16,15 @@ exclude = [
     "integrations_v2/README.md",
 ]
 
-# Override nvidia-cublas to >=13.4 because transformer-engine-cu13 2.14.0 was
-# compiled against cuBLAS 13.4.x, while torch 2.11 pins nvidia-cublas 13.1.0.3.
+# Override nvidia-cublas to >=13.4.1.3 because transformer-engine-cu13 2.14.0 was
+# compiled against cuBLAS 13.4.x, while torch 2.12 caps nvidia-cublas at 13.1.1.3.
 # cuBLAS 13.4 is backwards compatible with 13.1.
+# Require 13.4.1.3 or newer for Windows wheels; 13.4.1.1 only ships Linux wheels.
 [tool.uv]
 managed = true
 required-version = ">=0.11.8"
 override-dependencies = [
-    "nvidia-cublas>=13.4",
+    "nvidia-cublas>=13.4.1.3",
     # Temporary cap for mediapy 1.2.6: numpy 2.5 makes npt.NDArray a PEP 695
     # TypeAliasType that mediapy subclasses during import.
     # https://github.com/NVIDIA/flashdreams/issues/355
@@ -33,6 +35,7 @@ override-dependencies = [
     # Security floors for transitive async/TLS dependencies.
     "anyio>=4.14.2",
     "cryptography>=50.0.0",
+    "pyOpenSSL>=26.4.0",
     # Keep protobuf off the 6.33.x line flagged by BDSA for the ParseDict
     # recursion-depth follow-up. 7.x is outside the published affected range;
     # use the latest compatible patch to avoid scanner version-map ambiguity.
@@ -54,6 +57,9 @@ build-constraint-dependencies = ["setuptools>=83.0.0,<84"]
 # so TE builds against the resolved torch from the project venv.
 no-build-isolation-package = ["transformer-engine-torch"]
 
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
 [tool.pyright]
 exclude = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", "flashdreams/flashdreams/accelerated/quantization/triton.py"]
 ignore = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", "flashdreams/flashdreams/accelerated/quantization/triton.py"]
@@ -70,6 +76,7 @@ extraPaths = [
     "integrations_v2",
     "integrations_v2/omnidreams/impl/ludus-renderer",
     "integrations_v2/causal_forcing",
+    "apps/handdreams/controller_input",
     "integrations_v2/cosmos_predict2",
     "integrations_v2/flashvsr",
     "integrations_v2/swiftvr",
@@ -84,6 +91,8 @@ extraPaths = [
     "integrations_v2/red_screen",
     "integrations_v2/slangpy_ui_demo",
     "integrations_v2/waypoint",
+    "integrations_v2/cosmos_interactive",
+    "apps/handdreams",
 ]
 # For pyright to pickup the correct python.
 venvPath = "."
@@ -93,7 +102,8 @@ reportIncompatibleMethodOverride = "none"
 reportIncompatibleVariableOverride = "none"
 
 [tool.ty.environment]
-python-version = "3.10"
+# The complete workspace includes demos that require Python 3.12, as used in CI.
+python-version = "3.12"
 extra-paths = [
     "flashdreams",
     "apps",
@@ -108,6 +118,7 @@ extra-paths = [
     "integrations_v2",
     "integrations_v2/omnidreams/impl/ludus-renderer",
     "integrations_v2/causal_forcing",
+    "apps/handdreams/controller_input",
     "integrations_v2/cosmos_predict2",
     "integrations_v2/flashvsr",
     "integrations_v2/swiftvr",
@@ -122,6 +133,8 @@ extra-paths = [
     "integrations_v2/red_screen",
     "integrations_v2/slangpy_ui_demo",
     "integrations_v2/waypoint",
+    "integrations_v2/cosmos_interactive",
+    "apps/handdreams",
 ]
 
 [tool.ty.src]
@@ -131,6 +144,11 @@ extra-paths = [
 # flashdreams / slangpy / numpy interop areas; keep it out of workspace ``ty``.
 # (The pre-fold sample's pyright config had a similar exclude list.)
 exclude = [
+    # Preserve pinned vLLM-Omni typing; the local network.py adapter is checked.
+    "integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/transformer_vae.py",
+    "integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/rope.py",
+    "integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/encoding.py",
+    "integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/neighborhood_attention.py",
     "**/protos/*pb2*",
     "apps/interactive_drive/interactive_drive/**",
     # Same files as above; tests live beside the package, not inside it.
@@ -161,6 +179,8 @@ replace-imports-with-any = ["flash_attn.**", "transformer_engine.**", "triton.**
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -p flashdreams._pytest_plugins.marker_enforcement"
+# Spawned test workers must be able to import their repository test modules.
+pythonpath = ["."]
 norecursedirs = [
     "artifacts",
     "parity_check",
@@ -168,6 +188,9 @@ norecursedirs = [
     "baseline_fastvideo",
     "baseline_lightx2v",
     "3rdparty",
+    # Copied third-party sources. Collecting them imports another project's
+    # modules under our conftest, and its test_* names are not our tests.
+    "vendor",
 ]
 markers = [
     "ci_cpu: CPU-safe test, runs on the CPU CI runner",

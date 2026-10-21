@@ -394,6 +394,8 @@ class FrameChunk:
     boundary_state_after_chunk: VehicleState
     source_name: str
     video_model_timings: VideoModelTimings | None = None
+    warning: str | None = None
+    """Backend guidance for the current chunk; ``None`` clears prior guidance."""
 
 
 @dataclass(frozen=True)

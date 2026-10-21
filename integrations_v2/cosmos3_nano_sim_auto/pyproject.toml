@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-cosmos3-nano-sim-auto"
+version = "0.1.0"
+description = "Multiview Cosmos3 Nano Sim Auto inference and interactive driving."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "flashdreams-cosmos-interactive",
+    # Recorded RGB/LiDAR runs also use the shared multiview UI.
+    "flashdreams-interactive-drive-v2",
+    "flashdreams[local-window,runners,serving]",
+    # Prepared scenes use Ludus for live HD map rendering.
+    "ludus-renderer",
+    "scipy>=1.15.3",
+    "imageio[ffmpeg]>=2.31",
+    "Pillow>=12.3.0",
+]
+
+# No test extra here on purpose. pytest and friends live in the workspace root's
+# test dependency group.
+[project.optional-dependencies]
+# Compatibility extra for existing installation commands; the app and its
+# presentation stack are included in the base dependencies.
+interactive-drive = []
+
+[project.entry-points."flashdreams.applications_v2"]
+"cosmos3-nano-sim-auto" = "cosmos3_nano_sim_auto.impl.app:create_app"
+"interactive-drive-cosmos3-nano-sim-auto" = "cosmos3_nano_sim_auto.apps.interactive_drive.adapter:create_app"
+
+[tool.uv.sources]
+flashdreams-cosmos-interactive = { workspace = true }
+flashdreams = { workspace = true }
+flashdreams-interactive-drive-v2 = { workspace = true }
+ludus-renderer = { workspace = true }
+
+[tool.setuptools]
+include-package-data = false
+# This directory is the package, so there is no inner ``cosmos3_nano_sim_auto/`` to
+# nest everything in. The cost is that subpackages are listed rather than
+# found: a new one has to be named here or it ships missing, and the way that
+# shows up is an ``ImportError`` from an installed wheel and not from a
+# checkout. ``omnidreams`` is arranged the same way.
+packages = [
+    "cosmos3_nano_sim_auto",
+    "cosmos3_nano_sim_auto.apps",
+    "cosmos3_nano_sim_auto.apps.interactive_drive",
+    "cosmos3_nano_sim_auto.impl",
+    "cosmos3_nano_sim_auto.impl.conditioning",
+    "cosmos3_nano_sim_auto.impl.conditioning.world_scenario",
+    "cosmos3_nano_sim_auto.impl.distributed",
+    "cosmos3_nano_sim_auto.impl.transformer",
+]
+
+[tool.setuptools.package-dir]
+cosmos3_nano_sim_auto = "."
+
+[tool.uv]
+managed = true

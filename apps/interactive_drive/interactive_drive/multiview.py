@@ -44,15 +44,14 @@ def sensor_layout(
 
     Bearing rows run front to rear. Left/right streams stay in their respective
     screen halves; co-located lenses remain distinct. Auxiliary streams occupy
-    the middle row between the sides. Grid mode preserves model order.
+    the middle row between the sides. One camera and one auxiliary stream use
+    equal columns. Grid mode preserves model order.
     """
     validate_cameras(cameras)
     if auxiliary_count < 0:
         raise ValueError("Auxiliary count must be non-negative")
     count = len(cameras) + auxiliary_count
-    if bearings and len(cameras) == 1 and auxiliary_count == 1:
-        return {0: (0, 0, 1, 2 / 3), 1: (0, 2 / 3, 1, 1 / 3)}
-    if not bearings or count == 1:
+    if not bearings or count == 1 or (len(cameras) == 1 and auxiliary_count == 1):
         grid = PresentationLayout.grid(count)
         return {
             i: (
@@ -253,7 +252,9 @@ class MultiviewUILoop(InteractiveDriveUILoop):
                 "Click a sensor title to enlarge. Return to overview to restore coverage."
             )
             imgui.text_wrapped(
-                "Front above / rear below. Left and right are vehicle-relative. Images are not mirrored."
+                f"Camera left / {state.auxiliary_views[0].label} right. Images are not mirrored."
+                if state.visible_count == 1 and len(state.auxiliary_views) == 1
+                else "Front above / rear below. Left and right are vehicle-relative. Images are not mirrored."
                 if state.bearing_layout
                 else "Grid follows model channel order."
             )

@@ -1,6 +1,8 @@
 nav:
   - Overview: index.md
   - Streaming & Autoregressive:
+      - Cosmos3 Nano Sim Bimanual: cosmos3_nano_sim_bimanual.md
+      - Cosmos3 Nano Sim Auto: cosmos3_nano_sim_auto.md
       - NVIDIA OmniDreams: omnidreams.md
       - Self-Forcing: self_forcing.md
       - Causal-Forcing: causal_forcing.md
