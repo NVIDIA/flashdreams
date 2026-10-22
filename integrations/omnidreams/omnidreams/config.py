@@ -429,6 +429,12 @@ OMNIDREAMS_CONFIGS: dict[str, OmnidreamsPipelineConfig] = {
 }
 """All shipped Omnidreams variants, keyed by ``name``."""
 
+DEFAULT_PIPELINE_CONFIG_NAME = SV_2STEPS_CHUNK2_LOC6_LIGHTVAE_LIGHTTAE_PERF.name
+"""Default pipeline config for the WebRTC server and the VAE export CLI.
+
+Both read this one value so the exported client decoder cannot drift from the
+decoder the server launches with by default."""
+
 
 ## Per-variant runner-config literals (slug == ``name``).
 

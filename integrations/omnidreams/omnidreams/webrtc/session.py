@@ -45,6 +45,7 @@ from omnidreams.scenes import (
 )
 from omnidreams.transformer import CosmosTransformerConfig
 from omnidreams.webrtc import vae_artifacts
+from omnidreams.webrtc.vae_export import resolve_pipeline_config
 
 from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
@@ -1156,6 +1157,26 @@ class OmnidreamsWebRTCSessionManager(
         return self.runtime_config.pipeline_config_name
 
     def _token_stream_extra_header(self) -> dict[str, Any]:
+        # The client must decode with the SAME decoder the server generates with.
+        # Compute the launched decoder's identity and advertise an exported
+        # artifact only when its identity matches. Any failure disables token
+        # streaming loudly — it never silently serves the wrong decoder (nor, per
+        # design, falls back to the pixel path).
+        cfg = self.runtime_config
+        pipeline_config = cfg.pipeline_config or resolve_pipeline_config(
+            cfg.pipeline_config_name
+        )
+        try:
+            launched = vae_artifacts.identity_for_config(
+                pipeline_config.decoder,
+                int(pipeline_config.diffusion_model.transformer.len_t),
+                cfg.video_width,
+                cfg.video_height,
+            )
+        except vae_artifacts.TokenStreamUnsupportedDecoder as exc:
+            logger.warning("Token streaming unavailable: {}", exc)
+            return {}
+
         descriptor = vae_artifacts.build_descriptor()
         if descriptor is None:
             logger.warning(
@@ -1163,6 +1184,16 @@ class OmnidreamsWebRTCSessionManager(
                 "under {}; run `python -m omnidreams.webrtc.export_vae` so the "
                 "client can decode latents.",
                 vae_artifacts.cache_dir(),
+            )
+            return {}
+        if descriptor.get("identity") != launched:
+            logger.warning(
+                "Token streaming disabled: the exported decoder {} does not match "
+                "the launched decoder {}. Re-export with "
+                "`python -m omnidreams.webrtc.export_vae --pipeline-config-name {}`.",
+                descriptor.get("identity"),
+                launched,
+                cfg.pipeline_config_name,
             )
             return {}
         return {"vae_model": descriptor}

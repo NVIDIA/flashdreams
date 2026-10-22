@@ -13,7 +13,7 @@ import torch
 import torch.distributed as dist
 from aiohttp import web
 from loguru import logger
-from omnidreams.config import OMNIDREAMS_CONFIGS
+from omnidreams.config import DEFAULT_PIPELINE_CONFIG_NAME, OMNIDREAMS_CONFIGS
 from omnidreams.interactive_drive.cli_args import (
     ExplicitArgTrackingArgumentParser,
     arg_was_explicit,
@@ -27,7 +27,7 @@ from omnidreams.interactive_drive.world_model.manifest import (
     resolve_world_model_manifest_path,
 )
 from omnidreams.transformer import CosmosTransformerConfig
-from omnidreams.webrtc import vae_artifacts
+from omnidreams.webrtc import vae_artifacts, vae_export
 from omnidreams.webrtc.session import (
     OmnidreamsRuntimeConfig,
     OmnidreamsSessionInput,
@@ -79,7 +79,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--pipeline_config_name",
         type=str,
-        default="omnidreams-sv-2steps-chunk2-loc6-lightvae-lighttae-perf",
+        default=DEFAULT_PIPELINE_CONFIG_NAME,
         choices=sorted(OMNIDREAMS_CONFIGS),
     )
     parser.add_argument(
@@ -185,6 +185,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "/api/token-stream WebSocket instead of encoded video."
         ),
     )
+    parser.add_argument(
+        "--no-auto-export-vae",
+        "--no_auto_export_vae",
+        dest="no_auto_export_vae",
+        action="store_true",
+        help=(
+            "Do not auto-export the token-stream VAE decoder at launch; require a "
+            "pre-exported artifact matching the launched model (else the launch "
+            "aborts). Default: auto-export as needed."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -230,7 +241,12 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
 
 
 async def _vae_model(request: web.Request) -> web.StreamResponse:
-    """Serve an exported VAE-decoder ONNX so the token-stream client can decode."""
+    """Serve an exported VAE-decoder ONNX so the token-stream client can decode.
+
+    The ``{version}`` path segment is a browser cache key only — the client always
+    fetches the version from its own session header, so the handler just serves
+    the current artifact for the requested precision.
+    """
     precision = request.match_info["precision"]
     if precision not in vae_artifacts.SUPPORTED_PRECISIONS:
         raise web.HTTPNotFound()
@@ -243,7 +259,9 @@ async def _vae_model(request: web.Request) -> web.StreamResponse:
 def _configure_app(app: web.Application) -> None:
     app.router.add_get("/api/postprocess/options", _postprocess_options)
     app.router.add_post("/api/session/input", _session_input)
-    app.router.add_get(vae_artifacts.URL_PREFIX + "/{precision}.onnx", _vae_model)
+    app.router.add_get(
+        vae_artifacts.URL_PREFIX + "/{version}/{precision}.onnx", _vae_model
+    )
 
 
 def create_app(
@@ -364,6 +382,42 @@ def _validate_single_view_config(
         )
 
 
+def _preflight_token_stream(
+    args: argparse.Namespace, runtime_config: OmnidreamsRuntimeConfig
+) -> None:
+    """Provision (or reuse) the token-stream decoder for the launched model, or
+    abort the launch.
+
+    The operator explicitly requested ``--enable-token-stream``, so an inability
+    to honor it is fatal (strict policy): we never start a server that silently
+    cannot serve token streaming (nor one that would fall back to pixel). Runs
+    before the heavy pipeline preload, so it fails fast.
+    """
+    pipeline_config = (
+        runtime_config.pipeline_config
+        or vae_export.resolve_pipeline_config(runtime_config.pipeline_config_name)
+    )
+    try:
+        vae_export.ensure_vae_artifacts(
+            pipeline_config,
+            video_width=runtime_config.video_width,
+            video_height=runtime_config.video_height,
+            precisions=vae_artifacts.SUPPORTED_PRECISIONS,
+            device=runtime_config.device,
+            auto_export=not args.no_auto_export_vae,
+        )
+    except (
+        vae_artifacts.TokenStreamUnsupportedDecoder,
+        vae_export.TokenStreamExportError,
+    ) as exc:
+        logger.critical(
+            "Aborting launch: --enable-token-stream was requested but token "
+            "streaming cannot be enabled: {}",
+            exc,
+        )
+        raise SystemExit(2) from exc
+
+
 def main() -> None:
     configure_logging()
     args = parse_args()
@@ -377,6 +431,8 @@ def main() -> None:
         default_device=runtime_config.device
     )
     runtime_config = replace(runtime_config, device=str(runtime_device))
+    if args.enable_token_stream and world_rank == 0:
+        _preflight_token_stream(args, runtime_config)
     session_manager = OmnidreamsWebRTCSessionManager(runtime_config=runtime_config)
     app = None
     if world_rank == 0:
