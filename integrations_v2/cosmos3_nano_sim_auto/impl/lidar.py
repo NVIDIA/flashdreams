@@ -21,7 +21,7 @@ import math
 import traceback
 from collections.abc import Iterator
 from dataclasses import dataclass
-from multiprocessing.connection import Connection
+from multiprocessing.connection import _ConnectionBase
 from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import Literal
@@ -182,7 +182,7 @@ class LidarDecodeWorker:
     model thread pays a 2 MB send and an 11 MB receive.
     """
 
-    def __init__(self, conn: Connection, *, device: torch.device) -> None:
+    def __init__(self, conn: _ConnectionBase, *, device: torch.device) -> None:
         self._process: BaseProcess | None = None
         self._conn = conn
         self._device = device
@@ -261,7 +261,7 @@ class LidarDecodeWorker:
 
 
 def _serve_decode(
-    conn: Connection,
+    conn: _ConnectionBase,
     checkpoint: str,
     version: Literal["v1p1", "v1p2"],
     worker_device: int,

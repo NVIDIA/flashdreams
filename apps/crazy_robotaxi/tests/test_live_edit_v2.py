@@ -144,6 +144,21 @@ def test_style_assets_download_only_when_missing(
     assert len(downloads) == 4
 
 
+def test_style_assets_use_flashdreams_cache_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FLASHDREAMS_CACHE_DIR", str(tmp_path))
+    cache_dirs: list[Path] = []
+
+    def fake_download(url: str, *, cache_dir: Path) -> Path:
+        cache_dirs.append(cache_dir)
+        return cache_dir / Path(url).name
+
+    monkeypatch.setattr(live_edit_config, "download_to_cache", fake_download)
+    resolve_live_edit_assets(LiveEditConfig(style=LiveEditStyleConfig(enabled=True)))
+    assert cache_dirs == [tmp_path / "crazy-robotaxi" / "live_edit"] * 4
+
+
 def test_explicit_style_assets_skip_download(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

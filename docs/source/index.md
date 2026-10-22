@@ -41,7 +41,7 @@ hide:
   <div class="fd-card-grid fd-card-grid-three fd-overview-grid">
     <a class="fd-card fd-model-card" href="quickstart/"><span class="fd-card-title">Get Started</span><span>Install FlashDreams and run your first model.</span></a>
     <a class="fd-card fd-model-card" href="models/"><span class="fd-card-title">Models</span><span>Browse default supported models.</span></a>
-    <a class="fd-card fd-model-card" href="demos/"><span class="fd-card-title">Demos</span><span>Explore our game-like experiences and model interfaces.</span></a>
+    <a class="fd-card fd-model-card" href="demos/"><span class="fd-card-title">Demos</span><span>Explore our interactive experiences and model interfaces.</span></a>
     <a class="fd-card fd-model-card" href="documentation/"><span class="fd-card-title">Documentation</span><span>Checkout our CLI, Demo API, Inferencing API, tooling, or related guides.</span></a>
     <a class="fd-card fd-model-card" href="community/"><span class="fd-card-title">Community</span><span>Find contribution documentation and support channels.</span></a>
   </div>

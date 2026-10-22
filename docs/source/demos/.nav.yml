@@ -1,6 +1,6 @@
 nav:
   - Overview: index.md
-  - Game-Like Experiences:
+  - Interactive Experiences:
       - HandDreams: hand_dreams.md
       - Crazy Robotaxi: crazy_robotaxi.md
       - Interactive Drive: interactive_drive.md

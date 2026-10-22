@@ -17,7 +17,7 @@ Demos pair an interactive experience or input interface with a compatible model 
 
 For how to run a particular **demo/model pair**, refer to the format listed here: [Running a model](../models/index.md).
 
-## Game-Like Experiences
+## Interactive Experiences
 
 <div class="fd-card-grid fd-card-grid-three fd-overview-grid">
   <div class="fd-card fd-model-card"><a class="fd-model-card-link" href="hand_dreams/"><img class="fd-card-preview" src="../_static/demo_clips/handdreams.avif" alt="" /><span class="fd-card-title">HandDreams</span><span>Move generated robot hands with virtual or physical controllers.</span></a></div>

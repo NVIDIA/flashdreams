@@ -16,7 +16,7 @@ import os
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
-from multiprocessing.connection import Connection
+from multiprocessing.connection import _ConnectionBase
 from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import Any
@@ -91,7 +91,7 @@ class ControlWorker:
     nothing in flight asks and waits, so the opening window needs no request.
     """
 
-    def __init__(self, conn: Connection, *, device: torch.device) -> None:
+    def __init__(self, conn: _ConnectionBase, *, device: torch.device) -> None:
         self._process: BaseProcess | None = None
         self._conn = conn
         self._device = device
@@ -105,7 +105,7 @@ class ControlWorker:
         spec: WorkerSpec,
         *,
         device: torch.device,
-        target: Callable[[Connection, WorkerSpec], None] | None = None,
+        target: Callable[[_ConnectionBase, WorkerSpec], None] | None = None,
     ) -> ControlWorker:
         """Start the process and wait until its scene and encoder are up.
 
@@ -189,7 +189,7 @@ class ControlWorker:
                 process.join(timeout=5.0)
 
 
-def _serve(conn: Connection, spec: WorkerSpec) -> None:
+def _serve(conn: _ConnectionBase, spec: WorkerSpec) -> None:
     """The worker's whole life: open, then draw and encode what the pipe asks for."""
     try:
         from cosmos3_nano_sim_auto.impl.conditioning import ludus_controls
@@ -255,7 +255,7 @@ def _serve(conn: Connection, spec: WorkerSpec) -> None:
             return
 
 
-def _send(conn: Connection, message: Any) -> bool:
+def _send(conn: _ConnectionBase, message: Any) -> bool:
     """Send, or report that the parent has gone, which a restart does on purpose."""
     try:
         conn.send(message)

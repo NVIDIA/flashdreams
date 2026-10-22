@@ -170,6 +170,9 @@ class PhysicsObjectGraph:
     _barrier_cells: dict[tuple[int, int], tuple[int, ...]] = field(
         init=False, default_factory=dict, repr=False, compare=False
     )
+    _spatial_index_revision: int = field(
+        init=False, default=-1, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         self.object_index = {
@@ -178,7 +181,6 @@ class PhysicsObjectGraph:
         }
         if len(self.object_index) != len(self.objects):
             raise ValueError("object_id values must be unique")
-        self._rebuild_spatial_index()
 
     def _cells_for_bounds(
         self, minimum_xy: np.ndarray, maximum_xy: np.ndarray
@@ -235,6 +237,7 @@ class PhysicsObjectGraph:
         self._barrier_cells = {
             cell: tuple(indices) for cell, indices in barrier_cells.items()
         }
+        self._spatial_index_revision = self.revision
 
     def _spatial_candidates(
         self,
@@ -261,7 +264,6 @@ class PhysicsObjectGraph:
             value.object_id: index for index, value in enumerate(self.objects)
         }
         self.revision += 1
-        self._rebuild_spatial_index()
 
     def remove_object(self, object_id: str) -> None:
         """Remove one object without rebuilding unrelated graph data."""
@@ -276,7 +278,6 @@ class PhysicsObjectGraph:
             value.object_id: index for index, value in enumerate(self.objects)
         }
         self.revision += 1
-        self._rebuild_spatial_index()
 
     def upsert_barrier(self, barrier_id: str, barrier: InvisibleBarrier) -> None:
         """Add or replace one named invisible wall."""
@@ -296,7 +297,6 @@ class PhysicsObjectGraph:
             barriers.append(normalized)
         self.barriers = tuple(barriers)
         self.revision += 1
-        self._rebuild_spatial_index()
 
     def remove_barrier(self, barrier_id: str) -> None:
         """Remove one named invisible wall."""
@@ -307,7 +307,6 @@ class PhysicsObjectGraph:
             return
         self.barriers = barriers
         self.revision += 1
-        self._rebuild_spatial_index()
 
     def copy_for_physx(
         self,
@@ -328,6 +327,8 @@ class PhysicsObjectGraph:
             raise ValueError("center_xy_m must have shape (2,)")
         if radius_m <= 0.0:
             raise ValueError("radius_m must be positive")
+        if self._spatial_index_revision != self.revision:
+            self._rebuild_spatial_index()
         object_candidates = self._spatial_candidates(
             self._object_cells, center, float(radius_m)
         )
