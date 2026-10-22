@@ -15,6 +15,7 @@ through `flashdreams-run-v2`.
   <a class="fd-card fd-model-card" href="guides/create_demo/"><span class="fd-card-title">Create a demo</span><span>Build a model-independent application against the Demo API.</span></a>
   <a class="fd-card fd-model-card" href="guides/integrate_model_adapter_for_a_demo/"><span class="fd-card-title">Integrate model adapter for a demo</span><span>Connect a model to an existing demo.</span></a>
   <a class="fd-card fd-model-card" href="guides/interactive_serving/"><span class="fd-card-title">Interactive serving</span><span>Run a demo in a browser or local window.</span></a>
+  <a class="fd-card fd-model-card" href="guides/synthetic_input/"><span class="fd-card-title">Synthetic Input</span><span>Replay deterministic user input for QA, CI, and benchmarks.</span></a>
   <a class="fd-card fd-model-card" href="guides/profiling/"><span class="fd-card-title">Profiling a demo</span><span>Collect Nsight Systems traces and per-step performance metrics.</span></a>
 </div>
 

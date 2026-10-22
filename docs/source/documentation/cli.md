@@ -23,7 +23,7 @@ uv run flashdreams-run-v2 <Demo Preset> <System Arguments> -- <Demo Arguments>
 | `--total-model-steps {N,unbound}` | Bound model steps across the whole application run, including replacement sessions. |
 | `--mode {mp4,webrtc,native-window}` | Select file, browser, or local-window presentation. Default: `mp4`. |
 | `--stats-path PATH` | Write JSON model-step measurements and enable synchronized per-stage pipeline profiling. |
-| `--synthetic-input-file PATH` | Replay deterministic input from a [synthetic input file](synthetic_input.md). |
+| `--synthetic-input-file PATH` | Replay deterministic input with the [synthetic input system](demo_api/guides/synthetic_input.md). |
 
 ### MP4 Specific
 

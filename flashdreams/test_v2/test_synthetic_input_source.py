@@ -171,6 +171,8 @@ def test_documentation_matches_the_reflection_derived_event_schema() -> None:
         / "docs"
         / "source"
         / "documentation"
+        / "demo_api"
+        / "guides"
         / "synthetic_input.md"
     ).read_text(encoding="utf-8")
     header = (

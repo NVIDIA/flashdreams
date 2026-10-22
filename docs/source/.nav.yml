@@ -6,13 +6,13 @@ nav:
   - Documentation:
       - Documentation Overview: documentation/index.md
       - CLI Reference: documentation/cli.md
-      - Synthetic Input Files: documentation/synthetic_input.md
       - Demo API:
           - Demo API Overview: documentation/demo_api/index.md
           - Guides:
               - Create a demo: documentation/demo_api/guides/create_demo.md
               - Integrate model adapter for a demo: documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md
               - Interactive serving: documentation/demo_api/guides/interactive_serving.md
+              - Synthetic Input: documentation/demo_api/guides/synthetic_input.md
               - Profiling a demo: documentation/demo_api/guides/profiling.md
           - API Reference:
               - Application API: documentation/demo_api/api_reference/application.md

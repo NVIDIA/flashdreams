@@ -1,15 +1,20 @@
 ---
-title: 'Synthetic Input Files'
+title: 'Synthetic Input'
 ---
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Synthetic Input Files
+# Synthetic Input
 
-Runs in any client-window mode can replay deterministic user input from a
-version 1 JSON file:
+Synthetic input replays versioned `UserInputEvent` payloads through any
+client-window mode. Use it for repeatable QA, CI, and benchmarks without
+interactive device input.
+
+## Run a replay
+
+Save a descriptor such as this one as `inputs.json`:
 
 ```json
 {
@@ -24,8 +29,31 @@ version 1 JSON file:
 }
 ```
 
-Pass the file with `--synthetic-input-file PATH`. The top-level object must
-contain only `version` and `events`. Version 1 supports `ui_loop` scheduling.
+Pass the file with `--synthetic-input-file PATH`. For predictable
+frame-by-frame replay, use blocking backpressure and on-demand presentation:
+
+```bash
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG \
+  --mode mp4 \
+  --output-path replay.mp4 \
+  --total-model-steps 120 \
+  --synthetic-input-file inputs.json \
+  --backpressure-mode block \
+  --presentation-mode on_demand
+```
+
+`block` preserves every model output instead of dropping queued work, and
+`on_demand` runs the steady-state UI loop only when a new model frame is
+selected. Together they present each retained model frame once and in order
+during inference, making `ui_loop` schedules consistent between runs. The UI
+can still run before inference starts and after it finishes. Synthetic input
+also works with other modes and presentation settings when this behavior is not
+required.
+
+## Descriptor format
+
+The top-level object must contain only `version` and `events`. Version 1
+supports `ui_loop` scheduling.
 `at` is a zero-based input-poll index: `0` releases an event when the runtime
 first polls the client window after opening the session, before the first UI
 step. Events with the same `at` value retain their file order.
@@ -41,6 +69,17 @@ sessions never rewind the cursor or poll index.
 Each `event` object must contain a registered `UserInputEvent` `type` and may
 contain only that event type's fields. Do not provide `timestamp`; the runtime
 stamps an event when it is released. Optional fields use the defaults below.
+
+For example, a mouse-button press maps directly to the `mouse` event fields,
+while an event without additional fields needs only its registered type:
+
+```json
+{"type": "mouse", "action": "button", "button": 0, "pressed": true}
+```
+
+```json
+{"type": "reset"}
+```
 
 | Event type | Field | Type | Required | Default | Accepted values |
 | --- | --- | --- | --- | --- | --- |
