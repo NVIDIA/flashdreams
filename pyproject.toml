@@ -104,6 +104,8 @@ reportIncompatibleVariableOverride = "none"
 [tool.ty.environment]
 # The complete workspace includes demos that require Python 3.12, as used in CI.
 python-version = "3.12"
+# Check applications independently of the lint host's OS (Some demos are Linux only, this is valid for CI).
+python-platform = "all"
 extra-paths = [
     "flashdreams",
     "apps",
@@ -199,6 +201,13 @@ markers = [
 ]
 
 [dependency-groups]
+# Build tools and presentation assets collected by the offline executable packager.
+offline-exe = [
+    "flashdreams[local-window]",
+    "ninja>=1.11",
+    "packaging>=24",
+    "pyinstaller>=6.22.2",
+]
 # Test-specific dependencies shared across workspace members. Listed here so
 # that the type checker (ty) can resolve imports in test files and in
 # flashdreams/_pytest_plugins.

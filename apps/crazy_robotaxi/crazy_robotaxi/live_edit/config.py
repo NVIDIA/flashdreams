@@ -18,10 +18,10 @@ from typing import Any, Callable, Literal, cast
 
 from omnidreams_game_engine.cli_args import arg_was_explicit
 
+from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.core.io.download import download_to_cache
 
 _CORRECTOR_MODES = ("fused", "unfused", "off")
-_DEFAULT_ASSET_DIR = Path("artifacts/crazy_robotaxi/live_edit")
 _STYLE_LORA_URL = (
     "https://github.com/wenqingw-nv/flashdreams-wq/releases/download/"
     "style-skin-v6-multiskin/lora_style_v6_step1600.pt"
@@ -799,7 +799,7 @@ class LiveEditConfig:
 def resolve_live_edit_assets(
     config: LiveEditConfig,
     *,
-    cache_dir: Path = _DEFAULT_ASSET_DIR,
+    cache_dir: Path | None = None,
 ) -> LiveEditConfig:
     """Download missing checkpoints needed by enabled live-edit features.
 
@@ -809,6 +809,8 @@ def resolve_live_edit_assets(
     OmniDreams clean-forcing checkpoint. Weather only needs a corrector when
     its configured gain is nonzero; otherwise weather remains LoRA-free.
     """
+    if cache_dir is None:
+        cache_dir = default_flashdreams_cache_dir() / "crazy-robotaxi" / "live_edit"
     style = config.style
     weather = config.weather
     if style.enabled and style.lora_checkpoint is None:

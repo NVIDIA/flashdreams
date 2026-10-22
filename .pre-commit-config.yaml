@@ -25,7 +25,8 @@ repos:
         args: [--markdown-linebreak-ext=md]
       - id: end-of-file-fixer
         exclude_types: [python]
-        exclude: ^tests/.*/fixtures/.*
+        # Git checks this symlink out as its target text on Windows; a newline breaks it.
+        exclude: ^tests/.*/fixtures/.*|^apps/handdreams/controller_input/uv\.lock$
       - id: check-symlinks
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.12.7

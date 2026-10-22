@@ -29,6 +29,7 @@ from omnidreams.impl.native.primitives import (
 )
 from torch import Tensor
 
+from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.recipes.wan.autoencoder.vae import (
     TEMPORAL_WINDOW,
     WanVAECache,
@@ -38,7 +39,7 @@ from flashdreams.recipes.wan.autoencoder.vae import (
 
 NativeVAEBackend = Literal["fp8"]
 NATIVE_LIGHTVAE_FP8_STATE_ENV = "OMNIDREAMS_LIGHTVAE_FP8_STATE_PATH"
-DEFAULT_LIGHTVAE_FP8_STATE_PATH = "artifacts/native_vae/lightvae_fp8_state.pt"
+DEFAULT_LIGHTVAE_FP8_STATE_PATH = "omnidreams/native_vae/lightvae_fp8_state.pt"
 
 
 @dataclass(kw_only=True)
@@ -96,7 +97,13 @@ def _native_vae_fp8_state_path(
         ensure_lightvae_fp8_state,
     )
 
-    return str(ensure_lightvae_fp8_state(Path(path or DEFAULT_LIGHTVAE_FP8_STATE_PATH)))
+    return str(
+        ensure_lightvae_fp8_state(
+            Path(path)
+            if path
+            else default_flashdreams_cache_dir() / DEFAULT_LIGHTVAE_FP8_STATE_PATH
+        )
+    )
 
 
 def _native_vae_availability_check(

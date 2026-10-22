@@ -168,6 +168,7 @@ def test_fast_perf_config_auto_exports_default_fp8_state(
     from omnidreams.impl.scripts import export_lightvae_fp8_state as exporter
 
     monkeypatch.delenv(NATIVE_LIGHTVAE_FP8_STATE_ENV, raising=False)
+    monkeypatch.setenv("FLASHDREAMS_CACHE_DIR", str(tmp_path))
     expected = tmp_path / DEFAULT_LIGHTVAE_FP8_STATE_PATH
     calls: list[Path] = []
 
@@ -185,8 +186,8 @@ def test_fast_perf_config_auto_exports_default_fp8_state(
     assert _native_vae_fp8_state_path(image_encoder) == str(expected)
     assert _native_vae_fp8_state_path(encoder) == str(expected)
     assert calls == [
-        Path(DEFAULT_LIGHTVAE_FP8_STATE_PATH),
-        Path(DEFAULT_LIGHTVAE_FP8_STATE_PATH),
+        expected,
+        expected,
     ]
 
 

@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 import torch
+from huggingface_hub import constants as hf_constants
 from safetensors.torch import save_file as save_safetensors_file
 
 pytestmark = pytest.mark.ci_cpu
@@ -32,6 +33,35 @@ class _NonWeightCheckpointObject:
 
     def __reduce__(self) -> tuple[Any, tuple[str]]:
         return _record_object_load, (self.marker_path,)
+
+
+def test_cached_hf_subfolder_needs_no_free_space(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    checkpoint_load = importlib.import_module("flashdreams.core.checkpoint.load")
+    cache_root = tmp_path / "hub"
+    repo_cache = cache_root / "models--org--model"
+    sha = "a" * 40
+    (repo_cache / "refs").mkdir(parents=True)
+    (repo_cache / "refs" / "main").write_text(sha, encoding="utf-8")
+    checkpoint = repo_cache / "snapshots" / sha / "single_view" / "weights.pt"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"cached")
+    cache_dir = f"\\\\?\\{cache_root}" if os.name == "nt" else str(cache_root)
+    monkeypatch.setattr(hf_constants, "HF_HUB_CACHE", cache_dir)
+
+    def reject_preflight(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("cached checkpoints must not require free disk")
+
+    monkeypatch.setattr(checkpoint_load, "ensure_free_disk", reject_preflight)
+    monkeypatch.setattr(checkpoint_load, "hf_hub_download", reject_preflight)
+
+    cached = checkpoint_load._download_checkpoint_from_huggingface_url(
+        "https://huggingface.co/org/model/resolve/main/single_view/weights.pt",
+        checkpoint_min_free_gb=200,
+    )
+
+    assert Path(cached).samefile(checkpoint)
 
 
 @pytest.mark.parametrize("source", ["huggingface", "s3", "distributed-cache"])
