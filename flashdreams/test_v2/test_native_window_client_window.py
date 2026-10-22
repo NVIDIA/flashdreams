@@ -758,10 +758,12 @@ def test_composite_native_replacement_preserves_replay_and_rebases_timestamps(
         secondary_input_sources=(source,),
         on_open=source.start_session,
         on_close=source.end_session,
+        on_ui_step_completed=source.ui_step_completed,
     )
 
     window.open(_session_desc())
     first = window.get_user_input_events().get_events()
+    window.ui_step_completed()
     window.open(_session_desc())
     second = window.get_user_input_events().get_events()
     window.close()
