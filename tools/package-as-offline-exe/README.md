@@ -1,1 +1,1 @@
-[Refer To Website For Documentation](https://flashdreams.nvidia.com/documentation/tools/offline_program_packager.html)
+[Refer To Website For Documentation](https://flashdreams.org/main/documentation/tools/offline_program_packager/)
