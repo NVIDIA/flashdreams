@@ -141,6 +141,7 @@ class _FakeOutput:
     condition_frames: torch.Tensor
     rgb_frames: torch.Tensor | None
     finalization_state: dict[str, int]
+    latent_frames: torch.Tensor | None = None
 
 
 class _FakeWrapper:
@@ -262,6 +263,7 @@ def test_generate_chunk_postprocesses_rgb_before_cpu_handoff() -> None:
     )
 
     assert postprocess_stream.calls == [0]
+    assert result.video_chunk is not None
     assert result.video_chunk.device.type == "cpu"
     assert result.video_chunk.shape == (1, 1, 2, 3, 8, 10)
     assert result.video_chunk.unique().tolist() == [0.5]
@@ -321,10 +323,12 @@ def test_generate_chunk_can_stream_debug_hdmaps_without_rgb_frames() -> None:
 
     assert result0.chunk_index == 0
     assert result0.num_frames == 2
+    assert result0.video_chunk is not None
     assert result0.video_chunk.shape == (1, 1, 2, 3, 4, 5)
     assert result0.video_chunk.unique().tolist() == [31]
     assert result1.chunk_index == 1
     assert result1.num_frames == 3
+    assert result1.video_chunk is not None
     assert result1.video_chunk.shape == (1, 1, 3, 3, 4, 5)
     assert result1.video_chunk.unique().tolist() == [47]
     assert wrapper.skip_video_generation_flags == [True, True]

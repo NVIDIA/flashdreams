@@ -66,6 +66,7 @@ def test_make_webrtc_step_result_preserves_tensor_and_infers_frames() -> None:
     assert isinstance(result, WebRTCStepResult)
     assert result.chunk_index == 4
     assert result.num_frames == 3
+    assert result.video_chunk is not None
     assert result.video_chunk.device == video.device
     assert result.video_chunk.data_ptr() == video.data_ptr()
     assert result.video_chunk.requires_grad is False

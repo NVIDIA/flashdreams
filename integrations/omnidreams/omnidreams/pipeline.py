@@ -402,6 +402,7 @@ class OmnidreamsPipeline(
         autoregressive_index: int,
         cache: OmnidreamsPipelineCache,
         hdmap: Tensor,
+        decode_output: bool = True,
     ) -> Tensor:
         """Generate one decoded video chunk.
 
@@ -410,9 +411,14 @@ class OmnidreamsPipeline(
             cache: Per-rollout cache from ``initialize_cache``.
             hdmap: Per-AR-step HDMap pixels ``[B, V, T, 3, H, W]`` in
                 ``[-1, 1]``. ``T`` must equal ``get_num_frames(autoregressive_index)``.
+            decode_output: When ``False``, skip the VAE decode and return the
+                clean latent (for latent/token streaming). Note this leaves the
+                decoder's temporal cache un-advanced, so it is only safe when the
+                stream mode is fixed for the rollout.
 
         Returns:
-            Decoded video chunk ``[B, V, T, 3, H, W]`` in ``[-1, 1]``.
+            Decoded video chunk ``[B, V, T, 3, H, W]`` in ``[-1, 1]``, or the
+            clean latent ``[B, V, T, Cl, Hl, Wl]`` when ``decode_output`` is off.
         """
         hdmap = split_inputs_cp(hdmap, seq_dim=1, cp_group=self.V_group)
 
@@ -420,9 +426,14 @@ class OmnidreamsPipeline(
             autoregressive_index=autoregressive_index,
             cache=cache,
             input=hdmap,
+            decode_output=decode_output,
         )
 
         output = cat_outputs_cp(output, seq_dim=1, cp_group=self.V_group)
+        if cache.clean_latent is not None:
+            cache.clean_latent = cat_outputs_cp(
+                cache.clean_latent, seq_dim=1, cp_group=self.V_group
+            )
         return output
 
     def get_num_frames(self, autoregressive_index: int) -> int:

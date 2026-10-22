@@ -101,6 +101,10 @@ class StreamInferencePipelineCache(
     """Diffusion-model state from the most recent ``generate``, consumed
     by ``finalize``."""
 
+    clean_latent: "torch.Tensor | None" = None
+    """Pre-decode latent from the most recent ``generate`` (before the VAE
+    decoder), exposed for consumers that stream latents instead of pixels."""
+
     autoregressive_index: int | None = None
     """AR step index of the most recent ``generate``."""
 
@@ -198,6 +202,7 @@ class StreamInferencePipeline(
             StreamingEncoderCacheT, TransformerCacheT, StreamingDecoderCacheT
         ],
         input: Any = None,
+        decode_output: bool = True,
     ) -> Tensor:
         """Generate one chunk for this AR step.
 
@@ -209,10 +214,13 @@ class StreamInferencePipeline(
                 is configured, must be ``None`` otherwise. Use
                 ``NullEncoderConfig`` to pass an already-encoded tensor
                 straight through.
+            decode_output: When ``False``, skip the VAE decoder and return the
+                clean latent instead of decoded pixels (for consumers that
+                stream latents). ``clean_latent`` is still cached either way.
 
         Returns:
-            Decoded tensor (e.g. RGB video) when a decoder is configured;
-            otherwise the unpatchified clean latent from the diffusion model.
+            Decoded tensor (e.g. RGB video) when a decoder is configured and
+            ``decode_output`` is set; otherwise the unpatchified clean latent.
         """
         prev = cache.autoregressive_index
         expected = (prev + 1) if prev is not None else 0
@@ -249,11 +257,12 @@ class StreamInferencePipeline(
             input=input,
         )
         cache.final_state = final_state
+        cache.clean_latent = clean_latent
 
         if events is not None:
             events.record("diffuse")
 
-        if self.decoder is not None:
+        if self.decoder is not None and decode_output:
             assert cache.decoder_cache is not None  # invariant: paired with decoder
             output = self.decoder(
                 input=clean_latent,

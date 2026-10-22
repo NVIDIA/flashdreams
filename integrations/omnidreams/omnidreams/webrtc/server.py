@@ -27,6 +27,7 @@ from omnidreams.interactive_drive.world_model.manifest import (
     resolve_world_model_manifest_path,
 )
 from omnidreams.transformer import CosmosTransformerConfig
+from omnidreams.webrtc import vae_artifacts
 from omnidreams.webrtc.session import (
     OmnidreamsRuntimeConfig,
     OmnidreamsSessionInput,
@@ -174,6 +175,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "software encoder otherwise."
         ),
     )
+    parser.add_argument(
+        "--enable-token-stream",
+        "--enable_token_stream",
+        dest="enable_token_stream",
+        action="store_true",
+        help=(
+            "Stream pre-decode latent tokens to the browser over the "
+            "/api/token-stream WebSocket instead of encoded video."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -218,9 +229,21 @@ async def _session_input(request: web.Request) -> web.StreamResponse:
     return web.json_response({"postprocess_preset": preset})
 
 
+async def _vae_model(request: web.Request) -> web.StreamResponse:
+    """Serve an exported VAE-decoder ONNX so the token-stream client can decode."""
+    precision = request.match_info["precision"]
+    if precision not in vae_artifacts.SUPPORTED_PRECISIONS:
+        raise web.HTTPNotFound()
+    path = vae_artifacts.onnx_path(precision)
+    if not path.exists():
+        raise web.HTTPNotFound()
+    return web.FileResponse(path, headers={"Content-Type": "application/octet-stream"})
+
+
 def _configure_app(app: web.Application) -> None:
     app.router.add_get("/api/postprocess/options", _postprocess_options)
     app.router.add_post("/api/session/input", _session_input)
+    app.router.add_get(vae_artifacts.URL_PREFIX + "/{precision}.onnx", _vae_model)
 
 
 def create_app(
@@ -304,6 +327,7 @@ def build_runtime_config(
         debug_serve_hdmaps=args.debug_serve_hdmaps,
         postprocess=VideoPostprocessChainConfig(preset=args.postprocess_preset),
         encoder_backend="default" if args.prefer_sw_encoder else "auto",
+        enable_token_stream=getattr(args, "enable_token_stream", False),
     )
 
 

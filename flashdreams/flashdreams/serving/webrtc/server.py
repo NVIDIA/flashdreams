@@ -79,6 +79,16 @@ def create_webrtc_app(
 
         return web.json_response(answer_payload)
 
+    async def token_stream_ws(request: web.Request) -> web.StreamResponse:
+        manager = request.app[SESSION_MANAGER_KEY]
+        attach = getattr(manager, "attach_token_stream_ws", None)
+        if attach is None:
+            raise web.HTTPNotFound(reason="Token streaming not supported.")
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        await attach(ws)
+        return ws
+
     async def healthz(request: web.Request) -> web.StreamResponse:
         manager = request.app[SESSION_MANAGER_KEY]
         return web.json_response(
@@ -103,6 +113,7 @@ def create_webrtc_app(
 
     app.router.add_get("/request_session", request_session_page)
     app.router.add_post("/api/webrtc/offer", offer)
+    app.router.add_get("/api/token-stream", token_stream_ws)
     app.router.add_get("/healthz", healthz)
     app.router.add_static("/static/", web_dir, show_index=False)
     app.on_startup.append(on_startup)

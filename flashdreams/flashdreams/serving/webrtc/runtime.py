@@ -22,22 +22,31 @@ class WebRTCStepResult(VideoStepResult):
 def make_webrtc_step_result(
     *,
     chunk_index: int,
-    video_chunk: torch.Tensor,
+    video_chunk: torch.Tensor | None,
     layout: VideoTensorLayout,
+    num_frames: int | None = None,
     stats: dict[str, float] | None = None,
     sync_device: torch.device | str | None = None,
     metadata: Mapping[str, Any] | None = None,
 ) -> WebRTCStepResult:
-    """Package a generated chunk for WebRTC without forcing a host copy."""
+    """Package a generated chunk for WebRTC without forcing a host copy.
+
+    ``video_chunk`` may be ``None`` when the pixel decode was skipped (latent /
+    token streaming); pass ``num_frames`` explicitly in that case.
+    """
     if sync_device is not None:
         device = torch.device(sync_device)
         if device.type == "cuda":
             torch.cuda.current_stream(device).synchronize()
 
+    if num_frames is None:
+        if video_chunk is None:
+            raise ValueError("num_frames is required when video_chunk is None")
+        num_frames = infer_video_num_frames(video_chunk, layout=layout)
     return WebRTCStepResult(
         chunk_index=chunk_index,
-        num_frames=infer_video_num_frames(video_chunk, layout=layout),
-        video_chunk=video_chunk.detach(),
+        num_frames=num_frames,
+        video_chunk=video_chunk.detach() if video_chunk is not None else None,
         stats=stats,
         layout=layout,
         metadata=dict(metadata or {}),
@@ -84,6 +93,11 @@ class WebRTCGenerationRuntime(Protocol):
         segments: list[PoseSegment],
         frame_times: list[float],
     ) -> WebRTCStepResult: ...
+
+    # A runtime may additionally accept ``skip_pixel_decode: bool`` to skip the
+    # server-side VAE decode for token streaming; the session manager detects and
+    # passes it dynamically (``inspect.signature``), so it is intentionally kept
+    # out of this Protocol — integrations that don't implement it still conform.
 
     async def close(self) -> None: ...
 

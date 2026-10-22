@@ -80,6 +80,9 @@ class GenerationOutput:
         None  # Generated video frames [B, V, T, 3, H, W] (None if skip_video_generation)
     )
     finalization_state: dict | None = None  # Finalization state from the video model
+    latent_frames: Tensor | None = (
+        None  # Pre-decode latent [B, V, T, Cl, Hl, Wl] (None if skip_video_generation)
+    )
 
 
 class OmnidreamsConditioningWrapper(nn.Module):
@@ -384,6 +387,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
         camera_poses_per_view: dict[str, torch.Tensor],
         frame_timestamps_us: list[int],
         skip_video_generation: bool = False,
+        skip_pixel_decode: bool = False,
         dynamic_actor_pool: CubePool | None = None,
     ) -> GenerationOutput:
         """Render initial condition frames and start video generation.
@@ -443,12 +447,13 @@ class OmnidreamsConditioningWrapper(nn.Module):
         pipeline_cache = self.pipeline.initialize_cache(
             text=text, image=first_frame, view_names=camera_names
         )
-        rgb_frames = self.pipeline.generate(
+        raw = self.pipeline.generate(
             autoregressive_index=0,
             hdmap=condition,
             cache=pipeline_cache,
+            decode_output=not skip_pixel_decode,
         )
-        rgb_frames = self._to_uint8(rgb_frames).contiguous()
+        rgb_frames = None if skip_pixel_decode else self._to_uint8(raw).contiguous()
 
         state = OmnidreamsConditioningState(
             renderer=renderer,
@@ -459,6 +464,11 @@ class OmnidreamsConditioningWrapper(nn.Module):
             condition_frames=condition_frames,
             rgb_frames=rgb_frames,
             finalization_state={"autoregressive_index": 0},
+            latent_frames=(
+                pipeline_cache.clean_latent.detach()
+                if pipeline_cache.clean_latent is not None
+                else None
+            ),
         )
 
     def continue_generation(
@@ -469,6 +479,7 @@ class OmnidreamsConditioningWrapper(nn.Module):
         frame_timestamps_us: list[int],
         dynamic_actor_pool: CubePool | None = None,
         skip_video_generation: bool = False,
+        skip_pixel_decode: bool = False,
         text_prompts: list[TextPrompt] | None = None,
     ) -> GenerationOutput:
         """Render condition frames and continue video generation.
@@ -531,12 +542,13 @@ class OmnidreamsConditioningWrapper(nn.Module):
             chunk_idx=chunk_idx,
         ):
             del text_prompts  # Pipeline currently keeps prompts from initialize_cache.
-            rgb_frames = self.pipeline.generate(
+            raw = self.pipeline.generate(
                 autoregressive_index=block_idx,
                 hdmap=condition,
                 cache=state.pipeline_cache,
+                decode_output=not skip_pixel_decode,
             )
-            rgb_frames = self._to_uint8(rgb_frames).contiguous()
+            rgb_frames = None if skip_pixel_decode else self._to_uint8(raw).contiguous()
 
         new_state = OmnidreamsConditioningState(
             renderer=renderer,
@@ -547,6 +559,11 @@ class OmnidreamsConditioningWrapper(nn.Module):
             condition_frames=condition_frames,
             rgb_frames=rgb_frames,
             finalization_state={"autoregressive_index": block_idx},
+            latent_frames=(
+                state.pipeline_cache.clean_latent.detach()
+                if state.pipeline_cache.clean_latent is not None
+                else None
+            ),
         )
 
     def cleanup(self, state: OmnidreamsConditioningState) -> None:

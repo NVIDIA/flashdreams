@@ -142,7 +142,9 @@ class VideoStepResult:
 
     chunk_index: int
     num_frames: int
-    video_chunk: Tensor
+    #: ``None`` when the pixel decode was skipped (latent / token streaming);
+    #: ``lazy_rgb_frames`` / ``video_hwc_uint8`` are unavailable in that case.
+    video_chunk: Tensor | None
     stats: dict[str, float] | None = None
     layout: VideoTensorLayout | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -177,6 +179,11 @@ class VideoStepResult:
         """Expose this chunk as lazy per-frame RGB handles."""
         if self.layout is None:
             raise ValueError("VideoStepResult.layout is required for frame extraction")
+        if self.video_chunk is None:
+            raise ValueError(
+                "VideoStepResult.video_chunk is None (the pixel decode was skipped "
+                "for latent/token streaming); no RGB frames to extract"
+            )
         return lazy_rgb_frames_from_video_tensor(
             self.video_chunk,
             layout=self.layout,
@@ -194,6 +201,11 @@ class VideoStepResult:
         """Return this chunk as a uint8 ``[T,H,W,C]`` tensor on its source device."""
         if self.layout is None:
             raise ValueError("VideoStepResult.layout is required for frame extraction")
+        if self.video_chunk is None:
+            raise ValueError(
+                "VideoStepResult.video_chunk is None (the pixel decode was skipped "
+                "for latent/token streaming); no RGB frames to extract"
+            )
         return video_tensor_to_hwc_uint8(
             self.video_chunk,
             layout=self.layout,

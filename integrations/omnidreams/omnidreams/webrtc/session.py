@@ -44,6 +44,7 @@ from omnidreams.scenes import (
     scenes_cache_root,
 )
 from omnidreams.transformer import CosmosTransformerConfig
+from omnidreams.webrtc import vae_artifacts
 
 from flashdreams.core.distributed.rank_orchestration import (
     RankCoordinator,
@@ -54,6 +55,7 @@ from flashdreams.infra.postprocess import (
     VideoPostprocessStream,
 )
 from flashdreams.plugins.registry import resolve_postprocess_preset
+from flashdreams.serving.token_stream import TokenStreamConfig
 from flashdreams.serving.webrtc.controls import (
     WSAD_SUPPORTED_KEYS,
     CameraPoseIntegrator,
@@ -451,6 +453,7 @@ class OmnidreamsRuntimeConfig:
     warmup_chunks: int = 10
     warmup_timeout_s: float = 600.0
     debug_serve_hdmaps: bool = False
+    enable_token_stream: bool = False
     postprocess: VideoPostprocessChainConfig = field(
         default_factory=VideoPostprocessChainConfig
     )
@@ -595,6 +598,7 @@ class OmnidreamsInferenceRuntime:
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
+        skip_pixel_decode: bool = False,
     ) -> WebRTCStepResult:
         if self._closed:
             raise OmnidreamsRuntimeError("Session is closed.")
@@ -608,6 +612,7 @@ class OmnidreamsInferenceRuntime:
                 self._generate_chunk_sync_all_ranks,
                 segments,
                 frame_times,
+                skip_pixel_decode,
             )
 
     async def _run_on_runtime_thread(
@@ -662,8 +667,13 @@ class OmnidreamsInferenceRuntime:
         self,
         segments: list[PoseSegment],
         frame_times: list[float],
+        skip_pixel_decode: bool = False,
     ) -> WebRTCStepResult:
-        return self._generate_one_chunk_sync(segments=segments, frame_times=frame_times)
+        return self._generate_one_chunk_sync(
+            segments=segments,
+            frame_times=frame_times,
+            skip_pixel_decode=skip_pixel_decode,
+        )
 
     @distributed_op(WebRTCControlSignal.CLOSE)
     def _close_sync_all_ranks(self) -> None:
@@ -999,6 +1009,7 @@ class OmnidreamsInferenceRuntime:
         *,
         segments: list[PoseSegment],
         frame_times: list[float],
+        skip_pixel_decode: bool = False,
     ) -> WebRTCStepResult:
         if (
             self._wrapper is None
@@ -1043,6 +1054,7 @@ class OmnidreamsInferenceRuntime:
                 camera_poses_per_view=camera_poses_per_view,
                 frame_timestamps_us=frame_timestamps_us,
                 skip_video_generation=serve_hdmaps,
+                skip_pixel_decode=skip_pixel_decode,
             )
             self._state = output.state
         else:
@@ -1052,6 +1064,7 @@ class OmnidreamsInferenceRuntime:
                 camera_poses_per_view=camera_poses_per_view,
                 frame_timestamps_us=frame_timestamps_us,
                 skip_video_generation=serve_hdmaps,
+                skip_pixel_decode=skip_pixel_decode,
             )
             self._state = output.state
 
@@ -1063,12 +1076,20 @@ class OmnidreamsInferenceRuntime:
 
         if serve_hdmaps:
             video_chunk = output.condition_frames
+        elif skip_pixel_decode:
+            # Pixel decode skipped for latent/token streaming: no RGB to
+            # deliver; the latent is surfaced in ``metadata`` below.
+            video_chunk = None
         elif output.rgb_frames is None:
             raise OmnidreamsRuntimeError("Omnidreams WebRTC received no RGB frames.")
         else:
             video_chunk = output.rgb_frames
 
-        if not serve_hdmaps and self._postprocess_stream is not None:
+        if (
+            not serve_hdmaps
+            and video_chunk is not None
+            and self._postprocess_stream is not None
+        ):
             video_chunk = self._postprocess_stream.process(
                 video_chunk,
                 autoregressive_index=self.autoregressive_index,
@@ -1078,8 +1099,14 @@ class OmnidreamsInferenceRuntime:
             chunk_index=self.autoregressive_index,
             video_chunk=video_chunk,
             layout="bvtchw",
+            num_frames=num_frames if video_chunk is None else None,
             stats=None,
             sync_device=self._device,
+            metadata=(
+                {"latent_chunk": output.latent_frames}
+                if (not serve_hdmaps and output.latent_frames is not None)
+                else None
+            ),
         )
         self.autoregressive_index += 1
         return result
@@ -1119,11 +1146,26 @@ class OmnidreamsWebRTCSessionManager(
             runtime_config=runtime_config,
             fps=runtime_config.fps,
             client_liveness_timeout_s=client_liveness_timeout_s,
+            token_stream_config=TokenStreamConfig(
+                enabled=runtime_config.enable_token_stream
+            ),
         )
         self._pending_session_input: OmnidreamsSessionInput | None = None
 
     def _model_name(self) -> str:
         return self.runtime_config.pipeline_config_name
+
+    def _token_stream_extra_header(self) -> dict[str, Any]:
+        descriptor = vae_artifacts.build_descriptor()
+        if descriptor is None:
+            logger.warning(
+                "Token streaming is enabled but no VAE decoder artifact was found "
+                "under {}; run `python -m omnidreams.webrtc.export_vae` so the "
+                "client can decode latents.",
+                vae_artifacts.cache_dir(),
+            )
+            return {}
+        return {"vae_model": descriptor}
 
     def _chunk_done_extra(self) -> dict[str, Any]:
         return {
