@@ -2945,7 +2945,7 @@
 
 <p><code>tools/package-as-offline-exe/package_as_offline_exe.py</code> preloads an installed
 FlashDreams v2 application and creates a host-native executable with its Python
-runtime, dependencies, native libraries, and prepared caches in one folder.
+runtime, dependencies, native libraries, and prepared caches in one raw folder.
 The target machine does not need Python, <code>uv</code>, or network access.</p>
 <p>The packager supports <code>native-window</code> and <code>webrtc</code> applications. It is not a
 cross-compiler: build a Windows bundle on Windows and a Linux bundle on Linux.
@@ -2953,23 +2953,16 @@ The target still needs a compatible NVIDIA driver and GPU.</p>
 <h2 id="package-an-application">Package an application</h2>
 <p>Run the tool from the repository root. Use <code>:::</code> to separate packager options
 from the complete <code>flashdreams-run-v2</code> command:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>tools/package-as-offline-exe/package_as_offline_exe.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--output<span class="w"> </span>artifacts/interactive-drive-omnidreams-bundle<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>:::<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>interactive-drive-omnidreams<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--mode<span class="w"> </span>native-window
-</code></pre></div>
-<p>For a browser application, package its normal WebRTC command:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>tools/package-as-offline-exe/package_as_offline_exe.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--output<span class="w"> </span>artifacts/interactive-drive-omnidreams-webrtc-bundle<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>:::<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>interactive-drive-omnidreams<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span>
-</code></pre></div>
-<p>Arguments before the runtime command's <code>--</code> belong to FlashDreams. Arguments
-after it belong to the application and are embedded in the generated launcher:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>tools/package-as-offline-exe/package_as_offline_exe.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>:::<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>interactive-drive-omnidreams<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--mode<span class="w"> </span>native-window<span class="w"> </span>--timeout<span class="w"> </span><span class="m">120</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--<span class="w"> </span>--game-mode
+<div class="highlight"><pre><span></span><code><span class="c1"># sync with target application dependencies</span>
+uv<span class="w"> </span>sync<span class="w"> </span>--package<span class="w"> </span>flashdreams-omnidreams<span class="w"> </span>--inexact
+
+<span class="c1"># sync with packager dependencies</span>
+uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>offline-exe<span class="w"> </span>--inexact
+
+uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>python<span class="w"> </span>tools/package-as-offline-exe/package_as_offline_exe.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output<span class="w"> </span>artifacts/taxi-omnidreams-bundle<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>:::<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>crazy-robotaxi-omnidreams-fast-perf<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--mode<span class="w"> </span>native-window<span class="w"> </span>--fullscreen
 </code></pre></div>
 <p>Do not pass <code>--preload-application</code>; the packager controls preparation and
 validation. If <code>--output</code> is omitted, the destination is
@@ -3003,35 +2996,56 @@ validation. If <code>--output</code> is omitted, the destination is
 <td><code>--collect-executable NAME</code></td>
 <td>Include an executable found on <code>PATH</code>; repeat as needed.</td>
 </tr>
+<tr>
+<td><code>--noconsole</code></td>
+<td>Build without a console window on Windows (ignored on Linux). <code>stdout</code> and <code>stderr</code> write to <code>%TEMP%\flashdreams\&lt;application-slug&gt;\runtime.log</code>.</td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>--working-dir PATH</code></td>
+<td>Defaults to the output directory (which must not already exist. Creates dir if missing and copy its contents into the bundle before preload.</td>
+</tr>
 </tbody>
 </table>
 <p>Use <code>--help</code> for the authoritative option list:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>tools/package-as-offline-exe/package_as_offline_exe.py<span class="w"> </span>--help
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--no-sync<span class="w"> </span>python<span class="w"> </span>tools/package-as-offline-exe/package_as_offline_exe.py<span class="w"> </span>--help
 </code></pre></div>
 <h2 id="bundle-contents">Bundle contents</h2>
 <div class="highlight"><pre><span></span><code>&lt;output&gt;/
 |-- &lt;application-slug&gt;[.exe]
-|-- data/
+|-- _internal/
 |-- cache/
+|-- artifacts/             # when preload produces application assets
 |-- INSTALLER_OUTPUT.txt
 |-- PREPARATION_ISSUES.txt  # only when preload warnings are found
 `-- README.md
 </code></pre></div>
-<p><code>data/</code> contains the executable runtime. <code>cache/</code> contains the resources and
+<p>The executable embeds Python bytecode, which is read without extraction.
+<code>_internal/</code> contains the executable runtime. <code>cache/</code> contains the resources and
 build artifacts prepared during initialization. <code>INSTALLER_OUTPUT.txt</code> records
 preload, validation, and PyInstaller output. <code>PREPARATION_ISSUES.txt</code> records
 work that the application attempted after its preparation phase.</p>
 <p>Distribute the complete folder, not only the executable: the launcher depends
-on its sibling <code>data/</code> and <code>cache/</code> directories.</p>
+on its sibling <code>_internal/</code> and <code>cache/</code> directories. The packager uses
+PyInstaller's directory mode. Embedded bytecode and the standard-library archive
+are read directly. Python and DLLs are not extracted into temporary storage at
+launch, and the cache is not archived.
+Deploy the complete folder as raw files.</p>
 <h2 id="runtime-cache">Runtime cache</h2>
 <p>The bundled cache is a read-only seed. On first launch, the application copies
 it to a writable per-user cache:</p>
 <ul>
-<li>Windows: <code>%LOCALAPPDATA%\FlashDreams\&lt;application-slug&gt;\cache</code></li>
-<li>Linux: <code>$XDG_CACHE_HOME/flashdreams/&lt;application-slug&gt;</code>, or
-  <code>~/.cache/flashdreams/&lt;application-slug&gt;</code> when <code>XDG_CACHE_HOME</code> is unset</li>
+<li>Windows: <code>%USERPROFILE%\flashdreams\unpacked\&lt;application-slug&gt;\cache</code></li>
+<li>Linux: <code>~/flashdreams/unpacked/&lt;application-slug&gt;/cache</code></li>
 </ul>
-<p>Set <code>FLASHDREAMS_RUNTIME_CACHE_DIR</code> to choose another writable cache location.</p>
+<p>Pass <code>--unpack-dir PATH</code> to use <code>PATH/&lt;application-slug&gt;/cache</code>, or set
+<code>FLASHDREAMS_RUNTIME_CACHE_DIR</code> to choose the exact writable cache location.
+The command-line option takes precedence; paths must be absolute.
+Prepared C++, Triton, and PhysX extensions load from the original bundled <code>cache/</code>;
+Python and runtime libraries load from <code>_internal/</code>.</p>
 <p>Before distributing a bundle, test it on a clean target machine with networking
 disabled and empty user caches. Also confirm that every bundled model, asset,
 executable, and dependency permits redistribution.</p>
