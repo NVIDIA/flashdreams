@@ -133,7 +133,7 @@ class WebRTCClientWindow(IClientWindow):
         """Refuse a later upload for the selector that was forgotten."""
         self.server.cancel_file_selectors()
 
-    def _put_user_input_event(self, event: UserInputEvent) -> None:
+    def put_user_input_event(self, event: UserInputEvent) -> None:
         """Queue ``event`` on the server's clock, like browser input."""
         event = replace(event, timestamp=self.server.event_timestamp_us())
         with self._input_lock:

@@ -586,7 +586,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._close_event_enqueued = True
         self._put_input(CloseUserInputEvent(timestamp=uint64(0)))
 
-    def _put_user_input_event(self, event: UserInputEvent) -> None:
+    def put_user_input_event(self, event: UserInputEvent) -> None:
         """Queue ``event``, bypassing the poll-time buffer."""
         started_ns = self._session_started_ns
         elapsed_ns = 0 if started_ns is None else max(0, self._clock_ns() - started_ns)

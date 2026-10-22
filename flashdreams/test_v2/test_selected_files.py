@@ -253,7 +253,7 @@ def test_window_without_put_user_input_event_cannot_be_created() -> None:
         def close(self) -> None:
             return
 
-    with pytest.raises(TypeError, match="_put_user_input_event"):
+    with pytest.raises(TypeError, match="put_user_input_event"):
         _Incomplete()  # type: ignore[abstract]
 
 

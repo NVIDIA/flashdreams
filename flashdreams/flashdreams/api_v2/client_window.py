@@ -23,7 +23,6 @@ from flashdreams.runtime_v2.user_input_event import SelectedFilesUserInputEvent
 
 from .input_source import InputSource
 from .output_sink import OutputSink
-from .user_input_event import UserInputEvent
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -155,7 +154,7 @@ class IClientWindow(InputSource, OutputSink, ABC):
             request: Selector request queued by the UI loop.
         """
         if self._active_file_selector is not None:
-            self._put_user_input_event(
+            self.put_user_input_event(
                 _selected_files_event(request, SelectedFilesStatus.BUSY)
             )
             return
@@ -198,13 +197,6 @@ class IClientWindow(InputSource, OutputSink, ABC):
         """Withdraw the picker that was flushed."""
         pass
 
-    @abstractmethod
-    def _put_user_input_event(self, event: UserInputEvent) -> None:
-        """Queue ``event`` for :meth:`InputSource.get_user_input_events`.
-
-        Canonical method for how user-input-events are added to a window.
-        """
-
     @final
     def _complete_file_selector(
         self,
@@ -223,7 +215,7 @@ class IClientWindow(InputSource, OutputSink, ABC):
         self._active_file_selector = None
         request = active[1]
         status, files = _check_file_selection_result(request, status, files)
-        self._put_user_input_event(_selected_files_event(request, status, files))
+        self.put_user_input_event(_selected_files_event(request, status, files))
 
 
 def _selected_files_event(

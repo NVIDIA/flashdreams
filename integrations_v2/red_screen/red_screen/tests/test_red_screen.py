@@ -63,7 +63,7 @@ class ScriptedClientWindow(IClientWindow):
                 return self._batches.pop(0)
         return UserInputEvents([])
 
-    def _put_user_input_event(self, event: UserInputEvent) -> None:
+    def put_user_input_event(self, event: UserInputEvent) -> None:
         del event
 
     def open(self, session_desc: SessionDesc) -> None:

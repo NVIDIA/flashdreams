@@ -351,7 +351,7 @@ class _KeyWindow(IClientWindow):
         self.batches += 1
         return UserInputEvents([_key_press()])
 
-    def _put_user_input_event(self, event: UserInputEvent) -> None:
+    def put_user_input_event(self, event: UserInputEvent) -> None:
         del event
 
     def open(self, session_desc: SessionDesc) -> None:

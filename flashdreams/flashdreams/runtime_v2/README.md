@@ -375,8 +375,8 @@ focus, and file-selector events arrive on the server's own thread, so it queues
 them and hands them over in batches when the session asks.
 
 File selection rules live in `IClientWindow`; a window only shows a picker and
-reports what it returned, on the UI thread. Every window implements the
-abstract `_put_user_input_event`; a window with a picker also implements
+reports what it returned, on the UI thread. Every window implements
+`InputSource.put_user_input_event`; a window with a picker also implements
 `_request_file_selector`.
 
 A UI loop may call `request_new_session(session_desc)` during its step with a

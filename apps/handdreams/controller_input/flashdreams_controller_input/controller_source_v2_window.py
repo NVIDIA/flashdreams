@@ -244,9 +244,9 @@ class ControllerSourceWindow(IClientWindow):
             self._disconnect_emitted = False
             self._last_status = None
 
-    def _put_user_input_event(self, event: UserInputEvent) -> None:
+    def put_user_input_event(self, event: UserInputEvent) -> None:
         """Forward event to the presentation backend, merged with its input."""
-        self.output_window._put_user_input_event(event)
+        self.output_window.put_user_input_event(event)
 
     def get_user_input_events(self) -> UserInputEvents:
         """Merge source-clock controller history with buffered window input."""

@@ -164,7 +164,7 @@ class _Window(IClientWindow):
         assert threading.get_ident() == self.session.main_thread
         assert self.session.ctx.is_main
 
-    def _put_user_input_event(self, event):
+    def put_user_input_event(self, event):
         del event
 
     def open(self, desc):

@@ -690,7 +690,7 @@ class RecordingClientWindow(IClientWindow):
         self.file_selection_requests.append(request)
         super()._request_file_selector(selector_id, request)
 
-    def _put_user_input_event(self, event: UserInputEvent) -> None:
+    def put_user_input_event(self, event: UserInputEvent) -> None:
         with self._lock:
             self._file_events.append(event)
 

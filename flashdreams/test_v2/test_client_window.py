@@ -37,7 +37,7 @@ class FakeClientWindow(IClientWindow):
     def get_user_input_events(self) -> UserInputEvents:
         return self._input
 
-    def _put_user_input_event(self, event: UserInputEvent) -> None:
+    def put_user_input_event(self, event: UserInputEvent) -> None:
         del event
 
     def open(self, session_desc: SessionDesc) -> None:

@@ -40,7 +40,7 @@ class Mp4ClientWindow(IClientWindow):
         events, self._input_events = self._input_events, []
         return UserInputEvents(events)
 
-    def _put_user_input_event(self, event: UserInputEvent) -> None:
+    def put_user_input_event(self, event: UserInputEvent) -> None:
         self._input_events.append(event)
 
     def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
