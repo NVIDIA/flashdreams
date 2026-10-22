@@ -56,12 +56,6 @@ repos:
         language: system
         files: '(^|/)pyproject\.toml$|^uv\.lock$'
         pass_filenames: false
-      - id: sync-version
-        name: sync package versions
-        entry: uv run --no-sync .github/scripts/sync_version.py
-        language: system
-        files: '(pyproject\.toml|_version\.py)$'
-        pass_filenames: false
       - id: ty
         name: ty type check
         entry: uv run --locked --group lint ty check
