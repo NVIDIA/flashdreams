@@ -1,0 +1,5616 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Inference and serving for interactive video and world models">
+      
+      
+      
+        <link rel="canonical" href="https://nvidia.github.io/flashdreams/versions/0.2.0/documentation/inferencing_api/api_reference/core/">
+      
+      
+        <link rel="prev" href="../pipeline/">
+      
+      
+        <link rel="next" href="../accelerated/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../../favicon.svg">
+      <meta name="generator" content="zensical-0.0.67">
+    
+    
+      
+        <title>Core API Reference - FlashDreams</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../../../assets/stylesheets/modern/main.4ae390e2.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../../../assets/stylesheets/modern/palette.96d1a7e4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../../stylesheets/custom.css">
+    
+      <link rel="stylesheet" href="https://unpkg.com/katex@0/dist/katex.min.css">
+    
+    <script>__md_scope=new URL("../../../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#attention" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../../.." title="FlashDreams" class="md-header__button md-logo" aria-label="FlashDreams" data-md-component="logo">
+      
+  <img src="../../../../images/horizontal-light.svg" alt="FlashDreams">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            FlashDreams
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Core API Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="none" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="none" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/NVIDIA/flashdreams" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    NVIDIA/flashdreams
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../.." class="md-tabs__link">
+        
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../quickstart/" class="md-tabs__link">
+          
+  
+  Get Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../models/" class="md-tabs__link">
+          
+  
+  Models
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../demos/" class="md-tabs__link">
+          
+  
+  Demos
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../../" class="md-tabs__link">
+          
+  
+  Documentation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../../community/" class="md-tabs__link">
+          
+  
+  Community
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../../.." title="FlashDreams" class="md-nav__button md-logo" aria-label="FlashDreams" data-md-component="logo">
+      
+  <img src="../../../../images/horizontal-light.svg" alt="FlashDreams">
+
+    </a>
+    FlashDreams
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/NVIDIA/flashdreams" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    NVIDIA/flashdreams
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../../quickstart/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Get Started
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../../models/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Models
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Models
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Streaming & Autoregressive
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Streaming & Autoregressive
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos3_nano_sim_bimanual/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Bimanual
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos3_nano_sim_auto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos3 Nano Sim Auto
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/omnidreams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  NVIDIA OmniDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/self_forcing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Self-Forcing
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/causal_forcing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Causal-Forcing
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/causal_wan22/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Causal Wan 2.2
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/lingbot_world/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  LingBot-World
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/waypoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Waypoint 1.5
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/sana_wm_streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  SANA-WM
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Bidirectional
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Bidirectional
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/sana_wm_streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  SANA-WM
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/wan21/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Wan 2.1
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/wan22/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Wan 2.2
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/cosmos_predict2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cosmos-Predict 2.5
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Upscaling & Restoration
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Upscaling & Restoration
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/flashvsr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FlashVSR
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../models/swiftvr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  SwiftVR
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../../demos/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Demos
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Demos
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interactive Experiences
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Interactive Experiences
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/hand_dreams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  HandDreams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/crazy_robotaxi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Crazy Robotaxi
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/interactive_drive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interactive Drive
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Model Interfaces
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Model Interfaces
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/action2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Action2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/cam2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cam2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/minimal_t2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Minimal T2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/t2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  T2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../demos/v2v/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  V2V
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Documentation
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Documentation
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  CLI Reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../demo_api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Demo API
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Demo API
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3_2" id="__nav_5_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Guides
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_3_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Guides
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/create_demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Create a demo
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/integrate_model_adapter_for_a_demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Integrate model adapter for a demo
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/interactive_serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interactive serving
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/guides/profiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling a demo
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3_3" id="__nav_5_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API Reference
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_3_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  API Reference
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo_api/api_reference/application/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Application API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Inferencing API
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_5_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Inferencing API
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4_2" id="__nav_5_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Guides
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_4_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_4_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Guides
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/create_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Create a model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/stream_inference_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Stream inference pipeline
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/profiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling a pipeline
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/accelerated/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Accelerated building blocks
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5_4_3" id="__nav_5_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API Reference
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_4_3_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_5_4_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  API Reference
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipeline API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Core API
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Core API
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Attention
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.NativeAttention" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        NativeAttention
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="NativeAttention">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.NativeAttention.set_context_parallel_group" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        set_context_parallel_group
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.NativeAttention.is_context_parallel_enabled" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        is_context_parallel_enabled
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.NativeAttention.context_parallel_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        context_parallel_size
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.NativeAttention.forward" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        forward
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.ContextParallelAttention" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ContextParallelAttention
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        BlockKVCache
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="BlockKVCache">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.k_shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        k_shape
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.v_shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        v_shape
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.seq_dim" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        seq_dim
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.chunk_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        chunk_size
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.window_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        window_size
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.sink_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        sink_size
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.device" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        device
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.dtype" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        dtype
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        size
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.write_end" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        write_end
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.from_tensor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        from_tensor
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.is_steady_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        is_steady_state
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.before_update" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        before_update
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.update" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        update
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.after_update" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        after_update
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.cached_k" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        cached_k
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.cached_v" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        cached_v
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        reset
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.clone_kv" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        clone_kv
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.overwrite_kv_" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        overwrite_kv_
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#distributed" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Distributed
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashdreams.core.distributed.init" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        init
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashdreams.core.distributed.Device" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Device
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Device">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.distributed.Device.get_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        get_name
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.distributed.Device.get_cpu_affinity" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        get_cpu_affinity
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../accelerated/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Accelerated API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../tools/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Tooling
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_5" id="__nav_5_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Tooling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/offline_program_packager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Offline Program Packager
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/build_website/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Build Website
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Testing
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tools/benchmarking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Benchmarking
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Troubleshooting
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../../community/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Community
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Attention
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.NativeAttention" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        NativeAttention
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="NativeAttention">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.NativeAttention.set_context_parallel_group" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        set_context_parallel_group
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.NativeAttention.is_context_parallel_enabled" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        is_context_parallel_enabled
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.NativeAttention.context_parallel_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        context_parallel_size
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.NativeAttention.forward" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        forward
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.ContextParallelAttention" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ContextParallelAttention
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        BlockKVCache
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="BlockKVCache">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.k_shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        k_shape
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.v_shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        v_shape
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.seq_dim" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        seq_dim
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.chunk_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        chunk_size
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.window_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        window_size
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.sink_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        sink_size
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.device" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        device
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.dtype" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        dtype
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.size" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        size
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.write_end" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        write_end
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.from_tensor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        from_tensor
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.is_steady_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        is_steady_state
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.before_update" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        before_update
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.update" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        update
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.after_update" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        after_update
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.cached_k" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        cached_k
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.cached_v" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        cached_v
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        reset
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.clone_kv" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        clone_kv
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.attention.BlockKVCache.overwrite_kv_" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        overwrite_kv_
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#distributed" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Distributed
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashdreams.core.distributed.init" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        init
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashdreams.core.distributed.Device" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Device
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Device">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.distributed.Device.get_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        get_name
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.core.distributed.Device.get_cpu_affinity" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        get_cpu_affinity
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+  
+    <a href="https://github.com/NVIDIA/flashdreams/edit/main/docs/source/documentation/inferencing_api/api_reference/core.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+  <h1 id="__skip">Core API</h1>
+
+<!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+<p>The <code>flashdreams.core</code> package collects the low-level attention primitives,
+KV-cache implementations, and process-group utilities that integrations share.</p>
+<h2 id="attention">Attention</h2>
+<p>The attention package provides the kernels used by the transformer and
+the block-structured KV cache that backs streaming inference.</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="flashdreams.core.attention.NativeAttention" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">flashdreams.core.attention.NativeAttention</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">NativeAttention</span><span class="p">(</span><span class="n">qkv_format</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s1">&#39;bhsd&#39;</span><span class="p">,</span> <span class="s1">&#39;bshd&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;bhsd&#39;</span><span class="p">,</span> <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s1">&#39;math&#39;</span><span class="p">,</span> <span class="s1">&#39;efficient&#39;</span><span class="p">,</span> <span class="s1">&#39;cudnn&#39;</span><span class="p">,</span> <span class="s1">&#39;flash&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;cudnn&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="torch.nn.Module">Module</span></code></p>
+
+
+
+        <p>Native attention module with configurable QKV layout and SDPA backend.</p>
+
+        <p>Configure attention format and backend.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>qkv_format</code>
+            </td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[&#39;bhsd&#39;, &#39;bshd&#39;]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Layout of the QKV tensors; <code>"bhsd"</code> is <code>(B, H, S, D)</code>,
+<code>"bshd"</code> is <code>(B, S, H, D)</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;bhsd&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>backend</code>
+            </td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[&#39;math&#39;, &#39;efficient&#39;, &#39;cudnn&#39;, &#39;flash&#39;]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>SDPA backend selected via <code>sdpa_kernel</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;cudnn&#39;</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+                  <details class="mkdocstrings-source">
+                    <summary>Source code in <code>flashdreams/flashdreams/core/attention/native.py</code></summary>
+                    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">21</span>
+<span class="normal">22</span>
+<span class="normal">23</span>
+<span class="normal">24</span>
+<span class="normal">25</span>
+<span class="normal">26</span>
+<span class="normal">27</span>
+<span class="normal">28</span>
+<span class="normal">29</span>
+<span class="normal">30</span>
+<span class="normal">31</span>
+<span class="normal">32</span>
+<span class="normal">33</span>
+<span class="normal">34</span>
+<span class="normal">35</span>
+<span class="normal">36</span>
+<span class="normal">37</span>
+<span class="normal">38</span>
+<span class="normal">39</span>
+<span class="normal">40</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">qkv_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;bhsd&quot;</span><span class="p">,</span> <span class="s2">&quot;bshd&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;bhsd&quot;</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;math&quot;</span><span class="p">,</span> <span class="s2">&quot;efficient&quot;</span><span class="p">,</span> <span class="s2">&quot;cudnn&quot;</span><span class="p">,</span> <span class="s2">&quot;flash&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;cudnn&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configure attention format and backend.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        qkv_format: Layout of the QKV tensors; ``&quot;bhsd&quot;`` is ``(B, H, S, D)``,</span>
+<span class="sd">            ``&quot;bshd&quot;`` is ``(B, S, H, D)``.</span>
+<span class="sd">        backend: SDPA backend selected via ``sdpa_kernel``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+    <span class="k">assert</span> <span class="n">qkv_format</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;bhsd&quot;</span><span class="p">,</span> <span class="s2">&quot;bshd&quot;</span><span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Invalid qkv format: </span><span class="si">{</span><span class="n">qkv_format</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">assert</span> <span class="n">backend</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;math&quot;</span><span class="p">,</span> <span class="s2">&quot;efficient&quot;</span><span class="p">,</span> <span class="s2">&quot;cudnn&quot;</span><span class="p">,</span> <span class="s2">&quot;flash&quot;</span><span class="p">],</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Invalid backend: </span><span class="si">{</span><span class="n">backend</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">qkv_format</span> <span class="o">=</span> <span class="n">qkv_format</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">backend</span> <span class="o">=</span> <span class="n">backend</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">device_mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</code></pre></div></td></tr></table></div>
+                  </details>
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.NativeAttention.set_context_parallel_group" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_context_parallel_group</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_context_parallel_group</span><span class="p">(</span><span class="n">cp_group</span><span class="p">:</span> <span class="n"><span title="torch.distributed.ProcessGroup">ProcessGroup</span></span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Enable or disable context parallelism for ring attention.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>cp_group</code>
+            </td>
+            <td>
+                  <code><span title="torch.distributed.ProcessGroup">ProcessGroup</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Process group for context parallel; use None to disable.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/native.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">42</span>
+<span class="normal">43</span>
+<span class="normal">44</span>
+<span class="normal">45</span>
+<span class="normal">46</span>
+<span class="normal">47</span>
+<span class="normal">48</span>
+<span class="normal">49</span>
+<span class="normal">50</span>
+<span class="normal">51</span>
+<span class="normal">52</span>
+<span class="normal">53</span>
+<span class="normal">54</span>
+<span class="normal">55</span>
+<span class="normal">56</span>
+<span class="normal">57</span>
+<span class="normal">58</span>
+<span class="normal">59</span>
+<span class="normal">60</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">set_context_parallel_group</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cp_group</span><span class="p">:</span> <span class="n">ProcessGroup</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Enable or disable context parallelism for ring attention.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        cp_group: Process group for context parallel; use None to disable.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">cp_group</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">device_mesh</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">device_mesh</span> <span class="o">=</span> <span class="n">DeviceMesh</span><span class="o">.</span><span class="n">from_group</span><span class="p">(</span><span class="n">cp_group</span><span class="p">,</span> <span class="n">device_type</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Need to disable load balance for torch context parallel to work.</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.tensor.experimental._attention</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+            <span class="n">_cp_options</span><span class="p">,</span>
+            <span class="n">set_rotate_method</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">_cp_options</span><span class="o">.</span><span class="n">enable_load_balance</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="n">set_rotate_method</span><span class="p">(</span><span class="s2">&quot;allgather&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.NativeAttention.is_context_parallel_enabled" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">is_context_parallel_enabled</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">is_context_parallel_enabled</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="bool">bool</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return True if context parallelism is active.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/native.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">62</span>
+<span class="normal">63</span>
+<span class="normal">64</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">is_context_parallel_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return True if context parallelism is active.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">device_mesh</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.NativeAttention.context_parallel_size" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">context_parallel_size</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">context_parallel_size</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="int">int</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the context parallel world size, or 1 if disabled.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/native.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">66</span>
+<span class="normal">67</span>
+<span class="normal">68</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">context_parallel_size</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the context parallel world size, or 1 if disabled.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">device_mesh</span><span class="o">.</span><span class="n">size</span><span class="p">()</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">device_mesh</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">1</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.NativeAttention.forward" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">forward</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">forward</span><span class="p">(</span><span class="n">query</span><span class="p">:</span> <span class="n"><span title="torch.Tensor">Tensor</span></span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n"><span title="torch.Tensor">Tensor</span></span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n"><span title="torch.Tensor">Tensor</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="torch.Tensor">Tensor</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run context-parallel SDPA (or single-rank SDPA when CP is disabled).</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>query</code>
+            </td>
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Query tensor in configured <code>qkv_format</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>key</code>
+            </td>
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Key tensor in configured <code>qkv_format</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>value</code>
+            </td>
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Value tensor in configured <code>qkv_format</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Attention output in the same format as inputs.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/native.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">70</span>
+<span class="normal">71</span>
+<span class="normal">72</span>
+<span class="normal">73</span>
+<span class="normal">74</span>
+<span class="normal">75</span>
+<span class="normal">76</span>
+<span class="normal">77</span>
+<span class="normal">78</span>
+<span class="normal">79</span>
+<span class="normal">80</span>
+<span class="normal">81</span>
+<span class="normal">82</span>
+<span class="normal">83</span>
+<span class="normal">84</span>
+<span class="normal">85</span>
+<span class="normal">86</span>
+<span class="normal">87</span>
+<span class="normal">88</span>
+<span class="normal">89</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run context-parallel SDPA (or single-rank SDPA when CP is disabled).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        query: Query tensor in configured ``qkv_format``.</span>
+<span class="sd">        key: Key tensor in configured ``qkv_format``.</span>
+<span class="sd">        value: Value tensor in configured ``qkv_format``.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Attention output in the same format as inputs.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># SDPA / low-level ops expect (B, H, S, D). &quot;bshd&quot; is (B, S, H, D) → transpose once.</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">qkv_format</span> <span class="o">==</span> <span class="s2">&quot;bshd&quot;</span><span class="p">:</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="n">query</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_impl</span><span class="p">(</span><span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">qkv_format</span> <span class="o">==</span> <span class="s2">&quot;bshd&quot;</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="flashdreams.core.attention.ContextParallelAttention" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">flashdreams.core.attention.ContextParallelAttention</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">ContextParallelAttention</span><span class="p">(</span><span class="n">qkv_format</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s1">&#39;bhsd&#39;</span><span class="p">,</span> <span class="s1">&#39;bshd&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;bhsd&#39;</span><span class="p">,</span> <span class="n">backend</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s1">&#39;cudnn&#39;</span><span class="p">,</span> <span class="s1">&#39;flash&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;cudnn&#39;</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s1">&#39;ring&#39;</span><span class="p">,</span> <span class="s1">&#39;ulysses&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;ring&#39;</span><span class="p">,</span> <span class="n">convert_to_fp32</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="flashdreams.core.attention.NativeAttention (flashdreams.core.attention.native.NativeAttention)" href="./#flashdreams.core.attention.NativeAttention">NativeAttention</a></code></p>
+
+
+
+        <p>Context-parallel attention with selectable method and SDPA backend.</p>
+
+        <p>Configure context-parallel attention method and backend.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>qkv_format</code>
+            </td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[&#39;bhsd&#39;, &#39;bshd&#39;]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Layout of the QKV tensors; <code>"bhsd"</code> or <code>"bshd"</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;bhsd&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>backend</code>
+            </td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[&#39;cudnn&#39;, &#39;flash&#39;]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>SDPA backend; <code>"cudnn"</code> or <code>"flash"</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;cudnn&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>method</code>
+            </td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[&#39;ring&#39;, &#39;ulysses&#39;]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Context-parallelism strategy; <code>"ring"</code> or <code>"ulysses"</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;ring&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>convert_to_fp32</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Promote LSE accumulators to fp32 during ring merges.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+                  <details class="mkdocstrings-source">
+                    <summary>Source code in <code>flashdreams/flashdreams/core/attention/cp.py</code></summary>
+                    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">54</span>
+<span class="normal">55</span>
+<span class="normal">56</span>
+<span class="normal">57</span>
+<span class="normal">58</span>
+<span class="normal">59</span>
+<span class="normal">60</span>
+<span class="normal">61</span>
+<span class="normal">62</span>
+<span class="normal">63</span>
+<span class="normal">64</span>
+<span class="normal">65</span>
+<span class="normal">66</span>
+<span class="normal">67</span>
+<span class="normal">68</span>
+<span class="normal">69</span>
+<span class="normal">70</span>
+<span class="normal">71</span>
+<span class="normal">72</span>
+<span class="normal">73</span>
+<span class="normal">74</span>
+<span class="normal">75</span>
+<span class="normal">76</span>
+<span class="normal">77</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">qkv_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;bhsd&quot;</span><span class="p">,</span> <span class="s2">&quot;bshd&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;bhsd&quot;</span><span class="p">,</span>
+    <span class="n">backend</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;cudnn&quot;</span><span class="p">,</span> <span class="s2">&quot;flash&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;cudnn&quot;</span><span class="p">,</span>
+    <span class="n">method</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;ring&quot;</span><span class="p">,</span> <span class="s2">&quot;ulysses&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;ring&quot;</span><span class="p">,</span>
+    <span class="n">convert_to_fp32</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configure context-parallel attention method and backend.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        qkv_format: Layout of the QKV tensors; ``&quot;bhsd&quot;`` or ``&quot;bshd&quot;``.</span>
+<span class="sd">        backend: SDPA backend; ``&quot;cudnn&quot;`` or ``&quot;flash&quot;``.</span>
+<span class="sd">        method: Context-parallelism strategy; ``&quot;ring&quot;`` or ``&quot;ulysses&quot;``.</span>
+<span class="sd">        convert_to_fp32: Promote LSE accumulators to fp32 during ring merges.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+    <span class="k">assert</span> <span class="n">qkv_format</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;bhsd&quot;</span><span class="p">,</span> <span class="s2">&quot;bshd&quot;</span><span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Invalid qkv format: </span><span class="si">{</span><span class="n">qkv_format</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">assert</span> <span class="n">backend</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;cudnn&quot;</span><span class="p">,</span> <span class="s2">&quot;flash&quot;</span><span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Invalid backend: </span><span class="si">{</span><span class="n">backend</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">assert</span> <span class="n">method</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;ring&quot;</span><span class="p">,</span> <span class="s2">&quot;ulysses&quot;</span><span class="p">],</span> <span class="sa">f</span><span class="s2">&quot;Invalid cp method: </span><span class="si">{</span><span class="n">method</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">qkv_format</span> <span class="o">=</span> <span class="n">qkv_format</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">backend</span> <span class="o">=</span> <span class="n">backend</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">method</span> <span class="o">=</span> <span class="n">method</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">device_mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">convert_to_fp32</span> <span class="o">=</span> <span class="n">convert_to_fp32</span>
+</code></pre></div></td></tr></table></div>
+                  </details>
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="flashdreams.core.attention.BlockKVCache" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">flashdreams.core.attention.BlockKVCache</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">BlockKVCache</span><span class="p">(</span><span class="n">k_shape</span><span class="p">:</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">v_shape</span><span class="p">:</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">seq_dim</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="n">chunk_size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="n">window_size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="n">sink_size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="n"><span title="torch.device">device</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="n"><span title="torch.device">device</span></span><span class="p">(</span><span class="s1">&#39;cuda&#39;</span><span class="p">),</span> <span class="n">dtype</span><span class="p">:</span> <span class="n"><span title="torch.dtype">dtype</span></span> <span class="o">=</span> <span class="n"><span title="torch.float16">float16</span></span><span class="p">,</span> <span class="n">_prev_chunk_idx</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">_curr_chunk_idx</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">_n_cached</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>KV cache for causal attention with a fixed-size local window, CUDA-graph compatible.</p>
+<p>Keys and values can have arbitrary shape <code>[..., total_size, ...]</code>; the sequence
+(rolling) dimension is given by <code>seq_dim</code> (dimension index, can be negative).
+Layout along that dimension: [sink tokens | local window tokens]. Sink tokens are
+never evicted; the local window rolls left as new chunks are added if full. Chunks are
+non-overlapping: each update adds one chunk of <code>chunk_size</code> tokens at the
+next logical position in the full sequence.</p>
+
+
+<details class="phases" open>
+  <summary>Phases</summary>
+  <ul>
+<li>Filling: cache not yet full; tokens are written contiguously;
+  <code>cached_k()</code> / <code>cached_v()</code> return only the valid prefix.</li>
+<li>Steady-state: if adding a chunk would exceed the fixed cache size, the
+  local window rolls left by the overflow amount and the new chunk
+  overwrites the rightmost positions; <code>cached_k()</code> / <code>cached_v()</code>
+  return the full buffer.</li>
+</ul>
+</details>        <p>The argument <code>chunk_idx</code> (0, 1, 2, ...) is the index of the new chunk in the full
+sequence (not an index into the cache). If <code>chunk_idx</code> is greater than
+the previous one, the chunk is appended (or, in steady-state, written after
+the roll). If <code>chunk_idx</code> equals the previous one, the same cache positions
+are overwritten.</p>
+
+
+<details class="per-step-usage" open>
+  <summary>Per-step usage</summary>
+  <ol>
+<li>before_update(chunk_idx) — prepare (roll local window if steady-state).</li>
+<li>update(k, v) — write the new chunk's keys/values into the cache.</li>
+<li>cached_k() / cached_v() — get cached keys/values for attention.</li>
+<li>after_update(chunk_idx) — update internal bookkeeping.</li>
+</ol>
+</details>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.k_shape" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">k_shape</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">k_shape</span><span class="p">:</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Shape of the keys. Must be the same as the values shape except for the last dimension.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.v_shape" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">v_shape</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">v_shape</span><span class="p">:</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Shape of the values. Must be the same as the keys shape except for the last dimension.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.seq_dim" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">seq_dim</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">seq_dim</span><span class="p">:</span> <span class="n"><span title="int">int</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Sequence dimension that will be rolled. Can be negative.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.chunk_size" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">chunk_size</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">chunk_size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Number of tokens processed each time.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.window_size" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">window_size</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">window_size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Size of the local attention window (excluding sink tokens).</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.sink_size" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">sink_size</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">sink_size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">0</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Number of sink tokens at the start of the cache that are never evicted. Defaults to 0.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.device" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">device</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">device</span><span class="p">:</span> <span class="n"><span title="torch.device">device</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="n"><span title="torch">torch</span></span><span class="o">.</span><span class="n"><span title="torch.device">device</span></span><span class="p">(</span><span class="s1">&#39;cuda&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Device to store the cache on.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.dtype" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">dtype</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">dtype</span><span class="p">:</span> <span class="n"><span title="torch.dtype">dtype</span></span> <span class="o">=</span> <span class="n"><span title="torch">torch</span></span><span class="o">.</span><span class="n"><span title="torch.float16">float16</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Data type to store the cache in.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.size" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">size</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Number of valid cached tokens visible to attention.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.write_end" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">write_end</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">write_end</span><span class="p">:</span> <span class="n"><span title="int">int</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Right edge of the current chunk in the physical cache layout.</p>
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.from_tensor" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">from_tensor</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">from_tensor</span><span class="p">(</span><span class="n">k</span><span class="p">:</span> <span class="n"><span title="torch.Tensor">Tensor</span></span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n"><span title="torch.Tensor">Tensor</span></span><span class="p">,</span> <span class="n">seq_dim</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing_extensions.Self">Self</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Build a single-chunk cache pre-filled with the given key and value tensors.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/kvcache.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">607</span>
+<span class="normal">608</span>
+<span class="normal">609</span>
+<span class="normal">610</span>
+<span class="normal">611</span>
+<span class="normal">612</span>
+<span class="normal">613</span>
+<span class="normal">614</span>
+<span class="normal">615</span>
+<span class="normal">616</span>
+<span class="normal">617</span>
+<span class="normal">618</span>
+<span class="normal">619</span>
+<span class="normal">620</span>
+<span class="normal">621</span>
+<span class="normal">622</span>
+<span class="normal">623</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@classmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">from_tensor</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">k</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">seq_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Self</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Build a single-chunk cache pre-filled with the given key and value tensors.&quot;&quot;&quot;</span>
+    <span class="n">cache</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
+        <span class="n">k_shape</span><span class="o">=</span><span class="n">k</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+        <span class="n">v_shape</span><span class="o">=</span><span class="n">v</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+        <span class="n">seq_dim</span><span class="o">=</span><span class="n">seq_dim</span><span class="p">,</span>
+        <span class="n">chunk_size</span><span class="o">=</span><span class="n">k</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">seq_dim</span><span class="p">],</span>
+        <span class="n">window_size</span><span class="o">=</span><span class="n">k</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">seq_dim</span><span class="p">],</span>
+        <span class="n">device</span><span class="o">=</span><span class="n">k</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="n">k</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">cache</span><span class="o">.</span><span class="n">before_update</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">cache</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+    <span class="n">cache</span><span class="o">.</span><span class="n">after_update</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">cache</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">return</span> <span class="n">cache</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.is_steady_state" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">is_steady_state</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">is_steady_state</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="bool">bool</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return True if the cache is full (steady-state phase).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/kvcache.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">745</span>
+<span class="normal">746</span>
+<span class="normal">747</span>
+<span class="normal">748</span>
+<span class="normal">749</span>
+<span class="normal">750</span>
+<span class="normal">751</span>
+<span class="normal">752</span>
+<span class="normal">753</span>
+<span class="normal">754</span>
+<span class="normal">755</span>
+<span class="normal">756</span>
+<span class="normal">757</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">is_steady_state</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return True if the cache is full (steady-state phase).&quot;&quot;&quot;</span>
+    <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+        <span class="s2">&quot;Must call before_update() before is_steady_state()&quot;</span>
+    <span class="p">)</span>
+    <span class="n">total_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span>
+    <span class="n">is_full</span> <span class="o">=</span> <span class="n">total_size</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span>
+    <span class="n">is_overlapping_with_sink</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span> <span class="o">&gt;</span> <span class="mi">0</span>
+        <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span>
+        <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">sink_size</span>  <span class="c1"># start &lt; sink_size</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">is_full</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">is_overlapping_with_sink</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.before_update" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">before_update</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">before_update</span><span class="p">(</span><span class="n">chunk_idx</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Prepare the cache before writing new tokens.</p>
+<p>If <code>chunk_idx</code> equals the previous chunk index, this is a no-op. Otherwise,
+we expect the <code>chunk_idx</code> to be +1 from the previous chunk index. In this case,
+we will roll the local window left if the cache is in steady-state, or no op
+if the cache is in filling phase.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>chunk_idx</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Chunk index of the new chunk in the full sequence.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/kvcache.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">759</span>
+<span class="normal">760</span>
+<span class="normal">761</span>
+<span class="normal">762</span>
+<span class="normal">763</span>
+<span class="normal">764</span>
+<span class="normal">765</span>
+<span class="normal">766</span>
+<span class="normal">767</span>
+<span class="normal">768</span>
+<span class="normal">769</span>
+<span class="normal">770</span>
+<span class="normal">771</span>
+<span class="normal">772</span>
+<span class="normal">773</span>
+<span class="normal">774</span>
+<span class="normal">775</span>
+<span class="normal">776</span>
+<span class="normal">777</span>
+<span class="normal">778</span>
+<span class="normal">779</span>
+<span class="normal">780</span>
+<span class="normal">781</span>
+<span class="normal">782</span>
+<span class="normal">783</span>
+<span class="normal">784</span>
+<span class="normal">785</span>
+<span class="normal">786</span>
+<span class="normal">787</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">before_update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">chunk_idx</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Prepare the cache before writing new tokens.</span>
+
+<span class="sd">    If ``chunk_idx`` equals the previous chunk index, this is a no-op. Otherwise,</span>
+<span class="sd">    we expect the ``chunk_idx`` to be +1 from the previous chunk index. In this case,</span>
+<span class="sd">    we will roll the local window left if the cache is in steady-state, or no op</span>
+<span class="sd">    if the cache is in filling phase.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        chunk_idx: Chunk index of the new chunk in the full sequence.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+        <span class="s2">&quot;Must call after_update() before before_update()&quot;</span>
+    <span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="o">=</span> <span class="n">chunk_idx</span>
+
+    <span class="k">if</span> <span class="n">chunk_idx</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="k">assert</span> <span class="n">chunk_idx</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="p">(</span>
+        <span class="s2">&quot;Expected the new chunk_idx to be +1 from the previous chunk_idx, &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="n">chunk_idx</span><span class="si">}</span><span class="s2"> != </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span><span class="si">}</span><span class="s2"> + 1&quot;</span>
+    <span class="p">)</span>
+    <span class="n">total_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_current_chunk_overlaps_sink</span><span class="p">():</span>
+        <span class="n">overflow</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span> <span class="o">-</span> <span class="n">total_size</span>
+        <span class="k">if</span> <span class="n">overflow</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_roll_local_window_left</span><span class="p">(</span><span class="n">overflow</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.update" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">update</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">update</span><span class="p">(</span><span class="n">k</span><span class="p">:</span> <span class="n"><span title="torch.Tensor">Tensor</span></span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n"><span title="torch.Tensor">Tensor</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Write the new chunk's keys and values into the cache.</p>
+<p>Must be called after <code>before_update()</code> and before <code>after_update()</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>k</code>
+            </td>
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Keys; shape must match cached keys except at seq_dim, where length must be chunk_size.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>v</code>
+            </td>
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Values; shape must match cached values except at seq_dim, where length must be chunk_size.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/kvcache.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">789</span>
+<span class="normal">790</span>
+<span class="normal">791</span>
+<span class="normal">792</span>
+<span class="normal">793</span>
+<span class="normal">794</span>
+<span class="normal">795</span>
+<span class="normal">796</span>
+<span class="normal">797</span>
+<span class="normal">798</span>
+<span class="normal">799</span>
+<span class="normal">800</span>
+<span class="normal">801</span>
+<span class="normal">802</span>
+<span class="normal">803</span>
+<span class="normal">804</span>
+<span class="normal">805</span>
+<span class="normal">806</span>
+<span class="normal">807</span>
+<span class="normal">808</span>
+<span class="normal">809</span>
+<span class="normal">810</span>
+<span class="normal">811</span>
+<span class="normal">812</span>
+<span class="normal">813</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">k</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Write the new chunk&#39;s keys and values into the cache.</span>
+
+<span class="sd">    Must be called after ``before_update()`` and before ``after_update()``.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        k: Keys; shape must match cached keys except at seq_dim, where length must be chunk_size.</span>
+<span class="sd">        v: Values; shape must match cached values except at seq_dim, where length must be chunk_size.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
+        <span class="s2">&quot;Must call before_update() before update()&quot;</span>
+    <span class="p">)</span>
+
+    <span class="n">chunk_size_k</span> <span class="o">=</span> <span class="n">k</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span>
+    <span class="n">chunk_size_v</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span>
+    <span class="k">assert</span> <span class="n">chunk_size_k</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span><span class="p">,</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Expected input k to have chunk_size (</span><span class="si">{</span><span class="n">chunk_size_k</span><span class="si">}</span><span class="s2">) at seq_dim (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="si">}</span><span class="s2">), &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="n">chunk_size_k</span><span class="si">}</span><span class="s2"> != </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+    <span class="k">assert</span> <span class="n">chunk_size_v</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span><span class="p">,</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Expected input v to have chunk_size (</span><span class="si">{</span><span class="n">chunk_size_v</span><span class="si">}</span><span class="s2">) at seq_dim (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="si">}</span><span class="s2">), &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;got </span><span class="si">{</span><span class="n">chunk_size_v</span><span class="si">}</span><span class="s2"> != </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_write_current_chunk</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.after_update" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">after_update</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">after_update</span><span class="p">(</span><span class="n">chunk_idx</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Finalize bookkeeping after writing new tokens.</p>
+<p>Updates <code>_prev_chunk_idx</code> and, in filling phase, <code>_n_cached</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>chunk_idx</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The index of the new chunk in the full sequence.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/kvcache.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">815</span>
+<span class="normal">816</span>
+<span class="normal">817</span>
+<span class="normal">818</span>
+<span class="normal">819</span>
+<span class="normal">820</span>
+<span class="normal">821</span>
+<span class="normal">822</span>
+<span class="normal">823</span>
+<span class="normal">824</span>
+<span class="normal">825</span>
+<span class="normal">826</span>
+<span class="normal">827</span>
+<span class="normal">828</span>
+<span class="normal">829</span>
+<span class="normal">830</span>
+<span class="normal">831</span>
+<span class="normal">832</span>
+<span class="normal">833</span>
+<span class="normal">834</span>
+<span class="normal">835</span>
+<span class="normal">836</span>
+<span class="normal">837</span>
+<span class="normal">838</span>
+<span class="normal">839</span>
+<span class="normal">840</span>
+<span class="normal">841</span>
+<span class="normal">842</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">after_update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">chunk_idx</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Finalize bookkeeping after writing new tokens.</span>
+
+<span class="sd">    Updates ``_prev_chunk_idx`` and, in filling phase, ``_n_cached``.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        chunk_idx: The index of the new chunk in the full sequence.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">assert</span> <span class="n">chunk_idx</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span><span class="p">,</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Expected chunk_idx to be </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="n">chunk_idx</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_steady_state</span><span class="p">():</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">total_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">seq_dim</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span><span class="p">,</span> <span class="n">total_size</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span><span class="p">:</span>
+        <span class="k">pass</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span><span class="si">=}</span><span class="s2"> should be either </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2"> or </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span><span class="si">}</span><span class="s2">.&quot;</span>
+        <span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="o">=</span> <span class="kc">None</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.cached_k" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">cached_k</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">cached_k</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="torch.Tensor">Tensor</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return cached keys for attention (valid prefix in filling phase, full buffer in steady-state).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/kvcache.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">844</span>
+<span class="normal">845</span>
+<span class="normal">846</span>
+<span class="normal">847</span>
+<span class="normal">848</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">cached_k</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Return cached keys for attention (valid prefix in filling phase, full buffer in steady-state).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_slice</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_visible_end</span><span class="p">())]</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.cached_v" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">cached_v</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">cached_v</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="torch.Tensor">Tensor</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return cached values for attention (valid prefix in filling phase, full buffer in steady-state).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/kvcache.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">850</span>
+<span class="normal">851</span>
+<span class="normal">852</span>
+<span class="normal">853</span>
+<span class="normal">854</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">cached_v</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Return cached values for attention (valid prefix in filling phase, full buffer in steady-state).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_seq_slice</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_visible_end</span><span class="p">())]</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.reset" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">reset</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">reset</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Reset bookkeeping while preserving the allocated tensor storage.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/kvcache.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">856</span>
+<span class="normal">857</span>
+<span class="normal">858</span>
+<span class="normal">859</span>
+<span class="normal">860</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Reset bookkeeping while preserving the allocated tensor storage.&quot;&quot;&quot;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_prev_chunk_idx</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_curr_chunk_idx</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_n_cached</span> <span class="o">=</span> <span class="mi">0</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.clone_kv" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">clone_kv</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">clone_kv</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="torch.Tensor">Tensor</span></span><span class="p">,</span> <span class="n"><span title="torch.Tensor">Tensor</span></span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return clones of the full physical K/V buffers.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/kvcache.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">862</span>
+<span class="normal">863</span>
+<span class="normal">864</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">clone_kv</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return clones of the full physical K/V buffers.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="o">.</span><span class="n">clone</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.attention.BlockKVCache.overwrite_kv_" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">overwrite_kv_</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">overwrite_kv_</span><span class="p">(</span><span class="n">k</span><span class="p">:</span> <span class="n"><span title="torch.Tensor">Tensor</span></span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n"><span title="torch.Tensor">Tensor</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Overwrite the full K/V buffers without changing their addresses.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>k</code>
+            </td>
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Replacement keys with the exact cache shape.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>v</code>
+            </td>
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Replacement values with the exact cache shape.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/attention/kvcache.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">866</span>
+<span class="normal">867</span>
+<span class="normal">868</span>
+<span class="normal">869</span>
+<span class="normal">870</span>
+<span class="normal">871</span>
+<span class="normal">872</span>
+<span class="normal">873</span>
+<span class="normal">874</span>
+<span class="normal">875</span>
+<span class="normal">876</span>
+<span class="normal">877</span>
+<span class="normal">878</span>
+<span class="normal">879</span>
+<span class="normal">880</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">overwrite_kv_</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">k</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Overwrite the full K/V buffers without changing their addresses.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        k: Replacement keys with the exact cache shape.</span>
+<span class="sd">        v: Replacement values with the exact cache shape.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">k</span><span class="o">.</span><span class="n">shape</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="o">.</span><span class="n">shape</span> <span class="ow">or</span> <span class="n">v</span><span class="o">.</span><span class="n">shape</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="o">.</span><span class="n">shape</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">&quot;overwrite_kv_ shape mismatch: &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;got k </span><span class="si">{</span><span class="nb">tuple</span><span class="p">(</span><span class="n">k</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="si">}</span><span class="s2"> / v </span><span class="si">{</span><span class="nb">tuple</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="si">}</span><span class="s2">, &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;cache holds k </span><span class="si">{</span><span class="nb">tuple</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="si">}</span><span class="s2"> / v </span><span class="si">{</span><span class="nb">tuple</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_k</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">k</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_v</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="distributed">Distributed</h2>
+<p>Helpers for multi-GPU / multi-node inference. <code>init</code> boots the NCCL process
+group with sensible defaults and replaces the boilerplate at the top of
+example launchers.</p>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="flashdreams.core.distributed.init" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">flashdreams.core.distributed.init</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">init</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>Initialize distributed training.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/distributed/__init__.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">180</span>
+<span class="normal">181</span>
+<span class="normal">182</span>
+<span class="normal">183</span>
+<span class="normal">184</span>
+<span class="normal">185</span>
+<span class="normal">186</span>
+<span class="normal">187</span>
+<span class="normal">188</span>
+<span class="normal">189</span>
+<span class="normal">190</span>
+<span class="normal">191</span>
+<span class="normal">192</span>
+<span class="normal">193</span>
+<span class="normal">194</span>
+<span class="normal">195</span>
+<span class="normal">196</span>
+<span class="normal">197</span>
+<span class="normal">198</span>
+<span class="normal">199</span>
+<span class="normal">200</span>
+<span class="normal">201</span>
+<span class="normal">202</span>
+<span class="normal">203</span>
+<span class="normal">204</span>
+<span class="normal">205</span>
+<span class="normal">206</span>
+<span class="normal">207</span>
+<span class="normal">208</span>
+<span class="normal">209</span>
+<span class="normal">210</span>
+<span class="normal">211</span>
+<span class="normal">212</span>
+<span class="normal">213</span>
+<span class="normal">214</span>
+<span class="normal">215</span>
+<span class="normal">216</span>
+<span class="normal">217</span>
+<span class="normal">218</span>
+<span class="normal">219</span>
+<span class="normal">220</span>
+<span class="normal">221</span>
+<span class="normal">222</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">init</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize distributed training.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_initialized</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_device</span><span class="p">()</span>
+
+    <span class="n">pynvml</span><span class="o">.</span><span class="n">nvmlInit</span><span class="p">()</span>
+    <span class="n">local_rank</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;LOCAL_RANK&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">device</span> <span class="o">=</span> <span class="n">Device</span><span class="p">(</span><span class="n">local_rank</span><span class="p">)</span>
+        <span class="n">sched_setaffinity</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s2">&quot;sched_setaffinity&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">sched_setaffinity</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">sched_setaffinity</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">device</span><span class="o">.</span><span class="n">get_cpu_affinity</span><span class="p">())</span>
+    <span class="k">except</span> <span class="p">(</span><span class="n">pynvml</span><span class="o">.</span><span class="n">NVMLError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to set device affinity: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;TORCH_NCCL_BLOCKING_WAIT&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;0&quot;</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;TORCH_NCCL_ASYNC_ERROR_HANDLING&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;1&quot;</span>
+    <span class="k">if</span> <span class="n">dist</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">set_device</span><span class="p">(</span><span class="n">local_rank</span><span class="p">)</span>
+        <span class="n">timeout_seconds</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC&quot;</span><span class="p">,</span> <span class="mi">1800</span><span class="p">)</span>
+        <span class="n">timeout_timedelta</span> <span class="o">=</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">timeout_seconds</span><span class="p">))</span>
+        <span class="n">dist</span><span class="o">.</span><span class="n">init_process_group</span><span class="p">(</span>
+            <span class="n">backend</span><span class="o">=</span><span class="s2">&quot;nccl&quot;</span><span class="p">,</span>
+            <span class="n">init_method</span><span class="o">=</span><span class="s2">&quot;env://&quot;</span><span class="p">,</span>
+            <span class="n">timeout</span><span class="o">=</span><span class="n">timeout_timedelta</span><span class="p">,</span>
+            <span class="n">device_id</span><span class="o">=</span><span class="n">local_rank</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># Always destroy the process group on interpreter shutdown so NCCL</span>
+        <span class="c1"># does not warn about a leaked group at the end of every run; the</span>
+        <span class="c1"># handler is idempotent if a caller (e.g. a long-lived gRPC server)</span>
+        <span class="c1"># already destroyed the group explicitly before exiting.</span>
+        <span class="n">atexit</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">_safe_destroy_pg</span><span class="p">)</span>
+        <span class="n">configure_loguru_for_distributed</span><span class="p">(</span><span class="n">get_global_rank</span><span class="p">())</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Initialized distributed inference with local rank </span><span class="si">{</span><span class="n">local_rank</span><span class="si">}</span><span class="s2"> with timeout </span><span class="si">{</span><span class="n">timeout_seconds</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="c1"># Bump cudaLimitMaxL2FetchGranularity (id=0x05) to 128 bytes for better bandwidth.</span>
+    <span class="n">_libcudart</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">CDLL</span><span class="p">(</span><span class="s2">&quot;libcudart.so&quot;</span><span class="p">)</span>
+    <span class="n">p_value</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">cast</span><span class="p">((</span><span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span> <span class="o">*</span> <span class="mi">1</span><span class="p">)(),</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">POINTER</span><span class="p">(</span><span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">))</span>
+    <span class="n">_libcudart</span><span class="o">.</span><span class="n">cudaDeviceSetLimit</span><span class="p">(</span><span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="mh">0x05</span><span class="p">),</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="mi">128</span><span class="p">))</span>
+    <span class="n">_libcudart</span><span class="o">.</span><span class="n">cudaDeviceGetLimit</span><span class="p">(</span><span class="n">p_value</span><span class="p">,</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="mh">0x05</span><span class="p">))</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Inference with </span><span class="si">{</span><span class="n">dist</span><span class="o">.</span><span class="n">get_world_size</span><span class="p">()</span><span class="si">}</span><span class="s2"> GPUs.&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="flashdreams.core.distributed.Device" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">flashdreams.core.distributed.Device</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">Device</span><span class="p">(</span><span class="n">device_idx</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Lightweight wrapper around an NVML device handle for CPU-affinity queries.</p>
+
+        <p>Bind to the NVML handle for the GPU at <code>device_idx</code>.</p>
+
+
+
+
+
+
+
+
+                  <details class="mkdocstrings-source">
+                    <summary>Source code in <code>flashdreams/flashdreams/core/distributed/__init__.py</code></summary>
+                    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">158</span>
+<span class="normal">159</span>
+<span class="normal">160</span>
+<span class="normal">161</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">device_idx</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Bind to the NVML handle for the GPU at ``device_idx``.&quot;&quot;&quot;</span>
+    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">handle</span> <span class="o">=</span> <span class="n">pynvml</span><span class="o">.</span><span class="n">nvmlDeviceGetHandleByIndex</span><span class="p">(</span><span class="n">device_idx</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+                  </details>
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.distributed.Device.get_name" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_name</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_name</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="str">str</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the marketing name reported by NVML for this device.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/distributed/__init__.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">163</span>
+<span class="normal">164</span>
+<span class="normal">165</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the marketing name reported by NVML for this device.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">pynvml</span><span class="o">.</span><span class="n">nvmlDeviceGetName</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">handle</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="flashdreams.core.distributed.Device.get_cpu_affinity" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_cpu_affinity</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_cpu_affinity</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the indices of CPUs ideally affined to this GPU per NVML.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/core/distributed/__init__.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">167</span>
+<span class="normal">168</span>
+<span class="normal">169</span>
+<span class="normal">170</span>
+<span class="normal">171</span>
+<span class="normal">172</span>
+<span class="normal">173</span>
+<span class="normal">174</span>
+<span class="normal">175</span>
+<span class="normal">176</span>
+<span class="normal">177</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_cpu_affinity</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the indices of CPUs ideally affined to this GPU per NVML.&quot;&quot;&quot;</span>
+    <span class="n">affinity_string</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">pynvml</span><span class="o">.</span><span class="n">nvmlDeviceGetCpuAffinity</span><span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handle</span><span class="p">,</span> <span class="n">Device</span><span class="o">.</span><span class="n">_nvml_affinity_elements</span>
+    <span class="p">):</span>
+        <span class="c1"># NVML returns a sequence of 64-bit affinity bitmasks, low word first.</span>
+        <span class="n">affinity_string</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">{:064b}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">j</span><span class="p">)</span> <span class="o">+</span> <span class="n">affinity_string</span>
+    <span class="n">affinity_list</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">affinity_string</span><span class="p">]</span>
+    <span class="n">affinity_list</span><span class="o">.</span><span class="n">reverse</span><span class="p">()</span>  <span class="c1"># so core 0 is in the 0th element of the list</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">affinity_list</span><span class="p">)</span> <span class="k">if</span> <span class="n">e</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">]</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../pipeline/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Pipeline API">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Pipeline API
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../accelerated/" class="md-footer__link md-footer__link--next" aria-label="Next: Accelerated API">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Accelerated API
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../../../..","features":["content.action.edit","navigation.indexes","navigation.footer","navigation.tabs","navigation.tabs.sticky"],"redirect":null,"search":"../../../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../../../assets/javascripts/bundle.67a597eb.min.js"></script>
+      
+        <script src="../../../../javascripts/katex.js"></script>
+      
+        <script src="https://unpkg.com/katex@0/dist/katex.min.js"></script>
+      
+        <script src="https://unpkg.com/katex@0/dist/contrib/auto-render.min.js"></script>
+      
+    
+  </body>
+</html>
