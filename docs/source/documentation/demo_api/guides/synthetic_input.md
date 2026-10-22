@@ -8,11 +8,42 @@ title: 'Synthetic Input'
 
 # Synthetic Input
 
-Synthetic input replays versioned `UserInputEvent` payloads through any
-client-window mode. Use it for repeatable QA, CI, and benchmarks without
-interactive device input.
+The FlashDreams synthetic input system provides infrastructure for:
 
-## Run a replay
+- Deterministic inputs fed into a FlashDreams `IApplication` for packaging,
+  QA, and benchmark purposes.
+- **Unimplemented:** Recording and serializing `IApplication` inputs.
+- **Unimplemented:** A stable textual format for `UserInputEvent` generation
+  on the fly through an `IClientWindow`.
+
+## Run an app with Synthetic Input
+
+Add `--synthetic-input-file INPUT_FILE.json` to the system arguments. For
+predictable frame-by-frame replay, use blocking backpressure and on-demand
+presentation:
+
+```bash
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG \
+  --mode mp4 \
+  --output-path replay.mp4 \
+  --total-model-steps 120 \
+  --synthetic-input-file inputs.json \
+  --backpressure-mode block \
+  --presentation-mode on_demand
+```
+
+`block` preserves every model output instead of dropping queued work, and
+`on_demand` presents from the steady-state UI loop only when a new model frame is
+selected. Together they present each retained model frame once and in order
+during inference, making `ui_loop` schedules consistent between runs. The UI
+can still run before inference starts and after it finishes. Synthetic input
+also works with other modes and presentation settings when this behavior is not
+required. See the [CLI reference](../../cli.md#default-demo-session-overrides)
+for details.
+
+## Descriptor format
+
+### Example file
 
 Save a descriptor such as this one as `inputs.json`:
 
@@ -29,28 +60,18 @@ Save a descriptor such as this one as `inputs.json`:
 }
 ```
 
-Pass the file with `--synthetic-input-file PATH`. For predictable
-frame-by-frame replay, use blocking backpressure and on-demand presentation:
+On the application's first input poll, this descriptor emits a
+`KeyboardUserInputEvent` with `key="w"` and `state="Pressed"`.
 
-```bash
-uv run flashdreams-run-v2 DEMO_MODEL_SLUG \
-  --mode mp4 \
-  --output-path replay.mp4 \
-  --total-model-steps 120 \
-  --synthetic-input-file inputs.json \
-  --backpressure-mode block \
-  --presentation-mode on_demand
-```
+### Descriptor fields
 
-`block` preserves every model output instead of dropping queued work, and
-`on_demand` runs the steady-state UI loop only when a new model frame is
-selected. Together they present each retained model frame once and in order
-during inference, making `ui_loop` schedules consistent between runs. The UI
-can still run before inference starts and after it finishes. Synthetic input
-also works with other modes and presentation settings when this behavior is not
-required.
-
-## Descriptor format
+| Component | Purpose | Value |
+| --- | --- | --- |
+| `version` | Descriptor format version | Integer `1` |
+| `events` | Scheduled `UserInputEvent` payloads | Array of objects containing `on`, `at`, and `event` |
+| `on` | How to interpret `at` | `"ui_loop"` |
+| `at` | Input poll that releases the event | Non-negative integer |
+| `event` | `UserInputEvent` payload | Registered `type` and fields for that event; omit `timestamp` |
 
 The top-level object must contain only `version` and `events`. Version 1
 supports `ui_loop` scheduling.
@@ -67,19 +88,84 @@ sessions never rewind the cursor or poll index.
 ## Event payloads
 
 Each `event` object must contain a registered `UserInputEvent` `type` and may
-contain only that event type's fields. Do not provide `timestamp`; the runtime
+contain only that event type's fields. The `type` value matches the event
+class's `get_type_name()` result. Do not provide `timestamp`; the runtime
 stamps an event when it is released. Optional fields use the defaults below.
 
-For example, a mouse-button press maps directly to the `mouse` event fields,
-while an event without additional fields needs only its registered type:
+### Keyboard event
+
+The keyboard event definition requires `key` and `state`:
+
+```python
+@dataclass(frozen=True, slots=True, eq=False)
+class KeyboardUserInputEvent(UserInputEvent):
+    """User input event for a keyboard."""
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "keyboard"
+
+    key: str
+    state: KeyboardInputState
+```
+
+```json
+{"type": "keyboard", "key": "w", "state": "Pressed"}
+```
+
+`state` accepts `"Pressed"` or `"Released"`.
+
+### Mouse event
+
+Mouse event fields have defaults, so a button press can specify only the
+fields it changes:
+
+```python
+@dataclass(frozen=True, slots=True, eq=False)
+class MouseUserInputEvent(UserInputEvent):
+    """User input event for a mouse."""
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "mouse"
+
+    action: Literal["move", "button", "wheel"] = "move"
+    x: float = 0.0
+    y: float = 0.0
+    button: int = 0
+    pressed: bool = False
+    wheel_x: float = 0.0
+    wheel_y: float = 0.0
+```
 
 ```json
 {"type": "mouse", "action": "button", "button": 0, "pressed": true}
 ```
 
+This presses mouse button `0`. Omitted fields use the class defaults.
+
+### Reset event
+
+An event without additional fields needs only its registered type:
+
+```python
+@dataclass(frozen=True, slots=True, eq=False)
+class ResetUserInputEvent(UserInputEvent):
+    """The client asked to start the run over."""
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "reset"
+```
+
 ```json
 {"type": "reset"}
 ```
+
+### Event field reference
 
 | Event type | Field | Type | Required | Default | Accepted values |
 | --- | --- | --- | --- | --- | --- |
