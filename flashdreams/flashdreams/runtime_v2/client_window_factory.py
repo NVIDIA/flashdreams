@@ -16,7 +16,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.runtime_v2.composite_client_window import CompositeClientWindow
+from flashdreams.runtime_v2.composite_client_window import (
+    CompositeClientWindow,
+    CompositeClientWindowError,
+)
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
 from flashdreams.runtime_v2.synthetic_input_source import SyntheticInputSource
@@ -317,10 +320,20 @@ def compose_client_window(
     synthetic_input_file = getattr(parsed_args, "synthetic_input_file", None)
     if synthetic_input_file is None:
         return primary_window
-    source = SyntheticInputSource(synthetic_input_file)
-    return CompositeClientWindow(
-        primary_window,
-        secondary_input_sources=(source,),
-        on_open=source.start_session,
-        on_close=source.end_session,
-    )
+    try:
+        source = SyntheticInputSource(synthetic_input_file)
+        return CompositeClientWindow(
+            primary_window,
+            secondary_input_sources=(source,),
+            on_open=source.start_session,
+            on_close=source.end_session,
+            on_ui_step_completed=source.ui_step_completed,
+        )
+    except Exception as error:
+        try:
+            primary_window.close()
+        except Exception as cleanup_error:
+            raise CompositeClientWindowError(
+                "compose", (error, cleanup_error)
+            ) from error
+        raise

@@ -37,12 +37,14 @@ class CompositeClientWindow(IClientWindow):
         *,
         on_open: Callable[[], None] | None = None,
         on_close: Callable[[], None] | None = None,
+        on_ui_step_completed: Callable[[], None] | None = None,
     ) -> None:
         self._primary_window = primary_window
         self._secondary_input_sources = tuple(secondary_input_sources)
         self._secondary_output_sinks = tuple(secondary_output_sinks)
         self._on_open = on_open
         self._on_close = on_close
+        self._on_ui_step_completed = on_ui_step_completed
 
     @property
     def primary_window(self) -> IClientWindow:
@@ -65,6 +67,11 @@ class CompositeClientWindow(IClientWindow):
         for source in self._secondary_input_sources:
             events.extend(source.get_user_input_events().get_events())
         return UserInputEvents(events)
+
+    def ui_step_completed(self) -> None:
+        """Notify interested secondary components after a UI-loop step."""
+        if self._on_ui_step_completed is not None:
+            self._on_ui_step_completed()
 
     def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:
         """Delegate clickable regions only to the primary window."""

@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import (
@@ -35,6 +36,14 @@ _TRACE_METADATA_KEY = "trace_chunk_lifecycle"
 _TRACE_PATH_METADATA_KEY = "trace_chunk_lifecycle_path"
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
 _TRACE_PREFIX = "[runtime-v2-chunk-trace]"
+
+
+@runtime_checkable
+class _UIStepAwareWindow(Protocol):
+    """Internal window hook for components paced by UI-loop steps."""
+
+    def ui_step_completed(self) -> None:
+        """Observe one successfully completed UI-loop step."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +226,8 @@ def run_session(
                     raise TypeError("A UI loop must return at most one StepResult.")
                 result = raw_result
                 step_completed = True
+                if isinstance(window, _UIStepAwareWindow):
+                    window.ui_step_completed()
             finally:
                 ui_loop._finish_run(result, step_completed=step_completed)
             request = ui_loop.flush_ui_loop_requests()

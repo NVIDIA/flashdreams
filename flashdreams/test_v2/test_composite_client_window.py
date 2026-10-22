@@ -154,12 +154,14 @@ def test_lifecycle_and_results_reach_primary_and_every_secondary_sink() -> None:
         secondary_output_sinks=(first, second),
         on_open=lambda: calls.append(("inputs", "open")),
         on_close=lambda: calls.append(("inputs", "close")),
+        on_ui_step_completed=lambda: calls.append(("inputs", "ui_step")),
     )
     session_desc = cast(SessionDesc, object())
     result = cast(StepResult, object())
 
     window.open(session_desc)
     window.write(result)
+    window.ui_step_completed()
     window.close()
 
     assert window.primary_window is primary
@@ -172,6 +174,7 @@ def test_lifecycle_and_results_reach_primary_and_every_secondary_sink() -> None:
         ("primary", "write", result),
         ("first", "write", result),
         ("second", "write", result),
+        ("inputs", "ui_step"),
         ("inputs", "close"),
         ("second", "close"),
         ("first", "close"),

@@ -42,14 +42,14 @@ class _DescriptorEventSchema:
 
 @dataclass(frozen=True, slots=True)
 class _ScheduledEvent:
-    """One event released at or after a zero-based UI poll."""
+    """One event released at or after a zero-based UI step."""
 
-    poll: int
+    step: int
     event: UserInputEvent
 
 
 class SyntheticInputSource(InputSource):
-    """Release descriptor events exactly once on their requested UI polls."""
+    """Release descriptor events exactly once for their requested UI steps."""
 
     def __init__(
         self,
@@ -71,7 +71,7 @@ class SyntheticInputSource(InputSource):
         self._clock_ns = clock_ns
         self._session_started_ns: int | None = None
         self._next_event_index = 0
-        self._poll = 0
+        self._ui_step = 0
 
     def start_session(self) -> None:
         """Start a new session-relative clock without resetting replay state."""
@@ -82,7 +82,7 @@ class SyntheticInputSource(InputSource):
         self._session_started_ns = None
 
     def get_user_input_events(self) -> UserInputEvents:
-        """Return events due on this UI poll, stamped at emission time."""
+        """Return events due for the next UI step, stamped at emission time."""
         started_ns = self._session_started_ns
         if started_ns is None:
             raise RuntimeError(
@@ -92,13 +92,16 @@ class SyntheticInputSource(InputSource):
         released: list[UserInputEvent] = []
         while (
             self._next_event_index < len(self._events)
-            and self._events[self._next_event_index].poll <= self._poll
+            and self._events[self._next_event_index].step <= self._ui_step
         ):
             scheduled = self._events[self._next_event_index]
             released.append(replace(scheduled.event, timestamp=elapsed_us))
             self._next_event_index += 1
-        self._poll += 1
         return UserInputEvents(released)
+
+    def ui_step_completed(self) -> None:
+        """Advance the replay schedule after one UI-loop step completes."""
+        self._ui_step += 1
 
 
 def _load_descriptor(path: Path) -> list[_ScheduledEvent]:
@@ -121,7 +124,7 @@ def _load_descriptor(path: Path) -> list[_ScheduledEvent]:
     if not isinstance(raw_events, list):
         raise TypeError("Descriptor events must be a JSON array.")
     events = [_decode_scheduled_event(raw_event) for raw_event in raw_events]
-    return sorted(events, key=lambda scheduled: scheduled.poll)
+    return sorted(events, key=lambda scheduled: scheduled.step)
 
 
 def _decode_scheduled_event(raw_event: object) -> _ScheduledEvent:
@@ -132,10 +135,10 @@ def _decode_scheduled_event(raw_event: object) -> _ScheduledEvent:
         )
     if raw_event["on"] != "ui_loop":
         raise ValueError("Descriptor event 'on' must be 'ui_loop'.")
-    poll = raw_event["at"]
-    if isinstance(poll, bool) or not isinstance(poll, int) or poll < 0:
+    step = raw_event["at"]
+    if isinstance(step, bool) or not isinstance(step, int) or step < 0:
         raise ValueError("Descriptor event 'at' must be a non-negative integer.")
-    return _ScheduledEvent(poll=poll, event=_decode_event(raw_event["event"]))
+    return _ScheduledEvent(step=step, event=_decode_event(raw_event["event"]))
 
 
 def _decode_event(raw_event: object) -> UserInputEvent:

@@ -21,6 +21,7 @@ from flashdreams.runtime_v2.client_window_factory import (
     ClientWindowMode,
     add_client_window_arguments,
     client_window_mode,
+    compose_client_window,
     create_client_window,
 )
 from flashdreams.runtime_v2.composite_client_window import CompositeClientWindow
@@ -130,6 +131,24 @@ def test_an_mp4_run_can_replay_a_synthetic_input_file(tmp_path: Path) -> None:
     assert window.primary_window.path == tmp_path / "clip.mp4"
 
 
+def test_failed_composition_closes_the_primary_window(tmp_path: Path) -> None:
+    class ClosingNullClientWindow(NullClientWindow):
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    primary = ClosingNullClientWindow()
+
+    with pytest.raises(ValueError, match="Unable to read synthetic input"):
+        compose_client_window(
+            primary,
+            argparse.Namespace(synthetic_input_file=tmp_path / "missing.json"),
+        )
+
+    assert primary.closed
+
+
 def test_mode_hooks_continue_to_receive_the_primary_window(tmp_path: Path) -> None:
     mode = client_window_mode("mp4")
     primary_window = mode.create(
@@ -198,13 +217,14 @@ def test_null_mode_composition_preserves_replay_across_replacement(
         _parsed(["--mode", "null", "--synthetic-input-file", str(descriptor)])
     )
 
+    assert isinstance(window, CompositeClientWindow)
     window.open(SessionDesc())
     first = window.get_user_input_events().get_events()
+    window.ui_step_completed()
     window.open(SessionDesc())
     second = window.get_user_input_events().get_events()
     window.close()
 
-    assert isinstance(window, CompositeClientWindow)
     assert isinstance(window.primary_window, NullClientWindow)
     assert [type(event) for event in first] == [ResetUserInputEvent]
     assert [type(event) for event in second] == [CloseUserInputEvent]

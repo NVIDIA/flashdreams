@@ -37,7 +37,7 @@ def _descriptor(events: list[object]) -> dict[str, object]:
     return {"version": 1, "events": events}
 
 
-def test_events_release_on_their_ui_poll_once_with_emission_timestamps(
+def test_events_release_on_their_ui_step_once_with_emission_timestamps(
     tmp_path: Path,
 ) -> None:
     path = _write_descriptor(
@@ -66,6 +66,10 @@ def test_events_release_on_their_ui_poll_once_with_emission_timestamps(
     first = source.get_user_input_events().get_events()
     clock.now_ns = 1_011_000
     second = source.get_user_input_events().get_events()
+    assert source.get_user_input_events().get_events() == []
+    source.ui_step_completed()
+    assert source.get_user_input_events().get_events() == []
+    source.ui_step_completed()
     clock.now_ns = 1_019_000
     third = source.get_user_input_events().get_events()
     fourth = source.get_user_input_events().get_events()
@@ -106,6 +110,7 @@ def test_replacement_session_rebases_timestamps_without_replaying_events(
     source.start_session()
     clock.now_ns = 1_007_000
     first = source.get_user_input_events().get_events()
+    source.ui_step_completed()
     source.end_session()
     clock.now_ns = 2_000_000
     source.start_session()
