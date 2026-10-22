@@ -330,8 +330,13 @@ class _FileUpload:
     total_bytes: int = 0
     """Bytes received so far across ``files``."""
 
-    receiving: bool = False
-    """Whether a request is reading a file now. Another one meanwhile is refused."""
+    reader: asyncio.Task[Any] | None = None
+    """The request reading a file now, if any. Another one meanwhile is refused."""
+
+    def stop(self) -> None:
+        """Stop the read in progress, so a forgotten upload frees its bytes now."""
+        if self.reader is not None:
+            self.reader.cancel()
 
 
 class WebRTCServer:
@@ -573,6 +578,8 @@ class WebRTCServer:
     def _withdraw_file_selectors(self) -> None:
         """Forget open selectors and tell the viewer to close its prompt."""
         self._pending_file_requests.clear()
+        for upload in self._uploading_file_requests.values():
+            upload.stop()
         self._uploading_file_requests.clear()
         channel = self._control_channel
         if channel is not None and channel.readyState == "open":
@@ -615,6 +622,8 @@ class WebRTCServer:
             *(upload.policy for upload in self._uploading_file_requests.values()),
         )
         self._pending_file_requests.clear()
+        for upload in self._uploading_file_requests.values():
+            upload.stop()
         self._uploading_file_requests.clear()
         for policy in abandoned:
             self._emit_selected_files(
@@ -1003,7 +1012,7 @@ class WebRTCServer:
         name = request.query.get("name", "")
         size = request.content_length
         if (
-            upload.receiving
+            upload.reader is not None
             or upload.count < 1
             or count != upload.count
             or _query_int(request, "index") != len(upload.files)
@@ -1030,7 +1039,7 @@ class WebRTCServer:
         if size > allowed:
             finish(SelectedFilesStatus.TOO_LARGE)
             raise web.HTTPRequestEntityTooLarge(max_size=allowed, actual_size=size)
-        upload.receiving = True
+        upload.reader = asyncio.current_task()
         try:
             data = await request.content.readexactly(size)
         except asyncio.IncompleteReadError as error:
@@ -1040,7 +1049,7 @@ class WebRTCServer:
             finish(SelectedFilesStatus.UNAVAILABLE)
             raise
         finally:
-            upload.receiving = False
+            upload.reader = None
         upload.files.append(SelectedFile(name=name, data=data))
         upload.total_bytes += size
         if len(upload.files) < upload.count:
@@ -1422,6 +1431,7 @@ class WebRTCServer:
                 upload = self._uploading_file_requests.pop(token, None)
                 if upload is None:
                     return
+                upload.stop()
                 policy = upload.policy
             self._emit_selected_files(policy.selector_id, status=status)
             return

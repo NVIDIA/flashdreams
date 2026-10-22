@@ -25,7 +25,7 @@ T = TypeVar("T")
 pytest.importorskip("aiohttp")
 pytest.importorskip("aiortc")
 
-from aiohttp import ClientSession
+from aiohttp import ClientError, ClientSession
 from aiohttp.streams import StreamReader
 from aiortc import (
     MediaStreamTrack,
@@ -310,7 +310,8 @@ async def test_in_flight_upload_is_unavailable_after_peer_loss(
             return await original_readexactly(self, n)
 
         monkeypatch.setattr(StreamReader, "readexactly", readexactly_after_disconnect)
-        assert await _post_selected_file(window, wire_id, b"hello", "hello.txt") == 204
+        with pytest.raises(ClientError):
+            await _post_selected_file(window, wire_id, b"hello", "hello.txt")
         event = await _wait_selected_files_event(window)
         assert event.request_id == "open-1"
         assert event.status is SelectedFilesStatus.UNAVAILABLE
@@ -602,6 +603,43 @@ async def test_browser_result_ends_an_upload_left_partway() -> None:
     finally:
         if peer is not None:
             await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_withdrawn_selector_stops_its_upload_read() -> None:
+    window = WebRTCClientWindow()
+    window.open(_session_desc())
+    writer: asyncio.StreamWriter | None = None
+    try:
+        wire_id = _arm(window, _file_request("open-1"))
+        url = URL(_files_url(window, wire_id))
+        assert url.host is not None and url.port is not None
+        reader, writer = await asyncio.open_connection(url.host, url.port)
+        target = url.with_query(
+            id=wire_id, name="slow.bin", index="0", count="1"
+        ).raw_path_qs
+        writer.write(
+            f"POST {target} HTTP/1.1\r\nHost: {url.host}\r\n"
+            "Content-Length: 10\r\n\r\nx".encode()
+        )
+        await writer.drain()
+        for _ in range(100):
+            uploads = window.server._uploading_file_requests
+            if wire_id in uploads and uploads[wire_id].reader is not None:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("upload read did not start")
+
+        window.server.cancel_file_selectors()
+
+        await asyncio.wait_for(reader.read(), timeout=5)
+        assert window.server._uploading_file_requests == {}
+        assert window.get_user_input_events().get_events() == []
+    finally:
+        if writer is not None:
+            writer.close()
         window.close()
 
 
