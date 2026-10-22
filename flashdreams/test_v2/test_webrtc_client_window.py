@@ -10,6 +10,7 @@ import json
 import threading
 import time
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
@@ -33,11 +34,14 @@ from av import VideoFrame
 from yarl import URL
 
 from flashdreams.api_v2.client_window import ClientWindowLink
+from flashdreams.runtime_v2.composite_client_window import CompositeClientWindow
 from flashdreams.runtime_v2.serving import webrtc_server
 from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.synthetic_input_source import SyntheticInputSource
 from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEvent,
     FocusUserInputEvent,
     GamepadUserInputEvent,
     GameWheelUserInputEvent,
@@ -45,6 +49,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEvent,
     MouseUserInputEvent,
     QueryStringUserInputEvent,
+    ResetUserInputEvent,
     TouchUserInputEvent,
     XRControllerUserInputEvent,
 )
@@ -1120,6 +1125,49 @@ def test_window_discards_events_buffered_during_a_session_handoff() -> None:
         assert (
             replacement_events[0].get_timestamp() < first_session_event.get_timestamp()
         )
+    finally:
+        window.close()
+
+
+def test_composite_webrtc_replacement_preserves_replay_and_rebases_timestamps(
+    tmp_path: Path,
+) -> None:
+    descriptor = tmp_path / "input.json"
+    descriptor.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "events": [
+                    {"on": "ui_loop", "at": 0, "event": {"type": "reset"}},
+                    {"on": "ui_loop", "at": 1, "event": {"type": "close"}},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    source = SyntheticInputSource(
+        descriptor,
+        clock_ns=iter((1_000_000, 1_005_000, 2_000_000, 2_007_000)).__next__,
+    )
+    window = CompositeClientWindow(
+        WebRTCClientWindow(),
+        secondary_input_sources=(source,),
+        on_open=source.start_session,
+        on_close=source.end_session,
+        on_ui_step_completed=source.ui_step_completed,
+    )
+
+    try:
+        window.open(_session_desc())
+        first = window.get_user_input_events().get_events()
+        window.ui_step_completed()
+        window.open(_session_desc())
+        second = window.get_user_input_events().get_events()
+
+        assert [type(event) for event in first] == [ResetUserInputEvent]
+        assert first[0].get_timestamp() == 5
+        assert [type(event) for event in second] == [CloseUserInputEvent]
+        assert second[0].get_timestamp() == 7
     finally:
         window.close()
 

@@ -49,9 +49,12 @@ class Mp4OutputSink(OutputSink):
                 becomes the rate the file plays back at.
 
         Raises:
+            RuntimeError: The sink is already open.
             ValueError: The frames are an odd number of pixels wide or high,
                 which this cannot encode.
         """
+        if self._encoder is not None:
+            raise RuntimeError("Mp4OutputSink is already open.")
         self._session_desc = session_desc
         self._encoder = Mp4Encoder(
             self._path,

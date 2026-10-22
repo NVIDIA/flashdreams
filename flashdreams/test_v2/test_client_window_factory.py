@@ -9,6 +9,7 @@ so what is covered here is each mode answering for itself.
 
 import argparse
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -20,13 +21,20 @@ from flashdreams.runtime_v2.client_window_factory import (
     ClientWindowMode,
     add_client_window_arguments,
     client_window_mode,
+    compose_client_window,
     create_client_window,
 )
+from flashdreams.runtime_v2.composite_client_window import CompositeClientWindow
 from flashdreams.runtime_v2.mp4_client_window import Mp4ClientWindow
 from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
 )
 from flashdreams.runtime_v2.null_client_window import NullClientWindow
+from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEvent,
+    ResetUserInputEvent,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -36,6 +44,12 @@ def _parsed(arguments: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     add_client_window_arguments(parser)
     return parser.parse_args(arguments)
+
+
+def _write_descriptor(tmp_path: Path, contents: object) -> Path:
+    path = tmp_path / "input.json"
+    path.write_text(json.dumps(contents), encoding="utf-8")
+    return path
 
 
 class _EntryPoint:
@@ -87,6 +101,78 @@ def test_an_omitted_mode_is_left_for_the_application() -> None:
     assert _parsed([]).mode is None
 
 
+def test_an_mp4_run_can_replay_a_synthetic_input_file(tmp_path: Path) -> None:
+    descriptor = tmp_path / "input.json"
+    descriptor.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "events": [{"on": "ui_loop", "at": 0, "event": {"type": "reset"}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    window = create_client_window(
+        _parsed(
+            [
+                "--mode",
+                "mp4",
+                "--output-path",
+                str(tmp_path / "clip.mp4"),
+                "--synthetic-input-file",
+                str(descriptor),
+            ]
+        )
+    )
+
+    assert isinstance(window, CompositeClientWindow)
+    assert isinstance(window.primary_window, Mp4ClientWindow)
+    assert window.primary_window.path == tmp_path / "clip.mp4"
+
+
+def test_failed_composition_closes_the_primary_window(tmp_path: Path) -> None:
+    class ClosingNullClientWindow(NullClientWindow):
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    primary = ClosingNullClientWindow()
+
+    with pytest.raises(ValueError, match="Unable to read synthetic input"):
+        compose_client_window(
+            primary,
+            argparse.Namespace(synthetic_input_file=tmp_path / "missing.json"),
+        )
+
+    assert primary.closed
+
+
+def test_mode_hooks_continue_to_receive_the_primary_window(tmp_path: Path) -> None:
+    mode = client_window_mode("mp4")
+    primary_window = mode.create(
+        _parsed(
+            [
+                "--mode",
+                "mp4",
+                "--output-path",
+                str(tmp_path / "clip.mp4"),
+                "--synthetic-input-file",
+                str(
+                    _write_descriptor(
+                        tmp_path,
+                        {"version": 1, "events": []},
+                    )
+                ),
+            ]
+        )
+    )
+
+    assert isinstance(primary_window, Mp4ClientWindow)
+    assert mode.finished(primary_window) == str(tmp_path / "clip.mp4")
+
+
 def test_a_file_run_with_nowhere_to_write_says_so() -> None:
     with pytest.raises(ValueError, match="--output-path is required"):
         create_client_window(_parsed(["--mode", "mp4"]))
@@ -114,6 +200,59 @@ def test_internal_null_mode_discards_preload_output() -> None:
     )
 
 
+def test_null_mode_composition_preserves_replay_across_replacement(
+    tmp_path: Path,
+) -> None:
+    descriptor = _write_descriptor(
+        tmp_path,
+        {
+            "version": 1,
+            "events": [
+                {"on": "ui_loop", "at": 0, "event": {"type": "reset"}},
+                {"on": "ui_loop", "at": 1, "event": {"type": "close"}},
+            ],
+        },
+    )
+    window = create_client_window(
+        _parsed(["--mode", "null", "--synthetic-input-file", str(descriptor)])
+    )
+
+    assert isinstance(window, CompositeClientWindow)
+    window.open(SessionDesc())
+    first = window.get_user_input_events().get_events()
+    window.ui_step_completed()
+    window.open(SessionDesc())
+    second = window.get_user_input_events().get_events()
+    window.close()
+
+    assert isinstance(window.primary_window, NullClientWindow)
+    assert [type(event) for event in first] == [ResetUserInputEvent]
+    assert [type(event) for event in second] == [CloseUserInputEvent]
+
+
+def test_mp4_composition_preserves_the_repeated_open_error(tmp_path: Path) -> None:
+    descriptor = _write_descriptor(tmp_path, {"version": 1, "events": []})
+    window = create_client_window(
+        _parsed(
+            [
+                "--mode",
+                "mp4",
+                "--output-path",
+                str(tmp_path / "clip.mp4"),
+                "--synthetic-input-file",
+                str(descriptor),
+            ]
+        )
+    )
+
+    try:
+        window.open(SessionDesc())
+        with pytest.raises(RuntimeError, match="already open"):
+            window.open(SessionDesc())
+    finally:
+        window.close()
+
+
 @pytest.mark.parametrize("fullscreen", [False, True])
 def test_a_native_window_mode_is_lazy_and_keeps_its_title(fullscreen: bool) -> None:
     window = create_client_window(
@@ -126,6 +265,22 @@ def test_a_native_window_mode_is_lazy_and_keeps_its_title(fullscreen: bool) -> N
     assert isinstance(window, NativeWindowClientWindow)
     assert window.title == "World model"
     assert window._fullscreen is fullscreen
+
+
+def test_a_native_window_run_can_replay_synthetic_input(tmp_path: Path) -> None:
+    window = create_client_window(
+        _parsed(
+            [
+                "--mode",
+                "native-window",
+                "--synthetic-input-file",
+                str(_write_descriptor(tmp_path, {"version": 1, "events": []})),
+            ]
+        )
+    )
+
+    assert isinstance(window, CompositeClientWindow)
+    assert isinstance(window.primary_window, NativeWindowClientWindow)
 
 
 def test_an_installed_mode_owns_its_flashdreams_run_v2_arguments(
@@ -151,6 +306,29 @@ def test_an_installed_mode_owns_its_flashdreams_run_v2_arguments(
     assert parsed.plugin_output == output
     assert isinstance(window, Mp4ClientWindow)
     assert window.path == output
+
+
+def test_an_installed_mode_can_replay_synthetic_input(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _installed_modes(monkeypatch, _EntryPoint("plugin-window", _PluginMode))
+    descriptor = _write_descriptor(tmp_path, {"version": 1, "events": []})
+
+    window = create_client_window(
+        _parsed(
+            [
+                "--mode",
+                "plugin-window",
+                "--plugin-output",
+                str(tmp_path / "plugin.mp4"),
+                "--synthetic-input-file",
+                str(descriptor),
+            ]
+        )
+    )
+
+    assert isinstance(window, CompositeClientWindow)
+    assert isinstance(window.primary_window, Mp4ClientWindow)
 
 
 def test_factory_modes_are_preserved_per_parser(
@@ -297,5 +475,24 @@ class TestWebRTC:
             assert isinstance(window, WebRTCClientWindow)
             assert window.metrics_snapshot()["webrtc_sender_queue_capacity_count"] == 2
             assert mode.starting(window) == f"Open {window.server.url} in a browser."
+        finally:
+            window.close()
+
+    def test_a_browser_run_can_replay_synthetic_input(self, tmp_path: Path) -> None:
+        from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
+
+        window = create_client_window(
+            _parsed(
+                [
+                    "--mode",
+                    "webrtc",
+                    "--synthetic-input-file",
+                    str(_write_descriptor(tmp_path, {"version": 1, "events": []})),
+                ]
+            )
+        )
+        try:
+            assert isinstance(window, CompositeClientWindow)
+            assert isinstance(window.primary_window, WebRTCClientWindow)
         finally:
             window.close()

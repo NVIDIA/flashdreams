@@ -754,6 +754,24 @@ def test_run_session_presents_every_step_in_order() -> None:
     assert steps == ["session.step(0)", "session.step(1)", "session.step(2)"]
 
 
+def test_run_session_notifies_a_step_aware_window_after_each_ui_step() -> None:
+    log = CallLog()
+
+    class StepAwareWindow(RecordingClientWindow):
+        completed_ui_steps = 0
+
+        def ui_step_completed(self) -> None:
+            self.completed_ui_steps += 1
+
+    session = FakeSession(_session_desc(), log)
+    window = StepAwareWindow(log)
+
+    run_session(session, window, steps=2)
+
+    assert window.completed_ui_steps > 0
+    assert window.completed_ui_steps == log.calls.count("ui_loop.step")
+
+
 def test_run_session_opens_before_writing_and_closes_after() -> None:
     log = CallLog()
     session = FakeSession(_session_desc(), log)

@@ -42,6 +42,7 @@ from flashdreams.runtime_v2.application_runner import (
 from flashdreams.runtime_v2.client_window_factory import (
     add_client_window_arguments,
     client_window_mode,
+    compose_client_window,
 )
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
 from flashdreams.runtime_v2.session_desc import (
@@ -111,9 +112,14 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         parser.error("--mode mp4 requires --timeout and/or --total-model-steps.")
     session_desc = _session_desc(application, parsed)
     worker = get_global_rank_for_logging() != 0
-    window = None if worker else mode.create(parsed)
-    if window is not None:
-        _report(mode.starting(window))
+    primary_window = None if worker else mode.create(parsed)
+    window = (
+        None
+        if primary_window is None
+        else compose_client_window(primary_window, parsed)
+    )
+    if primary_window is not None:
+        _report(mode.starting(primary_window))
     # The session's UI and client input decide when the run ends.
     metrics_output_sink = (
         None
@@ -142,8 +148,8 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
                 else parsed.total_model_steps
             ),
         )
-        if window is not None:
-            _report(mode.finished(window))
+        if primary_window is not None:
+            _report(mode.finished(primary_window))
         completed = True
     finally:
         shutdown_distributed(
