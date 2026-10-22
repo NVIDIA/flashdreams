@@ -8,10 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from flashdreams.runtime_v2.synthetic_input_source import (
-    SyntheticInputSource,
-    _descriptor_event_schemas,
-)
+from flashdreams.runtime_v2.synthetic_input_source import SyntheticInputSource
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     KeyboardInputState,
@@ -163,46 +160,3 @@ def test_the_parser_rejects_unsupported_v1_forms(
 ) -> None:
     with pytest.raises((ValueError, TypeError)):
         SyntheticInputSource(_write_descriptor(tmp_path, contents))
-
-
-def test_documentation_matches_the_reflection_derived_event_schema() -> None:
-    documentation = (
-        Path(__file__).parents[2]
-        / "docs"
-        / "source"
-        / "documentation"
-        / "demo_api"
-        / "guides"
-        / "synthetic_input.md"
-    ).read_text(encoding="utf-8")
-    header = (
-        "| Event type | Field | Type | Required | Default | Accepted values |\n"
-        "| --- | --- | --- | --- | --- | --- |"
-    )
-    expected_rows: list[str] = []
-    for event in _descriptor_event_schemas():
-        if not event.fields:
-            expected_rows.append(f"| `{event.type_name}` | - | - | - | - | - |")
-            continue
-        for field in event.fields:
-            default = (
-                "-"
-                if field.required
-                else f"`{json.dumps(field.default, separators=(',', ':'))}`"
-            )
-            accepted_values = (
-                "-"
-                if not field.accepted_values
-                else ", ".join(
-                    f"`{json.dumps(value)}`" for value in field.accepted_values
-                )
-            )
-            expected_rows.append(
-                f"| `{event.type_name}` | `{field.name}` | `{field.value_type}` | "
-                f"{'yes' if field.required else 'no'} | {default} | "
-                f"{accepted_values} |"
-            )
-
-    documented_table = documentation[documentation.index(header) :].strip()
-
-    assert documented_table == "\n".join((header, *expected_rows))

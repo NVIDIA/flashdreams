@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import MISSING, dataclass, fields, replace
 from enum import Enum
 from pathlib import Path
-from typing import Literal, Union, cast, get_args, get_origin, get_type_hints
+from typing import Literal, Union, get_args, get_origin, get_type_hints
 
 from numpy import uint64
 
@@ -30,29 +30,12 @@ class _DescriptorFieldSchema:
     name: str
     annotation: object
     required: bool
-    default: object
-
-    @property
-    def value_type(self) -> str:
-        """Return the JSON-facing field type."""
-        return _describe_annotation(self.annotation)
-
-    @property
-    def accepted_values(self) -> tuple[object, ...]:
-        """Return finite accepted values, or an empty tuple when unconstrained."""
-        origin = get_origin(self.annotation)
-        if origin is Literal:
-            return get_args(self.annotation)
-        if isinstance(self.annotation, type) and issubclass(self.annotation, Enum):
-            return tuple(member.value for member in self.annotation)
-        return ()
 
 
 @dataclass(frozen=True, slots=True)
 class _DescriptorEventSchema:
     """Reflection-derived descriptor contract for one event type."""
 
-    type_name: str
     event_type: type[UserInputEvent]
     fields: tuple[_DescriptorFieldSchema, ...]
 
@@ -178,14 +161,6 @@ def _decode_event(raw_event: object) -> UserInputEvent:
     return schema.event_type(**values)
 
 
-def _descriptor_event_schemas() -> tuple[_DescriptorEventSchema, ...]:
-    """Return every registered event's descriptor schema in stable order."""
-    return tuple(
-        _descriptor_event_schema(type_name)
-        for type_name in sorted(UserInputEvent._type_name_owners)
-    )
-
-
 def _descriptor_event_schema(event_type_name: str) -> _DescriptorEventSchema:
     """Derive one event's descriptor schema from its registered dataclass."""
     owner = UserInputEvent._type_name_owners.get(event_type_name)
@@ -200,55 +175,17 @@ def _descriptor_event_schema(event_type_name: str) -> _DescriptorEventSchema:
         if field.name == "timestamp":
             continue
         required = field.default is MISSING and field.default_factory is MISSING
-        default: object = None
-        if not required:
-            default = (
-                field.default
-                if field.default is not MISSING
-                else cast(Callable[[], object], field.default_factory)()
-            )
         descriptor_fields.append(
             _DescriptorFieldSchema(
                 name=field.name,
                 annotation=hints[field.name],
                 required=required,
-                default=default,
             )
         )
     return _DescriptorEventSchema(
-        type_name=event_type_name,
         event_type=event_type,
         fields=tuple(descriptor_fields),
     )
-
-
-def _describe_annotation(annotation: object) -> str:
-    """Describe a supported annotation using JSON-facing type names."""
-    origin = get_origin(annotation)
-    if origin is Literal:
-        values = get_args(annotation)
-        return _describe_annotation(type(values[0]))
-    if origin is tuple:
-        item_types = get_args(annotation)
-        if len(item_types) == 2 and item_types[1] is Ellipsis:
-            return f"array[{_describe_annotation(item_types[0])}]"
-        return "[" + ", ".join(_describe_annotation(item) for item in item_types) + "]"
-    if origin in {Union, types.UnionType}:
-        return " or ".join(
-            "null" if option is type(None) else _describe_annotation(option)
-            for option in get_args(annotation)
-        )
-    if isinstance(annotation, type) and issubclass(annotation, Enum):
-        return "string"
-    if annotation is bool:
-        return "boolean"
-    if annotation is int:
-        return "integer"
-    if annotation is float:
-        return "number"
-    if annotation is str:
-        return "string"
-    raise TypeError(f"Unsupported descriptor field type: {annotation!r}.")
 
 
 def _decode_value(value: object, annotation: object, *, label: str) -> object:
