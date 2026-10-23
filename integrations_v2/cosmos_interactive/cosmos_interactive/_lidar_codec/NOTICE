@@ -1,0 +1,11 @@
+FlashDreams LiDAR inference source
+
+Copyright contributors to the vLLM-Omni project
+Copyright (c) 2022 Katherine Crowson
+Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+The vLLM-Omni source at 8ef7df57219688835f3752accb2c3b2f444b4058
+is distributed under Apache-2.0; see LICENSE.vllm-omni.
+transformer_vae.py retains MIT terms for k-diffusion-derived portions;
+see LICENSE.k-diffusion. NVIDIA modifications and the local streaming adapter
+are identified in the source and README.md.

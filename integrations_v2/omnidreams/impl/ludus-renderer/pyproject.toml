@@ -27,6 +27,7 @@ dependencies = [
     "ninja>=1.13.0",
     "cmake>=4.0",
     "nvidia-nvcomp-cu12>=4.0",
+    "loguru>=0.7",
 ]
 
 [project.optional-dependencies]

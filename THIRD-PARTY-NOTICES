@@ -24,6 +24,13 @@ FlashDreams's Apache-2.0 license does not replace those terms. Source-level
 redistributions (third-party source code physically present in this repository) are disclosed in the
 "Source-level redistributions" section at the end of this file.
 
+Additional third-party libraries are installed as runtime dependencies by
+`uv` / `pip` (resolving from PyPI and NVIDIA package indexes) or pulled
+from Hugging Face Hub on first run. Those packages and their downloaded
+model assets are not redistributed with this repository and carry their
+own license terms from their respective distribution locations. Review
+the license terms of these packages before use in your environment.
+
 ================================================================================
 Direct runtime dependencies
 ================================================================================
@@ -33,6 +40,7 @@ botocore               Apache-2.0   https://github.com/boto/botocore
 einops                 MIT          https://github.com/arogozhnikov/einops
 filelock               MIT          https://github.com/tox-dev/filelock
 ftfy                   Apache-2.0   https://github.com/rspeer/python-ftfy
+h5py                   BSD-3-Clause https://github.com/h5py/h5py
 huggingface-hub        Apache-2.0   https://github.com/huggingface/huggingface_hub
 imgui-bundle           MIT          https://github.com/pthom/imgui_bundle
 loguru                 MIT          https://github.com/Delgan/loguru
@@ -96,6 +104,44 @@ Big Buck Bunny         CC-BY-3.0    https://peach.blender.org/about/
     redistributed in this repository.
 
 ================================================================================
+Optional application: apps/handdreams
+================================================================================
+
+Pillow                 MIT-CMU      https://github.com/python-pillow/Pillow
+    Scene image decoding uses Pillow without modifying or redistributing its
+    source. Pillow was already used by the original hand demo; the independent
+    V2 integration declares it directly.
+
+================================================================================
+Optional application support: apps/handdreams/controller_input
+================================================================================
+
+websockets             BSD-3-Clause https://github.com/python-websockets/websockets
+    The optional webxr extra uses the unmodified WebSocket client for local
+    Quest Browser DevTools automation. No upstream source is redistributed.
+    This package is also used by the existing Isaac Teleop dependency stack.
+
+isaacteleop            NOASSERTION  https://github.com/NVIDIA/IsaacTeleop
+    Public PyPI wheel metadata declares Apache-2.0. The 1.4.142 wheel also
+    contains CloudXR native components; the complete wheel's license conclusion
+    remains NOASSERTION pending the applicable Isaac Teleop/CloudXR review.
+
+HandDreams runs isaacteleop[cloudxr,retargeters-lite]==1.4.142 as an isolated
+subprocess. `flashdreams-controller-input setup isaac-teleop` installs the public
+PyPI wheels and complete dependency closure into a dedicated virtual environment using the
+platform-specific hash-pinned manifests in controller_input/isaac_teleop/.
+FlashDreams does not copy Isaac Teleop or CloudXR binaries into its GitHub
+release or install them in the main workspace environment.
+
+The operator must explicitly accept the NVIDIA CloudXR EULA at setup and again
+via --accept-eula before CloudXR startup; environment creation does not imply
+startup acceptance. The terms applicable to this runtime are linked at:
+https://github.com/NVIDIA/IsaacCapture/blob/main/deps/cloudxr/CLOUDXR_LICENSE
+Public package: https://pypi.org/project/isaacteleop/1.4.142/
+Review upstream distribution notices before use or redistribution. Isaac Lab
+is not part of HandDreams and is not an installation dependency.
+
+================================================================================
 Optional integration: integrations_v2/flashvsr
 ================================================================================
 
@@ -109,6 +155,28 @@ FlashVSR              Apache-2.0   https://github.com/OpenImagingLab/FlashVSR
 ninja                  Apache-2.0   https://github.com/ninja-build/ninja
     The Python distribution wrapper and bundled Ninja executable can carry
     separate Apache/BSD terms; retain the selected artifact's licenses.
+
+================================================================================
+Optional integrations: integrations_v2/cosmos_interactive and cosmos3_nano_sim_auto
+================================================================================
+
+The LiDAR codec uses PyTorch FlexAttention and the vendored vLLM-Omni
+components attributed under Source-level redistributions below.
+
+scipy                  BSD-3-Clause https://github.com/scipy/scipy
+    Native prepared-scene LiDAR projection uses SciPy rotation utilities.
+
+TAEHV                  MIT          https://github.com/madebyollin/taehv
+    The streaming super-decoder implements the TAEHV architecture using the
+    shared FlashDreams TAEHV components. Decoder weights are downloaded
+    separately from upstream; no model weights are included in the package.
+
+The Cosmos Interactive runtime contains the native MoT network,
+checkpoint mapping, text tokenizer wiring and LiDAR codec. The model and scene
+integrations use the existing PyTorch, einops, safetensors, transformers,
+loguru, SciPy, Pillow, imageio and Ludus dependencies disclosed in this document.
+Training checkpoints and prepared scene assets have their own distribution
+terms and are not included in these source packages.
 
 ================================================================================
 Optional integration: integrations_v2/omnidreams
@@ -134,6 +202,13 @@ NVIDIA PhysX 5.9.0     BSD-3-Clause https://github.com/NVIDIA-Omniverse/PhysX
     ``ludus-renderer`` downloads the pinned PhysX source archive at first use,
     verifies its SHA-256, and builds it into a platform-local cache. The source
     and resulting native module are not redistributed in this repository.
+
+The OmniDreams runners read and write .mp4 video by invoking the external
+"ffmpeg" command-line tool as a subprocess (through mediapy). ffmpeg is a
+user-supplied system prerequisite: it is neither redistributed in this
+repository nor linked into any FlashDreams binary, and no FlashDreams package
+declares it as a runtime dependency. It is therefore not part of the
+dependency inventory above; install it separately (e.g. "apt install ffmpeg").
 
 NVIDIA OmniDreams single-view native builds use script-managed, pinned source
 downloads under integrations_v2/omnidreams/impl/omnidreams_singleview/3rdparty/.
@@ -203,6 +278,20 @@ sentencepiece          Apache-2.0   https://github.com/google/sentencepiece
 ================================================================================
 Source-level redistributions
 ================================================================================
+
+--------------------------------------------------------------------------------
+Cosmos Interactive decoder architecture adaptation
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/cosmos_interactive/cosmos_interactive/_taehv_super.py
+License:  Apache-2.0 AND MIT (see LICENSES/Apache-2.0.txt and LICENSES/MIT.txt)
+          Copyright (c) 2025 Ollin Boer Bohan
+          Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Upstream: https://github.com/madebyollin/taehv
+
+The decoder adapts the TAEHV-super layout for FlashDreams streaming caches and
+checkpoint loading. The decoder checkpoint is pinned to upstream revision
+62f7591f59dfbb4c3c02b7a621d180a9eeaba26c and downloaded separately.
 
 The following third-party source is physically present in this repository
 (not just consumed at runtime). Each file retains its original copyright
@@ -322,5 +411,44 @@ License: MIT upstream portions; Apache-2.0 NVIDIA modifications
 Upstream: https://github.com/squidfunk/mkdocs-material/blob/f0c99d89da61a247318f1a9471a082cfb981b3e0/docs/reference/math.md
 
 The initializer adapts the upstream example with formatting changes.
+
+--------------------------------------------------------------------------------
+vLLM-Omni LiDAR inference blocks
+--------------------------------------------------------------------------------
+
+Path:     integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/
+          transformer_vae.py, rope.py, encoding.py, neighborhood_attention.py
+License:  Apache-2.0 (see LICENSES/Apache-2.0.txt), with MIT terms retained
+          for k-diffusion-derived portions of transformer_vae.py.
+          Copyright contributors to the vLLM-Omni project
+          Copyright (c) 2022 Katherine Crowson
+          Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Version:  8ef7df57219688835f3752accb2c3b2f444b4058 (cosmos3_gtc_berlin_release)
+Upstream: https://github.com/MaciejBalaNV/vllm-omni/tree/8ef7df57219688835f3752accb2c3b2f444b4058/vllm_omni/diffusion/models/cosmos3/lidar_encoder
+License URL: https://github.com/MaciejBalaNV/vllm-omni/blob/8ef7df57219688835f3752accb2c3b2f444b4058/LICENSE
+
+The pinned release snapshot provides the VAE encoder/decoder, 3D rotary
+positions, polar coordinates and sparse neighborhood attention. FlashDreams
+changes VAE imports to package-relative imports and computes constructor
+shape metadata on CPU to support meta-device inspection. Other vendored
+files are unchanged. network.py adapts these modules to the existing
+FlashDreams checkpoint and streaming interfaces. No vLLM runtime dependency,
+model weights, or sample data is redistributed by this source change.
+
+The codec's complete upstream Apache license is retained in that directory's
+LICENSE.vllm-omni; its NOTICE accompanies the copied source. The shared Cosmos
+package also records this redistribution in its own LICENSE, NOTICE and
+THIRD-PARTY-NOTICES.
+
+The VAE credits k-diffusion's image_transformer_v2.py. Its full inherited MIT
+notice, including Copyright (c) 2022 Katherine Crowson, is reproduced in
+the codec directory's LICENSE.k-diffusion.
+The MIT text is pinned at
+https://github.com/crowsonkb/k-diffusion/blob/e95849c23340e78c4bca5ef6cea6dd60611acad8/LICENSE.
+The standalone geometry sampler and spinning-LiDAR projector are not covered
+by this upstream attribution. Their prior implementation bodies have been
+removed from the public integration; its independent geometry and projection
+replacements are enabled.
+Those first-party replacements are separate from the vLLM-Omni redistribution.
 
 ================================================================================

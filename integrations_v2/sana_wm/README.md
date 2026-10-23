@@ -26,6 +26,10 @@ uv sync --package flashdreams-sana-wm --inexact
 
 Checkpoints download from Hugging Face on first use.
 
+FP4 with 2D weight scaling is disabled on Triton 3.6 because it produces incorrect
+results. Use the default CUDA 13 environment (PyTorch 2.12.1 with Triton 3.7.1)
+for FP4, or select BF16/FP8 when using the CUDA 12 profile.
+
 ## Cam2V application
 
 ```bash

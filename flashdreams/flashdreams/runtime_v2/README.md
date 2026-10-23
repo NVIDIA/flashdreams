@@ -218,7 +218,7 @@ then the new session receives zero remaining time and stops at its first boundar
 results as they are published, not the UI loop's output, so a benchmark measures
 what the model generated while the window still sees one composited frame per
 tick. See [`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
-and the [benchmark README](../../tools/benchmarks/README.md) for the suite.
+and the [benchmarking guide](https://nvidia.github.io/flashdreams/main/documentation/tools/benchmarking/) for the suite.
 The runtime augments those model records with step wall time and
 presentation-queue depth/publish-wait measurements under the reserved
 `runtime_` metric prefix. UI and window timings are not folded into a later

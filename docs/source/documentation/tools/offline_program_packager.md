@@ -7,7 +7,7 @@ title: 'Offline Program Packager'
 
 `tools/package-as-offline-exe/package_as_offline_exe.py` preloads an installed
 FlashDreams v2 application and creates a host-native executable with its Python
-runtime, dependencies, native libraries, and prepared caches in one folder.
+runtime, dependencies, native libraries, and prepared caches in one raw folder.
 The target machine does not need Python, `uv`, or network access.
 
 The packager supports `native-window` and `webrtc` applications. It is not a
@@ -20,35 +20,16 @@ Run the tool from the repository root. Use `:::` to separate packager options
 from the complete `flashdreams-run-v2` command:
 
 ```bash
+# sync with target application dependencies
+uv sync --package flashdreams-omnidreams --inexact
 
-uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
-  --output artifacts/interactive-drive-omnidreams-bundle \
-  ::: flashdreams-run-v2 interactive-drive-omnidreams \
-  --mode native-window
+# sync with packager dependencies
+uv sync --group offline-exe --inexact
 
-```
-
-For a browser application, package its normal WebRTC command:
-
-```bash
-
-uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
-  --output artifacts/interactive-drive-omnidreams-webrtc-bundle \
-  ::: flashdreams-run-v2 interactive-drive-omnidreams \
-  --mode webrtc --host 0.0.0.0 --port 8089
-
-```
-
-Arguments before the runtime command's `--` belong to FlashDreams. Arguments
-after it belong to the application and are embedded in the generated launcher:
-
-```bash
-
-uv run python tools/package-as-offline-exe/package_as_offline_exe.py \
-  ::: flashdreams-run-v2 interactive-drive-omnidreams \
-  --mode native-window --timeout 120 \
-  -- --game-mode
-
+uv run --no-sync python tools/package-as-offline-exe/package_as_offline_exe.py \
+  --output artifacts/taxi-omnidreams-bundle \
+  ::: flashdreams-run-v2 crazy-robotaxi-omnidreams-fast-perf \
+  --mode native-window --fullscreen
 ```
 
 Do not pass `--preload-application`; the packager controls preparation and
@@ -64,12 +45,15 @@ validation. If `--output` is omitted, the destination is
 | `--skip-runtime-validation` | Initialize the application without validating one model block. |
 | `--hidden-import MODULE` | Add a PyInstaller hidden import; repeat as needed. |
 | `--collect-executable NAME` | Include an executable found on `PATH`; repeat as needed. |
+| `--noconsole` | Build without a console window on Windows (ignored on Linux). `stdout` and `stderr` write to `%TEMP%\flashdreams\<application-slug>\runtime.log`. |
+|
+| `--working-dir PATH` | Defaults to the output directory (which must not already exist. Creates dir if missing and copy its contents into the bundle before preload. |
 
 Use `--help` for the authoritative option list:
 
 ```bash
 
-uv run python tools/package-as-offline-exe/package_as_offline_exe.py --help
+uv run --no-sync python tools/package-as-offline-exe/package_as_offline_exe.py --help
 
 ```
 
@@ -79,32 +63,41 @@ uv run python tools/package-as-offline-exe/package_as_offline_exe.py --help
 
 <output>/
 |-- <application-slug>[.exe]
-|-- data/
+|-- _internal/
 |-- cache/
+|-- artifacts/             # when preload produces application assets
 |-- INSTALLER_OUTPUT.txt
 |-- PREPARATION_ISSUES.txt  # only when preload warnings are found
 `-- README.md
 
 ```
 
-`data/` contains the executable runtime. `cache/` contains the resources and
+The executable embeds Python bytecode, which is read without extraction.
+`_internal/` contains the executable runtime. `cache/` contains the resources and
 build artifacts prepared during initialization. `INSTALLER_OUTPUT.txt` records
 preload, validation, and PyInstaller output. `PREPARATION_ISSUES.txt` records
 work that the application attempted after its preparation phase.
 
 Distribute the complete folder, not only the executable: the launcher depends
-on its sibling `data/` and `cache/` directories.
+on its sibling `_internal/` and `cache/` directories. The packager uses
+PyInstaller's directory mode. Embedded bytecode and the standard-library archive
+are read directly. Python and DLLs are not extracted into temporary storage at
+launch, and the cache is not archived.
+Deploy the complete folder as raw files.
 
 ## Runtime cache
 
 The bundled cache is a read-only seed. On first launch, the application copies
 it to a writable per-user cache:
 
-- Windows: `%LOCALAPPDATA%\FlashDreams\<application-slug>\cache`
-- Linux: `$XDG_CACHE_HOME/flashdreams/<application-slug>`, or
-  `~/.cache/flashdreams/<application-slug>` when `XDG_CACHE_HOME` is unset
+- Windows: `%USERPROFILE%\flashdreams\unpacked\<application-slug>\cache`
+- Linux: `~/flashdreams/unpacked/<application-slug>/cache`
 
-Set `FLASHDREAMS_RUNTIME_CACHE_DIR` to choose another writable cache location.
+Pass `--unpack-dir PATH` to use `PATH/<application-slug>/cache`, or set
+`FLASHDREAMS_RUNTIME_CACHE_DIR` to choose the exact writable cache location.
+The command-line option takes precedence; paths must be absolute.
+Prepared C++, Triton, and PhysX extensions load from the original bundled `cache/`;
+Python and runtime libraries load from `_internal/`.
 
 Before distributing a bundle, test it on a clean target machine with networking
 disabled and empty user caches. Also confirm that every bundled model, asset,

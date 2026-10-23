@@ -72,7 +72,7 @@ def should_skip(path: Path, text: str) -> bool:
     # Skip integration test harnesses (e.g. integrations/*/tests/**).
     if (
         len(rel_path.parts) >= 3
-        and rel_path.parts[0] == "integrations"
+        and rel_path.parts[0] in ("integrations", "integrations_v2")
         and rel_path.parts[2] == "tests"
     ):
         return True
@@ -93,7 +93,7 @@ def sync_version(version: str) -> list[Path]:
         text = path.read_text()
         if should_skip(path, text):
             continue
-        new_text = _TOML_VERSION_RE.sub(rf'\g<1>"{version}"', text)
+        new_text = _TOML_VERSION_RE.sub(rf'\g<1>"{version}"', text, count=1)
         if new_text != text:
             path.write_text(new_text)
             changed.append(path)

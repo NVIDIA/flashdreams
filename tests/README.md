@@ -25,9 +25,9 @@ Both scripts resolve paths relative to their own location and can be invoked fro
 
 ## What gets run
 
-When no `TEST_TARGET` is given, each script runs `pytest` from the repo
-root. See `CONTRIBUTING.md` Testing for how files and functions are
-named.
+When no `TEST_TARGET` is given, each script runs `pytest` from the repo root.
+See [Testing](https://nvidia.github.io/flashdreams/main/documentation/tools/testing/) for discovery
+and CI tier markers.
 
 Pytest is invoked with `-m "not manual"` so any test marked `@pytest.mark.manual`
 is skipped.

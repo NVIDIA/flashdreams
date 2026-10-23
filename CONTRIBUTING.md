@@ -11,6 +11,12 @@ We have intentionally kept the process light. If something below is
 unclear or feels heavier than it should be, that's a bug; please file an
 issue and we'll fix it.
 
+Setup and build instructions:
+
+- [install and run FlashDreams](https://nvidia.github.io/flashdreams/main/quickstart/);
+- [work on one integration package](https://nvidia.github.io/flashdreams/main/quickstart/#install-one-integration);
+- [build and preview the website](https://nvidia.github.io/flashdreams/main/documentation/tools/build_website/).
+
 ## Table of contents
 
 1. [Ways to contribute](#ways-to-contribute)
@@ -19,13 +25,14 @@ issue and we'll fix it.
 4. [Submitting a pull request](#submitting-a-pull-request)
 5. [Code review and merge](#code-review-and-merge)
 6. [File Tree Of FlashDreams](#file-tree-of-flashdreams)
-7. [Coding conventions](#coding-conventions)
-8. [Testing](#testing)
-9. [Dependency version bounds](#dependency-version-bounds)
-10. [Working with a single integration package](#working-with-a-single-integration-package)
-11. [Licensing of contributions](#licensing-of-contributions)
-12. [Reporting issues](#reporting-issues)
-13. [Code of Conduct](#code-of-conduct)
+7. [Adding documentation](#adding-documentation)
+8. [Coding conventions](#coding-conventions)
+9. [Testing](#testing)
+10. [Dependency version bounds](#dependency-version-bounds)
+11. [Working with a single integration package](#working-with-a-single-integration-package)
+12. [Licensing of contributions](#licensing-of-contributions)
+13. [Reporting issues](#reporting-issues)
+14. [Code of Conduct](#code-of-conduct)
 
 ## Ways to contribute
 
@@ -35,9 +42,9 @@ overhead" to "high overhead":
 - **Try FlashDreams and tell us what broke.** A clear bug report — what
   you ran, what you expected, what you saw — is one of the most valuable
   contributions a project of this kind can receive.
-- **Improve documentation.** README clarifications, integration walkthroughs,
-  performance notes, and FAQ entries all land easily and benefit every
-  future user.
+- **Improve documentation.** Website articles, integration walkthroughs,
+  performance notes, and troubleshooting entries all land easily and benefit
+  every future user.
 - **Fix bugs.** Issues labelled `good first issue` are a friendly
   starting point. Larger fixes are welcome too — please leave a comment
   on the relevant issue first so we can avoid duplicate work.
@@ -242,11 +249,13 @@ tracking issue where available.
 
 ## File Tree Of FlashDreams
 
-Where a new app or model goes. Each documents its own layout:
+Where a new app or model goes:
 
 ```text
-apps/                           # reusable apps; layout in apps/README.md
-integrations_v2/                # model packages; layout in integrations_v2/README.md
+apps/                           # reusable, model-independent applications
+integrations_v2/                # model packages and application adapters
+docs/source/demos/              # canonical demo articles
+docs/source/models/             # canonical model articles
 ```
 
 The framework package, and the test and doc trees:
@@ -273,6 +282,46 @@ flashdreams/tests/              # framework tests not yet migrated to test_v2/
 tests/                          # repo-wide test-runner scripts + meta checks, not package tests
 docs/source/                    # Zensical Markdown sources
 ```
+
+## Adding documentation
+
+Write documentation for users and contributors as a website article under
+`docs/source/`, not as a package `README.md`. Update an existing article when
+it already owns the topic. Otherwise, add a Markdown file in the section that
+owns it:
+
+| Article | Website source | Example |
+| --- | --- | --- |
+| Install or first run | `docs/source/quickstart/` | `docs/source/quickstart/index.md` |
+| Model requirements, setup, commands, or limitations | `docs/source/models/` | `docs/source/models/my_model.md` |
+| Demo controls, options, or behavior | `docs/source/demos/` | `docs/source/demos/my_demo.md` |
+| API concept or development guide | `docs/source/documentation/<area>/guides/` | `docs/source/documentation/demo_api/guides/my_topic.md` |
+| API reference | `docs/source/documentation/<area>/api_reference/` | `docs/source/documentation/inferencing_api/api_reference/my_api.md` |
+| Project or community process | `docs/source/community/` | `docs/source/community/my_process.md` |
+| Common user failure | `docs/source/troubleshooting.md` | Add a focused section to the existing page |
+
+For example, a new demo article starts at `docs/source/demos/my_demo.md`:
+
+```markdown
+---
+title: 'My Demo'
+---
+
+<!-- SPDX-FileCopyrightText: Copyright (c) 2026 YOUR NAME. All rights reserved. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+Explain what the demo does, how to launch it, its controls, and its options.
+```
+
+Register a new page in the `.nav.yml` beside it; for this example, add
+`My Demo: my_demo.md` to `docs/source/demos/.nav.yml`. Use a lowercase
+snake-case filename that matches the model or demo package when applicable.
+
+Files outside `docs/source/` should link to the published website article
+instead of copying its instructions. `README.md` outside website, should try to point to the canonical website as much as possible.
+
+Build or preview the site with the commands in
+[Build Website](https://nvidia.github.io/flashdreams/main/documentation/tools/build_website/#build-the-website).
 
 ## Coding conventions
 
@@ -303,65 +352,8 @@ docs/source/                    # Zensical Markdown sources
 
 ## Testing
 
-Pytest collection is configured in the root `pyproject.toml`. There is
-no `testpaths` setting, so `pytest` from the repo root walks the tree:
-
-- Files named `test_*.py`. Pytest's default also collects `*_test.py`;
-  don't use that name here.
-- Classes named `Test*` (pytest default). Some modules use classes,
-  some only module-level functions.
-- Functions and methods named `test_*` (pytest default), including
-  `async def test_*`.
-
-Same test filename in different folders is fine (several
-`test_application.py` files exist). Root `pyproject.toml` already sets
-`--import-mode=importlib` so pytest keeps them separate. Do not remove
-that flag.
-
-A `test_*.py` next to the code it validates is collected with no CI
-change. The root `pyproject.toml` skips `parity_check`,
-`parity_check_v2`, `baseline_fastvideo`, and `baseline_lightx2v` via
-`norecursedirs`.
-
-Every test function must be marked with exactly one **CI tier marker**.
-A pytest plugin (`flashdreams._pytest_plugins.marker_enforcement`)
-enforces this at collection time -- tests without a marker are
-rejected, and tests with both `ci_cpu` and `ci_gpu` are rejected.
-
-| Marker | When to use | CI runner |
-|--------|-------------|-----------|
-| `@pytest.mark.ci_cpu` | Pure CPU logic, no GPU or `libGL` needed | CPU runner |
-| `@pytest.mark.ci_gpu` | Needs CUDA, `libGL`, or transitive `cv2` | GPU runner (RTX Pro 6000) |
-| `@pytest.mark.manual` | Heavy (OOM risk), flaky, needs credentials or large downloads | Not run in CI |
-
-Use a module-level `pytestmark` when every test in a file shares the
-same marker:
-
-```python
-import pytest
-
-pytestmark = pytest.mark.ci_cpu
-```
-
-Use per-function markers when tests in the same file have different
-tiers:
-
-```python
-@pytest.mark.ci_cpu
-def test_basic_math(): ...
-
-@pytest.mark.ci_gpu
-def test_cudagraph_path(): ...
-```
-
-Running tests locally:
-
-```bash
-uv run pytest -m ci_cpu          # CPU-safe tests only
-uv run pytest -m ci_gpu          # GPU tests only (needs CUDA)
-uv run pytest -m "not manual"    # everything that runs in CI
-uv run pytest                    # all tests including manual
-```
+See [Testing](https://nvidia.github.io/flashdreams/main/documentation/tools/testing/) for test discovery,
+CI tier markers, and commands.
 
 ## Dependency version bounds
 
@@ -382,40 +374,7 @@ the declared minimums. This means:
 
 ## Working with a single integration package
 
-The workspace contains many integration packages under `integrations_v2/`.
-A full `uv sync` installs dependencies for *all* of them. If you only
-need one (e.g. you're working on `omnidreams`), use the distribution
-package name with `--package` to sync only that package's dependencies:
-
-```bash
-# Only install omnidreams + its deps (skips unrelated heavy packages)
-uv sync --package flashdreams-omnidreams --extra dev
-
-# Run a script/test from that integration only
-uv run --package flashdreams-omnidreams pytest integrations_v2/omnidreams/tests/ -m ci_gpu
-```
-
-This avoids pulling in (and compiling) dependencies that other
-integrations require but yours does not, further reducing setup time.
-
-Available integration packages:
-
-| Path | `uv --package` name |
-|------|---------------------|
-| `integrations_v2/causal_forcing` | `flashdreams-causal-forcing` |
-| `integrations_v2/cosmos_predict2` | `flashdreams-cosmos-predict2` |
-| `integrations_v2/fastvideo_causal_wan22` | `flashdreams-fastvideo-causal-wan22` |
-| `integrations_v2/flashvsr` | `flashdreams-flashvsr` |
-| `integrations_v2/lingbot` | `flashdreams-lingbot` |
-| `integrations_v2/omnidreams` | `flashdreams-omnidreams` |
-| `integrations_v2/self_forcing` | `flashdreams-self-forcing` |
-| `integrations_v2/swiftvr` | `flashdreams-swiftvr` |
-| `integrations_v2/wan21` | `flashdreams-wan21` |
-| `integrations_v2/wan22` | `flashdreams-wan22` |
-
-The nested `integrations_v2/omnidreams/impl/ludus-renderer` workspace package is
-named `ludus-renderer` and is installed as part of Omnidreams workflows
-that need it.
+See our [model gallery](https://nvidia.github.io/flashdreams/main/models/) page.
 
 ## Licensing of contributions
 

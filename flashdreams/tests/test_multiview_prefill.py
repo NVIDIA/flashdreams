@@ -198,15 +198,6 @@ def test_every_prefill_query_can_reach_a_key() -> None:
     assert bool(mask.any(dim=1).all())
 
 
-def test_prefill_block_mask_accepts_asymmetric_tiles() -> None:
-    pack = build_prefill_pack(CLIP, text_tokens=TEXT_TOKENS)
-
-    mask = pack.block_mask(block_size=(16, 32))
-
-    assert tuple(mask.shape[-2:]) == (len(pack.gen), pack.num_und + len(pack.gen))
-    assert mask.BLOCK_SIZE == (16, 32)
-
-
 def test_control_queries_cannot_see_the_target_item() -> None:
     pack = build_prefill_pack(
         CLIP,

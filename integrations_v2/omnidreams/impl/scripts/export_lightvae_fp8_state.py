@@ -14,10 +14,11 @@ from typing import Any
 import torch
 from omnidreams.impl.vae_native import DEFAULT_LIGHTVAE_FP8_STATE_PATH
 
+from flashdreams.core.io.disk import default_flashdreams_cache_dir
 from flashdreams.infra.config import derive_config
 
 DEFAULT_CONFIG = "omnidreams"
-DEFAULT_STATE_PATH = Path(DEFAULT_LIGHTVAE_FP8_STATE_PATH)
+DEFAULT_STATE_PATH = default_flashdreams_cache_dir() / DEFAULT_LIGHTVAE_FP8_STATE_PATH
 EXAMPLE_DATA_HF_REPO = "nvidia/omni-dreams-samples"
 DEFAULT_EXAMPLE_DATA_UUID = "239560dc-33d1-11ef-9720-00044bcbccac"
 VAE_FP8_VERSION_KEY = "__omnidreams_vae_fp8_version__"
@@ -382,9 +383,13 @@ def export_lightvae_fp8_state(
 
 
 def ensure_lightvae_fp8_state(
-    out: Path = DEFAULT_STATE_PATH,
+    out: Path | None = None,
 ) -> Path:
-    target = out.expanduser().resolve()
+    target = (
+        (out or default_flashdreams_cache_dir() / DEFAULT_LIGHTVAE_FP8_STATE_PATH)
+        .expanduser()
+        .resolve()
+    )
     if target.is_file():
         return target
 

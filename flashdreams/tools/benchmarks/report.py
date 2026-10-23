@@ -12,7 +12,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 @dataclass(frozen=True)
@@ -571,11 +571,11 @@ def _report_group_value(value: object) -> tuple[str, str] | None:
         return slug, _title_metric(slug.replace("-", "_"))
     if not isinstance(value, dict):
         return None
-    group_id = value.get("id")
+    group_id = cast(Mapping[object, object], value).get("id")
     if not isinstance(group_id, str) or not group_id:
         return None
     slug = _slugify(group_id)
-    label = value.get("name")
+    label = cast(Mapping[object, object], value).get("name")
     if isinstance(label, str) and label:
         return slug, label
     return slug, _title_metric(slug.replace("-", "_"))
@@ -1598,8 +1598,8 @@ def _gpu_summary(environment: dict[str, Any]) -> str:
     if isinstance(torch_devices, list) and torch_devices:
         return "<br>".join(
             html.escape(
-                f"{device.get('index')}: {device.get('name')} "
-                f"({_float_or_default(device.get('total_memory_gib'), 0.0):.1f} GiB)"
+                f"{cast(Mapping[object, object], device).get('index')}: {cast(Mapping[object, object], device).get('name')} "
+                f"({_float_or_default(cast(Mapping[object, object], device).get('total_memory_gib'), 0.0):.1f} GiB)"
             )
             for device in torch_devices
             if isinstance(device, dict)
@@ -1620,17 +1620,17 @@ def _gpu_summary(environment: dict[str, Any]) -> str:
 def _quality_baseline_summary(value: object) -> str:
     if not isinstance(value, dict):
         return '<span class="muted">not enabled</span>'
-    baseline_dir = value.get("baseline_dir")
+    baseline_dir = cast(Mapping[object, object], value).get("baseline_dir")
     if not baseline_dir:
         return '<span class="muted">not enabled</span>'
     details = [
-        f"region={value.get('compare_region', '')}",
-        f"samples={value.get('sample_count', '')}",
+        f"region={cast(Mapping[object, object], value).get('compare_region', '')}",
+        f"samples={cast(Mapping[object, object], value).get('sample_count', '')}",
     ]
-    frame_indices = value.get("frame_indices")
+    frame_indices = cast(Mapping[object, object], value).get("frame_indices")
     if frame_indices:
         details.append(f"frames={frame_indices}")
-    if value.get("compute_flip"):
+    if cast(Mapping[object, object], value).get("compute_flip"):
         details.append("flip=true")
     return (
         f"<code>{_escape(baseline_dir)}</code><br>"
@@ -1888,5 +1888,5 @@ def _dig(data: object, *keys: str) -> object:
     for key in keys:
         if not isinstance(current, dict):
             return None
-        current = current.get(key)
+        current = cast(Mapping[object, object], current).get(key)
     return current

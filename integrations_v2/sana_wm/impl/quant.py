@@ -181,6 +181,13 @@ def quantize_nvfp4_swizzled(
     scale_2d: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Quantize a 2D CUDA tensor to NVFP4 qdata plus swizzled E4M3 scales."""
+    if scale_2d and triton.__version__.split(".")[:2] == ["3", "6"]:
+        raise RuntimeError(
+            f"SANA-WM FP4 weight quantization is disabled with Triton {triton.__version__}: "
+            "Triton 3.6 miscompiles the 2D weight-scaling kernel. "
+            "Use the default CUDA 13 environment (PyTorch 2.12.1 with Triton 3.7.1), "
+            "or select BF16/FP8 instead."
+        )
     _require_fp4_dtype()
     if input.dim() != 2:
         raise ValueError(

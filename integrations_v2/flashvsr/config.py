@@ -159,9 +159,8 @@ def build_flashvsr_v1_1(
             :attr:`FlashVSRTransformerConfig.compile_network` plus the
             encoder / decoder ``use_compile`` knobs.
         use_cuda_graph: Capture the steady-state DiT call into a CUDA
-            graph and replay it (Phase 2 of
-            ``internal/upsampler/PERF_NOTES.md``). Needs
-            ``compile_network=True``. Encoder / decoder cudagraphs are
+            graph and replay it. Needs ``compile_network=True``.
+            Encoder / decoder cudagraphs are
             hard-coded on inside this builder. Defaults off; flip on
             per-resolution once proven stable.
         color_corrector_implementation: ``"cuda"`` (hand-rolled AdaIN)

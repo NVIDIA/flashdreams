@@ -6,6 +6,7 @@
 import glob
 import os
 import subprocess
+import sys
 import time
 
 import torch
@@ -83,7 +84,7 @@ def _get_plugin():
             if paths:
                 return sorted(paths, key=get_sort_key)[-1]
 
-        if (
+        if not getattr(sys, "frozen", False) and (
             subprocess.run(
                 ["where.exe", "cl.exe"],
                 stdout=subprocess.DEVNULL,
@@ -189,13 +190,14 @@ def _get_plugin():
     if os.name == "nt":
         os.environ["VSCMD_SKIP_SENDTELEMETRY"] = "1"
         try:
-            import distutils._msvccompiler
             import functools
 
-            get_vc_env = getattr(distutils._msvccompiler, "_get_vc_env", None)
+            from setuptools._distutils import _msvccompiler as msvccompiler
+
+            get_vc_env = getattr(msvccompiler, "_get_vc_env", None)
             if get_vc_env is not None and not hasattr(get_vc_env, "__wrapped__"):
                 setattr(
-                    distutils._msvccompiler,
+                    msvccompiler,
                     "_get_vc_env",
                     functools.lru_cache()(get_vc_env),
                 )
