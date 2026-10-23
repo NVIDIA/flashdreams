@@ -9,9 +9,10 @@ import queue
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, final
 
 import torch
@@ -24,6 +25,13 @@ from flashdreams.runtime_v2.profiler import NullProfiler
 from flashdreams.runtime_v2.profiler_utils import (
     bind_inference_profiler,
     unbind_inference_profiler,
+)
+from flashdreams.runtime_v2.selected_file import (
+    DEFAULT_MAX_FILE_BYTES,
+    DEFAULT_MAX_FILE_COUNT,
+    DEFAULT_MAX_TOTAL_BYTES,
+    FileSelectionRequest,
+    normalize_selected_file_accept,
 )
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -100,6 +108,9 @@ class UILoopRequests:
 
     links: tuple[ClientWindowLink, ...] | None = None
     """Replacement clickable regions, or ``None`` to leave them unchanged."""
+
+    file_selections: list[FileSelectionRequest] = field(default_factory=list)
+    """File-selector requests in call order. The window answers each one."""
 
 
 class ILoop(ABC, Generic[StateT]):
@@ -257,6 +268,8 @@ class ILoop(ABC, Generic[StateT]):
         if step_completed:
             self.latest_result = result
         self._step_index += 1
+        # Input read by a run with no step is dropped, such as an ON_DEMAND UI
+        # tick without a new frame.
         self._pending_user_events.clear()
 
     @final
@@ -604,6 +617,116 @@ class IUILoop(ILoop[StateT], ABC):
             raise ValueError("At most sixteen client-window links are supported.")
         self.get_or_create_ui_loop_requests().links = links
 
+    @final
+    def request_file_selector(
+        self,
+        request_id: str,
+        initial_path: str | None = None,
+        *,
+        accept: Sequence[str] = (),
+        max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
+        max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES,
+        max_file_count: int = DEFAULT_MAX_FILE_COUNT,
+    ) -> None:
+        """Ask the client to show a file selector.
+
+        The result arrives on a later tick, never during the step that asked,
+        as one
+        :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`
+        carrying ``request_id``. One selector is open at a time; a call made
+        while one is open is answered ``BUSY``. A selector stays open across a
+        session reset; a replaced or ended session gets no result.
+
+        Read ``status`` first; ``files`` is empty unless it is ``OK``:
+
+        - ``OK``: each chosen file as its base ``name`` and ``data`` bytes.
+        - ``CANCELLED``: the user dismissed the selector.
+        - ``BUSY``: another selector was open.
+        - ``DISALLOWED_TYPE``: a file did not match ``accept``.
+        - ``TOO_LARGE``: a file was larger than ``max_file_bytes``, the files
+          together were larger than ``max_total_bytes``, or more than
+          ``max_file_count`` files were chosen.
+        - ``UNAVAILABLE``: the window cannot show a selector, or it failed.
+
+        ``accept`` checks filename suffixes only, so treat ``data`` as
+        untrusted input.
+
+        Example:
+
+        .. code-block:: python
+
+            from flashdreams.runtime_v2.selected_file import SelectedFilesStatus
+            from flashdreams.runtime_v2.user_input_event import (
+                SelectedFilesUserInputEvent,
+            )
+
+            if imgui.button("Open image"):
+                self.request_file_selector("open-image", accept=(".png",))
+            for event in self.user_events.get_events():
+                if not isinstance(event, SelectedFilesUserInputEvent):
+                    continue
+                if event.request_id != "open-image":
+                    continue
+                if event.status is SelectedFilesStatus.OK:
+                    image_bytes = event.files[0].data
+                else:
+                    self.state.message = f"No image: {event.status.value}"
+
+        Args:
+            request_id: Names the control that asked, so its result can be
+                told apart from another control's. Echoed on the result.
+            initial_path: Directory hint for the native selector; ``None``
+                uses the host user's home directory. The browser ignores it.
+            accept: Filename suffixes such as ``.png``. Empty allows any type.
+            max_file_bytes: Largest single file in bytes. Must not exceed
+                ``max_total_bytes``.
+            max_total_bytes: Most bytes all chosen files may add up to. Has no
+                effect when ``max_file_count`` is one.
+            max_file_count: Most files the selector may return. Above one, the
+                user may pick several.
+
+        Raises:
+            TypeError: ``request_id`` or ``initial_path`` is not a string, or
+                ``accept`` or a limit has the wrong type.
+            ValueError: ``request_id`` or ``initial_path`` is empty, ``accept``
+                is invalid, a limit is not positive, or ``max_file_bytes``
+                exceeds ``max_total_bytes``.
+        """
+        if not isinstance(request_id, str):
+            raise TypeError("request_id must be a string.")
+        if not request_id:
+            raise ValueError("request_id must be a non-empty string.")
+        if initial_path is None:
+            resolved_initial_path = str(Path.home())
+        else:
+            if not isinstance(initial_path, str):
+                raise TypeError("initial_path must be a string.")
+            if not initial_path:
+                raise ValueError("initial_path must be a non-empty string.")
+            resolved_initial_path = initial_path
+        suffixes = normalize_selected_file_accept(accept)
+        for name, limit in (
+            ("max_file_bytes", max_file_bytes),
+            ("max_total_bytes", max_total_bytes),
+            ("max_file_count", max_file_count),
+        ):
+            if isinstance(limit, bool) or not isinstance(limit, int):
+                raise TypeError(f"{name} must be an integer.")
+            if limit <= 0:
+                raise ValueError(f"{name} must be > 0.")
+        if max_file_bytes > max_total_bytes:
+            raise ValueError("max_file_bytes must not exceed max_total_bytes.")
+        self.get_or_create_ui_loop_requests().file_selections.append(
+            FileSelectionRequest(
+                request_id=request_id,
+                initial_path=resolved_initial_path,
+                accept=suffixes,
+                max_file_bytes=max_file_bytes,
+                max_total_bytes=max_total_bytes,
+                max_file_count=max_file_count,
+            )
+        )
+
     def get_or_create_ui_loop_requests(self) -> UILoopRequests:
         if self._ui_loop_requests is None:
             self._ui_loop_requests = UILoopRequests()
@@ -699,6 +822,7 @@ def invoke_async(loop: ILoop[StateT], operation: Callable[[StateT], None]) -> No
 
 
 __all__ = [
+    "FileSelectionRequest",
     "ILoop",
     "IModelLoop",
     "IUILoop",

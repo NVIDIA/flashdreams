@@ -21,6 +21,7 @@ from flashdreams.api_v2.loop import (
     IModelLoop,
     IUILoop,
     ModelInferenceState,
+    UILoopRequests,
     invoke_async,
 )
 from flashdreams.api_v2.session import ISession
@@ -35,18 +36,23 @@ from flashdreams.runtime_v2.presentation_manager import (
     PresentationManager,
     _PresentationClock,
 )
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    SelectedFilesStatus,
+)
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
     SessionDesc,
 )
-from flashdreams.runtime_v2.session_runner import run_session
+from flashdreams.runtime_v2.session_runner import _apply_window_requests, run_session
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     ResetUserInputEvent,
+    SelectedFilesUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -663,6 +669,8 @@ class RecordingClientWindow(IClientWindow):
         self.session_desc: SessionDesc | None = None
         self.results: list[StepResult] = []
         self.cursor_requests: list[tuple[str, bool]] = []
+        self.file_selection_requests: list[FileSelectionRequest] = []
+        self._file_events: list[UserInputEvent] = []
 
     def request_hide_cursor(self, hide_cursor: bool) -> None:
         """Record one cursor visibility request."""
@@ -674,12 +682,27 @@ class RecordingClientWindow(IClientWindow):
         self._log.record("window.request_lock_cursor_to_window")
         self.cursor_requests.append(("lock", lock_cursor_to_window))
 
+    def _request_file_selector(
+        self, selector_id: int, request: FileSelectionRequest
+    ) -> None:
+        """Record one file-selector request and answer with the default."""
+        self._log.record("window._request_file_selector")
+        self.file_selection_requests.append(request)
+        super()._request_file_selector(selector_id, request)
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        with self._lock:
+            self._file_events.append(event)
+
     def get_user_input_events(self) -> UserInputEvents:
         self._log.record("window.get_user_input_events")
         with self._lock:
+            file_events, self._file_events = self._file_events, []
             if self._scripted:
-                return self._scripted.pop(0)
-        return UserInputEvents([])
+                return UserInputEvents(
+                    [*file_events, *self._scripted.pop(0).get_events()]
+                )
+        return UserInputEvents(file_events)
 
     def open(self, session_desc: SessionDesc) -> None:
         self._log.record("window.open")
@@ -1368,6 +1391,77 @@ def test_run_session_returns_a_ui_requested_replacement_after_cleanup() -> None:
     assert "session.step(0)" not in log.calls
     assert log.calls[-1] == "session.close"
     assert "window.close" not in log.calls
+
+
+def test_run_session_forwards_file_selection_requests_to_the_window() -> None:
+    log = CallLog()
+
+    class RequestingSession(FakeSession):
+        def init(self) -> None:
+            super().init()
+
+            def open_selector(_: object) -> None:
+                self.ui_loop.request_file_selector(
+                    "open-1",
+                    "/tmp",
+                    accept=(".png",),
+                    max_file_bytes=1024,
+                )
+
+            invoke_async(self.ui_loop, open_selector)
+
+    window = RecordingClientWindow(log)
+    run_session(RequestingSession(_session_desc(), log), window, steps=1)
+
+    assert window.file_selection_requests == [
+        FileSelectionRequest(
+            request_id="open-1",
+            initial_path="/tmp",
+            accept=(".png",),
+            max_file_bytes=1024,
+        )
+    ]
+    assert "window._request_file_selector" in log.calls
+
+
+def test_window_requests_skip_a_file_selector_for_a_replaced_session() -> None:
+    window = RecordingClientWindow(CallLog())
+    _apply_window_requests(
+        window,
+        UILoopRequests(
+            new_session=_session_desc(),
+            file_selections=[
+                FileSelectionRequest(request_id="open-1", initial_path="/tmp")
+            ],
+        ),
+    )
+    assert window.file_selection_requests == []
+
+
+def test_run_session_delivers_an_immediate_file_selection_result() -> None:
+    log = CallLog()
+    picks: list[SelectedFilesUserInputEvent] = []
+
+    class PickingSession(FakeSession):
+        def run_ui(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            if self.ui_steps == 0:
+                self.ui_loop.request_file_selector("open-1")
+            self.ui_steps += 1
+            picks.extend(
+                event
+                for event in self.ui_loop.user_events.get_events()
+                if isinstance(event, SelectedFilesUserInputEvent)
+            )
+            return super().run_ui(step_index, events)
+
+    session_desc = replace(
+        _session_desc(), presentation_mode=PresentationMode.CONTINUOUS
+    )
+    run_session(PickingSession(session_desc, log), RecordingClientWindow(log), steps=4)
+
+    assert [(pick.request_id, pick.status) for pick in picks] == [
+        ("open-1", SelectedFilesStatus.UNAVAILABLE)
+    ]
 
 
 def test_timeout_wins_over_a_ui_requested_replacement() -> None:

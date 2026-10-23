@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-omnidreams"
-version = "0.1.0"
+version = "0.2.0"
 description = "OmniDreams inference adapters for native FlashDreams v2 applications"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"

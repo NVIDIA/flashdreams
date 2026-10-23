@@ -35,6 +35,7 @@ from numpy import uint64
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop
 from flashdreams.api_v2.profiler import IProfiler
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.infra import profiler as event_timer_module
 from flashdreams.runtime_v2 import profiler as profiler_module
 from flashdreams.runtime_v2.event_buffer import EventBuffer
@@ -349,6 +350,9 @@ class _KeyWindow(IClientWindow):
             return UserInputEvents([])
         self.batches += 1
         return UserInputEvents([_key_press()])
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        del event
 
     def open(self, session_desc: SessionDesc) -> None:
         pass

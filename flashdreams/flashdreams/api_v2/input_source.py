@@ -6,6 +6,7 @@
 from abc import abstractmethod
 from typing import Protocol, runtime_checkable
 
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
@@ -29,5 +30,15 @@ class InputSource(Protocol):
 
         Returns:
             Events in timestamp order, empty when nothing arrived.
+        """
+        ...
+
+    @abstractmethod
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        """Queue ``event`` for :meth:`get_user_input_events`.
+
+        Canonical method for how user-input-events are added to an input source.
+        Called on the UI thread, by ``IClientWindow`` and by windows that wrap
+        another window.
         """
         ...
