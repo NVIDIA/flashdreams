@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-color-fade"
-version = "0.1.0"
+version = "0.2.0"
 description = "Red-to-green colour fade application for end-to-end FlashDreams v2 file output."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -9,8 +9,7 @@ TI2V mode reuses :class:`WanInferencePipeline`: the I2V control encoder
 on it via ``stamp_image_latent`` and ``ti2v_first_frame_per_token_timestep``
 (frame-0 tokens see ``t=0``, the rest denoise at the scheduler step). The
 ``Wan-AI/Wan2.2-TI2V-5B-Diffusers`` checkpoints load through the DiT and
-VAE remap transforms. The package's application and downstream consumers
-(e.g. ``hy_worldplay``) layer their I/O behavior on top.
+VAE remap transforms. The package's application layers its I/O behavior on top.
 """
 
 from __future__ import annotations
@@ -86,8 +85,7 @@ PIPELINE_WAN22_TI2V_5B = WanInferencePipelineConfig(
 """Wan 2.2 TI2V-5B inference pipeline (Wan-AI diffusers checkpoint).
 
 One AR step covers the standard 81-frame / 640x1280 rollout
-(``len_t == window_size_t == 21``). Base recipe for
-``integrations_v2/hy_worldplay``.
+(``len_t == window_size_t == 21``).
 """
 
 WAN_CONFIGS: dict[str, WanInferencePipelineConfig] = {

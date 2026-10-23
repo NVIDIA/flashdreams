@@ -757,7 +757,11 @@ def _convert_value(
         key_type, value_type = arguments or (Any, Any)
         converted = {}
         for key, value in raw.items():
-            existing = current.get(key) if isinstance(current, Mapping) else None
+            existing = (
+                cast(Mapping[object, object], current).get(key)
+                if isinstance(current, Mapping)
+                else None
+            )
             converted_key = _convert_value(
                 key,
                 key_type,

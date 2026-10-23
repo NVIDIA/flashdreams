@@ -303,12 +303,36 @@ class MapTrafficController:
         return int((state.timestamp_us + lookahead_us) % state.duration_us)
 
     def _observation(self, state: MapTrafficVehicleState) -> _TrafficObservation:
+        track = state.scene_object
+        timestamp_us = int(state.timestamp_us)
+        index = int(np.searchsorted(track.timestamps_us, timestamp_us, side="left"))
+        if index <= 0:
+            lo = hi = 0
+            alpha = 0.0
+        elif index >= len(track.timestamps_us):
+            lo = hi = len(track.timestamps_us) - 1
+            alpha = 0.0
+        else:
+            lo, hi = index - 1, index
+            span = int(track.timestamps_us[hi] - track.timestamps_us[lo])
+            alpha = (
+                0.0 if span == 0 else (timestamp_us - track.timestamps_us[lo]) / span
+            )
+        if lo == hi:
+            velocity = np.zeros(3, dtype=np.float32)
+        else:
+            dt_s = (
+                float(track.timestamps_us[hi] - track.timestamps_us[lo]) / 1_000_000.0
+            )
+            velocity = ((track.positions_m[hi] - track.positions_m[lo]) / dt_s).astype(
+                np.float32
+            )
         if state.object_id in self._active_ids:
             position = state.position_m[:2]
-            _, _, velocity = state.scene_object.sample(int(state.timestamp_us))
         else:
-            position, _, velocity = state.scene_object.sample(int(state.timestamp_us))
-            position = position[:2]
+            position = (
+                track.positions_m[lo] * (1.0 - alpha) + track.positions_m[hi] * alpha
+            ).astype(np.float32)[:2]
         return _TrafficObservation(
             position_xy=np.asarray(position, dtype=np.float32),
             velocity_xy=np.asarray(velocity[:2], dtype=np.float32),
@@ -380,26 +404,22 @@ class MapTrafficController:
                 (best.segment_index - 1) % segment_count,
                 (best.segment_index + 1) % segment_count,
             )
-            neighbors = tuple(
-                cls._route_projection(state, position_xy, segment_index)
-                for segment_index in neighbor_indices
-                if segment_index not in visited
-            )
-            visited.update(projection.segment_index for projection in neighbors)
-            better = tuple(
-                projection
-                for projection in neighbors
-                if cls._projection_is_better(projection, best)
-            )
-            if not better:
-                break
-            best = min(
-                better,
-                key=lambda projection: (
+            next_best = None
+            for segment_index in neighbor_indices:
+                if segment_index in visited:
+                    continue
+                projection = cls._route_projection(state, position_xy, segment_index)
+                visited.add(segment_index)
+                if not cls._projection_is_better(projection, best):
+                    continue
+                if next_best is None or (
                     projection.distance_sq,
                     projection.progress_distance,
-                ),
-            )
+                ) < (next_best.distance_sq, next_best.progress_distance):
+                    next_best = projection
+            if next_best is None:
+                break
+            best = next_best
         return best
 
     @classmethod
@@ -510,41 +530,40 @@ class MapTrafficController:
         observation: _TrafficObservation,
         candidates: tuple[_TrafficObservation, ...],
     ) -> float:
-        velocity = observation.velocity_xy
-        speed_mps = float(np.linalg.norm(velocity[:2]))
+        vx, vy = (float(value) for value in observation.velocity_xy)
+        speed_mps = math.hypot(vx, vy)
         if speed_mps <= 1.0e-4:
             return 0.0
-        forward = velocity[:2] / speed_mps
+        forward_x, forward_y = vx / speed_mps, vy / speed_mps
+        position_x, position_y = (float(value) for value in observation.position_xy)
+        minimum_heading_dot = math.cos(_MAX_HEADING_DELTA_RAD)
+        desired_clearance = _MIN_CLEARANCE_M + _TIME_HEADWAY_S * speed_mps
         best_clearance = math.inf
         for other in candidates:
             if other is observation:
                 continue
-            delta = other.position_xy - observation.position_xy
-            longitudinal = float(np.dot(delta, forward))
+            delta_x = float(other.position_xy[0]) - position_x
+            delta_y = float(other.position_xy[1]) - position_y
+            longitudinal = delta_x * forward_x + delta_y * forward_y
             if longitudinal <= 0.0:
                 continue
-            lateral = abs(float(forward[0] * delta[1] - forward[1] * delta[0]))
+            lateral = abs(forward_x * delta_y - forward_y * delta_x)
             if lateral > _LANE_CORRIDOR_M:
                 continue
-            other_speed = float(np.linalg.norm(other.velocity_xy))
+            other_vx, other_vy = (float(value) for value in other.velocity_xy)
+            other_speed = math.hypot(other_vx, other_vy)
             if other_speed > 1.0e-4:
-                other_heading = other.velocity_xy / other_speed
-                angle = math.acos(
-                    float(np.clip(np.dot(forward, other_heading), -1.0, 1.0))
-                )
-                if angle > _MAX_HEADING_DELTA_RAD:
+                heading_dot = (
+                    forward_x * other_vx + forward_y * other_vy
+                ) / other_speed
+                if heading_dot < minimum_heading_dot:
                     continue
             clearance = longitudinal - observation.half_length_m - other.half_length_m
+            if clearance <= desired_clearance:
+                return 0.0
             best_clearance = min(best_clearance, clearance)
-        desired_clearance = _MIN_CLEARANCE_M + _TIME_HEADWAY_S * speed_mps
-        if best_clearance <= desired_clearance:
-            return 0.0
-        return float(
-            np.clip(
-                (best_clearance - desired_clearance) / _BRAKING_MARGIN_M,
-                0.0,
-                1.0,
-            )
+        return min(
+            max((best_clearance - desired_clearance) / _BRAKING_MARGIN_M, 0.0), 1.0
         )
 
     def prepare_topology(self, ego: BodyState) -> None:

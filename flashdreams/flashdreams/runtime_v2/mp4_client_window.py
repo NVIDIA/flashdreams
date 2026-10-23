@@ -6,6 +6,7 @@
 from pathlib import Path
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.mp4_output_sink import Mp4OutputSink
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -13,7 +14,7 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
 class Mp4ClientWindow(IClientWindow):
-    """Write UI frames to an MP4 file and report no input.
+    """Write UI frames to an MP4 file. It has no user input of its own.
 
     The session must finish on its own because this window never sends a close
     event. Use ``BackpressureMode.BLOCK`` with
@@ -27,6 +28,7 @@ class Mp4ClientWindow(IClientWindow):
         """
         self._path = Path(path)
         self._video_sink = Mp4OutputSink(path)
+        self._input_events: list[UserInputEvent] = []
 
     @property
     def path(self) -> Path:
@@ -34,8 +36,12 @@ class Mp4ClientWindow(IClientWindow):
         return self._path
 
     def get_user_input_events(self) -> UserInputEvents:
-        """Return an empty input batch."""
-        return UserInputEvents([])
+        """Return the events queued since the last call."""
+        events, self._input_events = self._input_events, []
+        return UserInputEvents(events)
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        self._input_events.append(event)
 
     def request_new_window_size(self, new_window_size: tuple[int, int]) -> None:
         """Change the MP4 presentation dimensions without replacing the session.
@@ -52,6 +58,7 @@ class Mp4ClientWindow(IClientWindow):
 
     def open(self, session_desc: SessionDesc) -> None:
         """Prepare to write a session's output."""
+        self._input_events = []
         self._video_sink.open(session_desc)
 
     def write(self, result: StepResult) -> None:

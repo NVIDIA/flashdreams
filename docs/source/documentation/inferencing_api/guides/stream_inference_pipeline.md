@@ -80,6 +80,14 @@ rejects skipped, repeated, or mismatched indices. When synchronized profiling
 is enabled, `finalize` returns stage timings and GPU-memory metrics; otherwise
 it returns `None`.
 
+An application does not always own this loop directly. The V2V application
+accepts a `VideoPostProcessorConfig`; each model's processor session owns the
+pipeline cache and calls `generate`/`finalize` after converting and buffering
+input chunks. FlashVSR builds its pipeline after the input shape is known,
+while SwiftVR keeps a resident pipeline and creates an isolated stream cache.
+See [Integrate model adapter for a demo](../../demo_api/guides/integrate_model_adapter_for_a_demo.md)
+for the paired adapters.
+
 ## Shape and state rules
 
 Outside the transformer network, video tensors are normally pre-patchify
@@ -128,3 +136,10 @@ for uncontrolled streaming T2V,
 for per-step camera control, and
 [Wan 2.1](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/wan21/config.py)
 for single-step bidirectional generation.
+
+Pipeline-backed V2V processors include
+[FlashVSR](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/flashvsr/impl/postprocess.py)
+and
+[SwiftVR](https://github.com/NVIDIA/flashdreams/blob/main/integrations_v2/swiftvr/impl/postprocess.py).
+They keep application-level video handling independent from each model's tensor
+layout, cache initialization, buffering, and flush behavior.

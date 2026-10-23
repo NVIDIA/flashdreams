@@ -9,6 +9,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from flashdreams.demo.io import SessionInfo
 from flashdreams.demo.outputs import build_benchmark_output_sink
@@ -344,7 +345,7 @@ def _stats_slug(*, spec: DemoSpec, scenario: PreparedScenario) -> str:
 def _metadata_string(metadata: object, key: str) -> str | None:
     if not isinstance(metadata, Mapping):
         return None
-    value = metadata.get(key)
+    value = cast(Mapping[object, object], metadata).get(key)
     if isinstance(value, str) and value.strip():
         return value
     return None

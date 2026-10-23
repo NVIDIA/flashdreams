@@ -209,7 +209,9 @@ def validate_thirdparty() -> dict[str, SourceInfo]:
 
 
 def _default_build_root() -> Path:
-    override = os.environ.get(_DEFAULT_BUILD_ROOT_ENV)
+    override = os.environ.get(_DEFAULT_BUILD_ROOT_ENV) or os.environ.get(
+        "TORCH_EXTENSIONS_DIR"
+    )
     if override:
         return Path(override).expanduser().resolve()
     return ROOT / "build"

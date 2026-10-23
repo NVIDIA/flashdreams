@@ -245,7 +245,13 @@ UI control that needs a fresh application session calls
 `request_new_session(session_desc)` with a fully resolved replacement
 description; the runtime cleans the current session and passes that description
 to `ApplicationRunner` unchanged. Remaining timeout and remaining model steps
-still apply to the replacement.
+still apply to the replacement. To let the user pick a client file, call
+`request_file_selector(request_id, ...)` when they ask (for ImGui, when
+`imgui.button(...)` returns `True`), with one stable `request_id` per control.
+The result arrives on a later tick as one `SelectedFilesUserInputEvent`
+carrying that `request_id`; read its `status` before its `files`. One picker
+is open at a time, and a call made while one is open is answered `BUSY`. The
+`request_file_selector` docstring lists every status.
 
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The

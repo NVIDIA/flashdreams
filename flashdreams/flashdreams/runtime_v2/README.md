@@ -218,7 +218,7 @@ then the new session receives zero remaining time and stops at its first boundar
 results as they are published, not the UI loop's output, so a benchmark measures
 what the model generated while the window still sees one composited frame per
 tick. See [`configs/v2_model_benchmarks.json`](../../../configs/v2_model_benchmarks.json)
-and the [benchmark README](../../tools/benchmarks/README.md) for the suite.
+and the [benchmarking guide](https://nvidia.github.io/flashdreams/main/documentation/tools/benchmarking/) for the suite.
 The runtime augments those model records with step wall time and
 presentation-queue depth/publish-wait measurements under the reserved
 `runtime_` metric prefix. UI and window timings are not folded into a later
@@ -370,16 +370,22 @@ delegates over the thing that does the work — `Mp4ClientWindow` over
 the output shape, because the session already did.
 
 They differ in what they can do rather than in how they are driven. A session
-chooses its UI independently of the client window. Browser keyboard, mouse and
-focus events arrive on the server's own thread, so it queues them and hands them
-over in batches when the session asks.
+chooses its UI independently of the client window. Browser keyboard, mouse,
+focus, and file-selector events arrive on the server's own thread, so it queues
+them and hands them over in batches when the session asks.
+
+File selection rules live in `IClientWindow`; a window only shows a picker and
+reports what it returned, on the UI thread. Every window implements
+`InputSource.put_user_input_event`; a window with a picker also implements
+`_request_file_selector`.
 
 A UI loop may call `request_new_session(session_desc)` during its step with a
 fully resolved replacement description. `run_session` stops and cleans the
 current session, leaves the interactive window open, and returns that
 description unchanged. `ApplicationRunner` creates the replacement from it. A
 WebRTC browser disconnect releases only its peer connection, so refreshing the
-page does not stop the session, server, or application.
+page does not stop the session, server, or application. Leftover and in-flight
+file picks complete as `unavailable`; a replacement viewer does not inherit them.
 
 The UI thread owns WebRTC cadence. Each `write` synchronously materializes one
 owned video frame and admits it to a two-frame FIFO of unsent frames. The WebRTC

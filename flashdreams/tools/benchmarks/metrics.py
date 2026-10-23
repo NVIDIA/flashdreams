@@ -13,7 +13,7 @@ import statistics
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypeGuard
+from typing import Any, TypeGuard, cast
 
 _PERF_SUMMARY_RE = re.compile(
     r"^\[perf\]\[(?P<label>[^\]]+) summary\]\s+"
@@ -101,14 +101,17 @@ def records_from_stats_file(
     if isinstance(payload, list):
         return _records_from_rows(payload, scenario_id=scenario_id, source=source)
     if isinstance(payload, dict):
-        if payload.get("artifact_type") == _RUNTIME_BENCHMARK_STATS_ARTIFACT_TYPE:
+        if (
+            cast(Mapping[object, object], payload).get("artifact_type")
+            == _RUNTIME_BENCHMARK_STATS_ARTIFACT_TYPE
+        ):
             return _records_from_runtime_metric_samples(
                 payload,
                 scenario_id=scenario_id,
                 source=source,
             )
         records: list[MetricRecord] = []
-        chunks = payload.get("chunks")
+        chunks = cast(Mapping[object, object], payload).get("chunks")
         if isinstance(chunks, list):
             records.extend(
                 _records_from_rows(chunks, scenario_id=scenario_id, source=source)
@@ -164,7 +167,7 @@ def record_from_quality_metrics(
         return None
     metrics_payload = payload
     if isinstance(payload, Mapping):
-        nested_metrics = payload.get("metrics")
+        nested_metrics = cast(Mapping[object, object], payload).get("metrics")
         if isinstance(nested_metrics, Mapping):
             metrics_payload = nested_metrics
     metrics = flatten_numeric_metrics(metrics_payload)
@@ -387,10 +390,14 @@ def _runtime_step_frame_counts(steps: object) -> dict[int, int]:
     for fallback_index, step in enumerate(steps):
         if not isinstance(step, Mapping):
             continue
-        step_index = _runtime_metric_step_index(step.get("step_index"))
+        step_index = _runtime_metric_step_index(
+            cast(Mapping[object, object], step).get("step_index")
+        )
         if step_index is None:
             step_index = fallback_index
-        frame_count = _non_negative_int(step.get("frame_count"))
+        frame_count = _non_negative_int(
+            cast(Mapping[object, object], step).get("frame_count")
+        )
         if frame_count is not None:
             frame_counts[step_index] = frame_count
     return frame_counts
@@ -414,14 +421,19 @@ def _runtime_metric_sample(
 ) -> tuple[str, float | int, int | None] | None:
     if not isinstance(sample, Mapping):
         return None
-    name = sample.get("name")
-    value = sample.get("value")
+    name = cast(Mapping[object, object], sample).get("name")
+    value = cast(Mapping[object, object], sample).get("value")
     if not isinstance(name, str) or not name.strip():
         return None
     if not _is_number(value) or not math.isfinite(float(value)):
         return None
-    step_index = _runtime_metric_step_index(sample.get("step_index"))
-    if step_index is None and sample.get("step_index") is not None:
+    step_index = _runtime_metric_step_index(
+        cast(Mapping[object, object], sample).get("step_index")
+    )
+    if (
+        step_index is None
+        and cast(Mapping[object, object], sample).get("step_index") is not None
+    ):
         return None
     return name, value, step_index
 

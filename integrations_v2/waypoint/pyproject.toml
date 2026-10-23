@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-waypoint"
-version = "0.1.0"
+version = "0.2.0"
 description = "Waypoint 1.5 world-model integration for FlashDreams v2."
 readme = "README.md"
 requires-python = ">=3.10"

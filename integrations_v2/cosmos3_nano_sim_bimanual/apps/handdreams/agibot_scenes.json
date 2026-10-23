@@ -1,0 +1,93 @@
+{
+  "repo_id": "agibot-world/AgiBotWorld-Beta",
+  "revision": "2252b3fdc88dc67fa5d5e4b771e1b86f5e71c278",
+  "scenes": [
+    {
+      "name": "fold-tshirt",
+      "title": "Fold the T-shirt",
+      "task": 570,
+      "episode": 816412,
+      "gripper_hardware": "robotiq",
+      "frame": 0,
+      "video": {
+        "archive": "observations/570/814451-836614.tar",
+        "member_name": "816412/videos/head_color.mp4",
+        "offset": 23809788928,
+        "size": 38525949,
+        "sha256": "12ab2c0e95c315150d753721a49e2e3094869b00f0ff17f2c2bf5da5bb40284b"
+      },
+      "state": {
+        "archive": "proprio_stats/804068-856282.tar",
+        "member_name": "570/816412/proprio_stats.h5",
+        "offset": 20699165184,
+        "size": 2867096,
+        "sha256": "07e2ef07505913474e7e680b3fa5cef4c2f7842296b1de93a85c47d76135055a"
+      },
+      "camera": {
+        "archive": "parameters/811686-820087.tar",
+        "member_name": "570/816412/parameters/camera/head_extrinsic_params_aligned.json",
+        "offset": 31924188160,
+        "size": 2207789,
+        "sha256": "5f2f93056fc3ed511838b64bccf9b6fe2b99e0062524775476560defc088063b"
+      }
+    },
+    {
+      "name": "fold-shorts",
+      "title": "Fold the shorts",
+      "task": 599,
+      "episode": 822065,
+      "gripper_hardware": "robotiq",
+      "frame": 0,
+      "video": {
+        "archive": "observations/599/810077-833854.tar",
+        "member_name": "822065/videos/head_color.mp4",
+        "offset": 40260886016,
+        "size": 16997684,
+        "sha256": "69f34621e7c8f066e0698d25bc2c54ca50ba9cd88c26b5358114330aa237eb6d"
+      },
+      "state": {
+        "archive": "proprio_stats/804068-856282.tar",
+        "member_name": "599/822065/proprio_stats.h5",
+        "offset": 15922105344,
+        "size": 1555736,
+        "sha256": "651aeefa994e496f8bbdbb7dabd77954e68c7b96a373711a26dac0c8de6e6d3b"
+      },
+      "camera": {
+        "archive": "parameters/820088-827360.tar",
+        "member_name": "599/822065/parameters/camera/head_extrinsic_params_aligned.json",
+        "offset": 43382582272,
+        "size": 1189871,
+        "sha256": "7a8655a130c61d7a531f5e8124d034a836b830e69774883260a28dc34b22c151"
+      }
+    },
+    {
+      "name": "open-tissue-box",
+      "title": "Open the tissue box",
+      "task": 522,
+      "episode": 754102,
+      "gripper_hardware": "robotiq",
+      "frame": 0,
+      "video": {
+        "archive": "observations/522/749537-768387.tar",
+        "member_name": "754102/videos/head_color.mp4",
+        "offset": 38282031616,
+        "size": 20561458,
+        "sha256": "3e22e72b5c465602a609b2bb5369bd068c8ef60e532a220176938d18affdff52"
+      },
+      "camera": {
+        "archive": "parameters/747867-754593.tar",
+        "member_name": "522/754102/parameters/camera/head_extrinsic_params_aligned.json",
+        "offset": 975444480,
+        "size": 2216995,
+        "sha256": "e18559839c09f001c22c2e95fc994ece9973934857be4e4f310381df69644271"
+      },
+      "state": {
+        "archive": "proprio_stats/713950-756813.tar",
+        "member_name": "522/754102/proprio_stats.h5",
+        "offset": 36306299392,
+        "size": 2882216,
+        "sha256": "5d906424585005a25814fa0ba8b750356aa35a245e1b8cb8968bcb394f7d20f6"
+      }
+    }
+  ]
+}

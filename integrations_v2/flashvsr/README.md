@@ -117,8 +117,7 @@ automatically by the model adapter.
 - `compile_network`: single `torch.compile` switch applied uniformly to
   the DiT, encoder projector, and decoder.
 - `use_cuda_graph`: capture the steady-state DiT call into a CUDA graph
-  and replay it (Phase 2 of `internal/upsampler/PERF_NOTES.md`). Requires
-  `compile_network=True`. Encoder / decoder cuda graphs are always on
+  and replay it. Requires `compile_network=True`. Encoder / decoder cuda graphs are always on
   inside the builder. Defaults to `False`; enable it only after validating
   the target resolution.
 - `color_corrector_implementation`: `"cuda"` (default; AdaIN-only

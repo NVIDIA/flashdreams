@@ -15,6 +15,7 @@ import pytest
 import sana_wm.impl._tools as tools_module
 import sana_wm.impl.conditioning as conditioning_module
 import sana_wm.impl.decoder as decoder_module
+import sana_wm.impl.quant as quant_module
 import sana_wm.impl.refiner as refiner_module
 import torch
 
@@ -1781,6 +1782,50 @@ def test_fp4_global_scale_uses_nvfp4_dynamic_range() -> None:
     assert nvfp4_global_scale(inputs).item() == pytest.approx(1.0)
 
 
+@pytest.mark.parametrize("version", ["3.6.0", "3.6.0+gitabc", "3.6.0.post26"])
+def test_fp4_rejects_affected_triton(
+    monkeypatch: pytest.MonkeyPatch, version: str
+) -> None:
+    """Reject unsafe weight quantization before allocating CUDA buffers."""
+    monkeypatch.setattr(quant_module.triton, "__version__", version)
+
+    with pytest.raises(RuntimeError, match="Triton 3.6 miscompiles") as exc:
+        quant_module.quantize_nvfp4_swizzled(torch.zeros(64, 32), scale_2d=True)
+
+    assert "CUDA 13" in str(exc.value)
+    assert "BF16/FP8" in str(exc.value)
+
+
+def test_fp4_linear_rejects_affected_triton(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reject the default FP4 recipe through the shared layer conversion path."""
+    monkeypatch.setattr(quant_module.triton, "__version__", "3.6.0")
+    module = torch.nn.Sequential(torch.nn.Linear(32, 64))
+
+    with pytest.raises(RuntimeError, match="Triton 3.6 miscompiles"):
+        quant_module.replace_linear_with_quant(
+            module,
+            recipe=quant_module.TorchScaledMMFP4Recipe(),
+            params_dtype=torch.bfloat16,
+            skip_patterns=(),
+        )
+
+    assert isinstance(module[0], torch.nn.Linear)
+
+
+@pytest.mark.parametrize(
+    ("version", "scale_2d"),
+    [("3.6.0", False), ("3.7.1", True), ("3.10.0", True)],
+)
+def test_fp4_unaffected_paths_reach_device_validation(
+    monkeypatch: pytest.MonkeyPatch, version: str, scale_2d: bool
+) -> None:
+    """Allow unaffected versions and row scaling past the compiler check."""
+    monkeypatch.setattr(quant_module.triton, "__version__", version)
+
+    with pytest.raises(RuntimeError, match="NVFP4 quantization requires CUDA input"):
+        quant_module.quantize_nvfp4_swizzled(torch.zeros(64, 32), scale_2d=scale_2d)
+
+
 def test_refiner_is_flashdreams_owned(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1891,8 +1936,11 @@ def test_refiner_sink_bidirectional_path_runs_under_inference_mode(
     assert inference_modes == [True]
 
 
-def test_torch_fp8_linear_replaces_matching_modules() -> None:
-    """Provide a Torch replacement for eligible Linear modules."""
+def test_torch_fp8_linear_replaces_matching_modules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep FP8 conversion available with Triton 3.6."""
+    monkeypatch.setattr(quant_module.triton, "__version__", "3.6.0")
     if not hasattr(torch, "float8_e4m3fn"):
         pytest.skip("torch.float8_e4m3fn is required for FP8 replacement")
 
