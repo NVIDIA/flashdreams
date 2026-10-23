@@ -25,6 +25,10 @@ model or its adapter belongs in `integrations_v2/<model>/tests/`.
 
 ## What is here
 
+- `color_fade` — bounded synthetic red-to-green video output.
+- `red_screen` — synthetic video controlled by keyboard input.
+- `imgui_ui_demo` — text input, query strings, and window resizing with ImGui.
+- `slangpy_ui_demo` — widgets, channel selection, and cross-thread signaling with SlangPy.
 - `minimal_t2v` — Minimal T2V app from the Create a demo tutorial.
 - `t2v` — text-to-video: prompt in, frames out. The reference app to copy.
 - `cam2v` — interactive camera-to-video.

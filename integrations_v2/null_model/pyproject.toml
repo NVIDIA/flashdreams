@@ -14,12 +14,33 @@ requires-python = ">=3.10"
 dependencies = [
     # Integration packages depend on the public framework, never the reverse.
     "flashdreams",
+    "flashdreams-color-fade",
+    "flashdreams-red-screen",
+    "flashdreams-imgui-ui-demo",
+    "flashdreams-slangpy-ui-demo",
 ]
+
+[project.optional-dependencies]
+demos = ["flashdreams[local-window,serving]"]
+
+[project.entry-points."flashdreams.applications_v2"]
+"color-fade" = "null_model.apps.color_fade:create_app"
+"red-screen" = "null_model.apps.red_screen:create_app"
+"imgui-ui-query-string" = "null_model.apps.imgui_ui_demo.query_string_app:create_app"
+"imgui-ui-text-input" = "null_model.apps.imgui_ui_demo.text_input_app:create_app"
+"imgui-ui-window-size" = "null_model.apps.imgui_ui_demo.window_size_app:create_app"
+"slangpy-ui-text-input" = "null_model.apps.slangpy_ui_demo.text_input_app:create_app"
+"slangpy-ui-model-output" = "null_model.apps.slangpy_ui_demo.model_output_app:create_app"
+"slangpy-ui-invoke-async" = "null_model.apps.slangpy_ui_demo.invoke_async_app:create_app"
 
 [tool.uv.sources]
 # Resolve the framework from this repository while developing the workspace.
 # A published integration would resolve its released FlashDreams dependency.
 flashdreams = { workspace = true }
+flashdreams-color-fade = { workspace = true }
+flashdreams-red-screen = { workspace = true }
+flashdreams-imgui-ui-demo = { workspace = true }
+flashdreams-slangpy-ui-demo = { workspace = true }
 
 [tool.setuptools.packages.find]
 # Keep the distribution limited to the integration-owned Python package.

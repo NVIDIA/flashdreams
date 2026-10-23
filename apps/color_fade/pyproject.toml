@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-color-fade"
+version = "0.2.0"
+description = "Synthetic colour fade application for FlashDreams."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["flashdreams"]
+
+[tool.uv.sources]
+flashdreams = { workspace = true }
+
+[tool.setuptools.packages.find]
+include = ["color_fade*"]

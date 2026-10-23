@@ -928,7 +928,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-color-fade"
 version = "0.2.0"
-source = { editable = "integrations_v2/color_fade" }
+source = { editable = "apps/color_fade" }
 dependencies = [
     { name = "flashdreams" },
 ]
@@ -1144,13 +1144,13 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-imgui-ui-demo"
 version = "0.2.0"
-source = { editable = "integrations_v2/imgui_ui_demo" }
+source = { editable = "apps/imgui_ui_demo" }
 dependencies = [
-    { name = "flashdreams", extra = ["local-window", "serving"] },
+    { name = "flashdreams" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
+requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-interactive-drive-v2"
@@ -1214,10 +1214,27 @@ version = "0.2.0"
 source = { editable = "integrations_v2/null_model" }
 dependencies = [
     { name = "flashdreams" },
+    { name = "flashdreams-color-fade" },
+    { name = "flashdreams-imgui-ui-demo" },
+    { name = "flashdreams-red-screen" },
+    { name = "flashdreams-slangpy-ui-demo" },
+]
+
+[package.optional-dependencies]
+demos = [
+    { name = "flashdreams", extra = ["local-window", "serving"] },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
+requires-dist = [
+    { name = "flashdreams", editable = "flashdreams" },
+    { name = "flashdreams", extras = ["local-window", "serving"], marker = "extra == 'demos'", editable = "flashdreams" },
+    { name = "flashdreams-color-fade", editable = "apps/color_fade" },
+    { name = "flashdreams-imgui-ui-demo", editable = "apps/imgui_ui_demo" },
+    { name = "flashdreams-red-screen", editable = "apps/red_screen" },
+    { name = "flashdreams-slangpy-ui-demo", editable = "apps/slangpy_ui_demo" },
+]
+provides-extras = ["demos"]
 
 [[package]]
 name = "flashdreams-omnidreams"
@@ -1302,13 +1319,13 @@ provides-extras = ["interactive-drive", "rtx-postprocess", "dev"]
 [[package]]
 name = "flashdreams-red-screen"
 version = "0.2.0"
-source = { editable = "integrations_v2/red_screen" }
+source = { editable = "apps/red_screen" }
 dependencies = [
-    { name = "flashdreams", extra = ["serving"] },
+    { name = "flashdreams" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "flashdreams", extras = ["serving"], editable = "flashdreams" }]
+requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-sana-wm"
@@ -1375,13 +1392,13 @@ provides-extras = ["dev"]
 [[package]]
 name = "flashdreams-slangpy-ui-demo"
 version = "0.2.0"
-source = { editable = "integrations_v2/slangpy_ui_demo" }
+source = { editable = "apps/slangpy_ui_demo" }
 dependencies = [
-    { name = "flashdreams", extra = ["local-window", "serving"] },
+    { name = "flashdreams" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "flashdreams", extras = ["local-window", "serving"], editable = "flashdreams" }]
+requires-dist = [{ name = "flashdreams", editable = "flashdreams" }]
 
 [[package]]
 name = "flashdreams-swiftvr"

@@ -249,7 +249,7 @@ still apply to the replacement.
 
 For SlangPy's smaller retained widget API, subclass `SlangPyUILoop` from
 `flashdreams.runtime_v2.slangpy_ui_loop`. The
-[`slangpy_ui_demo` integration](../../../integrations_v2/slangpy_ui_demo/README.md)
+[`slangpy_ui_demo` application](../../../apps/slangpy_ui_demo/README.md)
 remains the reference for that retained API.
 
 ## Where to go next
