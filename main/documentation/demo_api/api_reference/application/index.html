@@ -2450,6 +2450,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#flashdreams.api_v2.loop.IUILoop.request_file_selector" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        request_file_selector
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#flashdreams.api_v2.loop.IUILoop.flush_ui_loop_requests" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -3868,6 +3879,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         request_links
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flashdreams.api_v2.loop.IUILoop.request_file_selector" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        request_file_selector
       </span>
     </span>
   </a>
@@ -5587,10 +5609,10 @@ Returning a bare :class:<code>StepResult</code> or <code>None</code> raises :cla
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">325</span>
-<span class="normal">326</span>
-<span class="normal">327</span>
-<span class="normal">328</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@abstractmethod</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">338</span>
+<span class="normal">339</span>
+<span class="normal">340</span>
+<span class="normal">341</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@abstractmethod</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">events</span><span class="p">:</span> <span class="n">UserInputEvents</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">StepResult</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;We expect IModelLoop&#39;s to return a list of StepResults, one result per channel.&quot;&quot;&quot;</span>
     <span class="o">...</span>
@@ -5726,10 +5748,10 @@ selected.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">504</span>
-<span class="normal">505</span>
-<span class="normal">506</span>
-<span class="normal">507</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@abstractmethod</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">517</span>
+<span class="normal">518</span>
+<span class="normal">519</span>
+<span class="normal">520</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@abstractmethod</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">events</span><span class="p">:</span> <span class="n">UserInputEvents</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">StepResult</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Return zero or one :class:`StepResult` to present this tick.&quot;&quot;&quot;</span>
     <span class="o">...</span>
@@ -5814,24 +5836,24 @@ selected.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">509</span>
-<span class="normal">510</span>
-<span class="normal">511</span>
-<span class="normal">512</span>
-<span class="normal">513</span>
-<span class="normal">514</span>
-<span class="normal">515</span>
-<span class="normal">516</span>
-<span class="normal">517</span>
-<span class="normal">518</span>
-<span class="normal">519</span>
-<span class="normal">520</span>
-<span class="normal">521</span>
-<span class="normal">522</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">522</span>
 <span class="normal">523</span>
 <span class="normal">524</span>
 <span class="normal">525</span>
-<span class="normal">526</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
+<span class="normal">526</span>
+<span class="normal">527</span>
+<span class="normal">528</span>
+<span class="normal">529</span>
+<span class="normal">530</span>
+<span class="normal">531</span>
+<span class="normal">532</span>
+<span class="normal">533</span>
+<span class="normal">534</span>
+<span class="normal">535</span>
+<span class="normal">536</span>
+<span class="normal">537</span>
+<span class="normal">538</span>
+<span class="normal">539</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">register_session_ui_loop_objects</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
@@ -5914,14 +5936,14 @@ selected.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">539</span>
-<span class="normal">540</span>
-<span class="normal">541</span>
-<span class="normal">542</span>
-<span class="normal">543</span>
-<span class="normal">544</span>
-<span class="normal">545</span>
-<span class="normal">546</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">552</span>
+<span class="normal">553</span>
+<span class="normal">554</span>
+<span class="normal">555</span>
+<span class="normal">556</span>
+<span class="normal">557</span>
+<span class="normal">558</span>
+<span class="normal">559</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">request_new_session</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">session_desc</span><span class="p">:</span> <span class="n">SessionDesc</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Ask the runtime to replace this session after the current UI step.</span>
 
@@ -5953,12 +5975,12 @@ selected.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">548</span>
-<span class="normal">549</span>
-<span class="normal">550</span>
-<span class="normal">551</span>
-<span class="normal">552</span>
-<span class="normal">553</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">561</span>
+<span class="normal">562</span>
+<span class="normal">563</span>
+<span class="normal">564</span>
+<span class="normal">565</span>
+<span class="normal">566</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">request_hide_cursor</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">hide_cursor</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Request that the client window show or hide its cursor.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">hide_cursor</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
@@ -5988,14 +6010,14 @@ selected.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">555</span>
-<span class="normal">556</span>
-<span class="normal">557</span>
-<span class="normal">558</span>
-<span class="normal">559</span>
-<span class="normal">560</span>
-<span class="normal">561</span>
-<span class="normal">562</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">568</span>
+<span class="normal">569</span>
+<span class="normal">570</span>
+<span class="normal">571</span>
+<span class="normal">572</span>
+<span class="normal">573</span>
+<span class="normal">574</span>
+<span class="normal">575</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">request_lock_cursor_to_window</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lock_cursor_to_window</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Request that the client window release or capture pointer motion.&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">lock_cursor_to_window</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
@@ -6091,20 +6113,7 @@ selected.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">564</span>
-<span class="normal">565</span>
-<span class="normal">566</span>
-<span class="normal">567</span>
-<span class="normal">568</span>
-<span class="normal">569</span>
-<span class="normal">570</span>
-<span class="normal">571</span>
-<span class="normal">572</span>
-<span class="normal">573</span>
-<span class="normal">574</span>
-<span class="normal">575</span>
-<span class="normal">576</span>
-<span class="normal">577</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">577</span>
 <span class="normal">578</span>
 <span class="normal">579</span>
 <span class="normal">580</span>
@@ -6113,7 +6122,20 @@ selected.</p>
 <span class="normal">583</span>
 <span class="normal">584</span>
 <span class="normal">585</span>
-<span class="normal">586</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
+<span class="normal">586</span>
+<span class="normal">587</span>
+<span class="normal">588</span>
+<span class="normal">589</span>
+<span class="normal">590</span>
+<span class="normal">591</span>
+<span class="normal">592</span>
+<span class="normal">593</span>
+<span class="normal">594</span>
+<span class="normal">595</span>
+<span class="normal">596</span>
+<span class="normal">597</span>
+<span class="normal">598</span>
+<span class="normal">599</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">request_new_window_size</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">new_window_size</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Request a positive downstream client-window width and height.</span>
 
@@ -6224,24 +6246,24 @@ selected.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">588</span>
-<span class="normal">589</span>
-<span class="normal">590</span>
-<span class="normal">591</span>
-<span class="normal">592</span>
-<span class="normal">593</span>
-<span class="normal">594</span>
-<span class="normal">595</span>
-<span class="normal">596</span>
-<span class="normal">597</span>
-<span class="normal">598</span>
-<span class="normal">599</span>
-<span class="normal">600</span>
-<span class="normal">601</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">601</span>
 <span class="normal">602</span>
 <span class="normal">603</span>
 <span class="normal">604</span>
-<span class="normal">605</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
+<span class="normal">605</span>
+<span class="normal">606</span>
+<span class="normal">607</span>
+<span class="normal">608</span>
+<span class="normal">609</span>
+<span class="normal">610</span>
+<span class="normal">611</span>
+<span class="normal">612</span>
+<span class="normal">613</span>
+<span class="normal">614</span>
+<span class="normal">615</span>
+<span class="normal">616</span>
+<span class="normal">617</span>
+<span class="normal">618</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">request_links</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">links</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">ClientWindowLink</span><span class="p">,</span> <span class="o">...</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Replace up to sixteen clickable regions of the output content.</span>
 
@@ -6268,6 +6290,437 @@ selected.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="flashdreams.api_v2.loop.IUILoop.request_file_selector" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">request_file_selector</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">request_file_selector</span><span class="p">(</span><span class="n">request_id</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n">initial_path</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">accept</span><span class="p">:</span> <span class="n"><span title="collections.abc.Sequence">Sequence</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span> <span class="n">max_file_bytes</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="n"><span title="flashdreams.runtime_v2.selected_file.DEFAULT_MAX_FILE_BYTES">DEFAULT_MAX_FILE_BYTES</span></span><span class="p">,</span> <span class="n">max_total_bytes</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="n"><span title="flashdreams.runtime_v2.selected_file.DEFAULT_MAX_TOTAL_BYTES">DEFAULT_MAX_TOTAL_BYTES</span></span><span class="p">,</span> <span class="n">max_file_count</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="n"><span title="flashdreams.runtime_v2.selected_file.DEFAULT_MAX_FILE_COUNT">DEFAULT_MAX_FILE_COUNT</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Ask the client to show a file selector.</p>
+<p>The result arrives on a later tick, never during the step that asked,
+as one
+:class:<code>~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent</code>
+carrying <code>request_id</code>. One selector is open at a time; a call made
+while one is open is answered <code>BUSY</code>. A selector stays open across a
+session reset; a replaced or ended session gets no result.</p>
+<p>Read <code>status</code> first; <code>files</code> is empty unless it is <code>OK</code>:</p>
+<ul>
+<li><code>OK</code>: each chosen file as its base <code>name</code> and <code>data</code> bytes.</li>
+<li><code>CANCELLED</code>: the user dismissed the selector.</li>
+<li><code>BUSY</code>: another selector was open.</li>
+<li><code>DISALLOWED_TYPE</code>: a file did not match <code>accept</code>.</li>
+<li><code>TOO_LARGE</code>: a file was larger than <code>max_file_bytes</code>, the files
+  together were larger than <code>max_total_bytes</code>, or more than
+  <code>max_file_count</code> files were chosen.</li>
+<li><code>UNAVAILABLE</code>: the window cannot show a selector, or it failed.</li>
+</ul>
+<p><code>accept</code> checks filename suffixes only, so treat <code>data</code> as
+untrusted input.</p>
+<p>Example:</p>
+<p>.. code-block:: python</p>
+<pre><code>from flashdreams.runtime_v2.selected_file import SelectedFilesStatus
+from flashdreams.runtime_v2.user_input_event import (
+    SelectedFilesUserInputEvent,
+)
+
+if imgui.button("Open image"):
+    self.request_file_selector("open-image", accept=(".png",))
+for event in self.user_events.get_events():
+    if not isinstance(event, SelectedFilesUserInputEvent):
+        continue
+    if event.request_id != "open-image":
+        continue
+    if event.status is SelectedFilesStatus.OK:
+        image_bytes = event.files[0].data
+    else:
+        self.state.message = f"No image: {event.status.value}"
+</code></pre>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>request_id</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Names the control that asked, so its result can be
+told apart from another control's. Echoed on the result.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>initial_path</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Directory hint for the native selector; <code>None</code>
+uses the host user's home directory. The browser ignores it.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>accept</code>
+            </td>
+            <td>
+                  <code><span title="collections.abc.Sequence">Sequence</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Filename suffixes such as <code>.png</code>. Empty allows any type.</p>
+              </div>
+            </td>
+            <td>
+                  <code>()</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_file_bytes</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Largest single file in bytes. Must not exceed
+<code>max_total_bytes</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code><span title="flashdreams.runtime_v2.selected_file.DEFAULT_MAX_FILE_BYTES">DEFAULT_MAX_FILE_BYTES</span></code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_total_bytes</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Most bytes all chosen files may add up to. Has no
+effect when <code>max_file_count</code> is one.</p>
+              </div>
+            </td>
+            <td>
+                  <code><span title="flashdreams.runtime_v2.selected_file.DEFAULT_MAX_TOTAL_BYTES">DEFAULT_MAX_TOTAL_BYTES</span></code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_file_count</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Most files the selector may return. Above one, the
+user may pick several.</p>
+              </div>
+            </td>
+            <td>
+                  <code><span title="flashdreams.runtime_v2.selected_file.DEFAULT_MAX_FILE_COUNT">DEFAULT_MAX_FILE_COUNT</span></code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="TypeError">TypeError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>request_id</code> or <code>initial_path</code> is not a string, or
+<code>accept</code> or a limit has the wrong type.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>request_id</code> or <code>initial_path</code> is empty, <code>accept</code>
+is invalid, a limit is not positive, or <code>max_file_bytes</code>
+exceeds <code>max_total_bytes</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">620</span>
+<span class="normal">621</span>
+<span class="normal">622</span>
+<span class="normal">623</span>
+<span class="normal">624</span>
+<span class="normal">625</span>
+<span class="normal">626</span>
+<span class="normal">627</span>
+<span class="normal">628</span>
+<span class="normal">629</span>
+<span class="normal">630</span>
+<span class="normal">631</span>
+<span class="normal">632</span>
+<span class="normal">633</span>
+<span class="normal">634</span>
+<span class="normal">635</span>
+<span class="normal">636</span>
+<span class="normal">637</span>
+<span class="normal">638</span>
+<span class="normal">639</span>
+<span class="normal">640</span>
+<span class="normal">641</span>
+<span class="normal">642</span>
+<span class="normal">643</span>
+<span class="normal">644</span>
+<span class="normal">645</span>
+<span class="normal">646</span>
+<span class="normal">647</span>
+<span class="normal">648</span>
+<span class="normal">649</span>
+<span class="normal">650</span>
+<span class="normal">651</span>
+<span class="normal">652</span>
+<span class="normal">653</span>
+<span class="normal">654</span>
+<span class="normal">655</span>
+<span class="normal">656</span>
+<span class="normal">657</span>
+<span class="normal">658</span>
+<span class="normal">659</span>
+<span class="normal">660</span>
+<span class="normal">661</span>
+<span class="normal">662</span>
+<span class="normal">663</span>
+<span class="normal">664</span>
+<span class="normal">665</span>
+<span class="normal">666</span>
+<span class="normal">667</span>
+<span class="normal">668</span>
+<span class="normal">669</span>
+<span class="normal">670</span>
+<span class="normal">671</span>
+<span class="normal">672</span>
+<span class="normal">673</span>
+<span class="normal">674</span>
+<span class="normal">675</span>
+<span class="normal">676</span>
+<span class="normal">677</span>
+<span class="normal">678</span>
+<span class="normal">679</span>
+<span class="normal">680</span>
+<span class="normal">681</span>
+<span class="normal">682</span>
+<span class="normal">683</span>
+<span class="normal">684</span>
+<span class="normal">685</span>
+<span class="normal">686</span>
+<span class="normal">687</span>
+<span class="normal">688</span>
+<span class="normal">689</span>
+<span class="normal">690</span>
+<span class="normal">691</span>
+<span class="normal">692</span>
+<span class="normal">693</span>
+<span class="normal">694</span>
+<span class="normal">695</span>
+<span class="normal">696</span>
+<span class="normal">697</span>
+<span class="normal">698</span>
+<span class="normal">699</span>
+<span class="normal">700</span>
+<span class="normal">701</span>
+<span class="normal">702</span>
+<span class="normal">703</span>
+<span class="normal">704</span>
+<span class="normal">705</span>
+<span class="normal">706</span>
+<span class="normal">707</span>
+<span class="normal">708</span>
+<span class="normal">709</span>
+<span class="normal">710</span>
+<span class="normal">711</span>
+<span class="normal">712</span>
+<span class="normal">713</span>
+<span class="normal">714</span>
+<span class="normal">715</span>
+<span class="normal">716</span>
+<span class="normal">717</span>
+<span class="normal">718</span>
+<span class="normal">719</span>
+<span class="normal">720</span>
+<span class="normal">721</span>
+<span class="normal">722</span>
+<span class="normal">723</span>
+<span class="normal">724</span>
+<span class="normal">725</span>
+<span class="normal">726</span>
+<span class="normal">727</span>
+<span class="normal">728</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">request_file_selector</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">request_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">initial_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">accept</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+    <span class="n">max_file_bytes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_MAX_FILE_BYTES</span><span class="p">,</span>
+    <span class="n">max_total_bytes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_MAX_TOTAL_BYTES</span><span class="p">,</span>
+    <span class="n">max_file_count</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_MAX_FILE_COUNT</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Ask the client to show a file selector.</span>
+
+<span class="sd">    The result arrives on a later tick, never during the step that asked,</span>
+<span class="sd">    as one</span>
+<span class="sd">    :class:`~flashdreams.runtime_v2.user_input_event.SelectedFilesUserInputEvent`</span>
+<span class="sd">    carrying ``request_id``. One selector is open at a time; a call made</span>
+<span class="sd">    while one is open is answered ``BUSY``. A selector stays open across a</span>
+<span class="sd">    session reset; a replaced or ended session gets no result.</span>
+
+<span class="sd">    Read ``status`` first; ``files`` is empty unless it is ``OK``:</span>
+
+<span class="sd">    - ``OK``: each chosen file as its base ``name`` and ``data`` bytes.</span>
+<span class="sd">    - ``CANCELLED``: the user dismissed the selector.</span>
+<span class="sd">    - ``BUSY``: another selector was open.</span>
+<span class="sd">    - ``DISALLOWED_TYPE``: a file did not match ``accept``.</span>
+<span class="sd">    - ``TOO_LARGE``: a file was larger than ``max_file_bytes``, the files</span>
+<span class="sd">      together were larger than ``max_total_bytes``, or more than</span>
+<span class="sd">      ``max_file_count`` files were chosen.</span>
+<span class="sd">    - ``UNAVAILABLE``: the window cannot show a selector, or it failed.</span>
+
+<span class="sd">    ``accept`` checks filename suffixes only, so treat ``data`` as</span>
+<span class="sd">    untrusted input.</span>
+
+<span class="sd">    Example:</span>
+
+<span class="sd">    .. code-block:: python</span>
+
+<span class="sd">        from flashdreams.runtime_v2.selected_file import SelectedFilesStatus</span>
+<span class="sd">        from flashdreams.runtime_v2.user_input_event import (</span>
+<span class="sd">            SelectedFilesUserInputEvent,</span>
+<span class="sd">        )</span>
+
+<span class="sd">        if imgui.button(&quot;Open image&quot;):</span>
+<span class="sd">            self.request_file_selector(&quot;open-image&quot;, accept=(&quot;.png&quot;,))</span>
+<span class="sd">        for event in self.user_events.get_events():</span>
+<span class="sd">            if not isinstance(event, SelectedFilesUserInputEvent):</span>
+<span class="sd">                continue</span>
+<span class="sd">            if event.request_id != &quot;open-image&quot;:</span>
+<span class="sd">                continue</span>
+<span class="sd">            if event.status is SelectedFilesStatus.OK:</span>
+<span class="sd">                image_bytes = event.files[0].data</span>
+<span class="sd">            else:</span>
+<span class="sd">                self.state.message = f&quot;No image: {event.status.value}&quot;</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        request_id: Names the control that asked, so its result can be</span>
+<span class="sd">            told apart from another control&#39;s. Echoed on the result.</span>
+<span class="sd">        initial_path: Directory hint for the native selector; ``None``</span>
+<span class="sd">            uses the host user&#39;s home directory. The browser ignores it.</span>
+<span class="sd">        accept: Filename suffixes such as ``.png``. Empty allows any type.</span>
+<span class="sd">        max_file_bytes: Largest single file in bytes. Must not exceed</span>
+<span class="sd">            ``max_total_bytes``.</span>
+<span class="sd">        max_total_bytes: Most bytes all chosen files may add up to. Has no</span>
+<span class="sd">            effect when ``max_file_count`` is one.</span>
+<span class="sd">        max_file_count: Most files the selector may return. Above one, the</span>
+<span class="sd">            user may pick several.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        TypeError: ``request_id`` or ``initial_path`` is not a string, or</span>
+<span class="sd">            ``accept`` or a limit has the wrong type.</span>
+<span class="sd">        ValueError: ``request_id`` or ``initial_path`` is empty, ``accept``</span>
+<span class="sd">            is invalid, a limit is not positive, or ``max_file_bytes``</span>
+<span class="sd">            exceeds ``max_total_bytes``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">request_id</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">&quot;request_id must be a string.&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">request_id</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;request_id must be a non-empty string.&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">initial_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">resolved_initial_path</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">())</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">initial_path</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">&quot;initial_path must be a string.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">initial_path</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;initial_path must be a non-empty string.&quot;</span><span class="p">)</span>
+        <span class="n">resolved_initial_path</span> <span class="o">=</span> <span class="n">initial_path</span>
+    <span class="n">suffixes</span> <span class="o">=</span> <span class="n">normalize_selected_file_accept</span><span class="p">(</span><span class="n">accept</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">limit</span> <span class="ow">in</span> <span class="p">(</span>
+        <span class="p">(</span><span class="s2">&quot;max_file_bytes&quot;</span><span class="p">,</span> <span class="n">max_file_bytes</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">&quot;max_total_bytes&quot;</span><span class="p">,</span> <span class="n">max_total_bytes</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">&quot;max_file_count&quot;</span><span class="p">,</span> <span class="n">max_file_count</span><span class="p">),</span>
+    <span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">limit</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">limit</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> must be an integer.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">limit</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> must be &gt; 0.&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">max_file_bytes</span> <span class="o">&gt;</span> <span class="n">max_total_bytes</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;max_file_bytes must not exceed max_total_bytes.&quot;</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">get_or_create_ui_loop_requests</span><span class="p">()</span><span class="o">.</span><span class="n">file_selections</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+        <span class="n">FileSelectionRequest</span><span class="p">(</span>
+            <span class="n">request_id</span><span class="o">=</span><span class="n">request_id</span><span class="p">,</span>
+            <span class="n">initial_path</span><span class="o">=</span><span class="n">resolved_initial_path</span><span class="p">,</span>
+            <span class="n">accept</span><span class="o">=</span><span class="n">suffixes</span><span class="p">,</span>
+            <span class="n">max_file_bytes</span><span class="o">=</span><span class="n">max_file_bytes</span><span class="p">,</span>
+            <span class="n">max_total_bytes</span><span class="o">=</span><span class="n">max_total_bytes</span><span class="p">,</span>
+            <span class="n">max_file_count</span><span class="o">=</span><span class="n">max_file_count</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="flashdreams.api_v2.loop.IUILoop.flush_ui_loop_requests" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">flush_ui_loop_requests</span>
 
@@ -6283,11 +6736,11 @@ selected.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">612</span>
-<span class="normal">613</span>
-<span class="normal">614</span>
-<span class="normal">615</span>
-<span class="normal">616</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">flush_ui_loop_requests</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">UILoopRequests</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">735</span>
+<span class="normal">736</span>
+<span class="normal">737</span>
+<span class="normal">738</span>
+<span class="normal">739</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">flush_ui_loop_requests</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">UILoopRequests</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;return UI loop requests and clear the internal state of requests.&quot;&quot;&quot;</span>
     <span class="n">requests</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ui_loop_requests</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">_ui_loop_requests</span> <span class="o">=</span> <span class="kc">None</span>
@@ -6415,27 +6868,27 @@ from the presented result.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">618</span>
-<span class="normal">619</span>
-<span class="normal">620</span>
-<span class="normal">621</span>
-<span class="normal">622</span>
-<span class="normal">623</span>
-<span class="normal">624</span>
-<span class="normal">625</span>
-<span class="normal">626</span>
-<span class="normal">627</span>
-<span class="normal">628</span>
-<span class="normal">629</span>
-<span class="normal">630</span>
-<span class="normal">631</span>
-<span class="normal">632</span>
-<span class="normal">633</span>
-<span class="normal">634</span>
-<span class="normal">635</span>
-<span class="normal">636</span>
-<span class="normal">637</span>
-<span class="normal">638</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">741</span>
+<span class="normal">742</span>
+<span class="normal">743</span>
+<span class="normal">744</span>
+<span class="normal">745</span>
+<span class="normal">746</span>
+<span class="normal">747</span>
+<span class="normal">748</span>
+<span class="normal">749</span>
+<span class="normal">750</span>
+<span class="normal">751</span>
+<span class="normal">752</span>
+<span class="normal">753</span>
+<span class="normal">754</span>
+<span class="normal">755</span>
+<span class="normal">756</span>
+<span class="normal">757</span>
+<span class="normal">758</span>
+<span class="normal">759</span>
+<span class="normal">760</span>
+<span class="normal">761</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">presented_model_frame</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">channel_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
@@ -6537,19 +6990,19 @@ from a presented result.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">640</span>
-<span class="normal">641</span>
-<span class="normal">642</span>
-<span class="normal">643</span>
-<span class="normal">644</span>
-<span class="normal">645</span>
-<span class="normal">646</span>
-<span class="normal">647</span>
-<span class="normal">648</span>
-<span class="normal">649</span>
-<span class="normal">650</span>
-<span class="normal">651</span>
-<span class="normal">652</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">763</span>
+<span class="normal">764</span>
+<span class="normal">765</span>
+<span class="normal">766</span>
+<span class="normal">767</span>
+<span class="normal">768</span>
+<span class="normal">769</span>
+<span class="normal">770</span>
+<span class="normal">771</span>
+<span class="normal">772</span>
+<span class="normal">773</span>
+<span class="normal">774</span>
+<span class="normal">775</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">presented_model_frames</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the current frame from every model-result channel.</span>
 
@@ -6586,10 +7039,10 @@ from a presented result.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>flashdreams/flashdreams/api_v2/loop.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">660</span>
-<span class="normal">661</span>
-<span class="normal">662</span>
-<span class="normal">663</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">783</span>
+<span class="normal">784</span>
+<span class="normal">785</span>
+<span class="normal">786</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@final</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">has_pending_model_frames</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Return whether another model frame is ready to present.&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_presentation_manager</span><span class="o">.</span><span class="n">has_pending_frames</span><span class="p">()</span>
