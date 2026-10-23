@@ -21,8 +21,18 @@ in THIRD-PARTY-NOTICES:
         MIT, Copyright (c) 2016-2024 Martin Donath <martin.donath@squidfunk.com>
         for upstream portions; Apache-2.0 for NVIDIA modifications
         (full upstream notice retained in the source file).
+  - integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/
+        vLLM-Omni Apache-2.0 inference blocks; transformer_vae.py also
+        retains MIT terms, Copyright (c) 2022 Katherine Crowson.
+        Its NOTICE and full Apache/MIT texts accompany the codec source
+        as NOTICE, LICENSE.vllm-omni and LICENSE.k-diffusion.
 Modified Cosmos-Drive-Dreams camera helpers and SwiftVR adaptations retain
 their Apache-2.0 terms and upstream copyrights.
+
+Cosmos Interactive's TAEHV-super decoder retains MIT portions from
+Ollin Boer Bohan (2025), with Apache-2.0 NVIDIA modifications. The LiDAR
+VAE's vLLM-Omni and inherited k-diffusion terms are identified above.
+See LICENSES/MIT.txt and THIRD-PARTY-NOTICES.
 
 Third-party software attributions, source-level redistribution
 disclosures, and dependency project licenses are

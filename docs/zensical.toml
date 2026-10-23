@@ -45,9 +45,24 @@ md_in_html = {}
 tables = {}
 pymdownx.details = {}
 pymdownx.superfences = {}
+pymdownx.snippets = { base_path = ["."], check_paths = true }
 pymdownx.arithmatex.generic = true
 
 [project.plugins.awesome-nav]
+
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["../flashdreams"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "google"
+members_order = "source"
+merge_init_into_class = true
+separate_signature = true
+show_root_full_path = true
+show_root_heading = true
+show_signature_annotations = true
+show_source = true
+signature_crossrefs = true
 
 [project.extra]
 generator = false

@@ -3,6 +3,7 @@
 
 import math
 import time
+from collections.abc import Sequence
 
 import numpy as np
 from loguru import logger
@@ -289,14 +290,44 @@ def integrate_vehicle(
 def sample_chunk_trajectory(
     start_state: VehicleState,
     start_timestamp_us: int,
-    command: DriverCommand,
+    command: DriverCommand | Sequence[DriverCommand],
     chunk_size: int,
     chunk_config: ChunkConfig,
     vehicle_config: VehicleConfig,
     ground_snapper: GroundSnapper | None,
     physics_world: GamePhysicsWorld | None = None,
     capture_physics_debug: bool = False,
+    command_times_s: Sequence[float] | None = None,
 ) -> TrajectoryChunk:
+    """Integrate controls and record one pose per video frame.
+
+    ``command_times_s`` supplies chunk-relative command start times, starting
+    at zero. Transitions within a frame split its vehicle integration step.
+    Without timestamps, accept one command for the chunk or one per frame.
+    """
+    commands = (
+        (command,) * chunk_size if isinstance(command, DriverCommand) else command
+    )
+    if command_times_s is None:
+        if len(commands) != chunk_size:
+            raise ValueError("Supply exactly one driving command per trajectory frame.")
+        command_times_s = tuple(
+            index * chunk_config.frame_interval_s for index in range(chunk_size)
+        )
+    duration_s = chunk_size * chunk_config.frame_interval_s
+    if (
+        not commands
+        or len(command_times_s) != len(commands)
+        or command_times_s[0] != 0.0
+        or any(
+            not math.isfinite(t) or t < 0 or t >= duration_s for t in command_times_s
+        )
+        or any(b <= a for a, b in zip(command_times_s, command_times_s[1:]))
+    ):
+        raise ValueError(
+            "Supply one increasing start time per command, from zero to before "
+            "the chunk end."
+        )
     timestamps = np.array(
         [
             start_timestamp_us + frame_idx * chunk_config.frame_interval_us
@@ -328,10 +359,24 @@ def sample_chunk_trajectory(
         sync_elapsed_s = time.perf_counter() - physx_started_at
         physx_sync_s += sync_elapsed_s
         physx_elapsed_s += sync_elapsed_s
+    command_index = 0
+    integrated_s = 0.0
     for frame_idx in range(chunk_size):
-        state = integrate_vehicle(
-            state, command, chunk_config.frame_interval_s, vehicle_config
-        )
+        frame_end_s = (frame_idx + 1) * chunk_config.frame_interval_s
+        while integrated_s < frame_end_s:
+            next_command_s = (
+                command_times_s[command_index + 1]
+                if command_index + 1 < len(commands)
+                else duration_s
+            )
+            end_s = min(frame_end_s, next_command_s)
+            if end_s > integrated_s:
+                state = integrate_vehicle(
+                    state, commands[command_index], end_s - integrated_s, vehicle_config
+                )
+                integrated_s = end_s
+            if next_command_s <= frame_end_s and command_index + 1 < len(commands):
+                command_index += 1
         if physics_world is not None:
             physx_started_at = time.perf_counter()
             state, frame_actor_samples = physics_world.step(

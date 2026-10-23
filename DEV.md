@@ -6,7 +6,7 @@ The canonical version for the entire monorepo lives in
 `flashdreams/flashdreams/_version.py`:
 
 ```python
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 ```
 
 All other package `pyproject.toml` files are kept in sync automatically

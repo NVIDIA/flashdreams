@@ -87,8 +87,6 @@ _DEFAULT_RUN_TIMEOUT_SECONDS = int(
 
 # Inline bootstrap run by the subprocess *before* importing the CLI, so the
 # deterministic-algorithms flag is in force before the first CUDA context.
-# Mirrors internal/scripts/diversity_probe/metrics/_strict_flashdreams_run.py
-# but kept inline so the test carries no dependency on internal scripts.
 _STRICT_BOOTSTRAP = """
 import os
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")

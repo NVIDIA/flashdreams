@@ -35,8 +35,20 @@ uv run --no-sync flashdreams-run-v2 \
 ```
 
 <div class="fd-cta-row">
-  <a class="fd-button" href="#t2v-presets">Demo Presets</a>
+  <a class="fd-button" href="#t2v-presets">T2V Presets</a>
   <a class="fd-button" href="../demos/t2v.md#demo-arguments">Demo Arguments</a>
+</div>
+
+### Minimal T2V
+
+```bash
+uv sync --package flashdreams-wan21 --inexact
+uv run --no-sync flashdreams-run-v2 minimal-t2v-wan21 --mode native-window -- --default-prompt "A cat surfing"
+```
+
+<div class="fd-cta-row">
+  <a class="fd-button" href="#minimal-t2v-presets">Minimal T2V Presets</a>
+  <a class="fd-button" href="../demos/minimal_t2v.md#demo-arguments">Demo Arguments</a>
 </div>
 
 <hr>
@@ -50,6 +62,14 @@ uv run --no-sync flashdreams-run-v2 \
 | Preset | Description |
 | --- | --- |
 | `t2v-wan21-t2v-1.3b-480p` | Wan 2.1 T2V 1.3B at 480p with a single bidirectional block. |
+
+<a id="minimal-t2v-presets"></a>
+
+### Minimal T2V
+
+| Preset | Description |
+| --- | --- |
+| `minimal-t2v-wan21` | [Minimal T2V app](../demos/minimal_t2v.md) with Wan 2.1 T2V 1.3B at 480p, generating one block per prompt. |
 
 <hr>
 

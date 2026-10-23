@@ -19,6 +19,8 @@
 #include <climits>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <vector>
 
 #define CUDA_CHECK(CALL) do { cudaError_t err = CALL; if (err != cudaSuccess) { fprintf(stderr, "CUDA error %d (%s) at %s:%d: %s\n", (int)err, cudaGetErrorString(err), __FILE__, __LINE__, #CALL); } } while(0)
@@ -2497,6 +2499,8 @@ void ludusCudaInit(NVDR_CTX_ARGS, LudusCudaState& s)
 {
     memset(&s, 0, sizeof(LudusCudaState));
     s.cr = new CR::CudaRaster();
+    // Keep main and BEV surfaces separate instead of reallocating on every switch.
+    s.crBev = new CR::CudaRaster();
     s.tessellationThreshold = 0.0f;
     s.depthScaling = 1.0f;
     s.cullRadiusScale = 1.5f;
@@ -2507,13 +2511,13 @@ void ludusCudaInit(NVDR_CTX_ARGS, LudusCudaState& s)
 
     CUDA_CHECK(cudaMalloc(&s.atomicVertexCount, 3 * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&s.atomicTriangleCount, 2 * sizeof(int)));
-
     printf("LudusCuda: Initialized renderer\n");
 }
 
 void ludusCudaDestroy(NVDR_CTX_ARGS, LudusCudaState& s)
 {
     if (s.cr) { delete s.cr; s.cr = nullptr; }
+    if (s.crBev) { delete s.crBev; s.crBev = nullptr; }
     if (s.projectedVertices) cudaFree(s.projectedVertices);
     if (s.triangleIndices) cudaFree(s.triangleIndices);
     if (s.vertexColors) cudaFree(s.vertexColors);
@@ -2740,7 +2744,9 @@ void ludusCudaRender(
     int crHeight = (ssH + 7) & ~7;
     int maxVp = (crWidth > crHeight) ? crWidth : crHeight;
 
-    s.cr->setBufferSize(crWidth, crHeight, 1);
+    if (!s.crBev || s.cr->getBufferWidth() != crWidth ||
+        s.cr->getBufferHeight() != crHeight || s.cr->getNumImages() != 1)
+        s.cr->setBufferSize(crWidth, crHeight, 1);
 
     // Allocate hi-res intermediate buffer for SSAA
     if (smoothed) {
@@ -2963,6 +2969,7 @@ void ludusCudaRenderTimestamped(
     uint8_t* outputPtr)
 {
     if (numCameras == 0 || width == 0 || height == 0) return;
+    CR::CudaRaster* cr = s.crBev && params.cameraTypeId == 1 ? s.crBev : s.cr;
 
     // Pool headers stay device-resident; totalCubes is cached at scene upload.
     bool hasTess = params.tessellationThreshold > 0.0f;
@@ -3000,7 +3007,9 @@ void ludusCudaRenderTimestamped(
     int crWidth  = (ssW  + 7) & ~7;
     int crHeight = (ssH + 7) & ~7;
     int maxVp = (crWidth > crHeight) ? crWidth : crHeight;
-    s.cr->setBufferSize(crWidth, crHeight, 1);
+    if (!s.crBev || cr->getBufferWidth() != crWidth ||
+        cr->getBufferHeight() != crHeight || cr->getNumImages() != 1)
+        cr->setBufferSize(crWidth, crHeight, 1);
 
     // Allocate hi-res intermediate buffer for SSAA
     if (smoothed) {
@@ -3103,11 +3112,11 @@ void ludusCudaRenderTimestamped(
         }
 
         // CudaRaster
-        s.cr->setVertexBuffer(s.projectedVertices, actualVerts);
-        s.cr->setIndexBuffer(s.triangleIndices, actualTris);
-        s.cr->setTiebreakerColorBuffer(s.vertexColors);
-        s.cr->setDeterministicTiebreaker(true);
-        s.cr->deferredClear(0);
+        cr->setVertexBuffer(s.projectedVertices, actualVerts);
+        cr->setIndexBuffer(s.triangleIndices, actualTris);
+        cr->setTiebreakerColorBuffer(s.vertexColors);
+        cr->setDeterministicTiebreaker(true);
+        cr->deferredClear(0);
 
         int tilesX = (crWidth  + maxVp - 1) / maxVp;
         int tilesY = (crHeight + maxVp - 1) / maxVp;
@@ -3116,8 +3125,8 @@ void ludusCudaRenderTimestamped(
             for (int tx = 0; tx < tilesX; tx++) {
                 int vpW = (tx < tilesX - 1) ? maxVp : (crWidth  - tx * maxVp);
                 int vpH = (ty < tilesY - 1) ? maxVp : (crHeight - ty * maxVp);
-                s.cr->setViewport(vpW, vpH, tx * maxVp, ty * maxVp);
-                if (!s.cr->drawTriangles(nullptr, false, stream)) {
+                cr->setViewport(vpW, vpH, tx * maxVp, ty * maxVp);
+                if (!cr->drawTriangles(nullptr, false, stream)) {
                     fprintf(stderr,
                             "[LudusCudaTS] cam %d tile (%d,%d): CudaRaster overflow; zeroing camera output\n",
                             camIdx, tx, ty);
@@ -3135,7 +3144,7 @@ void ludusCudaRenderTimestamped(
             continue;
 
         // Fragment pass (barycentric interpolation)
-        const uint32_t* crColor = (const uint32_t*)s.cr->getColorBuffer();
+        const uint32_t* crColor = (const uint32_t*)cr->getColorBuffer();
         if (smoothed) {
             dim3 fragGrid((ssW + 7) / 8, (ssH + 7) / 8);
             dim3 fragBlock(8, 8);

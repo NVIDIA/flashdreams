@@ -34,9 +34,6 @@ _APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications_v2"
 _COMMAND_SEPARATOR = ":::"
 """Separator between this tool's options and a complete runtime command."""
 
-_FAILURE_GUIDANCE = "Packager failed. This is either a packager bug, missing environment variable, or packaged application crash."
-"""Guidance appended to application-preload failures."""
-
 _SAFE_SLUG = re.compile(r"^[A-Za-z0-9_.-]+$")
 _INSTALLER_OUTPUT = "INSTALLER_OUTPUT.txt"
 _PREPARATION_ISSUES = "PREPARATION_ISSUES.txt"
@@ -89,6 +86,16 @@ def _parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         help="Bundle directory (default: artifacts/<slug>-bundle).",
+    )
+    parser.add_argument(
+        "--working-dir",
+        type=Path,
+        help="Directory contents to copy before preload (default: output directory).",
+    )
+    parser.add_argument(
+        "--noconsole",
+        action="store_true",
+        help="Build without a console window on Windows (ignored on Linux).",
     )
     parser.add_argument(
         "--preload-timeout",
@@ -181,6 +188,13 @@ def _cache_environment(
 ) -> dict[str, str]:
     """Return an environment with every supported cache below ``cache_root``."""
     env = os.environ.copy()
+    env["PATH"] = os.pathsep.join(
+        (
+            str(_ninja_executable().parent),
+            str(Path(sys.executable).parent),
+            env.get("PATH", ""),
+        )
+    )
     env["HF_HUB_DISABLE_SYMLINKS"] = "1"
     for name, relative_path in _CACHE_PATHS.items():
         cache_path = cache_root / relative_path
@@ -189,6 +203,13 @@ def _cache_environment(
     if preparation_issues_path is not None:
         env["FLASHDREAMS_PREPARATION_ISSUES_PATH"] = str(preparation_issues_path)
     return env
+
+
+def _log_tail(path: Path) -> str:
+    """Return the last lines of a failed subprocess log."""
+    return "\n".join(
+        path.read_text(encoding="utf-8", errors="replace").splitlines()[-30:]
+    )
 
 
 def _application_module(slug: str) -> str:
@@ -384,48 +405,78 @@ def _launcher_source(
         f"""\
         # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
         # SPDX-License-Identifier: Apache-2.0
+        import argparse
         import importlib.machinery
         import importlib.util
         import os
         import shutil
         import sys
         from pathlib import Path
+        from tempfile import gettempdir
 
+        if sys.stdout is None or sys.stderr is None:
+            log_root = Path(gettempdir()) / "flashdreams" / {slug!r}
+            log_root.mkdir(parents=True, exist_ok=True)
+            runtime_log = (log_root / "runtime.log").open(
+                "a", encoding="utf-8", buffering=1
+            )
+            if sys.stdout is None:
+                sys.stdout = runtime_log
+            if sys.stderr is None:
+                sys.stderr = runtime_log
+
+        def filesystem_path(path):
+            if os.name != "nt":
+                return path
+            prefix = os.sep * 2 + "?" + os.sep
+            absolute = str(path)
+            if absolute.startswith(prefix):
+                return path
+            if absolute.startswith(os.sep * 2):
+                absolute = "UNC" + os.sep + absolute[2:]
+            return Path(prefix + absolute)
+
+        parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+        parser.add_argument("--unpack-dir")
+        unpack_options, remaining_arguments = parser.parse_known_args(sys.argv[1:])
         bundle_root = (
             Path(sys.executable).resolve().parent
             if getattr(sys, "frozen", False)
             else Path(__file__).resolve().parent
         )
+        if getattr(sys, "frozen", False):
+            os.chdir(bundle_root)
         seed_cache_root = bundle_root / "cache"
-        seed_cache_root.mkdir(parents=True, exist_ok=True)
         cache_root = seed_cache_root
         cache_seed_id = {cache_seed_id!r}
         if getattr(sys, "frozen", False):
+            unpack_dir = unpack_options.unpack_dir
             configured_cache_root = os.environ.get({_RUNTIME_CACHE_ROOT_ENV!r})
-            if configured_cache_root:
+            if unpack_dir:
+                unpack_root = Path(unpack_dir).expanduser()
+                if not unpack_root.is_absolute():
+                    raise RuntimeError(
+                        "--unpack-dir must be an absolute path."
+                    )
+                cache_root = unpack_root / {slug!r} / "cache"
+            elif configured_cache_root:
                 cache_root = Path(configured_cache_root).expanduser()
                 if not cache_root.is_absolute():
                     raise RuntimeError(
                         f"{_RUNTIME_CACHE_ROOT_ENV} must be an absolute path."
                     )
-            elif os.name == "nt":
-                local_app_data = os.environ.get("LOCALAPPDATA")
-                if not local_app_data:
+            else:
+                profile = os.environ.get("USERPROFILE") if os.name == "nt" else None
+                if os.name == "nt" and not profile:
                     raise RuntimeError(
-                        "LOCALAPPDATA is required unless "
-                        f"{_RUNTIME_CACHE_ROOT_ENV} is set."
+                        "USERPROFILE is required unless --unpack-dir is set."
                     )
                 cache_root = (
-                    Path(local_app_data)
-                    / "FlashDreams"
+                    Path(profile or Path.home())
+                    / "flashdreams"
+                    / "unpacked"
                     / {slug!r}
                     / "cache"
-                )
-            else:
-                cache_root = (
-                    Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-                    / "flashdreams"
-                    / {slug!r}
                 )
 
             cache_root = cache_root.resolve()
@@ -438,6 +489,8 @@ def _launcher_source(
                         "The runtime cache cannot contain, or be contained by, "
                         "the bundled cache."
                     )
+                cache_root = filesystem_path(cache_root)
+                seed_cache_root = filesystem_path(seed_cache_root)
                 marker = cache_root / {_RUNTIME_CACHE_SEED_MARKER!r}
                 if cache_seed_id is not None and (
                     not marker.is_file()
@@ -454,6 +507,13 @@ def _launcher_source(
             os.environ[name] = str(cache_path)
 
         if getattr(sys, "frozen", False):
+            # Prepared native code must load from the deployed bundle.
+            for name in (
+                "TORCH_EXTENSIONS_DIR",
+                "TRITON_CACHE_DIR",
+                "FLASHDREAMS_TRITON_CACHE_DIR",
+            ):
+                os.environ[name] = str(seed_cache_root / cache_paths[name])
             runtime_root = Path(getattr(sys, "_MEIPASS", bundle_root))
             os.environ["PATH"] = (
                 str(runtime_root) + os.pathsep + os.environ.get("PATH", "")
@@ -469,8 +529,6 @@ def _launcher_source(
             # those binaries because rebuilding would require a target-side compiler.
             from torch.utils import cpp_extension
 
-            original_cpp_extension_load = cpp_extension.load
-
             def load_cpp_extension(name, *args, **kwargs):
                 extension_dir = Path(os.environ["TORCH_EXTENSIONS_DIR"]) / name
                 if kwargs.get("is_python_module", True):
@@ -485,7 +543,10 @@ def _launcher_source(
                         spec.loader.exec_module(module)
                         sys.modules[name] = module
                         return module
-                return original_cpp_extension_load(name, *args, **kwargs)
+                raise RuntimeError(
+                    f"Preloaded native extension {{name!r}} is missing from "
+                    f"{{extension_dir}}; rebuild the offline bundle."
+                )
 
             cpp_extension.load = load_cpp_extension
 
@@ -496,7 +557,9 @@ def _launcher_source(
             else:
                 def reuse_preloaded_physx(cache_root, _physx_root):
                     module_dir = (
-                        Path(cache_root)
+                        seed_cache_root
+                        / "ludus"
+                        / "physx"
                         / "module"
                         / (sys.implementation.cache_tag or "python")
                     )
@@ -512,7 +575,7 @@ def _launcher_source(
 
         from flashdreams.runtime_v2.cli import entrypoint, split_arguments
 
-        runtime_arguments, application_arguments = split_arguments(sys.argv[1:])
+        runtime_arguments, application_arguments = split_arguments(remaining_arguments)
         application_arguments = {embedded_application_arguments!r} + application_arguments
         entrypoint([
             {slug!r},
@@ -571,32 +634,44 @@ def _bundle_readme_source(slug: str) -> str:
         The application and both runtime/application argument sets are embedded in
         the executable. Extra command-line arguments are appended to that configuration.
 
-        The packaged `cache/` is copied once to a writable per-user cache. Set
-        `{_RUNTIME_CACHE_ROOT_ENV}` to an absolute writable path to override it.
-        The packaged cache remains the offline seed.
+        The packaged `cache/` is copied into
+        `%USERPROFILE%\\flashdreams\\unpacked\\{slug}\\cache` on Windows.
+        Pass `--unpack-dir C:\\path\\to\\directory` to put it under
+        `C:\\path\\to\\directory\\{slug}\\cache` instead. The unpack
+        directory must be absolute. `{_RUNTIME_CACHE_ROOT_ENV}` still sets
+        the exact cache directory when `--unpack-dir` is absent.
+
+        Without a console, stdout and stderr append to
+        `<Temp>/flashdreams/{slug}/runtime.log`, where `<Temp>` is the system
+        temporary directory (`%TEMP%` on Windows).
 
         ## Expected processes during runtime
 
         | Process | Expected count | Purpose |
         | --- | ---: | --- |
-        | `{executable}` | 1 | Hosts the model loop and selected client-window UI. |
+        | `{executable}` | 1 | Hosts the model loop and client-window UI. |
 
         `python`, `cmake`, and `ninja` processes are not expected during normal runtime;
         Python and validated native extensions are contained in this bundle.
+        If a prebuilt extension is missing, rebuild the bundle on the packaging host.
 
         ## Bundle root contents
 
         | Path | Description |
         | --- | --- |
-        | `{executable}` | Compiled launcher for this operating system. |
-        | `data/` | Python runtime, application code, native libraries, and GPU assets. |
+        | `{executable}` | Launcher and embedded Python bytecode for this operating system. |
+        | `_internal/` | Python runtime, native libraries, supporting source files, and GPU assets. |
         | `cache/` | Model weights, scenes, compiled kernels, and native extensions. |
+        | `artifacts/` | Optional application assets prepared during preload. |
         | `{_INSTALLER_OUTPUT}` | Application preload/validation and PyInstaller output. |
         | `{_PREPARATION_ISSUES}` | Optional preload warnings with application call stacks. |
         | `README.md` | This launch and bundle-layout guide. |
 
-        Keep the complete directory together. The executable is not standalone from
-        `data/` and `cache/`, and moving only the executable will not work.
+        Deploy the complete raw folder, including `_internal/`, `cache/`, and any
+        `artifacts/` assets. Runtime files are loaded from the deployed folder;
+        prepared C++, Triton, and PhysX extensions load from the bundled `cache/`.
+        Embedded Python bytecode and the standard-library archive are read directly,
+        without extraction. Runtime files are not extracted at launch.
         """
     )
 
@@ -609,10 +684,16 @@ def _pyinstaller_command(
     build_root: Path,
     hidden_imports: tuple[str, ...] = (),
     executables: tuple[str, ...] = (),
+    noconsole: bool = False,
 ) -> list[str]:
     """Prepare and return the PyInstaller command for an application package."""
     module_root = application_module.partition(".")[0]
     slangpy_shaders = _module_search_path("slangpy") / "slangpy" / "shaders"
+    imgui_fonts = (
+        _module_search_path("imgui_bundle") / "imgui_bundle" / "assets" / "fonts"
+    )
+    if not (imgui_fonts / "DroidSans.ttf").is_file():
+        raise PackageError(f"Cannot locate imgui font {imgui_fonts / 'DroidSans.ttf'}.")
     metadata_distributions = _metadata_distributions(application_module)
     local_modules = {module_root}
     local_modules.update(_local_dependency_modules(metadata_distributions))
@@ -638,8 +719,6 @@ def _pyinstaller_command(
         "--onedir",
         "--name",
         slug,
-        "--contents-directory",
-        "data",
         "--distpath",
         str(build_root / "dist"),
         "--workpath",
@@ -648,6 +727,9 @@ def _pyinstaller_command(
         str(build_root / "spec"),
         "--additional-hooks-dir",
         str(hooks),
+        # IPython treats Jedi as optional; its hook otherwise collects thousands of stubs.
+        "--exclude-module",
+        "jedi",
         "--paths",
         str(_module_search_path("flashdreams.runtime_v2")),
         "--collect-data",
@@ -660,11 +742,15 @@ def _pyinstaller_command(
         "slangpy",
         "--add-data",
         f"{slangpy_shaders}{os.pathsep}shaders",
+        "--add-data",
+        f"{imgui_fonts}{os.pathsep}imgui_bundle/assets/fonts",
         "--collect-submodules",
         "transformers",
         "--hidden-import",
         application_module,
     ]
+    if noconsole:
+        command.append("--noconsole")
     for module in sorted(local_modules):
         command.extend(("--paths", str(_module_search_path(module))))
         command.extend(("--collect-all", module))
@@ -680,6 +766,7 @@ def _pyinstaller_command(
     for binary, installed_parent in _nvrtc_builtins():
         for destination in sorted({Path("."), installed_parent}):
             command.extend(("--add-binary", f"{binary}{os.pathsep}{destination}"))
+    command.extend(("--add-binary", f"{_ninja_executable()}{os.pathsep}."))
     for executable_name in executables:
         executable = shutil.which(executable_name)
         if executable is None:
@@ -687,6 +774,19 @@ def _pyinstaller_command(
         command.extend(("--add-binary", f"{executable}{os.pathsep}."))
     command.append(str(launcher))
     return command
+
+
+def _ninja_executable() -> Path:
+    """Find Ninja in the active Python environment or on PATH."""
+    try:
+        import ninja
+    except ImportError:
+        executable = shutil.which("ninja")
+    else:
+        executable = shutil.which("ninja", path=ninja.BIN_DIR) or shutil.which("ninja")
+    if executable is None:
+        raise PackageError("Ninja is required to package PyTorch C++ extensions.")
+    return Path(executable).resolve()
 
 
 def _validate_slug(slug: str) -> None:
@@ -707,10 +807,12 @@ def package(
     slug: str,
     config: list[str],
     output: Path,
+    working_dir: Path | None = None,
     preload_timeout: float | None = None,
     hidden_imports: tuple[str, ...] = (),
     executables: tuple[str, ...] = (),
     skip_runtime_validation: bool = False,
+    noconsole: bool = False,
 ) -> Path:
     """Preload and freeze one configured v2 application into ``output``.
 
@@ -718,10 +820,12 @@ def package(
         slug: Registered v2 application slug.
         config: Arguments after the slug in ``flashdreams-run-v2``.
         output: Final bundle directory, which must not already exist.
+        working_dir: Directory contents to seed the bundle; defaults to ``output``.
         preload_timeout: Optional limit for application preload and validation.
         hidden_imports: Additional modules that PyInstaller cannot discover.
         executables: Executables from PATH required by the frozen runtime.
         skip_runtime_validation: Skip the preload's one-block runtime check.
+        noconsole: Build without a console window on Windows.
 
     Returns:
         Absolute path to the completed bundle.
@@ -739,14 +843,38 @@ def package(
         raise PackageError("Only Windows and Linux bundles are supported.")
     if importlib.util.find_spec("PyInstaller") is None:
         raise PackageError(
-            "PyInstaller is unavailable in this environment. Install pyinstaller>=6.22.2."
+            "PyInstaller is unavailable. After syncing the application package, run "
+            "uv sync --group offline-exe --inexact from the repository root, "
+            "then run this tool with uv run --no-sync."
         )
 
     destination = output.expanduser().resolve()
     if destination.exists():
         raise PackageError(f"Output already exists: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    staging = destination.with_name(f".fd-{uuid.uuid4().hex}.tmp")
+    staging = destination
+    working_dir = (working_dir or destination).expanduser().resolve()
+    if working_dir != destination:
+        if destination.is_relative_to(working_dir) or working_dir.is_relative_to(
+            destination
+        ):
+            raise PackageError(
+                "Separate working and output directories must not overlap."
+            )
+        working_dir.mkdir(parents=True, exist_ok=True)
+    reserved = {
+        "cache",
+        "_internal",
+        ".build",
+        "launcher.py",
+        "preload.py",
+        "README.md",
+        _INSTALLER_OUTPUT,
+        _PREPARATION_ISSUES,
+        _executable_name(slug),
+    }
+    if any((working_dir / name).exists() for name in reserved):
+        raise PackageError("Working directory contents conflict with bundle files.")
     staging.mkdir()
     launcher = staging / "launcher.py"
     preload = staging / "preload.py"
@@ -757,6 +885,13 @@ def package(
     succeeded = False
 
     try:
+        if working_dir != destination:
+            try:
+                shutil.copytree(working_dir, staging, dirs_exist_ok=True)
+            except OSError as error:
+                raise PackageError(
+                    f"Could not copy working directory: {error}"
+                ) from error
         cache_root.mkdir()
         preload.write_text(
             _preload_source(
@@ -773,6 +908,7 @@ def package(
                 output_stream.flush()
                 preload_result = subprocess.run(
                     [sys.executable, str(preload)],
+                    cwd=staging,
                     env=_cache_environment(
                         cache_root,
                         preparation_issues_path=preparation_issues,
@@ -789,12 +925,12 @@ def package(
             with installer_output.open("ab") as output_stream:
                 output_stream.write(b"\nTimed out.\n\n")
             raise PackageError(
-                f"Preload timed out for {slug!r}.\n{_FAILURE_GUIDANCE}"
+                f"Preload timed out for {slug!r}.\n{_log_tail(installer_output)}"
             ) from error
         if preload_result.returncode:
             raise PackageError(
                 f"Preload failed for {slug!r} with exit code "
-                f"{preload_result.returncode}.\n{_FAILURE_GUIDANCE}"
+                f"{preload_result.returncode}.\n{_log_tail(installer_output)}"
             )
 
         application_module = _application_module(slug)
@@ -814,6 +950,7 @@ def package(
                     build_root=build_root,
                     hidden_imports=hidden_imports,
                     executables=executables,
+                    noconsole=noconsole,
                 ),
                 cwd=staging,
                 env=_cache_environment(cache_root),
@@ -826,18 +963,16 @@ def package(
             )
         if pyinstaller_result.returncode:
             raise PackageError(
-                f"PyInstaller failed with exit code {pyinstaller_result.returncode}."
+                f"PyInstaller failed with exit code {pyinstaller_result.returncode}.\n"
+                f"{_log_tail(installer_output)}"
             )
 
-        built_bundle = build_root / "dist" / slug
-        executable = built_bundle / executable_name
-        if not executable.is_file() or not (built_bundle / "data").is_dir():
-            raise PackageError(
-                "PyInstaller completed without the expected executable/data layout."
-            )
-
-        for item in built_bundle.iterdir():
-            shutil.move(str(item), staging / item.name)
+        runtime_bundle = build_root / "dist" / slug
+        executable = runtime_bundle / executable_name
+        if not executable.is_file():
+            raise PackageError("PyInstaller completed without the expected executable.")
+        for path in runtime_bundle.iterdir():
+            shutil.move(str(path), staging / path.name)
         (staging / "README.md").write_text(
             _bundle_readme_source(slug), encoding="utf-8"
         )
@@ -845,7 +980,6 @@ def package(
         shutil.rmtree(build_root)
         launcher.unlink()
         preload.unlink()
-        staging.replace(destination)
         succeeded = True
         return destination
     finally:
@@ -869,6 +1003,8 @@ def main(arguments: list[str] | None = None) -> int:
             hidden_imports=tuple(parsed.hidden_import),
             executables=tuple(parsed.collect_executable),
             skip_runtime_validation=parsed.skip_runtime_validation,
+            noconsole=parsed.noconsole,
+            working_dir=parsed.working_dir,
         )
     except PackageError as error:
         print(f"ERROR: {error}", file=sys.stderr)

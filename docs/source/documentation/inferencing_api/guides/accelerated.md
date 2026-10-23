@@ -10,9 +10,8 @@ integrations. It currently covers tensor/linear quantization and streaming
 multi-head attention. These APIs are implementation tools, not a switch that
 makes every pipeline faster.
 
-Start with the [latency tuning guide](latency_tuning.md). Use an accelerated
-component only after profiling identifies its stage as important, and keep the
-existing precision/backend path as the correctness reference.
+See the [Accelerated API reference](../api_reference/accelerated.md) for generated
+signatures and docstrings.
 
 ## Quantization
 

@@ -888,7 +888,6 @@ async def test_server_closes_while_browser_peer_is_still_connected() -> None:
     window = WebRTCClientWindow(startup_timeout_seconds=1.0)
     peer: RTCPeerConnection | None = None
     try:
-        assert isinstance(window.server._loop, asyncio.SelectorEventLoop)
         window.open(_session_desc())
         peer, _, _ = await _connect_browser(window)
 

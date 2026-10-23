@@ -73,14 +73,14 @@ jobs:
             echo "OK: $f"
           done
 
-      - name: CONTRIBUTING.md references the DCO / sign-off
+      - name: Contribution guide retains DCO policy
         run: |
           set -euo pipefail
           if ! grep -qE "Developer.{1,40}Certificate.{1,10}of.{1,10}Origin|Signed-off-by|sign-off" CONTRIBUTING.md; then
             echo "::error::CONTRIBUTING.md does not reference DCO / sign-off"
             exit 1
           fi
-          echo "OK: CONTRIBUTING.md references DCO / sign-off"
+          echo "OK: CONTRIBUTING.md retains DCO policy"
 
       # Inline SPDX-License-Identifier on first-party source files.
       # REUSE.toml provides aggregate coverage so 'reuse lint' is green even

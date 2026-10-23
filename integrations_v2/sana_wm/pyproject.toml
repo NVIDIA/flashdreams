@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-sana-wm"
-version = "0.1.0"
+version = "0.2.0"
 description = "SANA-WM world-model and Cam2V integration for FlashDreams v2."
 readme = "README.md"
 requires-python = ">=3.10"

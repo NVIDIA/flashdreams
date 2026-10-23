@@ -6,13 +6,16 @@ SPDX-License-Identifier: Apache-2.0
 Applications built on the v2 API. Each directory is a standalone package that
 depends on `flashdreams` and holds no framework code of its own.
 
-This is the guide to writing one. If the model generates video from a prompt,
-read [`apps/t2v`](../apps/t2v/README.md)
-instead, that path is a subclass and a `pyproject.toml`, and most of what
-follows is already done for you.
+For new work, follow the website's
+[Create a model](../docs/source/documentation/inferencing_api/guides/create_model.md)
+and [Integrate model adapter for a demo](../docs/source/documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md)
+guides. They are the canonical authoring instructions.
 
 ## What is here
 
+- `cosmos3_nano_sim_auto` — multiview RGB and optional LiDAR generation,
+  including Interactive Drive with prepared JSON scene bundles.
+- `cosmos_interactive` — shared Cosmos Interactive model and codec components.
 - `color_fade` — the smallest integration that writes a file. No model, CPU
   only, and the worked example for the rest of this guide.
 - `red_screen` — the smallest interactive one, streaming to a browser.
@@ -21,6 +24,8 @@ follows is already done for you.
 - `imgui_ui_demo` — an editable ImGui text field rendered over model output.
 - `lingbot` — the Lingbot World model and its `cam2v-lingbot` binding to the
   shared interactive camera-to-video application.
+- `cosmos3_nano_sim_bimanual` — the Cosmos3 Nano Sim Bimanual model and its
+  `handdreams` binding to the shared HandDreams application.
 - `waypoint` — the Waypoint model binding to the shared `apps/action2v`
   application.
 - `waypoint` — the interactive Waypoint 1.5 image-established application
@@ -42,7 +47,6 @@ follows is already done for you.
 ```text
 integrations_v2/<model>/
   pyproject.toml
-  README.md
   __init__.py
   config.py            # collection of pipeline definitions for a particular `<model>`
   impl/                # implementation details of a model
@@ -51,7 +55,8 @@ integrations_v2/<model>/
     <demo>/
       __init__.py
       adapter.py       # all entry point definitions for `<demo>` (ex: `create_app`)
-      README.md        # launch instructions only
+
+docs/source/models/<model>.md  # canonical website article
 ```
 
 The workspace glob in the root `pyproject.toml` picks up any directory here
@@ -278,5 +283,6 @@ halves for text-to-video models.
   in detail.
 - [Runtime](../flashdreams/flashdreams/runtime_v2/README.md) - the buffering
   between those threads, and the command line that starts them.
-- [`apps/t2v`](../apps/t2v/README.md) - adding a
-  text-to-video model.
+- [Create a model](../docs/source/documentation/inferencing_api/guides/create_model.md)
+  and [Integrate model adapter for a demo](../docs/source/documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md)
+  cover new model and text-to-video integrations.

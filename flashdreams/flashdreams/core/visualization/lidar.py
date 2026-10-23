@@ -29,7 +29,7 @@ class LidarViewport:
     height: int = 480
     extent_m: float = 60.0
     elevation_degrees: float = 55.0
-    azimuth_degrees: float = 25.0
+    azimuth_degrees: float = 0.0
     ego_length_m: float = 4.8
     ego_width_m: float = 2.0
 

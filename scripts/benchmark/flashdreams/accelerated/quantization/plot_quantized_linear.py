@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import argparse
 import re
+from collections.abc import Mapping
 from pathlib import Path
+from typing import cast
 
 import matplotlib.pyplot as plt
 
@@ -123,8 +125,8 @@ def _load_matrix(
     for record in benchmark_records:
         if not isinstance(record, dict):
             continue
-        group = record.get("group")
-        param = record.get("param")
+        group = cast(Mapping[object, object], record).get("group")
+        param = cast(Mapping[object, object], record).get("param")
         if not isinstance(group, str) or not isinstance(param, str):
             continue
         match = re.fullmatch(

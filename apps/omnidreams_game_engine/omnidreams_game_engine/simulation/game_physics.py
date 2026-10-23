@@ -250,7 +250,7 @@ def _reinforce_static_barrier_rebound(
     position = np.asarray(requested_ego.position_m[:2], dtype=np.float32)
     incoming_velocity = np.asarray(requested_ego.linear_velocity_mps, dtype=np.float32)
     reinforced = np.asarray(resolved_velocity_mps, dtype=np.float32).copy()
-    if len(barriers.starts_xy_m) == 0:
+    if len(barriers.starts_xy_m) == 0 or not np.any(incoming_velocity[:2]):
         return reinforced, False
 
     yaw = _yaw_from_quaternion_xyzw(requested_ego.orientation_xyzw)
