@@ -575,14 +575,35 @@ def _build_paibench_invocation(
         env = {}
         cwd = checkout.path / "generation"
 
+    if nproc_per_node == 1 and os.name == "nt":
+        # torchrun's elastic rendezvous creates a TCPStore that requests libuv,
+        # and the Windows CUDA wheels are built without it -- every launch dies
+        # with RendezvousConnectionError before the evaluator starts. The
+        # single-process case needs no elastic agent at all: run the entrypoint
+        # directly and let the evaluator's env:// init_process_group create the
+        # store, which (unlike the elastic handlers) honors USE_LIBUV=0.
+        launcher = [*python_command, training_script]
+        env = {
+            **env,
+            "RANK": "0",
+            "LOCAL_RANK": "0",
+            "WORLD_SIZE": "1",
+            "MASTER_ADDR": "127.0.0.1",
+            "MASTER_PORT": os.environ.get("MASTER_PORT", "29513"),
+            "USE_LIBUV": "0",
+        }
+    else:
+        launcher = [
+            *python_command,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            "--nproc_per_node",
+            str(nproc_per_node),
+            training_script,
+        ]
     command = [
-        *python_command,
-        "-m",
-        "torch.distributed.run",
-        "--standalone",
-        "--nproc_per_node",
-        str(nproc_per_node),
-        training_script,
+        *launcher,
         "--mode",
         "custom_input",
         "--prompt_file",
@@ -831,7 +852,7 @@ def _parse_paibench_result_payload(
     scores: dict[str, float] = {}
     videos_seen: set[str] = set()
     for dimension in dimensions:
-        value = payload.get(dimension)
+        value = cast(Mapping[object, object], payload).get(dimension)
         score = _aggregate_score(value, dimension=dimension)
         if score is not None:
             scores[dimension] = score
@@ -850,7 +871,7 @@ def _aggregate_score(value: object, *, dimension: str) -> float | None:
             raw_score = float(value[0])
     elif isinstance(value, Mapping):
         for key in ("average", "mean", "score", "overall", "aggregate"):
-            candidate = value.get(key)
+            candidate = cast(Mapping[object, object], value).get(key)
             if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
                 raw_score = float(candidate)
                 break
@@ -880,7 +901,7 @@ def _average_video_results(value: object) -> float | None:
     for item in value[1]:
         if not isinstance(item, Mapping):
             continue
-        score = item.get("video_results")
+        score = cast(Mapping[object, object], item).get("video_results")
         if isinstance(score, (int, float)) and not isinstance(score, bool):
             score_float = float(score)
             if score_float >= 0.0 and math.isfinite(score_float):
@@ -899,7 +920,7 @@ def _video_paths(value: object) -> set[str]:
     for item in value[1]:
         if not isinstance(item, Mapping):
             continue
-        video_path = item.get("video_path")
+        video_path = cast(Mapping[object, object], item).get("video_path")
         if isinstance(video_path, str):
             videos.add(video_path)
     return videos

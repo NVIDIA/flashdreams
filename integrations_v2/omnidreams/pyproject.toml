@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-omnidreams"
-version = "0.1.0"
+version = "0.2.0"
 description = "OmniDreams inference adapters for native FlashDreams v2 applications"
 readme = "README.md"
 # PyNvVideoCodec 2.1 currently publishes wheels through CPython 3.12.
@@ -21,7 +21,7 @@ dependencies = [
     "mediapy>=1.1",
     "ludus-renderer",
     "imageio>=2.20",
-    "nvidia-cudnn-frontend==1.22.1",
+    "nvidia-cudnn-frontend==1.23.0",
     # Must match the cuDNN bundled by the Windows PyTorch cu130 wheel.
     "nvidia-cudnn-cu13==9.20.0.48; sys_platform == 'win32'",
     "opencv-python-headless>=4.5",

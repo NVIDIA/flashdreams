@@ -46,6 +46,7 @@ from flashdreams.infra.postprocess import (
 )
 from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEvent,
     GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -314,8 +315,10 @@ def test_control_sprites_load_at_hud_resolution() -> None:
     assert pedal.shape == (138, 64, 4)
 
 
+@pytest.mark.parametrize("channels", [1, 3])
 def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
     monkeypatch: pytest.MonkeyPatch,
+    channels: int,
 ) -> None:
     vehicle = SimpleNamespace(speed_mps=0.0, steer_rad=0.0)
     trajectory = SimpleNamespace(
@@ -337,7 +340,7 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
     config = SimpleNamespace(
         total_blocks=2,
         app=SimpleNamespace(
-            chunk=SimpleNamespace(frame_interval_us=33_333),
+            chunk=SimpleNamespace(frame_interval_us=33_333, fps=30),
             vehicle=object(),
             postprocess=VideoPostprocessChainConfig(),
             postprocess_device="cuda:0",
@@ -380,12 +383,21 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
     )
     loop = InteractiveDriveModelLoop()
     loop.state = state
+    if channels > 1:
+        monkeypatch.setattr(
+            loop,
+            "_frame_chunk_tensors",
+            lambda chunk: [torch.full((2, 3, 1, 1), i) for i in range(channels)],
+        )
 
     results = loop.step(0, UserInputEvents([]))
 
-    assert len(results) == 2
-    assert results[1].frame_count == 2
-    output = results[1].read_output()
+    assert len(results) == channels + 1
+    for index, result in enumerate(results[:-1]):
+        assert result.frame_count == 2
+        assert result.read_output()[0, 0, 0, 0] == index
+    assert results[-1].frame_count == 2
+    output = results[-1].read_output()
     assert tuple(output.shape) == (2, 3, 2, 3)
     assert output[:, 0, 0, 0].tolist() == [17, 29]
     assert elapsed == [pytest.approx(123.0)]
@@ -419,7 +431,7 @@ def test_a_worker_ranks_step_generates_but_presents_nothing(
     config = SimpleNamespace(
         total_blocks=2,
         app=SimpleNamespace(
-            chunk=SimpleNamespace(frame_interval_us=33_333),
+            chunk=SimpleNamespace(frame_interval_us=33_333, fps=30),
             vehicle=object(),
             postprocess=VideoPostprocessChainConfig(),
             postprocess_device="cuda:0",
@@ -777,9 +789,11 @@ def test_a_camera_rig_keeps_its_order_and_refuses_repeats() -> None:
         core_module._camera_rig("camera_front_wide_120fov,camera:front:wide:120fov")
 
 
-def test_drive_telemetry_publishes_frame_chunk_size(
+@pytest.mark.parametrize("warning", [None, "Scene coverage warning"])
+def test_drive_telemetry_publishes_frame_chunk_size_and_warning(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    warning: str | None,
 ) -> None:
     published: list[DriveTelemetry] = []
     ui_state = SimpleNamespace(set_drive_telemetry=published.append)
@@ -803,13 +817,15 @@ def test_drive_telemetry_publishes_frame_chunk_size(
             SimpleNamespace(bev_host_uint8=None),
             SimpleNamespace(bev_host_uint8=None),
             SimpleNamespace(bev_host_uint8=None),
-        ]
+        ],
+        warning=warning,
     )
 
     state._publish_drive_telemetry(chunk, model_loop_ms=12.5)
 
     assert len(published) == 1
     assert published[0].frames_in_chunk == 3
+    assert published[0].warning == warning
 
 
 def test_interactive_drive_uses_regular_application_contract() -> None:
@@ -1192,6 +1208,36 @@ def test_interactive_drive_owns_a_separate_session_and_ui_loop(
 
     session.init()
     assert isinstance(session.ui_loop, InteractiveDriveUILoop)
+
+
+def test_application_can_bind_custom_presentation_loops(tmp_path: Path) -> None:
+    class ModelLoop(InteractiveDriveModelLoop):
+        pass
+
+    class UILoop(InteractiveDriveUILoop):
+        pass
+
+    class Session(InteractiveDriveSession):
+        model_loop_type = ModelLoop
+        ui_loop_type = UILoop
+
+        def _create_ui_state(self, model_loop):
+            return replace(super()._create_ui_state(model_loop), title="Custom HUD")
+
+    class Application(InteractiveDriveApplication):
+        session_type = Session
+
+    scene = tmp_path / "local.usdz"
+    scene.touch()
+    app = Application()
+    app.init(["--scene", str(scene)])
+    session = app.create_session(app.session_desc())
+    assert isinstance(session, Session)
+    session.init()
+    assert isinstance(session.model_loop, ModelLoop)
+    assert isinstance(session.ui_loop, UILoop)
+    assert session.ui_loop.state.title == "Custom HUD"
+    assert session.model_loop.state.ui_loop is session.ui_loop
 
 
 def test_interactive_drive_hud_draws_imgui_controls_and_images(
@@ -1578,6 +1624,53 @@ def test_an_ordinary_restart_asks_for_no_prompt_of_its_own(
     assert restart_asks_for("--prompt", "Drive through snow.") == "Drive through snow."
 
 
+@pytest.mark.parametrize("no_ui", [False, True])
+def test_restart_key_triggers_once_per_press_with_or_without_ui(
+    tmp_path: Path, no_ui: bool
+) -> None:
+    scene = tmp_path / "local.usdz"
+    scene.touch()
+    app = InteractiveDriveApplication()
+    args = ["--scene", str(scene), "--prompt", "Drive through snow."]
+    app.init([*args, "--no-ui"] if no_ui else args)
+    session = app.create_session(app.session_desc())
+    session.init()
+    model_loop = session.model_loop
+    assert isinstance(model_loop, InteractiveDriveModelLoop)
+    state = model_loop.state
+    assert (state.ui_loop is None) == no_ui
+    press = KeyboardUserInputEvent(
+        timestamp=np.uint64(0), key="r", state=KeyboardInputState.PRESSED
+    )
+    release = replace(press, state=KeyboardInputState.RELEASED)
+
+    model_loop._apply_events(UserInputEvents([press, release]))
+    state.agree_on_queued()
+    assert state.reset_pending
+    assert state.config.app.scene_path == scene
+    assert state.config.app.prompt_override == "Drive through snow."
+    assert state.pending_prompt is None
+    assert not state.drive_input.pressed_keys
+
+    focus_lost = FocusUserInputEvent(timestamp=np.uint64(0), focused=False)
+    for events, expected in (
+        ([release], False),
+        ([], False),
+        ([press], True),
+        ([press], False),
+        ([replace(press, key="R")], False),
+        ([replace(focus_lost, focused=True), press], False),
+        ([release, press], True),
+        ([focus_lost], False),
+        ([press], True),
+        ([release], False),
+    ):
+        state.reset_pending = False
+        model_loop._apply_events(UserInputEvents(events))
+        state.agree_on_queued()
+        assert state.reset_pending == expected
+
+
 def test_a_canvas_the_hud_fits_in_is_a_whole_multiple_of_the_drive() -> None:
     """Asked for rather than imposed, and only where the drive is small.
 
@@ -1624,3 +1717,25 @@ def test_the_hud_font_knob_is_one_imgui_actually_has() -> None:
     from imgui_bundle import imgui
 
     assert hasattr(imgui.Style, "font_scale_main")
+
+
+def test_focus_loss_releases_held_brake(tmp_path: Path) -> None:
+    scene = tmp_path / "local.usdz"
+    scene.touch()
+    loop = _loop_pressing(scene, " ")
+
+    loop._apply_events(
+        UserInputEvents(
+            [
+                FocusUserInputEvent(timestamp=np.uint64(1), focused=False),
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(2), key="w", state=KeyboardInputState.PRESSED
+                ),
+            ]
+        )
+    )
+
+    command = loop._command()
+    assert command.throttle == 1.0
+    assert command.brake == 0.0
+    assert loop.state.drive_input.pressed_keys == {"w"}

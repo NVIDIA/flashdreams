@@ -239,6 +239,17 @@ def test_load_extension_uses_build_root_for_torch_cache(
     assert "-DOMNIDREAMS_SINGLEVIEW_WITH_CUDA" in captured["extra_cflags"]
     if os.name == "nt":
         assert "/Zc:preprocessor" in captured["extra_cflags"]
+        assert "/O2" in captured["extra_cflags"]
+        assert "/std:c++20" in captured["extra_cflags"]
+        assert "-O3" not in captured["extra_cflags"]
+        assert "-std=c++20" not in captured["extra_cflags"]
+        assert "-DWIN32_LEAN_AND_MEAN" in captured["extra_cflags"]
+        assert "-DWIN32_LEAN_AND_MEAN" in captured["extra_cuda_cflags"]
+    else:
+        assert "-O3" in captured["extra_cflags"]
+        assert "-std=c++20" in captured["extra_cflags"]
+    assert "-O3" in captured["extra_cuda_cflags"]
+    assert "-std=c++20" in captured["extra_cuda_cflags"]
     assert (
         '-DOMNIDREAMS_SINGLEVIEW_CUTLASS_SHA=\\"cutlass-test-sha\\"'
         in captured["extra_cflags"]

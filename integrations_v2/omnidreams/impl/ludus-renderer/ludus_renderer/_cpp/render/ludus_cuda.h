@@ -45,6 +45,7 @@ struct LudusCudaState
 {
     int                     width, height, numCameras;
     CR::CudaRaster*         cr;
+    CR::CudaRaster*         crBev;
 
     // Geometry buffers (GPU, managed by renderer)
     float*                  projectedVertices;  // float4 per vertex

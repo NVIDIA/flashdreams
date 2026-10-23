@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Linux aarch64, CPython 3.12, glibc >= 2.35. See README.md for provenance.
+# Public PyPI wheels only; the complete cloudxr + retargeters-lite closure.
+--index-url https://pypi.org/simple
+--only-binary :all:
+
+# cffi-2.1.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
+cffi==2.1.1 \
+    --hash=sha256:68e62fe11f30d5ca8289242866f0a5291402d8529ca2178ab8afc5c9694ae890
+
+# cryptography-50.0.2-cp311-abi3-manylinux_2_34_aarch64.whl
+cryptography==50.0.2 \
+    --hash=sha256:87e9ce85beb6b328ba370cc6e6aea483c92617b4c95b1d33a49297eb662bfb04
+
+# isaacteleop-1.4.142-cp312-cp312-manylinux_2_35_aarch64.whl
+isaacteleop[cloudxr, retargeters-lite]==1.4.142 \
+    --hash=sha256:0f2f50c818ce4642742ed59c4f2573283e4ee4814cf6a6c8fa2e00e5c05e0871
+
+# numpy-2.5.3-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl
+numpy==2.5.3 \
+    --hash=sha256:76c2c1e6bfa5c84adc6434dfbf013aa92096a7985221762c8f11fedfd20fff58
+
+# pycparser-3.0-py3-none-any.whl
+pycparser==3.0 \
+    --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+
+# pyyaml-6.0.3-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+pyyaml==6.0.3 \
+    --hash=sha256:9149cad251584d5fb4981be1ecde53a1ca46c891a79788c0df828d2f166bda28
+
+# scipy-1.18.1-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl
+scipy==1.18.1 \
+    --hash=sha256:3c085faa2cfa879c5141df483f836f4d691045a078224a670fa570fa01612d89
+
+# websockets-17.2-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+websockets==17.2 \
+    --hash=sha256:0198c4ec6a3406a2f7557c032967de426474c2c995c81076585e09d29a9f407b

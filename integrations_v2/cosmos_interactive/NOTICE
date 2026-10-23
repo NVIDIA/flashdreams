@@ -1,0 +1,7 @@
+NVIDIA Cosmos Interactive runtime
+Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+Source uses Apache-2.0 with the MIT portions identified in LICENSE and
+THIRD-PARTY-NOTICES. The LiDAR codec retains vLLM-Omni contributor attribution
+and inherited k-diffusion MIT terms. Its NOTICE and full license texts
+accompany the source under cosmos_interactive/_lidar_codec/.

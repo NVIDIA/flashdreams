@@ -10,7 +10,6 @@ from collections.abc import Sequence
 import pytest
 import torch
 from torch import Tensor
-from torch.nn.attention.flex_attention import BlockMask
 
 import flashdreams.core.attention.multiview.rollout as rollout_module
 from flashdreams.core.attention.multiview import (
@@ -258,26 +257,6 @@ def test_view_caption_and_position_options_cross_the_rollout_seam() -> None:
     first_mask = model.state.masks[0]
     assert isinstance(first_mask, Tensor)
     assert first_mask[:, :2].tolist() == [[True, False], [False, True]]
-
-
-def test_block_mask_selection_crosses_the_protocol_boundary() -> None:
-    """Supply the same visibility contract with the requested block geometry."""
-    model = _Model()
-    controls, text_ids, condition = _inputs()
-    run_rollout(
-        model,
-        geometry=GEOMETRY,
-        controls=controls,
-        text_ids=text_ids,
-        condition_tokens=condition,
-        use_block_mask=True,
-        mask_block_size=(16, 32),
-    )
-
-    assert model.state.masks
-    for mask in model.state.masks:
-        assert isinstance(mask, BlockMask)
-        assert mask.BLOCK_SIZE == (16, 32)
 
 
 def test_seeded_rollouts_are_reproducible_through_an_adapter() -> None:

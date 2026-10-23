@@ -42,6 +42,7 @@ from crazy_robotaxi.session import (
     CrazyRobotaxiModelLoop,
     CrazyRobotaxiSession,
     ModelState,
+    _pace_realtime_chunk,
     _taxi_driver_command,
 )
 from crazy_robotaxi.settings import (
@@ -314,7 +315,8 @@ def test_tooltip_cli_flags_change_their_settings(tmp_path: Path) -> None:
     assert not document.path.exists()
 
 
-def test_application_registers_model_and_imgui_ui_loops() -> None:
+@pytest.mark.parametrize("mode", (None, "null", "mp4", "webrtc", "native-window"))
+def test_application_registers_model_and_imgui_ui_loops(mode: str | None) -> None:
     pipeline_closed: list[bool] = []
     pipeline = SimpleNamespace(close=lambda: pipeline_closed.append(True))
     pipeline_requests: list[tuple[object, str]] = []
@@ -325,6 +327,8 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
         scene_factory=lambda request, raster: _scene(),
     )
     desc = app.session_desc()
+    if mode is not None:
+        assert app.resolve_client_window_mode(mode) == mode
     app.init(
         [
             "--device",
@@ -347,6 +351,7 @@ def test_application_registers_model_and_imgui_ui_loops() -> None:
     assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
+    assert ui_loop.state.allow_exit is (mode != "webrtc")
     assert session._presentation_manager._presentation_stream is None
     assert model_loop.state.pipeline is None
     assert app._pipeline is not None
@@ -636,6 +641,45 @@ def test_model_input_is_applied_before_rollout_work() -> None:
 
     with pytest.raises(InputOrderVerified):
         loop.step(0, UserInputEvents([pressed]))
+
+
+@pytest.mark.parametrize(
+    ("frame_count", "model_step_wall_ms", "expected_duration_ms", "expected_wait_s"),
+    [
+        (8, 100.0, 800.0 / 3.0, 1.0 / 6.0),
+        (4, 100.0, 400.0 / 3.0, 1.0 / 30.0),
+        (8, 300.0, 800.0 / 3.0, None),
+    ],
+)
+def test_pace_realtime_chunk_waits_for_remaining_frame_budget(
+    frame_count: int,
+    model_step_wall_ms: float,
+    expected_duration_ms: float,
+    expected_wait_s: float | None,
+) -> None:
+    class RecordingEvent:
+        def __init__(self) -> None:
+            self.waits: list[float] = []
+
+        def wait(self, timeout: float) -> None:
+            self.waits.append(timeout)
+
+    event = RecordingEvent()
+
+    chunk_duration_ms, realtime_margin_ms = _pace_realtime_chunk(
+        cast(threading.Event, event),
+        frame_count=frame_count,
+        frames_per_second=30,
+        model_step_wall_ms=model_step_wall_ms,
+    )
+
+    assert chunk_duration_ms == pytest.approx(expected_duration_ms)
+    assert realtime_margin_ms == pytest.approx(
+        expected_duration_ms - model_step_wall_ms
+    )
+    assert event.waits == (
+        [] if expected_wait_s is None else [pytest.approx(expected_wait_s)]
+    )
 
 
 def test_taxi_space_key_restores_handbrake_over_shared_input_mapping() -> None:

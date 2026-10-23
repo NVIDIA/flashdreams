@@ -8,9 +8,8 @@ checkpoints) on a built :class:`~omnidreams.runner.OmnidreamsRunner`'s
 pipeline at ``alpha*(t) * gain`` per denoise step. SHIPPED config (owner
 decision 2026-07-24): ``lora_v2_v3_valpeak.pt`` at gain 0.25
 (``corrgate025`` — best trees/foliage detail and consistency, drift
-Delta +0.99 vs base +2.44). Mirrors the HY-WorldPlay deploy module
-(``hy_worldplay/_drift_corrector.py``); self-contained so the production
-runner does not import the research directory.
+Delta +0.99 vs base +2.44). Self-contained so the production runner
+does not import the research directory.
 
 By default the LoRA is **pre-merged**: at load time each discrete
 ``alpha*(t) * gain`` value gets its own cached copy of the target

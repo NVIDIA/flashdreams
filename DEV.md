@@ -6,7 +6,7 @@ The canonical version for the entire monorepo lives in
 `flashdreams/flashdreams/_version.py`:
 
 ```python
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 ```
 
 All other package `pyproject.toml` files are kept in sync automatically
@@ -59,7 +59,6 @@ uv pip install "flashdreams-wan21 @ git+https://github.com/NVIDIA/flashdreams.gi
 | flashdreams-cosmos-predict2 | git only | synced |
 | flashdreams-fastvideo-causal-wan22 | git only | synced |
 | flashdreams-flashvsr | git only | synced |
-| flashdreams-hy-worldplay | git only | synced |
 | flashdreams-lingbot | git only | synced |
 | flashdreams-omnidreams | git only | synced |
 | flashdreams-self-forcing | git only | synced |

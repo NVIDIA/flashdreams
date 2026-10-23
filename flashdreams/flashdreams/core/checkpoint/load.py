@@ -9,6 +9,8 @@ import hashlib
 import io
 import json
 import os
+import shutil
+import tempfile
 import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -58,16 +60,16 @@ def _preflight_hf_cache(
 
 
 def _hf_cache_filename(filename: str, subfolder: str | None) -> str:
-    return f"{subfolder.rstrip('/')}/{filename}" if subfolder else filename
+    return os.path.join(*subfolder.split("/"), filename) if subfolder else filename
 
 
-def _is_hf_file_cached(
+def _cached_hf_file_path(
     *,
     repo_id: str,
     filename: str,
     subfolder: str | None,
     revision: str,
-) -> bool:
+) -> str | None:
     try:
         cached = try_to_load_from_cache(
             repo_id=repo_id,
@@ -75,8 +77,8 @@ def _is_hf_file_cached(
             revision=revision,
         )
     except Exception:
-        return False
-    return isinstance(cached, str) and os.path.exists(cached)
+        return None
+    return cached if isinstance(cached, str) and os.path.isfile(cached) else None
 
 
 def _preflight_checkpoint_cache_requirement(
@@ -491,23 +493,27 @@ def _download_checkpoint_from_huggingface_url(
 ) -> str:
     """Download a checkpoint from Hugging Face and return local cached path."""
     repo_id, filename, subfolder, revision = _parse_huggingface_checkpoint_url(url)
-    logger.info(f"Downloading checkpoint from Hugging Face: {url}")
     settings: dict[str, object] = {
         "repo": repo_id,
         "filename": filename,
         "revision": revision,
     }
-    if not _is_hf_file_cached(
+    cached_path = _cached_hf_file_path(
         repo_id=repo_id,
         filename=filename,
         subfolder=subfolder,
         revision=revision,
-    ):
-        _preflight_checkpoint_cache_requirement(
-            label="Hugging Face checkpoint cache",
-            min_free_gb=checkpoint_min_free_gb,
-            settings=settings,
-        )
+    )
+    if cached_path is not None:
+        logger.info(f"Loading checkpoint from local HF cache: {cached_path}")
+        return cached_path
+
+    logger.info(f"Downloading checkpoint from Hugging Face: {url}")
+    _preflight_checkpoint_cache_requirement(
+        label="Hugging Face checkpoint cache",
+        min_free_gb=checkpoint_min_free_gb,
+        settings=settings,
+    )
     min_bytes = _preflight_hf_cache(
         label="Hugging Face checkpoint cache",
         settings=settings,
@@ -1092,17 +1098,29 @@ def _save_to_local_cache(
     *,
     label: str = "checkpoint cache",
 ) -> None:
-    """Save state dict to local cache."""
+    """Atomically save a state dict, preserving any existing cache on failure."""
     min_bytes = _preflight_local_cache_path(
         path,
         label=label,
         settings={"path": path},
     )
     try:
-        if ext == ".safetensors":
-            save_safetensors(dict(state_dict), path)
-        else:
-            torch.save(state_dict, path)
+        # A private sibling directory allows normal file-creation permissions
+        # while keeping publication on the same filesystem.
+        with tempfile.TemporaryDirectory(
+            prefix=f".{os.path.basename(path)}.",
+            dir=os.path.dirname(path) or ".",
+        ) as temporary_dir:
+            temporary_path = os.path.join(temporary_dir, f"checkpoint{ext}")
+            if ext == ".safetensors":
+                save_safetensors(dict(state_dict), temporary_path)
+            else:
+                torch.save(state_dict, temporary_path)
+            try:
+                shutil.copymode(path, temporary_path)
+            except FileNotFoundError:
+                pass
+            os.replace(temporary_path, path)
     except Exception as exc:
         _raise_local_cache_disk_error(
             exc,

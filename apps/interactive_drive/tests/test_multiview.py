@@ -153,7 +153,7 @@ def test_layout_keeps_camera_and_lidar_identity_focus_and_aspect(
     shown = selection.get("visible_count", count)
     assert state.visible_count == shown
     assert list(ui.images) == [f"stream-{i}" for i in (*range(shown), count)]
-    if not bearings:
+    if not bearings or shown == 1:
         # Expected row-major grid dimensions for two through twelve sensors.
         columns, rows = (
             (2, 1),
@@ -198,13 +198,19 @@ def test_layout_keeps_camera_and_lidar_identity_focus_and_aspect(
     assert torch.equal(
         reduced.images[f"stream-{count}"], frames[count].permute(1, 2, 0)
     )
-    state.focus_channel = count
-    ui = RecordingUI()
-    loop.step_ui(ui, 1, UserInputEvents([]))
-    assert list(ui.images) == [f"stream-{count}"]
-    ui.clicked.add("Return to overview")
-    loop.step_ui(ui, 2, UserInputEvents([]))
-    assert state.focus_channel == -1
+    for focus in (0, count):
+        state.focus_channel = focus
+        ui = RecordingUI()
+        loop.step_ui(ui, 1, UserInputEvents([]))
+        assert list(ui.images) == [f"stream-{focus}"]
+        ui.clicked.add("Return to overview")
+        loop.step_ui(ui, 2, UserInputEvents([]))
+        assert state.focus_channel == -1
+        for channel in (0, count):
+            assert (
+                ui.rectangles[f"Stream##{channel}"]
+                == reduced.rectangles[f"Stream##{channel}"]
+            )
 
 
 @pytest.mark.parametrize("names", [("front",), ("lidar", "lidar")])

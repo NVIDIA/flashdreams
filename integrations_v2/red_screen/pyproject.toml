@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flashdreams-red-screen"
-version = "0.1.0"
+version = "0.2.0"
 description = "Key-driven red screen application for end-to-end FlashDreams v2 API testing."
 readme = "README.md"
 requires-python = ">=3.10"

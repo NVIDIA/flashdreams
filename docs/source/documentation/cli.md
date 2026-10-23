@@ -53,20 +53,8 @@ These options override the default demo session values requested by a particular
 | `--pixel-height N` | Override generated-frame height. |
 | `--fps N` | Override the generated-frame playback rate. |
 | `--layout {tchw,btchw,bcthw,bvtchw}` | Override generated tensor layout. |
-| `--backpressure-mode {block,drop_oldest}` | Choose how the model thread handles a full presentation queue. |
-| `--presentation-mode {on_demand,continuous}` | Choose when the presentation loop renders. |
-
-#### Backpressure Mode
-
-- `block` waits for queue capacity so generated chunks are retained.
-
-- `drop_oldest` discards the oldest queued chunk to favor recent output.
-
-#### Presentation Mode
-
-- `on_demand` presents each selected model frame when it arrives.
-
-- `continuous` keeps the UI responsive between model frames by reusing the newest frame.
+| `--backpressure-mode {block,drop_oldest}` | Choose full-queue behavior: `block` waits for capacity to retain generated chunks; `drop_oldest` discards the oldest queued chunk to favor recent output. |
+| `--presentation-mode {on_demand,continuous}` | Choose rendering behavior: `on_demand` presents each selected model frame when it arrives; `continuous` keeps the UI responsive between model frames by reusing the newest frame. |
 
 ### Examples
 
@@ -110,7 +98,5 @@ uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode native-window --window-title Fl
 ## See also
 
 - [Quickstart](../quickstart/index.md)
-- [Demo configuration](demo_api/guides/configuration.md)
-- [Application slugs](demo_api/guides/application_slugs.md)
 - [Demo API](demo_api/index.md)
 - [Offline Program Packager](tools/offline_program_packager.md)

@@ -11,6 +11,7 @@ import shutil
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import TypedDict
 
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 
@@ -28,6 +29,15 @@ _DISK_ERROR_PHRASES = (
     "enospc",
     "disk quota exceeded",
 )
+
+
+class DiskSpaceContext(TypedDict):
+    """Shared keyword arguments for disk preflights and write-error reporting."""
+
+    label: str
+    required_bytes: int
+    env_vars: Sequence[str]
+    settings: Mapping[str, object]
 
 
 class DiskSpaceError(RuntimeError):

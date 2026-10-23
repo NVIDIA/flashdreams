@@ -1,13 +1,14 @@
 nav:
   - Overview: index.md
   - Streaming & Autoregressive:
+      - Cosmos3 Nano Sim Bimanual: cosmos3_nano_sim_bimanual.md
+      - Cosmos3 Nano Sim Auto: cosmos3_nano_sim_auto.md
       - NVIDIA OmniDreams: omnidreams.md
       - Self-Forcing: self_forcing.md
       - Causal-Forcing: causal_forcing.md
       - Causal Wan 2.2: causal_wan22.md
       - LingBot-World: lingbot_world.md
       - Waypoint 1.5: waypoint.md
-      - HY-WorldPlay: hy_worldplay.md
       - SANA-WM: sana_wm_streaming.md
   - Bidirectional:
       - SANA-WM: sana_wm_streaming.md

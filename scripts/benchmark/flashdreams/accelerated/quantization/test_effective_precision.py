@@ -58,7 +58,11 @@ def _record(
     median: float,
     extra_info: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    record = {"group": group, "param": param, "stats": {"median": median}}
+    record: dict[str, object] = {
+        "group": group,
+        "param": param,
+        "stats": {"median": median},
+    }
     if extra_info is not None:
         record["extra_info"] = extra_info
     return record

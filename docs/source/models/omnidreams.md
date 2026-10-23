@@ -31,12 +31,20 @@ runtime throughput.
 
 ### Crazy Robotaxi
 
+Ensure you are using a 48GB+ VRAM GPU, have CUDA installed, and have the CUDA toolkit installed (version that supports your GPU, likely 13+). Have a C++ compiler installed and added to your `PATH`. Ensure you have available 100 GB+ free storage.
+
 ```bash
+export HF_TOKEN="<your-hugging-face-token>"
 uv sync --package flashdreams-omnidreams --extra interactive-drive --inexact
 uv run --no-sync flashdreams-run-v2 crazy-robotaxi-omnidreams \
   --mode webrtc --host 0.0.0.0 --port 8089
-# Open http://127.0.0.1:8089/
+
+# use `--mode native-window` for launching a local-window to display gameplay intead of browser.
 ```
+
+Open `http://<server-address>:8089/` (`localhost` for a local browser).
+
+Continue with mode and map selection [here](../demos/crazy_robotaxi.md#start-playing).
 
 <div class="fd-cta-row">
   <a class="fd-button" href="#crazy-robotaxi-presets">Demo Presets</a>
@@ -44,6 +52,8 @@ uv run --no-sync flashdreams-run-v2 crazy-robotaxi-omnidreams \
 </div>
 
 ### Interactive Drive
+
+Ensure you are using a 48GB+ VRAM GPU, have CUDA installed, and have the CUDA toolkit installed (version that supports your GPU, likely 13+). Have a C++ compiler installed and added to your `PATH`. Ensure you have available 100 GB+ free storage.
 
 ```bash
 uv sync --package flashdreams-omnidreams --extra interactive-drive --inexact
@@ -70,6 +80,10 @@ uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
 ### Crazy Robotaxi
 
 Fastest preset: `crazy-robotaxi-omnidreams-fast-perf`.
+
+Lowest VRAM: `crazy-robotaxi-omnidreams-rtx-5090-fast`.
+
+Works best with a GB300: `crazy-robotaxi-omnidreams`.
 
 | Preset | Description |
 | --- | --- |

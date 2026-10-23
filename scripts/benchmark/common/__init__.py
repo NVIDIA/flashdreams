@@ -11,7 +11,7 @@ import math
 import os
 from collections.abc import Hashable, Mapping, Sequence
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -77,8 +77,12 @@ def benchmark_median_ms(record: object) -> float:
     if not isinstance(record, dict):
         raise SystemExit("Benchmark <unnamed> has no positive median")
 
-    stats = record.get("stats")
-    median = stats.get("median") if isinstance(stats, dict) else None
+    stats = cast(Mapping[object, object], record).get("stats")
+    median = (
+        cast(Mapping[object, object], stats).get("median")
+        if isinstance(stats, dict)
+        else None
+    )
     if (
         isinstance(median, bool)
         or not isinstance(median, (int, float))
@@ -86,7 +90,7 @@ def benchmark_median_ms(record: object) -> float:
         or median <= 0
     ):
         raise SystemExit(
-            f"Benchmark {record.get('name', '<unnamed>')} has no positive median"
+            f"Benchmark {cast(Mapping[object, object], record).get('name', '<unnamed>')} has no positive median"
         )
     return median * 1000.0
 
@@ -95,7 +99,11 @@ def benchmark_subtitle(payload: Mapping[str, object]) -> str:
     """Build the standard benchmark-environment subtitle."""
     parts = ["Median latency in ms (lower is faster)"]
     commit_info = payload.get("commit_info")
-    commit_id = commit_info.get("id") if isinstance(commit_info, dict) else None
+    commit_id = (
+        cast(Mapping[object, object], commit_info).get("id")
+        if isinstance(commit_info, dict)
+        else None
+    )
     if isinstance(commit_id, str) and commit_id:
         parts.append(f"commit {commit_id[:10]}")
     timestamp = payload.get("datetime")
