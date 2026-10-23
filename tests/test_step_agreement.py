@@ -236,7 +236,7 @@ def _worker(rank, scenario, rendezvous, output):
                 if (
                     scenario == "stop_after_admission"
                     and rank == 0
-                    and ready_calls == 2
+                    and ready_calls == 3
                 ):
                     assert admitted
                     session._shutdown_event.set()
