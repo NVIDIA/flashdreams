@@ -173,6 +173,48 @@ Expose self- and cross-attention policies separately on the integration config.
 A schedule selected on one GPU should remain an opt-in variant until measured on
 other supported hardware.
 
+### Experimental torchao output projection
+
+`QuantizationOption.output_projection` quantizes only the attention output
+projection; `projection` covers the Q/K/V GEMMs and leaves output precision
+unchanged. `None` keeps native precision. The keyword-only
+`output_projection_backend` selects `"flashdreams"` (default) or the optional
+`"torchao"` implementation:
+
+```python
+import torch
+from flashdreams.accelerated.multi_head_attention.optimized import (
+    OptimizedImplConfig, QuantizationOption,
+)
+
+policy = OptimizedImplConfig(
+    quantization=QuantizationOption(
+        output_projection=torch.float8_e4m3fn,
+        output_projection_backend="torchao",
+    ),
+)
+```
+
+torchao is not a project dependency; install `torchao==0.18.0` into an
+environment with a matching PyTorch build. The torchao path requires BF16,
+CUDA SM90+, and weight dimensions divisible by 16. Missing packages and
+unsupported configurations raise errors instead of switching backend, and
+zero/underflow weight rows are rejected during preparation.
+
+Checkpoint parameters keep their names and precision; FP8 data and scales are
+nonpersistent and rebuilt after loading or `_apply`. After reloading or
+replacing weights, discard compiled instances and reset CUDA graphs before
+capturing again. Compile with `compile_module(..., options=...)` using
+`emulate_precision_casts=True` and `eager_numerics.division_rounding=True`; these
+local options make compiled torchao match eager on the measured stack without
+changing global settings.
+
+This is an experiment, not a recommended default. On B200 neither the component
+nor whole-pipeline measurements showed a benefit, and model-level rollouts show
+a small, consistent quality cost relative to BF16 run-to-run noise. See
+`flashdreams/benchmarks/accelerated/quantization/TORCHAO_REPORT.md` and its
+runner, `run_torchao_comparison.py`, for measurements and reproduction.
+
 ## Integration workflow
 
 1. Match the model's checkpoint-native module names and exact attention policy.
