@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+class Writer:
+    width: int
+    height: int
+    def __init__(
+        self,
+        path: str,
+        width: int,
+        height: int,
+        fps_numerator: int,
+        fps_denominator: int,
+    ) -> None: ...
+    def write(self, pixels: bytes) -> None: ...
+    def write_rgb(self, pixels: object) -> None: ...
+    def close(self) -> None: ...
+    def abort(self) -> None: ...
+
+class Reader:
+    width: int
+    height: int
+    duration_ns: int
+    def __init__(self, path: str) -> None: ...
+    def read(self) -> tuple[bytes, bytes, bytes] | None: ...
+    def close(self) -> None: ...

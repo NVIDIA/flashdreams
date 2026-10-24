@@ -11,8 +11,9 @@ would generate, with whatever the frame arguments here override.
 What the modes are, and what each one takes, belongs to
 :mod:`flashdreams.runtime_v2.client_window_factory`. Nothing here reads an
 argument that only one of them uses. ``--timeout`` and ``--total-model-steps``
-belong to this command; ``--mode mp4`` requires that at least one of them is
-present. A named steps count is remaining for the whole application run.
+belong to this command; ``--mode mp4`` and ``--mode webm``
+require at least one.
+A named steps count is remaining for the whole application run.
 """
 
 import argparse
@@ -104,11 +105,13 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         mode.check_arguments(parsed)
     except ValueError as error:
         parser.error(str(error))
-    writes_mp4 = "mp4" in (requested_mode, parsed.mode)
-    if writes_mp4 and parsed.presentation_mode is None:
+    writes_file = any(mode in ("mp4", "webm") for mode in (requested_mode, parsed.mode))
+    if writes_file and parsed.presentation_mode is None:
         parsed.presentation_mode = PresentationMode.ON_DEMAND
-    if writes_mp4 and parsed.timeout is None and parsed.total_model_steps is None:
-        parser.error("--mode mp4 requires --timeout and/or --total-model-steps.")
+    if writes_file and parsed.timeout is None and parsed.total_model_steps is None:
+        parser.error(
+            f"--mode {requested_mode or parsed.mode} requires --timeout and/or --total-model-steps."
+        )
     session_desc = _session_desc(application, parsed)
     worker = get_global_rank_for_logging() != 0
     window = None if worker else mode.create(parsed)

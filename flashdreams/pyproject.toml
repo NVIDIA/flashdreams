@@ -17,6 +17,7 @@ dependencies = [
     "botocore>=1.35",
     "einops>=0.7",
     "filelock>=3",
+    "flashdreams-webm==0.2.0",
     "ftfy>=6.0",
     "huggingface-hub>=0.33",
     "loguru>=0.7",

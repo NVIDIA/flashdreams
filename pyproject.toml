@@ -59,12 +59,14 @@ no-build-isolation-package = ["transformer-engine-torch"]
 
 [tool.uv.sources]
 flashdreams = { workspace = true }
+flashdreams-webm = { path = "packages/flashdreams-webm" }
 
 [tool.pyright]
 exclude = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", "flashdreams/flashdreams/accelerated/quantization/triton.py"]
 ignore = ["flashdreams/flashdreams/accelerated/multi_head_attention/triton/**", "flashdreams/flashdreams/accelerated/quantization/triton.py"]
 extraPaths = [
     "flashdreams",
+    "packages/flashdreams-webm",
     "apps",
     "apps/cam2v",
     "apps/t2v",
@@ -108,6 +110,7 @@ python-version = "3.12"
 python-platform = "all"
 extra-paths = [
     "flashdreams",
+    "packages/flashdreams-webm",
     "apps",
     "apps/cam2v",
     "apps/t2v",
