@@ -8,7 +8,9 @@ Run from the repository root with the model environment::
     python apps/crazy_robotaxi/tests/run_first_frame_comparison.py \
         --output-dir /tmp/robotaxi-first-frames --maps flashdreams_raceway
 
-Omit ``--maps`` to compare all five bundled maps. ``--seeds 42 7`` repeats
+Omit ``--maps`` to compare all five frozen debug maps in ``tests/maps/first_frame``.
+These fixtures and their images are independent of the playable maps.
+``--seeds 42 7`` repeats
 each pair in fresh processes. Capture and control assertions do not establish
 visual quality: inspect ``comparison.mp4`` for image-related drift.
 """
@@ -44,14 +46,15 @@ MAP_NAMES = (
 _TESTS = Path(__file__).resolve().parent
 _ROOT = _TESTS.parents[2]
 _SCRIPT = _TESTS / "scenarios/first_frame_acceleration.yaml"
-_REFERENCE = _ROOT / "apps/omnidreams_game_engine/omnidreams_game_engine/screenshot.jpg"
+_FIXTURES = _TESTS / "maps/first_frame"
+_REFERENCE = _FIXTURES / "images/reference.jpg"
 
 
 def prepare_pair(map_path: Path, reference: Path, directory: Path) -> dict[str, Path]:
     """Copy inputs and create map variants differing only in the first image.
 
     Disable traffic equally in both copies to exclude actor motion and impacts.
-    Retain the authored geometry, spawn, and prompts. Never edit bundled assets.
+    Retain the debug geometry, spawn, and prompts. Never edit the fixtures.
     """
     directory.mkdir(parents=True, exist_ok=False)
     yaml = YAML(typ="safe")
@@ -95,7 +98,12 @@ def capture_command(
     return [
         sys.executable,
         "-c",
-        "from flashdreams.runtime_v2.cli import entrypoint; entrypoint()",
+        # Limit menu discovery to the copied debug inputs, excluding live maps.
+        "from pathlib import Path\n"
+        "from unittest.mock import patch\n"
+        "from flashdreams.runtime_v2.cli import entrypoint\n"
+        f"with patch('crazy_robotaxi.application._DEFAULT_MAP', Path({str(map_path)!r})):\n"
+        "    entrypoint()\n",
         slug,
         "--mode",
         "robotaxi-debug",
@@ -288,8 +296,7 @@ def main() -> None:
             report["pairs"].append(row)
             try:
                 maps = prepare_pair(
-                    _ROOT
-                    / f"apps/crazy_robotaxi/crazy_robotaxi/maps/{name}.robotaxi.yaml",
+                    _FIXTURES / f"debug_{name}.robotaxi.yaml",
                     _REFERENCE,
                     directory / "inputs",
                 )
