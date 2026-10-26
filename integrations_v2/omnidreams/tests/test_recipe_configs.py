@@ -451,6 +451,8 @@ def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
     transformer = pipeline.diffusion_model.transformer
     assert pipeline.diffusion_model.seed == 7
     assert transformer.compile_network is False
+    assert transformer.native_dit_acceleration == "required"
+    assert transformer.skip_finalize_kv_cache is True
     assert app._config is not None
     assert app._config.pipeline_profiling
 
