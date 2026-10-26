@@ -119,9 +119,10 @@ class GroundSnapper:
         j = int((y - self._grid_origin[1]) / self._grid_resolution_m)
         return max(0, min(self._grid_shape[1] - 1, j))
 
-    def _raycast(self, points: np.ndarray) -> np.ndarray:
+    def _raycast_triangles(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Cast vertical rays in batches sharing the same triangle candidates."""
         result = np.full(len(points), np.nan, dtype=np.float64)
+        triangles = np.full(len(points), -1, dtype=np.int32)
         groups: dict[tuple[int, int], list[int]] = {}
         for index, (x, y, _) in enumerate(points):
             if (
@@ -166,7 +167,11 @@ class GroundSnapper:
             )
             hit = inside.any(axis=1)
             result[np.asarray(indices)[hit]] = z[np.flatnonzero(hit), best[hit]]
-        return result
+            triangles[np.asarray(indices)[hit]] = candidates[best[hit]]
+        return result, triangles
+
+    def _raycast(self, points: np.ndarray) -> np.ndarray:
+        return self._raycast_triangles(points)[0]
 
     def ground_height_at(self, x: float, y: float, z_ref: float) -> float | None:
         """Sample the nearest ground height without snapping or changing state.
@@ -178,6 +183,36 @@ class GroundSnapper:
         """
         height = self._raycast(np.asarray([[x, y, z_ref]], dtype=np.float64))[0]
         return float(height) if math.isfinite(height) else None
+
+    def ground_surface_at(
+        self, x: float, y: float, z_ref: float
+    ) -> tuple[float, np.ndarray] | None:
+        """Return the closest surface's height and upward unit normal.
+
+        Args:
+            x: World x coordinate.
+            y: World y coordinate.
+            z_ref: Reference height for selecting among overlapping surfaces.
+
+        Returns:
+            Height and normal, or ``None`` outside the ground mesh.
+        """
+        heights, triangles = self._raycast_triangles(
+            np.asarray([[x, y, z_ref]], dtype=np.float64)
+        )
+        i = int(triangles[0])
+        if i < 0:
+            return None
+        height = float(heights[0])
+        dz_b, dz_c = self._b_z[i] - self._a_z[i], self._c_z[i] - self._a_z[i]
+        normal = np.asarray(
+            [
+                -(dz_b * self._v1y[i] - dz_c * self._v0y[i]) * self._inv_denom[i],
+                -(dz_c * self._v0x[i] - dz_b * self._v1x[i]) * self._inv_denom[i],
+                1.0,
+            ]
+        )
+        return height, normal / np.linalg.norm(normal)
 
     def _sample_body_grid(self, vehicle: VehicleConfig) -> np.ndarray:
         key = (

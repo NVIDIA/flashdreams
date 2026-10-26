@@ -284,7 +284,8 @@ def integrate_vehicle(
         )
     )
 
-    return VehicleState(
+    return replace(
+        state,
         x_m=x_m,
         y_m=y_m,
         z_m=state.z_m,
@@ -494,6 +495,15 @@ def state_from_initial_pose(
         y_m=float(initial_rig_to_world[1, 3]),
         z_m=float(initial_rig_to_world[2, 3]),
         yaw_rad=initial_yaw_rad,
+        pitch_rad=math.atan2(
+            -float(initial_rig_to_world[2, 0]),
+            math.hypot(
+                float(initial_rig_to_world[0, 0]), float(initial_rig_to_world[1, 0])
+            ),
+        ),
+        roll_rad=math.atan2(
+            float(initial_rig_to_world[2, 1]), float(initial_rig_to_world[2, 2])
+        ),
         speed_mps=initial_speed_mps,
         steer_rad=0.0,
         velocity_x_mps=math.cos(initial_yaw_rad) * initial_speed_mps,
