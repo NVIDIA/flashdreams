@@ -255,6 +255,10 @@ class RobotaxiDebugWindow(IClientWindow):
                 json.dumps({"steps": metadata["script_steps"]}, indent=2) + "\n",
                 encoding="utf-8",
             )
+            (inputs / "settings.yaml").write_text(
+                json.dumps(metadata["settings"], indent=2) + "\n",
+                encoding="utf-8",
+            )
         self._telemetry = (self.directory / "telemetry.jsonl").open(
             "x", encoding="utf-8"
         )
