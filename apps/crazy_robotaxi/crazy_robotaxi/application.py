@@ -191,6 +191,9 @@ class ApplicationConfig:
     driving_script: DrivingScript | None = None
     """Frame-counted controls and paired headless observations, when requested."""
 
+    debug_capture: bool = False
+    """Capture the ordinary interactive UI offscreen through robotaxi-debug."""
+
 
 PipelineFactory = Callable[[Any, str], Any]
 SceneFactory = Callable[[SceneRequest, Any], SceneDefinition]
@@ -228,10 +231,12 @@ class CrazyRobotaxiApplication(IApplication):
         self._capture_settings: dict[str, object] = {}
         self._map_options: tuple[GameMapOption, ...] = ()
         self._allow_exit = True
+        self._debug_capture = False
 
     def resolve_client_window_mode(self, mode: str) -> str:
         """Disable menu shutdown when serving browser clients over WebRTC."""
         self._allow_exit = mode != "webrtc"
+        self._debug_capture = mode == "robotaxi-debug"
         return mode
 
     def session_desc(self) -> SessionDesc:
@@ -307,6 +312,13 @@ class CrazyRobotaxiApplication(IApplication):
             if args.drive_script is None
             else load_driving_script(args.drive_script)
         )
+        if self._debug_capture and driving_script is None:
+            if initial_game_mode is None or initial_map_path is None:
+                raise ValueError(
+                    "robotaxi-debug requires explicit --game-mode and --map"
+                )
+            if initial_game_mode == "race" and initial_race_course_id is None:
+                raise ValueError("robotaxi-debug in race mode requires --race-course")
         if driving_script is not None:
             if initial_game_mode is None or initial_map_path is None:
                 raise ValueError(
@@ -374,7 +386,7 @@ class CrazyRobotaxiApplication(IApplication):
                     )
                 ),
             }
-            if driving_script is not None
+            if driving_script is not None or self._debug_capture
             else {}
         )
         self._pipeline_config = pipeline_config
@@ -430,6 +442,7 @@ class CrazyRobotaxiApplication(IApplication):
             visual_flare_enabled=settings.game.effects.visual_flare,
             no_ui=not args.ui or driving_script is not None,
             driving_script=driving_script,
+            debug_capture=self._debug_capture,
         )
         self._map_options = _discover_game_maps(map_path)
         scene_requests = [self._config.scene_request]
@@ -675,8 +688,15 @@ class CrazyRobotaxiApplication(IApplication):
                                 "map": str(config.initial_map_path),
                                 "game_mode": config.initial_game_mode,
                                 "race_course": config.initial_race_course_id,
-                                "script": str(config.driving_script.path),
-                                "frame_count": config.driving_script.frame_count,
+                                "input_mode": "runtime"
+                                if config.driving_script is None
+                                else "scripted",
+                                "script": None
+                                if config.driving_script is None
+                                else str(config.driving_script.path),
+                                "frame_count": None
+                                if config.driving_script is None
+                                else config.driving_script.frame_count,
                                 "model_preset": config.model_preset_name,
                                 "model_seed": pipeline_config.diffusion_model.seed,
                                 "game_seed": config.game.seed,
@@ -693,11 +713,15 @@ class CrazyRobotaxiApplication(IApplication):
                                             if name != "manual_control"
                                         },
                                     }
-                                    for count, command in config.driving_script.segments
+                                    for count, command in (
+                                        ()
+                                        if config.driving_script is None
+                                        else config.driving_script.segments
+                                    )
                                 ],
                             }
                         }
-                        if config.driving_script is not None
+                        if config.driving_script is not None or config.debug_capture
                         else {}
                     ),
                     **(
