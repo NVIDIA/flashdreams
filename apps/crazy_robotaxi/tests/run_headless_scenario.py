@@ -23,8 +23,6 @@ import math
 import subprocess
 from pathlib import Path
 
-import crazy_robotaxi
-
 from flashdreams.runtime_v2.cli import entrypoint
 
 
@@ -91,16 +89,15 @@ def main() -> None:
     parser.add_argument("--snapshot-every", type=int, default=30)
     parser.add_argument("--config", type=Path)
     args = parser.parse_args()
-    assets = Path(__file__).resolve().parent
+    tests = Path(__file__).resolve().parent
     if args.scenario == "raceway_start":
         map_path = (
-            Path(crazy_robotaxi.__file__).parent
-            / "maps/flashdreams_raceway.robotaxi.yaml"
+            tests.parent / "crazy_robotaxi/maps/flashdreams_raceway.robotaxi.yaml"
         )
         course = "grand-prix"
     else:
         filename = "debug_hill" if args.scenario == "hill_climb" else "debug_flat"
-        map_path = assets / "maps" / f"{filename}.robotaxi.yaml"
+        map_path = tests / "maps" / f"{filename}.robotaxi.yaml"
         course = "debug-lap"
     command = [
         args.slug,
@@ -120,7 +117,7 @@ def main() -> None:
         "--race-course",
         course,
         "--drive-script",
-        str(assets / "scenarios" / f"{args.scenario}.yaml"),
+        str(tests / "scenarios" / f"{args.scenario}.yaml"),
         "--seed",
         str(args.seed),
     ]

@@ -5,14 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "crazy-robotaxi-tools"
 version = "0.2.0"
-description = "Offline map authoring and driving capture tools for Crazy Robotaxi"
+description = "Offline map authoring tools for Crazy Robotaxi"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = ["crazy-robotaxi", "omnidreams-game-engine-tools"]
 
 [project.scripts]
 crazy-robotaxi-map = "crazy_robotaxi_tools.map_tool:main"
-crazy-robotaxi-scenario = "crazy_robotaxi_tools.headless_scenario:main"
 
 [tool.uv.sources]
 crazy-robotaxi = { workspace = true }
@@ -20,6 +19,3 @@ omnidreams-game-engine-tools = { workspace = true }
 
 [tool.setuptools.packages.find]
 include = ["crazy_robotaxi_tools*"]
-
-[tool.setuptools.package-data]
-crazy_robotaxi_tools = ["maps/*.robotaxi.yaml", "scenarios/*.yaml"]

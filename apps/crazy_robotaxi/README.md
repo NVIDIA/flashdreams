@@ -108,8 +108,26 @@ world model as the interactive demo, with no window or ImGui rendering.
 Select the map and game mode through the existing CLI arguments; race mode
 also requires an explicit course.
 
-The [offline tools package](../crazy_robotaxi_tools/README.md) provides named
-driving scenarios and capture checks.
+From the repository root, run a three-second check of Raceway's starting
+straight:
+
+```bash
+uv run --package flashdreams-omnidreams python \
+  apps/crazy_robotaxi/tests/run_headless_scenario.py raceway_start \
+  --output-dir /tmp/robotaxi-raceway-start
+```
+
+Each run needs a fresh output directory and `ffmpeg`/`ffprobe` on `PATH`.
+The runner uses the real model, checks all videos' frame counts and telemetry
+alignment, then summarizes the physical observations. Other scenarios are
+`flat_acceleration` and `curb_impact` use the dedicated flat/curb test
+map under `tests/maps/`. `hill_climb` drives from a flat approach onto a 32 m
+hill using `debug_hill.robotaxi.yaml`. Physics measurements are reported for
+inspection; the capture check does not assert that the vehicle handles correctly.
+`--slug` selects another model
+preset, `--config` selects application settings, and `--snapshot-every`
+controls PNG sampling. Assertions fail with a nonzero exit status and
+leave the capture available for inspection.
 
 For an arbitrary map and driving script, invoke the demo directly:
 
