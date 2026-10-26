@@ -253,8 +253,8 @@ spawns:
     Onboard footage of a taxi driving through a desert resort town. Cream stucco shops,
     terracotta arcades, adobe garden walls, resort hotels and mesas. Date palms,
     bougainvillea, agave and gravel gardens. Asphalt, concrete curbs and sidewalks.
-    Vehicle bonnet visible. The view follows the steering and movement of the car.
+    Car hood visible. The view follows the steering and movement of the car.
   prompt_context: >-
-    Onboard footage of a taxi driving through a desert resort town. Vehicle bonnet
+    Onboard footage of a taxi driving through a desert resort town. Car hood
     visible. The view follows the steering and movement of the car.
   image: mesa_gardens_initial_frame.png
