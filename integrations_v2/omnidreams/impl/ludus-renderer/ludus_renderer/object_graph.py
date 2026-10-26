@@ -294,6 +294,8 @@ class PhysicsObjectGraph:
             thickness_m=barrier.thickness_m,
             height_m=barrier.height_m,
             barrier_id=barrier_id,
+            start_z_m=barrier.start_z_m,
+            end_z_m=barrier.end_z_m,
         )
         barriers = list(self.barriers)
         for index, existing in enumerate(barriers):
