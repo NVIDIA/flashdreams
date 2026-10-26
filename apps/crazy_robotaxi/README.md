@@ -120,9 +120,11 @@ uv run --package flashdreams-omnidreams python \
 Each run needs a fresh output directory and `ffmpeg`/`ffprobe` on `PATH`.
 The runner uses the real model, checks all videos' frame counts and telemetry
 alignment, then summarizes the physical observations. Other scenarios are
-`flat_acceleration` and `curb_impact`; they use the dedicated flat/curb test
-map under `tests/maps/`. Physics measurements are reported for inspection;
-the capture check does not assert that the vehicle handles correctly. `--slug` selects another model
+`flat_acceleration` and `curb_impact` use the dedicated flat/curb test
+map under `tests/maps/`. `hill_climb` drives from a flat approach onto a 32 m
+hill using `debug_hill.robotaxi.yaml`. Physics measurements are reported for
+inspection; the capture check does not assert that the vehicle handles correctly.
+`--slug` selects another model
 preset, `--config` selects application settings, and `--snapshot-every`
 controls PNG sampling. Assertions fail with a nonzero exit status and
 leave the capture available for inspection.
@@ -448,6 +450,13 @@ DiT. The default item types include rain, snow, and mystery, which also enable
 weather and style and therefore disable native DiT.
 
 ## Authored maps
+
+The existing YAML map format supports optional node `pose.z_m` heights. Roads
+transition smoothly between level node surfaces; paint, curbs, collision and
+checkpoints follow the resulting ground mesh. See
+[Road elevation](../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md#road-elevation)
+for authoring rules. FlashDreams Raceway demonstrates hills after its flat
+starting section.
 
 Maps are strict semantic `.robotaxi.yaml` documents. See the
 [map format guide](../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md) for

@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import shapely
 import torch
 from ludus_renderer import (
     PRIM_BEV_ROAD_SURFACE,
@@ -108,6 +109,8 @@ class LudusConditionRenderer(ConditionRenderer):
             road_surface_pool = _build_bev_road_surface_pool(
                 scene.game_map.elements,
                 self._device,
+                ground_vertices=scene.game_map.ground_vertices,
+                ground_faces=scene.game_map.ground_faces,
             )
             if road_surface_pool is not None:
                 base_scene = TimestampedScene(
@@ -219,13 +222,34 @@ def _bev_presentation_frames(frames: Tensor) -> Tensor:
 def _build_bev_road_surface_pool(
     elements: tuple[GameMapElement, ...],
     device: torch.device,
+    *,
+    ground_vertices: np.ndarray | None = None,
+    ground_faces: np.ndarray | None = None,
 ) -> TimestampedPolygonPool | None:
     """Build a lightweight black paved-surface layer for BEV alpha coverage."""
     vertices: list[Tensor] = []
     triangles: list[Tensor] = []
     vertex_counts: list[int] = []
     triangle_counts: list[int] = []
-    for element in elements:
+    elevated = ground_vertices is not None and np.ptp(ground_vertices[:, 2]) > 0
+    if elevated:
+        assert ground_vertices is not None and ground_faces is not None
+        footprint = shapely.union_all(
+            [Polygon(element.surface_world[:, :2]) for element in elements]
+        )
+        centers = ground_vertices[ground_faces].mean(axis=1)
+        faces = ground_faces[
+            shapely.intersects_xy(footprint, centers[:, 0], centers[:, 1])
+        ]
+        if len(faces):
+            used, indices = np.unique(faces, return_inverse=True)
+            xyz = ground_vertices[used].copy()
+            xyz[:, 2] += _BEV_ROAD_DEPTH_OFFSET_M
+            vertices.append(torch.from_numpy(xyz))
+            triangles.append(torch.from_numpy(indices.reshape(-1, 3).astype(np.int32)))
+            vertex_counts.append(len(xyz))
+            triangle_counts.append(len(faces))
+    for element in () if elevated else elements:
         surface = np.asarray(element.surface_world, dtype=np.float32)
         polygon = Polygon(surface[:, :2]).simplify(
             _BEV_ROAD_SIMPLIFY_M,

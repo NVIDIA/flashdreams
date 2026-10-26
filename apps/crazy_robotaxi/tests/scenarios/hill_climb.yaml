@@ -1,0 +1,3 @@
+# Drive from the flat approach onto the 32 m hill, with no steering.
+steps:
+  - {frames: 720, throttle: 1}

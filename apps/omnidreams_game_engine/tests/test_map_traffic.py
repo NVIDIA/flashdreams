@@ -14,6 +14,7 @@ from ludus_renderer import BodyState
 from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
+from omnidreams_game_engine.math3d import quaternion_to_matrix_xyzw
 from omnidreams_game_engine.simulation.map_traffic import (
     MapTrafficController,
     MapTrafficPhase,
@@ -63,6 +64,28 @@ def _activate(controller: MapTrafficController) -> None:
     controller.set_vicinity(
         GameMapVicinity("road", frozenset({"road"}), frozenset({"road"}))
     )
+
+
+@pytest.mark.parametrize("rise_m", [-4.0, 0.0, 4.0])
+def test_traffic_track_follows_grade_and_keeps_its_base_on_the_road(
+    rise_m: float,
+) -> None:
+    centerline = np.asarray(
+        [[0, 0, 2], [10, 10, 2 + rise_m], [20, 20, 2 + 2 * rise_m], [0, 0, 2]],
+        dtype=np.float32,
+    )
+    traffic = _traffic_definition(centerline)
+    controller = MapTrafficController((traffic,), VehicleConfig())
+    track = controller.objects[0]
+    expected_forward = centerline[1] - centerline[0]
+    expected_forward /= np.linalg.norm(expected_forward)
+    for index in (0, 1):
+        rotation = quaternion_to_matrix_xyzw(track.orientations_xyzw[index].tolist())
+        np.testing.assert_allclose(rotation[:, 0], expected_forward, atol=1e-6)
+        base = (
+            track.positions_m[index] - rotation[:, 2] * traffic.dimensions_lwh_m[2] / 2
+        )
+        np.testing.assert_allclose(base, centerline[index], atol=1e-6)
 
 
 def test_active_traffic_walks_route_cursor_without_global_search() -> None:
