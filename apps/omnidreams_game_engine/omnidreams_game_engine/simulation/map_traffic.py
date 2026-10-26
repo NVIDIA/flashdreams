@@ -121,6 +121,7 @@ def _route_track(
     positions = np.asarray(traffic.centerline_world, dtype=np.float32).copy()
     dimensions = np.asarray(traffic.dimensions_lwh_m, dtype=np.float32)
     segment_lengths = np.linalg.norm(np.diff(positions, axis=0), axis=1)
+    horizontal_lengths = np.linalg.norm(np.diff(positions[:, :2], axis=0), axis=1)
     segment_speeds = np.maximum(
         np.minimum(traffic.speed_limits_mps[:-1], traffic.speed_limits_mps[1:]),
         np.float32(0.1),
@@ -156,7 +157,7 @@ def _route_track(
         positions[:, 2] += dimensions[2] * 0.5
 
     cumulative_distance = np.concatenate(
-        (np.zeros(1, dtype=np.float64), np.cumsum(segment_lengths, dtype=np.float64))
+        (np.zeros(1, dtype=np.float64), np.cumsum(horizontal_lengths, dtype=np.float64))
     )
     start_timestamp_us = int(
         np.interp(

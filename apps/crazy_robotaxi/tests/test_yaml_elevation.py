@@ -96,11 +96,14 @@ def test_level_elevated_nodes_keep_connectors_and_parking_at_authored_height(
     assert game_map.default_spawn.position_world[2] == pytest.approx(20)
 
 
+@pytest.mark.parametrize("sample_spacing_m", [1.5, 20.0])
 def test_grade_spawn_compiles_directly_to_clipgt_without_opendrive(
     tmp_path: Path,
+    sample_spacing_m: float,
 ) -> None:
     document = yaml.safe_load((_MAPS / "debug_hill.robotaxi.yaml").read_text())
-    document["spawns"][0].update(road="climb", distance_m=60)
+    document["compiler"]["sample_spacing_m"] = sample_spacing_m
+    document["spawns"][0].update(road="climb", distance_m=73)
     source = tmp_path / "grade.robotaxi.yaml"
     source.write_text(yaml.safe_dump(document, sort_keys=False))
     compiled = compile_game_map(source, cache_root=tmp_path / "cache")
@@ -120,7 +123,13 @@ def test_grade_spawn_compiles_directly_to_clipgt_without_opendrive(
     assert scene.initial_rig_to_world[2, 0] > 0
     ground = GroundSnapper(scene.ground_mesh_vertices, scene.ground_mesh_faces)
     assert ground.ground_height_at(*spawn.position_world) == pytest.approx(
-        spawn.position_world[2], abs=0.003
+        spawn.position_world[2], abs=1e-5
+    )
+    surface = ground.ground_surface_at(*spawn.position_world)
+    assert surface is not None
+    _, normal = surface
+    assert float(scene.initial_rig_to_world[:3, 0] @ normal) == pytest.approx(
+        0, abs=1e-6
     )
 
 

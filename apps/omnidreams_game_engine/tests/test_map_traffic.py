@@ -18,6 +18,7 @@ from omnidreams_game_engine.math3d import quaternion_to_matrix_xyzw
 from omnidreams_game_engine.simulation.map_traffic import (
     MapTrafficController,
     MapTrafficPhase,
+    _route_track,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -86,6 +87,22 @@ def test_traffic_track_follows_grade_and_keeps_its_base_on_the_road(
             track.positions_m[index] - rotation[:, 2] * traffic.dimensions_lwh_m[2] / 2
         )
         np.testing.assert_allclose(base, centerline[index], atol=1e-6)
+
+
+@pytest.mark.parametrize("rise_m", [-20.0, 20.0])
+def test_traffic_start_distance_uses_xy_while_travel_time_uses_grade(rise_m) -> None:
+    centerline = np.asarray(
+        [[0, 0, 0], [20, 0, rise_m], [40, 0, rise_m], [60, 0, rise_m], [0, 0, 0]],
+        dtype=np.float32,
+    )
+    traffic = _traffic_definition(centerline, start_distance_m=30)
+    track, start, _ = _route_track(traffic, VehicleConfig())
+    position, orientation, _ = track.sample(start)
+    up = quaternion_to_matrix_xyzw(orientation.tolist())[:, 2]
+    base = position - up * traffic.dimensions_lwh_m[2] / 2
+    np.testing.assert_allclose(base, [30, 0, rise_m], atol=1e-6)
+    expected_seconds = (np.hypot(20, rise_m) + 10) / 10
+    assert start / 1_000_000 == pytest.approx(expected_seconds, abs=1e-6)
 
 
 def test_active_traffic_walks_route_cursor_without_global_search() -> None:

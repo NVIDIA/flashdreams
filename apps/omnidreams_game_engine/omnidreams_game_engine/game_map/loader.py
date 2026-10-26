@@ -55,6 +55,7 @@ from omnidreams_game_engine.game_map.types import (
     GameMapTopology,
     ResolvedGameMap,
 )
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 
 _POSITION_TOLERANCE_M = 0.05
 _AREA_TOLERANCE_M2 = 1.0e-4
@@ -2731,6 +2732,7 @@ def _spawn(
     raw: dict[str, Any],
     source_path: Path,
     lane_by_id: dict[str, _LaneBuild],
+    ground: GroundSnapper | None = None,
 ) -> GameMapSpawn:
     required = {"id", "road", "lane", "distance_m", "prompt"}
     unknown = set(raw) - (required | {"image", "prompt_context"})
@@ -2764,6 +2766,16 @@ def _spawn(
     alpha = (distance - cumulative[segment]) / max(float(lengths[segment]), 1.0e-9)
     position = points[segment] + alpha * (points[segment + 1] - points[segment])
     direction = points[segment + 1] - points[segment]
+    pitch = -math.atan2(float(direction[2]), float(np.linalg.norm(direction[:2])))
+    if ground is not None:
+        surface = ground.ground_surface_at(*position)
+        if surface is None:
+            raise GameMapError(f"Spawn {spawn_id!r} lies outside the ground mesh")
+        position[2], normal = surface
+        pitch = math.atan2(
+            float(np.dot(normal[:2], direction[:2])),
+            float(normal[2] * np.linalg.norm(direction[:2])),
+        )
     image, prompt, prompt_context = _parse_spawn_conditioning(raw, source_path)
     return GameMapSpawn(
         spawn_id=spawn_id,
@@ -2771,9 +2783,7 @@ def _spawn(
         distance_m=distance,
         position_world=position.astype(np.float32),
         yaw_rad=math.atan2(float(direction[1]), float(direction[0])),
-        pitch_rad=-math.atan2(
-            float(direction[2]), float(np.linalg.norm(direction[:2]))
-        ),
+        pitch_rad=pitch,
         image=image,
         prompt=prompt,
         prompt_context=prompt_context,
@@ -3123,8 +3133,9 @@ def load_game_map(path: Path) -> ResolvedGameMap:
     spawn_values = _sequence(doc["spawns"], "spawns")
     if not spawn_values:
         raise GameMapError("Map must define at least one spawn")
+    ground = GroundSnapper(mesh_vertices, mesh_faces) if elevated else None
     spawns = tuple(
-        _spawn(_mapping(value, f"spawns[{index}]"), source_path, lane_by_id)
+        _spawn(_mapping(value, f"spawns[{index}]"), source_path, lane_by_id, ground)
         for index, value in enumerate(spawn_values)
     )
     spawn_ids = [spawn.spawn_id for spawn in spawns]
