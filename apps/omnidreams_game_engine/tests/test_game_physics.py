@@ -150,6 +150,7 @@ def test_debug_observation_preserves_native_velocity_before_curb_rebound(
     debug = world.debug_frame(resolved)
     assert debug.static_barrier_collision
     np.testing.assert_array_equal(debug.ego_linear_velocity_mps, [2, -1, 0])
+    assert debug.vehicle_state is not None
     assert debug.vehicle_state.velocity_y_mps == -1
 
 
