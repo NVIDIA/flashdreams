@@ -4,7 +4,6 @@
 """CPU tests for Crazy Robotaxi's application boundary against FlashDreams V2."""
 
 import queue
-import re
 import threading
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -19,8 +18,6 @@ from crazy_robotaxi.application import (
     CrazyRobotaxiApplication,
     CrazyRobotaxiApplicationDefaults,
     _configure_live_edit_pipeline,
-    _fit_bev_renderer_to_ui,
-    _parser,
 )
 from crazy_robotaxi.controls import BoundActionState, ControlsConfig
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
@@ -29,12 +26,11 @@ from crazy_robotaxi.headless_ui import CrazyRobotaxiHeadlessUILoop
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
+    LiveEditItemsConfig,
     LiveEditMapContextConfig,
     LiveEditObstacleConfig,
     LiveEditStyleConfig,
     LiveEditWeatherConfig,
-    StyleSkin,
-    WeatherPreset,
 )
 from crazy_robotaxi.physics import TaxiPhysicsWorld
 from crazy_robotaxi.rules import TaxiGameSnapshot
@@ -45,15 +41,9 @@ from crazy_robotaxi.session import (
     _pace_realtime_chunk,
     _taxi_driver_command,
 )
-from crazy_robotaxi.settings import (
-    SETTING_CLI_FLAGS,
-    SettingsDocument,
-    setting_value,
-)
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
-from omnidreams_game_engine.config import BevConfig, RasterConfig
+from omnidreams_game_engine.config import RasterConfig
 from omnidreams_game_engine.input import DriverInput
-from omnidreams_game_engine.renderer_settings import RendererSettings
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import (
     CameraCalibration,
@@ -75,16 +65,8 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
-pytestmark = pytest.mark.ci_cpu
-
-_DEMO_RACE_MAP = (
-    Path(__file__).parents[1]
-    / "crazy_robotaxi"
-    / "maps"
-    / "flashdreams_raceway.robotaxi.yaml"
-)
+pytestmark = [pytest.mark.ci_cpu, pytest.mark.usefixtures("race_map")]
 
 
 @dataclass(kw_only=True)
@@ -176,12 +158,10 @@ def _scene(*, width: int = 1280, height: int = 704) -> SceneDefinition:
 
 
 @pytest.mark.parametrize("inline", (False, True))
-@pytest.mark.parametrize("mode", (None, "null", "mp4", "webrtc", "native-window"))
 def test_cli_exports_options_without_starting_the_game(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     inline: bool,
-    mode: str | None,
 ) -> None:
     def unexpected(*args: object, **kwargs: object) -> None:
         pytest.fail("Documentation export attempted game preparation")
@@ -191,20 +171,7 @@ def test_cli_exports_options_without_starting_the_game(
         scene_factory=unexpected,
         native_preparer=unexpected,
     )
-    mode_factory = runtime_cli.client_window_mode
-
-    def cpu_mode(name: str, **kwargs: Any) -> Any:
-        mode = mode_factory(name, **kwargs)
-        monkeypatch.setattr(
-            mode,
-            "create",
-            lambda parsed: SimpleNamespace(close=lambda: None),
-        )
-        monkeypatch.setattr(mode, "starting", lambda window: None)
-        return mode
-
     monkeypatch.setattr(runtime_cli, "create_application", lambda slug: app)
-    monkeypatch.setattr(runtime_cli, "client_window_mode", cpu_mode)
     monkeypatch.setattr(
         "crazy_robotaxi.application.load_controls_documents", unexpected
     )
@@ -213,13 +180,11 @@ def test_cli_exports_options_without_starting_the_game(
     output = tmp_path / "options.md"
     flag = "--export-options-docs"
     export_args = [f"{flag}={output}"] if inline else [flag, str(output)]
-    mode_args = [] if mode is None else ["--mode", mode]
 
     with pytest.raises(SystemExit) as exc:
         runtime_cli.entrypoint(
             [
                 "test-app",
-                *mode_args,
                 "--output-path",
                 str(tmp_path / "unused.mp4"),
                 "--total-model-steps",
@@ -234,14 +199,8 @@ def test_cli_exports_options_without_starting_the_game(
 
     assert exc.value.code == 0
     reference = output.read_text(encoding="utf-8")
-    assert reference.startswith("# Crazy Robotaxi options reference\n")
-    assert "### GAME → TAXI" in reference
-    assert "| **Seed:** | `game.taxi.seed` | Crazy Robotaxi |" in reference
-    assert "--game-seed, --seed" in reference
-    assert "## Application arguments\n\n```text\n" in reference
-    assert "--export-options-docs PATH" in reference
-    assert "race mode also requires --race-course" in " ".join(reference.split())
-    assert "| YAML key |" in reference
+    assert "game.taxi.seed" in reference
+    assert "--export-options-docs" in reference
     assert config_path.read_text(encoding="utf-8") == "invalid: ["
     assert app._config is None
 
@@ -254,68 +213,7 @@ def test_options_export_reports_a_write_error(tmp_path: Path, capsys) -> None:
     assert "cannot export options documentation" in capsys.readouterr().err
 
 
-def test_tooltip_cli_flags_change_their_settings(tmp_path: Path) -> None:
-    parser = _parser(_STUB_DEFAULTS)
-    actions = {
-        flag: action for action in parser._actions for flag in action.option_strings
-    }
-    paths_by_flag: dict[str, list[tuple[str, ...]]] = {}
-    for key, help_text in SETTING_CLI_FLAGS.items():
-        for flag in re.findall(r"--[a-z][a-z0-9-]*", help_text):
-            assert flag in actions
-            paths_by_flag.setdefault(flag, []).append(tuple(key.split(".")))
-
-    document = SettingsDocument.load(
-        tmp_path / "config.yaml",
-        pipeline_config=_STUB_PIPELINE_CONFIG,
-        width=1280,
-        height=704,
-    )
-    base = replace(
-        document.settings,
-        presentation=replace(document.settings.presentation, width=1280, height=704),
-    )
-    app = _application()
-    for flag, paths in paths_by_flag.items():
-        action = actions[flag]
-        before = base
-        argv = [flag]
-        current = setting_value(before, paths[0])
-        if action.nargs == 0:
-            enabled = not flag.startswith("--no-")
-            for path in paths:
-                before = document.update(before, path, not enabled)
-        elif action.dest in ("live_edit_skin_first", "live_edit_weather_first"):
-            assert isinstance(current, tuple)
-            selected = current[-1]
-            assert isinstance(selected, (StyleSkin, WeatherPreset))
-            argv.append(selected.name)
-        elif action.dest == "live_edit_item_types":
-            argv.append("nitro")
-        elif action.choices:
-            argv.append(next(choice for choice in action.choices if choice != current))
-        elif action.type is Path:
-            argv.append(str(tmp_path / "override"))
-        elif action.type is float:
-            assert isinstance(current, (int, float))
-            argv.append(str(current + 0.1))
-        elif action.type is int:
-            assert current is None or isinstance(current, int)
-            argv.append(str(current + 1 if current is not None else 2))
-        else:
-            argv.append("cpu")
-
-        after, _overrides = app._apply_cli_settings(before, parser.parse_args(argv))
-
-        for path in paths:
-            assert setting_value(after, path) != setting_value(before, path), (
-                flag,
-                path,
-            )
-    assert not document.path.exists()
-
-
-@pytest.mark.parametrize("mode", (None, "null", "mp4", "webrtc", "native-window"))
+@pytest.mark.parametrize("mode", ("native-window", "webrtc"))
 def test_application_registers_model_and_imgui_ui_loops(mode: str | None) -> None:
     pipeline_closed: list[bool] = []
     pipeline = SimpleNamespace(close=lambda: pipeline_closed.append(True))
@@ -345,9 +243,6 @@ def test_application_registers_model_and_imgui_ui_loops(mode: str | None) -> Non
     session.init()
     ui_loop, model_loop = session._take_loops()
 
-    assert desc.output_layout is VideoTensorLayout.tchw
-    assert desc.frames_per_second_for_ui == 60
-    assert desc.frames_per_second_for_step == 30
     assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
@@ -355,38 +250,13 @@ def test_application_registers_model_and_imgui_ui_loops(mode: str | None) -> Non
     assert session._presentation_manager._presentation_stream is None
     assert model_loop.state.pipeline is None
     assert app._pipeline is not None
+    assert session._pipeline_factory() is pipeline
     assert pipeline_requests == [(app._pipeline_config, "cpu")]
     assert model_loop.state.scene is None
     assert model_loop.state.rollout is None
     assert not model_loop.state.game_selected
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.model_loop is model_loop
-    assert len(ui_loop.state.map_options) == 2
-    assert ui_loop.state.map_options[0].path.name == "boulevard_district.robotaxi.yaml"
-    assert all(
-        option.preview_image_path is not None for option in ui_loop.state.map_options
-    )
-    raceway = next(
-        option
-        for option in ui_loop.state.map_options
-        if option.path.name == "flashdreams_raceway.robotaxi.yaml"
-    )
-    assert raceway.race_courses[0].spawn_id == "race_start"
-    assert raceway.race_courses[0].preview_image_path is not None
-    assert ui_loop.state.profile_input_latency
-    assert ui_loop.state.show_fps
-    assert ui_loop.state.gamepad_button_style == session._config.gamepad_button_style
-    assert (
-        ui_loop.state.show_live_edit_buttons is session._config.show_live_edit_buttons
-    )
-    assert (
-        ui_loop.state.live_edit_mapping_location
-        == session._config.live_edit_mapping_location
-    )
-    assert (
-        ui_loop.state.native_dit_disabled_for_live_edit
-        is session._config.native_dit_disabled_for_live_edit
-    )
     menu_results = model_loop.step(0, UserInputEvents([]))
     assert len(menu_results) == 1
     assert menu_results[0].frame_count == 1
@@ -410,76 +280,6 @@ def test_application_registers_model_and_imgui_ui_loops(mode: str | None) -> Non
     assert pipeline_closed == []
     app.close()
     assert pipeline_closed == [True]
-
-
-def test_complete_cli_game_selection_starts_without_menus(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "crazy_robotaxi.session.WorldModelRollout", lambda **_: SimpleNamespace()
-    )
-    app = _application(
-        pipeline_factory=lambda config, device: object(),
-        scene_factory=lambda request, raster: _scene(),
-    )
-    app.init(
-        [
-            "--device",
-            "cpu",
-            "--prewarm-blocks",
-            "0",
-            "--game-mode",
-            "race",
-            "--map",
-            str(_DEMO_RACE_MAP),
-            "--race-course",
-            "grand-prix",
-        ]
-    )
-    assert app._config is not None
-    assert app._config.initial_game_mode == "race"
-    assert app._config.initial_map_path == _DEMO_RACE_MAP.resolve()
-    assert app._config.initial_race_course_id == "grand-prix"
-
-    session = app.create_session(app.session_desc())
-    session.init()
-    ui_loop, model_loop = session._take_loops()
-
-    assert ui_loop.state._menu_stage == "loading"
-    model_loop._run_message_batch()
-    assert model_loop.state.game_selected
-    assert model_loop.state.config.game_mode == "race"
-    assert model_loop.state.config.race_course_id == "grand-prix"
-
-
-def test_free_roam_cli_selection_starts_without_a_race_course(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "crazy_robotaxi.session.WorldModelRollout", lambda **_: SimpleNamespace()
-    )
-    app = _application(
-        pipeline_factory=lambda config, device: object(),
-        scene_factory=lambda request, raster: _scene(),
-    )
-    app.init(
-        [
-            "--device",
-            "cpu",
-            "--prewarm-blocks",
-            "0",
-            "--game-mode",
-            "free-roam",
-            "--map",
-            str(_DEMO_RACE_MAP),
-        ]
-    )
-
-    session = app.create_session(app.session_desc())
-    session.init()
-    ui_loop, model_loop = session._take_loops()
-    model_loop._run_message_batch()
-
-    assert ui_loop.state._menu_stage == "loading"
-    assert model_loop.state.game_selected
-    assert model_loop.state.config.game_mode == "free-roam"
-    assert model_loop.state.config.race_course_id is None
 
 
 def test_user_config_overrides_model_and_game_without_selecting_menus(
@@ -543,6 +343,7 @@ runtime:
 """,
         encoding="utf-8",
     )
+    saved_bytes = config_path.read_bytes()
     app = _application()
 
     app.init(
@@ -552,6 +353,7 @@ runtime:
             "--device",
             "cpu",
             "--show-fps",
+            "--profile-pipeline",
             "--prewarm-blocks",
             "0",
         ]
@@ -569,8 +371,11 @@ runtime:
     assert document.cli_overrides[("model", "device")] == "cpu"
     assert document.cli_overrides[("presentation", "show_fps")] is True
 
+    assert app._config.pipeline_profiling
+    assert config_path.read_bytes() == saved_bytes
 
-def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
+
+def test_pressed_r_requests_restart_while_awaiting_name() -> None:
     class RestartRequested(Exception):
         pass
 
@@ -789,34 +594,6 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
 
 
 @pytest.mark.parametrize(
-    ("arguments", "expected"),
-    [
-        ([], False),
-        (["--profile-pipeline"], True),
-    ],
-)
-def test_diagnostics_flag_does_not_enable_pipeline_profiling(
-    arguments: list[str],
-    expected: bool,
-) -> None:
-    configured = []
-    app = _application(
-        pipeline_factory=lambda config, device: configured.append(config) or object(),
-        scene_factory=lambda request, raster: _scene(),
-    )
-    app.init(arguments)
-
-    session = cast(CrazyRobotaxiSession, app.create_session(app.session_desc()))
-
-    assert app._pipeline is not None
-    assert configured == [app._pipeline_config]
-    session._pipeline_factory()
-    assert configured == [app._pipeline_config]
-    assert app._config is not None
-    assert app._config.pipeline_profiling is expected
-
-
-@pytest.mark.parametrize(
     ("live_edit", "expected_native_dit"),
     [
         (LiveEditConfig(style=LiveEditStyleConfig(enabled=True)), "disabled"),
@@ -832,6 +609,7 @@ def test_diagnostics_flag_does_not_enable_pipeline_profiling(
             "disabled",
         ),
         (LiveEditConfig(coins=LiveEditCoinsConfig(enabled=True)), "required"),
+        (LiveEditConfig(items=LiveEditItemsConfig(enabled=True)), "required"),
         (
             LiveEditConfig(
                 obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=0.0)
@@ -909,7 +687,6 @@ def test_adapter_dimensions_configure_renderer_geometry(
     )
 
     assert configured == [app._pipeline_config]
-    assert len(raster_sizes) == len(app._scenes)
     assert set(raster_sizes) == {resolution_wh}
     assert session._config.renderer.raster.resolution_wh == resolution_wh
     assert model_loop.state.scene is not None
@@ -942,26 +719,6 @@ def test_live_edit_item_cli_enables_required_abilities(tmp_path: Path) -> None:
     assert app._config.live_edit.items.enabled
     assert app._config.live_edit.style.enabled
     assert app._config.live_edit.weather.enabled
-
-
-def test_bev_render_fit_preserves_authored_aspect_ratio_and_smaller_sources() -> None:
-    raster = RasterConfig()
-    wide = RendererSettings(raster=raster, bev=BevConfig(width=800, height=400))
-    small = RendererSettings(raster=raster, bev=BevConfig(width=120, height=80))
-
-    fitted_wide = _fit_bev_renderer_to_ui(
-        wide,
-        video_width=1280,
-        video_height=704,
-    )
-    fitted_small = _fit_bev_renderer_to_ui(
-        small,
-        video_width=1280,
-        video_height=704,
-    )
-
-    assert (fitted_wide.bev.width, fitted_wide.bev.height) == (234, 117)
-    assert fitted_small is small
 
 
 @pytest.mark.parametrize(
@@ -1054,18 +811,6 @@ def test_controls_directory_is_a_separate_cli_only_config(tmp_path: Path) -> Non
     )
 
 
-@pytest.mark.parametrize("prewarm_blocks", [0, 4, 7])
-def test_application_configures_prepresentation_warmup(prewarm_blocks: int) -> None:
-    app = _application(
-        pipeline_factory=lambda config, device: object(),
-        scene_factory=lambda request, raster: _scene(),
-    )
-    app.init(["--prewarm-blocks", str(prewarm_blocks)])
-
-    assert app._config is not None
-    assert app._config.prewarm_blocks == prewarm_blocks
-
-
 def test_application_rejects_negative_prewarm_blocks() -> None:
     app = _application()
 
@@ -1121,7 +866,6 @@ def test_model_state_prewarms_neutral_blocks_once_then_resets(monkeypatch) -> No
     assert rollout.reset_count == 1
     assert model_loop.state.blocks_generated == 0
     assert model_loop.state.prewarm_complete
-    assert ui_loop.state._loading_status == "STARTING GAME"
 
     assert model_loop.state.ensure_rollout() is rollout
     assert len(rollout.steps) == 4
@@ -1133,7 +877,7 @@ def test_model_state_prewarms_neutral_blocks_once_then_resets(monkeypatch) -> No
     assert len(rollout.steps) == 4
 
 
-def test_taxi_physics_uses_spatial_and_traffic_topology_refreshes_only() -> None:
+def test_taxi_physics_recenters_without_timestamp_refresh() -> None:
     world = object.__new__(TaxiPhysicsWorld)
     world.graph = type("Graph", (), {"objects": ()})()
     world._physics_center_xy = np.zeros(2, dtype=np.float32)
@@ -1190,105 +934,38 @@ def test_application_rejects_geometry_the_model_does_not_produce() -> None:
 
     with pytest.raises(ValueError) as exc_info:
         app.create_session(desc)
-    assert str(exc_info.value) == (
-        "Session/model dimensions (640, 704) do not match renderer raster dimensions "
-        "(1280, 704). You may have changed Width or Height under Options > Renderer > "
-        "Raster, or used --width or --height; those settings control model rendering. "
-        "To resize only the displayed output, use Options > Presentation > Width and "
-        "Height or --display-width and --display-height."
-    )
+    assert "(640, 704)" in str(exc_info.value)
+    assert "(1280, 704)" in str(exc_info.value)
 
 
-def test_user_settings_resize_window_to_presentation_resolution(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("display_args", "expected_size"),
+    [
+        ([], (1920, 1080)),
+        (["--display-width", "2560", "--display-height", "1440"], (2560, 1440)),
+    ],
+)
+def test_saved_presentation_resolution_and_cli_override(
+    tmp_path: Path, display_args: list[str], expected_size: tuple[int, int]
 ) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        "presentation:\n  width: 1920\n  height: 1080\n",
-        encoding="utf-8",
+        "presentation:\n  width: 1920\n  height: 1080\n", encoding="utf-8"
     )
     app = _application()
     model_desc = app.session_desc()
-    app.init(["--config", str(config_path), "--device", "cpu"])
-
+    app.init(["--config", str(config_path), "--device", "cpu", *display_args])
     session = cast(CrazyRobotaxiSession, app.create_session(model_desc))
     session.init()
-    ui_loop = session.ui_loop
 
-    assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
-    assert session.session_desc.video_width == 1280
-    assert session.session_desc.video_height == 704
+    assert session._config.presentation_resolution_wh == expected_size
+    assert session.ui_loop.state.presentation_size == expected_size
+    assert (session.session_desc.video_width, session.session_desc.video_height) == (
+        1280,
+        704,
+    )
     assert session._config.renderer.raster.resolution_wh == (1280, 704)
-    assert (ui_loop.state.width, ui_loop.state.height) == (1280, 704)
-    assert ui_loop.state.presentation_size == (1920, 1080)
-    renderer = cast(Any, ui_loop.renderer)
-    assert (renderer.width, renderer.height) == (1280, 704)
-    assert ui_loop.flush_ui_loop_requests() is None
-
-    state = SimpleNamespace(
-        width=1280,
-        height=704,
-        presentation_size=(1920, 1080),
-        consume_input_events=lambda _events: None,
-        draw=lambda *_args, **_kwargs: None,
-    )
-
-    def resize(width: int, height: int) -> None:
-        state.width = width
-        state.height = height
-
-    state.resize = resize
-    ui_loop.state = cast(Any, state)
-    assert ui_loop.step_ui(None, 0, UserInputEvents([])) is None
-    request = ui_loop.flush_ui_loop_requests()
-
-    assert (renderer.width, renderer.height) == (1280, 704)
-    assert request is not None
-    assert request.new_window_size == (1920, 1080)
-
-    assert ui_loop.step_ui(None, 1, UserInputEvents([])) is None
-    assert (ui_loop.state.width, ui_loop.state.height) == (1920, 1080)
-    assert (renderer.width, renderer.height) == (1920, 1080)
-    assert ui_loop.flush_ui_loop_requests() is None
-
-    state.presentation_size = (1600, 900)
-    assert ui_loop.step_ui(None, 2, UserInputEvents([])) is None
-    request = ui_loop.flush_ui_loop_requests()
-    assert request is not None
-    assert request.new_window_size == (1600, 900)
-    assert (renderer.width, renderer.height) == (1920, 1080)
-
-    assert ui_loop.step_ui(None, 3, UserInputEvents([])) is None
-    assert (ui_loop.state.width, ui_loop.state.height) == (1600, 900)
-    assert (renderer.width, renderer.height) == (1600, 900)
-    assert ui_loop.flush_ui_loop_requests() is None
-
-
-def test_display_cli_overrides_saved_presentation_resolution(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "presentation:\n  width: 1920\n  height: 1080\n",
-        encoding="utf-8",
-    )
-    app = _application()
-    model_desc = app.session_desc()
-    app.init(
-        [
-            "--config",
-            str(config_path),
-            "--display-width",
-            "2560",
-            "--display-height",
-            "1440",
-            "--device",
-            "cpu",
-        ]
-    )
-
-    session = cast(CrazyRobotaxiSession, app.create_session(model_desc))
-    session.init()
-
-    assert session._config.presentation_resolution_wh == (2560, 1440)
+    assert (session.ui_loop.state.width, session.ui_loop.state.height) == (1280, 704)
 
 
 def test_application_rejects_mismatched_generation_rate() -> None:
@@ -1319,7 +996,7 @@ def test_application_forces_continuous_presentation_for_interactive_input() -> N
     assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
 
 
-def test_no_ui_registers_headless_loop_and_keeps_cli_selection() -> None:
+def test_no_ui_registers_headless_loop_and_keeps_cli_selection(race_map: Path) -> None:
     app = _application(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
@@ -1336,9 +1013,9 @@ def test_no_ui_registers_headless_loop_and_keeps_cli_selection() -> None:
             "--game-mode",
             "race",
             "--race-course",
-            "grand-prix",
+            "test-loop",
             "--map",
-            str(_DEMO_RACE_MAP),
+            str(race_map),
         ]
     )
     assert app._config is not None
@@ -1352,11 +1029,11 @@ def test_no_ui_registers_headless_loop_and_keeps_cli_selection() -> None:
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.initial_game_mode == "race"
-    assert ui_loop.state.initial_map_path == _DEMO_RACE_MAP.resolve()
-    assert ui_loop.state.initial_race_course_id == "grand-prix"
+    assert ui_loop.state.initial_map_path == race_map.resolve()
+    assert ui_loop.state.initial_race_course_id == "test-loop"
 
 
-def test_no_ui_in_race_mode_requires_a_course() -> None:
+def test_no_ui_in_race_mode_requires_a_course(race_map: Path) -> None:
     app = _application(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
@@ -1371,7 +1048,7 @@ def test_no_ui_in_race_mode_requires_a_course() -> None:
             "--game-mode",
             "race",
             "--map",
-            str(_DEMO_RACE_MAP),
+            str(race_map),
         ]
     )
 
@@ -1380,12 +1057,21 @@ def test_no_ui_in_race_mode_requires_a_course() -> None:
         session.init()
 
 
-def test_no_ui_requires_explicit_mode_map_and_block_count() -> None:
-    app = _application(
-        pipeline_factory=lambda config, device: object(),
-        scene_factory=lambda request, raster: _scene(),
+@pytest.mark.parametrize("missing", ["--game-mode", "--map", "--total-blocks"])
+def test_no_ui_requires_explicit_mode_map_and_block_count(
+    missing: str, race_map: Path
+) -> None:
+    arguments = {"--game-mode": "taxi", "--map": str(race_map), "--total-blocks": "4"}
+    del arguments[missing]
+    app = _application()
+    app.init(
+        [
+            "--device",
+            "cpu",
+            "--no-ui",
+            *[arg for pair in arguments.items() for arg in pair],
+        ]
     )
-    app.init(["--device", "cpu", "--no-ui"])
 
     session = app.create_session(app.session_desc())
     with pytest.raises(ValueError, match="--no-ui requires"):

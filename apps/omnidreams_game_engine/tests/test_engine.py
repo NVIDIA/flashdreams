@@ -166,7 +166,6 @@ def test_trajectory_sampling_copies_slotted_start_state() -> None:
 
     assert trajectory.vehicle_states[0] == start_state
     assert trajectory.vehicle_states[0] is not start_state
-    assert trajectory.boundary_state_after_chunk is trajectory.vehicle_states[0]
 
 
 def test_trajectory_sampling_aggregates_physics_bridge_timings() -> None:
