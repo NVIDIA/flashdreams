@@ -26,15 +26,6 @@ pytestmark = pytest.mark.ci_cpu
 _MAP_FIXTURES = Path(__file__).parent / "maps"
 
 
-def test_shipped_maps_are_valid() -> None:
-    paths = sorted(
-        (Path(__file__).parents[1] / "crazy_robotaxi" / "maps").glob("*.robotaxi.yaml")
-    )
-    assert paths
-    for path in paths:
-        load_game_map(path)
-
-
 @pytest.mark.parametrize("height", [0, 12])
 def test_short_curved_joint_lanes_share_their_divider_edges(
     tmp_path: Path, height: int
@@ -82,6 +73,15 @@ def test_short_curved_joint_lanes_share_their_divider_edges(
             second_edge = second_edge[::-1]
         np.testing.assert_allclose(first_edge, second_edge, atol=1e-5)
         np.testing.assert_allclose(divider.polyline_world, first_edge, atol=1e-5)
+
+
+def test_shipped_maps_are_valid() -> None:
+    paths = sorted(
+        (Path(__file__).parents[1] / "crazy_robotaxi" / "maps").glob("*.robotaxi.yaml")
+    )
+    assert paths
+    for path in paths:
+        load_game_map(path)
 
 
 def test_prompt_context_is_trimmed_and_round_trips(tmp_path: Path) -> None:
