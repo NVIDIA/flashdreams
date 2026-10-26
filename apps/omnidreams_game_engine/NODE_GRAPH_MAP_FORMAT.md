@@ -127,6 +127,37 @@ rejected, and prompt context participates in the compiled-map cache key.
 All non-parking nodes require `id`, `type`, and `pose`. Their remaining required
 attributes may be supplied directly or by profile.
 
+### Road elevation
+
+`pose.z_m` optionally sets a node's height in metres; it defaults to zero:
+
+```yaml
+- {id: foot, type: road_joint, pose: {x_m: 0, y_m: 0}}
+- {id: crest, type: road_joint, pose: {x_m: 250, y_m: 0, z_m: 32}}
+```
+
+The existing schema-v1 compiler connects these heights directly. No intermediate
+map format is required. Each node remains a level surface, and a road follows a
+smooth quintic height transition along its trimmed reference line, meeting each
+node with zero grade and curvature. Path and Bézier control points remain XY
+coordinates.
+Add a node to author another crest or dip. A parking lot inherits the height of
+its connected driveway.
+
+Elevated maps include a continuous triangle ground mesh. Lane paths, paint,
+curbs, spawn pitch, physical collision, and race checkpoint heights use that
+surface. Pavement is sampled on a shared grid with spacing no greater than
+`min(sample_spacing_m, 1)` metres. Surrounding terrain interpolates toward zero
+at the outer ground boundary. This is a single height field: banking and
+overlapping roads/overpasses are not supported. Maps whose heights are all zero
+retain their flat geometry and two-triangle ground rectangle.
+
+Seed images must match the spawn pose. Keep the spawn and initial view on level
+road when using a flat-road seed image. FlashDreams Raceway keeps its starting
+section level and begins climbing after the infield hairpin. When `image` is
+omitted, the fallback seed renderer follows the authored ground mesh and spawn
+pitch, including hill occlusion.
+
 ### Intersections
 
 An intersection connects at least three incident road arms and has no required
