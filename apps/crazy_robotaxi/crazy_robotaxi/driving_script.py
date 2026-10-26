@@ -78,13 +78,11 @@ def load_driving_script(path: Path) -> DrivingScript:
     for index, step in enumerate(steps):
         if not isinstance(step, dict) or set(step) - {"frames", *pedals, *flags}:
             raise ValueError(f"Driving step {index} contains unknown controls")
+        step = cast(dict[str, Any], step)
         frames = step.get("frames")
         if isinstance(frames, bool) or not isinstance(frames, int) or frames <= 0:
             raise ValueError(f"Driving step {index} requires positive integer frames")
-        controls = cast(
-            dict[str, Any],
-            {key: value for key, value in step.items() if key != "frames"},
-        )
+        controls = {key: value for key, value in step.items() if key != "frames"}
         for name, (minimum, maximum) in pedals.items():
             value = controls.get(name, 0.0)
             if (
