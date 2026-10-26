@@ -337,6 +337,8 @@ class _FakeImGui:
         self.disabled_buttons: list[str] = []
         self.background_draw_list = _FakeDrawList()
         self.window_flags: dict[str, int] = {}
+        self.window_positions: dict[str, tuple[float, float]] = {}
+        self.window_sizes: dict[str, tuple[float, float]] = {}
         self.child_sizes: dict[str, tuple[float, float]] = {}
         self.child_window_flags: dict[str, int] = {}
         self._child_size_stack: list[tuple[float, float]] = []
@@ -460,6 +462,8 @@ class _FakeImGui:
         self.current_window = title
         self.windows.setdefault(title, [])
         self.window_flags[title] = flags
+        self.window_positions[title] = self.next_window_position
+        self.window_sizes[title] = self.next_window_size
         return True
 
     def end(self) -> None:
@@ -871,6 +875,7 @@ def test_live_edit_card_dispatches_enabled_actions() -> None:
         "coins",
         "obstacle",
     ]
+    assert "STYLE BASE" in " ".join(" ".join(imgui.windows["Live Edit"]).split())
     blocked = _FakeImGui()
     blocked.clicked_buttons.add("CYCLE WEATHER (V)")
     state._draw_live_edit_card(
@@ -879,6 +884,9 @@ def test_live_edit_card_dispatches_enabled_actions() -> None:
     model_loop._run_message_batch()
 
     assert "CYCLE WEATHER (V)" in blocked.disabled_buttons
+    blocked_status = " ".join(" ".join(blocked.windows["Live Edit"]).split())
+    assert "STYLE COMIC" in blocked_status
+    assert "STYLE BASE" not in blocked_status
     assert model_loop.state.live_edit_actions == [
         "style",
         "weather",
@@ -1095,6 +1103,42 @@ def test_current_prompt_overlay_is_configurable(show_current_prompt: bool) -> No
         assert len(imgui.windows["Current Prompt"]) > 1
 
 
+def test_long_prompt_leaves_live_edit_overlays_visible() -> None:
+    video = torch.zeros(1, 3, 360, 320)
+    prompt = "long prompt " * 100
+    state = TaxiHudState(
+        320,
+        360,
+        _calibration(),
+        show_current_prompt=True,
+        live_edit=LiveEditConfig(coins=LiveEditCoinsConfig(enabled=True)),
+    )
+    state._menu_stage = "game"
+    state.publish(
+        build_hud_frames(
+            video,
+            (_snapshot(),),
+            np.eye(4, dtype=np.float32)[None],
+            live_edit_statuses=(
+                LiveEditHudStatus(coins_enabled=True, coins_collected=3),
+            ),
+            current_prompt=prompt,
+        )
+    )
+    state.select_presented_frame(video[0])
+    imgui = _FakeImGui()
+
+    state.draw(imgui)
+
+    prompt_bottom = (
+        imgui.window_positions["Current Prompt"][1]
+        + imgui.window_sizes["Current Prompt"][1]
+    )
+    assert len(" ".join(imgui.windows["Current Prompt"])) < len(prompt)
+    for window in ("Coin Counter", "Live Edit"):
+        assert prompt_bottom <= imgui.window_positions[window][1] < state.height
+
+
 def test_bev_compositor_uses_rgba_coverage_for_black_road_pixels() -> None:
     state = TaxiHudState(4, 4, _calibration())
     state._bev_rect = (0, 0, 4, 4)
@@ -1213,9 +1257,12 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
     state.publish(
         build_hud_frames(
             torch.zeros(1, 3, 360, 640),
-            (_snapshot(),),
+            (replace(_snapshot(), event="pickup_complete"),),
             np.eye(4, dtype=np.float32)[None],
             speeds_mps=(12.0,),
+            live_edit_statuses=(
+                LiveEditHudStatus(coins_enabled=True, coins_collected=3),
+            ),
         )
     )
     state._current = next(iter(state._frames.values()))
@@ -1242,6 +1289,11 @@ def test_live_hud_draws_directly_over_the_game_frame() -> None:
     assert "HIGH 9000" in status
     assert "27" in overlay_text
     assert "mph" in overlay_text
+    assert "PASSENGER PICKED UP" in overlay_text
+    assert "COINS 3" in " ".join(" ".join(imgui.windows["Coin Counter"]).split())
+    assert any(
+        name == "triangle_filled" for name, _ in imgui.background_draw_list.commands
+    )
 
 
 def test_free_roam_hud_has_no_objective_markers() -> None:
@@ -2296,12 +2348,26 @@ def test_race_results_card_draws_leaderboard_without_player_rank() -> None:
             [["#1", "", "0:42.345"]],
             "SAVE TIME",
         ),
+        (
+            replace(
+                _snapshot(session_state="leaderboard"),
+                leaderboard=tuple(
+                    HighScoreEntry(f"DRIVER {index}", 10_000 - index, "")
+                    for index in range(10)
+                ),
+            ),
+            [
+                [f"#{index + 1}", f"DRIVER {index}", str(10_000 - index)]
+                for index in range(10)
+            ],
+            None,
+        ),
     ],
 )
-def test_terminal_shows_pending_result_before_name_is_saved(
+def test_terminal_shows_pending_and_saved_results_within_viewport(
     snapshot: TaxiGameSnapshot | RaceGameSnapshot,
     expected_rows: list[list[str]],
-    save_label: str,
+    save_label: str | None,
 ) -> None:
     state = TaxiHudState(320, 180, _calibration())
     video = torch.zeros(1, 3, 180, 320)
@@ -2320,8 +2386,11 @@ def test_terminal_shows_pending_result_before_name_is_saved(
     rows = [[value.strip() for value in row] for row in imgui.tables["##leaderboard"]]
     assert rows == expected_rows
     assert 0.0 < imgui.table_outer_sizes["##leaderboard"][1] <= state.height
-    assert save_label in imgui.buttons
-    assert imgui.highlighted_rows == [snapshot.high_score_rank]
+    if save_label is not None:
+        assert save_label in imgui.buttons
+    assert imgui.highlighted_rows == (
+        [] if snapshot.high_score_rank is None else [snapshot.high_score_rank]
+    )
 
 
 @pytest.mark.parametrize(
