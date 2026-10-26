@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <PxPhysicsAPI.h>
+#include <cooking/PxCooking.h>
 #include <extensions/PxDefaultAllocator.h>
 #include <extensions/PxDefaultCpuDispatcher.h>
 #include <extensions/PxDefaultErrorCallback.h>
@@ -119,6 +120,8 @@ struct BarrierRecord {
     float lengthSquared = 0.0f;
     float yaw = 0.0f;
     float thickness = 0.0f;
+    float bottom = 0.0f;
+    float top = 0.0f;
     std::size_t queryOrder = 0;
 };
 
@@ -198,11 +201,59 @@ public:
 
     ~NativeScene() { close(); }
 
+    void setGroundMesh(
+        const py::array_t<float, py::array::c_style>& vertices,
+        const py::array_t<std::int32_t, py::array::c_style>& faces)
+    {
+        ensureOpen();
+        if (vertices.ndim() != 2 || vertices.shape(1) != 3 || vertices.shape(0) < 3
+            || faces.ndim() != 2 || faces.shape(1) != 3 || faces.shape(0) == 0)
+            throw std::invalid_argument("ground requires vertices [N, 3] and faces [M, 3]");
+        for (py::ssize_t i = 0; i < vertices.size(); ++i)
+            if (!std::isfinite(vertices.data()[i]))
+                throw std::invalid_argument("ground vertices must be finite");
+        for (py::ssize_t i = 0; i < faces.size(); ++i)
+            if (faces.data()[i] < 0 || faces.data()[i] >= vertices.shape(0))
+                throw std::invalid_argument("ground face index is out of range");
+
+        PxTriangleMeshDesc description;
+        description.points.count = static_cast<PxU32>(vertices.shape(0));
+        description.points.stride = 3 * sizeof(float);
+        description.points.data = vertices.data();
+        description.triangles.count = static_cast<PxU32>(faces.shape(0));
+        description.triangles.stride = 3 * sizeof(std::int32_t);
+        description.triangles.data = faces.data();
+        PxCookingParams parameters(mPhysics->getTolerancesScale());
+        PxTriangleMesh* mesh = PxCreateTriangleMesh(
+            parameters, description, mPhysics->getPhysicsInsertionCallback());
+        if (!mesh)
+            throw std::runtime_error("failed to cook ground triangle mesh");
+        PxShape* shape = mPhysics->createShape(
+            PxTriangleMeshGeometry(mesh, PxMeshScale(), PxMeshGeometryFlag::eDOUBLE_SIDED),
+            *mGroundMaterial,
+            true);
+        mesh->release();
+        if (!shape)
+            throw std::runtime_error("failed to create ground mesh shape");
+        PxRigidStatic* ground = mPhysics->createRigidStatic(PxTransform(PxIdentity));
+        if (!ground || !ground->attachShape(*shape)) {
+            if (ground)
+                ground->release();
+            shape->release();
+            throw std::runtime_error("failed to create ground mesh actor");
+        }
+        shape->release();
+        mGround->release();
+        mGround = ground;
+        mScene->addActor(*mGround);
+    }
+
     std::size_t addBody(
         std::int64_t objectId,
         const py::array_t<float, py::array::c_style>& halfExtents,
         const py::array_t<float, py::array::c_style>& chassisHalfExtents,
         const py::array_t<float, py::array::c_style>& chassisOffset,
+        const py::array_t<float, py::array::c_style>& centerOfMassOffset,
         float mass,
         float friction,
         float restitution,
@@ -233,6 +284,10 @@ public:
         const PxVec3 chassisHalf = vectorFromArray(
             chassisHalfExtents, "chassis_half_extents");
         const PxVec3 chassisCenter = vectorFromArray(chassisOffset, "chassis_offset");
+        const PxVec3 centerOfMass = vectorFromArray(
+            centerOfMassOffset, "center_of_mass_offset");
+        if (!centerOfMass.isFinite())
+            throw std::invalid_argument("center_of_mass_offset must be finite");
         if (half.x <= 0.0f || half.y <= 0.0f || half.z <= 0.0f)
             throw std::invalid_argument("half_extents must be positive");
         if (chassisHalf.x <= 0.0f || chassisHalf.y <= 0.0f || chassisHalf.z <= 0.0f)
@@ -280,6 +335,10 @@ public:
         actor->attachShape(*shape);
         shape->release();
         actor->setMass(mass);
+        // The visual body origin is not the vehicle's center of mass. Using
+        // that higher origin exaggerates the tire-force lever arm and can
+        // turn an ordinary curb rebound into a rollover.
+        actor->setCMassLocalPose(PxTransform(centerOfMass));
         actor->setMassSpaceInertiaTensor(PxVec3(
             mass * (half.y * half.y + half.z * half.z) / 3.0f,
             mass * (half.x * half.x + half.z * half.z) / 3.0f,
@@ -483,7 +542,9 @@ public:
         float thickness,
         float height,
         float friction,
-        float restitution)
+        float restitution,
+        float startHeight = 0.0f,
+        float endHeight = 0.0f)
     {
         ensureOpen();
         if (mBarriers.count(barrierId))
@@ -495,12 +556,17 @@ public:
         const float length = std::sqrt(dx * dx + dy * dy);
         if (length <= 1.0e-4f || thickness <= 0.0f || height <= 0.0f)
             throw std::invalid_argument("barrier dimensions must be positive");
+        if (!std::isfinite(startHeight) || !std::isfinite(endHeight))
+            throw std::invalid_argument("barrier heights must be finite");
+        // ponytail: Short upright boxes enclose sloped segments; exact sloping
+        // triangle-mesh walls would remove the small extra contact volume.
+        height += std::abs(endHeight - startHeight);
         const float yaw = std::atan2(dy, dx);
         const PxTransform transform(
             PxVec3(
                 (start.data()[0] + end.data()[0]) * 0.5f,
                 (start.data()[1] + end.data()[1]) * 0.5f,
-                height * 0.5f),
+                std::min(startHeight, endHeight) + height * 0.5f),
             PxQuat(yaw, PxVec3(0.0f, 0.0f, 1.0f)));
         PxMaterial* material = mPhysics->createMaterial(friction, friction, restitution);
         PxRigidStatic* actor = mPhysics->createRigidStatic(transform);
@@ -539,7 +605,9 @@ public:
                     std::max(start.data()[1], end.data()[1])),
                 length * length,
                 yaw,
-                thickness}).first->second;
+                thickness,
+                std::min(startHeight, endHeight),
+                std::min(startHeight, endHeight) + height}).first->second;
         actor->userData = &barrier;
         mBarrierQueryDirty = true;
     }
@@ -631,7 +699,7 @@ public:
                 const PxTransform actorTransform = body.actor->getGlobalPose();
                 const PxVec3 actorVelocity = body.actor->getLinearVelocity();
                 const bool overlapsEgo = actorCollisionEnabled
-                    && overlaps2d(
+                    && overlapsBounds(
                         requestedEgoPose,
                         ego.halfExtents,
                         actorTransform,
@@ -673,7 +741,8 @@ public:
                 float* output = mStates.data() + ego.slot * kStateWidth;
                 output[7] = rebound.x;
                 output[8] = rebound.y;
-                output[9] = rebound.z;
+                // Preserve the solver's vertical ground/contact response.
+                // Rebound policy only replaces planar driving velocity.
                 impact = true;
             }
             const auto readbackEnd = StepClock::now();
@@ -860,8 +929,12 @@ private:
             const float bodyRadius = std::sqrt(
                 body.halfExtents.x * body.halfExtents.x
                 + body.halfExtents.y * body.halfExtents.y) + 0.05f;
+            const float verticalRadius = verticalHalfExtent(pose, body.halfExtents);
             for (const BarrierRecord* candidate : nearbyBarriers(pose, body)) {
                 const BarrierRecord& barrier = *candidate;
+                if (pose.p.z + verticalRadius < barrier.bottom
+                    || pose.p.z - verticalRadius > barrier.top)
+                    continue;
                 const float broadPhaseRadius =
                     bodyRadius + barrier.thickness * 0.5f;
                 if (position.x < barrier.minimum.x - broadPhaseRadius
@@ -953,9 +1026,17 @@ private:
                 if (compression <= 0.0f)
                     continue;
 
-                const PxVec3 mountVelocity = PxRigidBodyExt::getVelocityAtPos(
-                    *body.actor, mount);
-                const float compressionSpeed = -mountVelocity.dot(suspensionUp);
+                const PxVec3 normal = hit.block.normal;
+                const float normalAlignment = normal.dot(suspensionUp);
+                if (normalAlignment <= 1.0e-3f)
+                    continue;
+                const PxVec3 contactVelocity = PxRigidBodyExt::getVelocityAtPos(
+                    *body.actor, hit.block.position);
+                // Differentiate the suspension ray's distance to the surface.
+                // Motion tangent to the road must not load the damper, even
+                // when the chassis is pitched or rolled relative to the road.
+                const float compressionSpeed = -contactVelocity.dot(normal)
+                    / normalAlignment;
                 const float maxWheelLoad = body.mass * 9.81f;
                 const float wheelLoad = std::clamp(
                     body.springStiffness * compression
@@ -971,7 +1052,6 @@ private:
                     mount,
                     PxForceMode::eFORCE);
 
-                const PxVec3 normal = hit.block.normal;
                 PxVec3 forward = pose.q.rotate(PxVec3(1.0f, 0.0f, 0.0f));
                 forward -= normal * forward.dot(normal);
                 if (forward.normalize() <= 1.0e-6f)
@@ -979,8 +1059,6 @@ private:
                 PxVec3 lateral = normal.cross(forward);
                 if (lateral.normalize() <= 1.0e-6f)
                     continue;
-                const PxVec3 contactVelocity = PxRigidBodyExt::getVelocityAtPos(
-                    *body.actor, hit.block.position);
                 const float longitudinalSpeed = contactVelocity.dot(forward);
                 const float lateralSpeed = contactVelocity.dot(lateral);
                 const float slipAngle = std::atan2(
@@ -1074,12 +1152,17 @@ private:
         return TrackSample{PxTransform(position, quaternion), velocity, PxVec3(0.0f)};
     }
 
-    static bool overlaps2d(
+    static bool overlapsBounds(
         const PxTransform& first,
         const PxVec3& firstHalf,
         const PxTransform& second,
         const PxVec3& secondHalf)
     {
+        if (std::abs(first.p.z - second.p.z)
+            > verticalHalfExtent(first, firstHalf) + verticalHalfExtent(second, secondHalf))
+            return false;
+        // ponytail: Impact classification uses yaw-only footprints after the
+        // height check; full OBB SAT would handle heavily tilted bodies.
         const float firstYaw = yawFromQuaternion(first.q);
         const float secondYaw = yawFromQuaternion(second.q);
         const std::array<PxVec2, 4> axes{
@@ -1267,8 +1350,12 @@ private:
         const float egoRadius = std::sqrt(
             ego.halfExtents.x * ego.halfExtents.x
             + ego.halfExtents.y * ego.halfExtents.y) + 0.05f;
+        const float verticalRadius = verticalHalfExtent(egoTransform, ego.halfExtents);
         for (const BarrierRecord* candidate : nearbyBarriers(egoTransform, ego)) {
             const BarrierRecord& barrier = *candidate;
+            if (egoTransform.p.z + verticalRadius < barrier.bottom
+                || egoTransform.p.z - verticalRadius > barrier.top)
+                continue;
             const float broadPhaseRadius = egoRadius + barrier.thickness * 0.5f;
             if (position.x < barrier.minimum.x - broadPhaseRadius
                 || position.x > barrier.maximum.x + broadPhaseRadius
@@ -1431,6 +1518,7 @@ PYBIND11_MODULE(ludus_physx_native, module)
     module.doc() = "Standalone native PhysX scene for Ludus";
     py::class_<NativeScene>(module, "NativeScene")
         .def(py::init<std::size_t>(), py::arg("capacity"))
+        .def("set_ground_mesh", &NativeScene::setGroundMesh)
         .def("add_body", &NativeScene::addBody)
         .def("set_body_track", &NativeScene::setBodyTrack)
         .def("update_body", &NativeScene::updateBody)
@@ -1440,7 +1528,11 @@ PYBIND11_MODULE(ludus_physx_native, module)
         .def("set_body_track_controls", &NativeScene::setBodyTrackControls)
         .def("set_body_track_progress", &NativeScene::setBodyTrackProgress)
         .def("remove_body", &NativeScene::removeBody)
-        .def("add_barrier", &NativeScene::addBarrier)
+        .def("add_barrier", &NativeScene::addBarrier,
+             py::arg("barrier_id"), py::arg("start"), py::arg("end"),
+             py::arg("thickness"), py::arg("height"), py::arg("friction"),
+             py::arg("restitution"), py::arg("start_height") = 0.0f,
+             py::arg("end_height") = 0.0f)
         .def("remove_barrier", &NativeScene::removeBarrier)
         .def("step", &NativeScene::step)
         .def("step_tracked", &NativeScene::stepTracked)

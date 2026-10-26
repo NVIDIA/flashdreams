@@ -15,8 +15,10 @@ import torch
 from omnidreams_game_engine.config import ChunkConfig, VehicleConfig
 from omnidreams_game_engine.contracts import GameUpdate
 from omnidreams_game_engine.engine import GameEngine
+from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
 from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
     sample_chunk_trajectory,
+    state_from_initial_pose,
 )
 from omnidreams_game_engine.simulation.game_physics import (
     GamePhysicsWorld,
@@ -149,6 +151,15 @@ def test_engine_rejects_frame_misalignment() -> None:
 
     with pytest.raises(ValueError, match="Game frames must align"):
         engine.step((DriverCommand(), DriverCommand()))
+
+
+def test_initial_state_preserves_authored_rig_attitude() -> None:
+    expected = VehicleState(2, 3, 20, 0.7, 0, 0, pitch_rad=-0.12, roll_rad=0.08)
+    pose = rig_pose_from_vehicle_state(expected)
+    actual = state_from_initial_pose(pose, expected.yaw_rad, 0)
+    assert actual.pitch_rad == pytest.approx(expected.pitch_rad)
+    assert actual.roll_rad == pytest.approx(expected.roll_rad)
+    np.testing.assert_allclose(rig_pose_from_vehicle_state(actual), pose, atol=1e-6)
 
 
 def test_trajectory_sampling_copies_slotted_start_state() -> None:

@@ -241,6 +241,25 @@ class PhysXWorld:
         """Return the stable ``[capacity, 13]`` native body-state view."""
         return self._state_buffer
 
+    def set_ground_mesh(self, vertices: np.ndarray, faces: np.ndarray) -> None:
+        """Replace the flat fallback floor with scene triangle-mesh collision.
+
+        Args:
+            vertices: Finite world coordinates shaped ``[N, 3]``.
+            faces: Integer vertex indices shaped ``[M, 3]``.
+        """
+        indices = np.asarray(faces)
+        if not np.issubdtype(indices.dtype, np.integer):
+            raise ValueError("ground face indices must be integers")
+        if indices.size and (
+            indices.min() < 0 or indices.max() > np.iinfo(np.int32).max
+        ):
+            raise ValueError("ground face index is out of range")
+        self._scene.set_ground_mesh(
+            np.ascontiguousarray(vertices, dtype=np.float32),
+            np.ascontiguousarray(indices, dtype=np.int32),
+        )
+
     @property
     def active_buffer(self) -> np.ndarray:
         """Return the stable active-slot mask paired with :attr:`state_buffer`."""
@@ -367,6 +386,12 @@ class PhysXWorld:
                 np.asarray(model.half_extents_m, dtype=np.float32),
                 np.asarray(chassis_half_extents, dtype=np.float32),
                 np.asarray(chassis_offset, dtype=np.float32),
+                np.asarray(
+                    (0.0, 0.0, 0.0)
+                    if vehicle is None
+                    else vehicle.center_of_mass_offset_m,
+                    dtype=np.float32,
+                ),
                 model.mass_kg,
                 model.friction,
                 model.restitution,
@@ -474,6 +499,8 @@ class PhysXWorld:
             barrier.height_m,
             self.ego_model.friction,
             self.ego_model.restitution,
+            barrier.start_z_m,
+            barrier.end_z_m,
         )
         self._barriers[barrier_id] = barrier
 
