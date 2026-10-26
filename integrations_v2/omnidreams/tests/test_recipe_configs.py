@@ -5,6 +5,7 @@
 
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -73,6 +74,7 @@ from omnidreams.impl.transformer import CosmosTransformerConfig
 from omnidreams.impl.vae_native import OmnidreamsWanVAEEncoderConfig
 
 from flashdreams.api_v2.application import IApplication
+from flashdreams.infra.config import derive_config
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -431,8 +433,15 @@ def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
     """Moved from apps/crazy_robotaxi/tests/test_application.py: tests that Crazy
     Robotaxi's CLI parsing correctly mutates OmniDreams's pipeline config, which
     is inherently an adapter-level (app x model) concern."""
+    preset: Any = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
     app = CrazyRobotaxiApplication(
-        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+        defaults=replace(
+            OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+            pipeline_config=derive_config(
+                preset,
+                diffusion_model={"transformer": {"compile_network": True}},
+            ),
+        ),
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: cast(Any, object()),
         native_preparer=lambda: None,
@@ -443,7 +452,6 @@ def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
             "--seed",
             "7",
             "--no-compile",
-            "--profile-pipeline",
         ],
     )
 
@@ -453,8 +461,9 @@ def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
     assert transformer.compile_network is False
     assert transformer.native_dit_acceleration == "required"
     assert transformer.skip_finalize_kv_cache is True
-    assert app._config is not None
-    assert app._config.pipeline_profiling
+    assert pipeline.diffusion_model.scheduler.denoising_timesteps == (
+        preset.diffusion_model.scheduler.denoising_timesteps
+    )
 
 
 @pytest.mark.parametrize(
