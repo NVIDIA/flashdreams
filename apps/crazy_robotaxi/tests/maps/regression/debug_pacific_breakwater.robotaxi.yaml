@@ -1,0 +1,179 @@
+# Frozen CI fixture from cfb9b170; maintained independently of playable maps.
+schema_version: 1
+id: debug-regression-pacific-breakwater
+name: Debug Pacific Breakwater
+
+compiler:
+  sample_spacing_m: 1.5
+  ground_margin_m: 35.0
+  intersection_connector_samples: 8
+
+profiles:
+  coastal_circuit:
+    lane_width_m: 4.5
+    curb_offset_m: 1.0
+    lanes: [forward, forward, forward, forward]
+    speed_limit_mps: 28.0
+    lane_marking: {style: SOLID_SINGLE, color: WHITE}
+    divider_markings:
+      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: DASHED_SINGLE, color: WHITE}
+
+# A flat, closed coastal loop. All lanes follow the race direction.
+# Road fragments describe local scenery; the runtime supplies turn and motion
+# clauses so prompts remain valid when the player stops or reverses.
+nodes:
+  - {id: timing_line, type: road_joint, pose: {x_m: 0, y_m: -160}}
+  - {id: marina_entry, type: road_joint, pose: {x_m: 300, y_m: -160}}
+  - {id: marina_exit, type: road_joint, pose: {x_m: 400, y_m: -60}}
+  - {id: headland_entry, type: road_joint, pose: {x_m: 400, y_m: 140}}
+  - {id: headland_exit, type: road_joint, pose: {x_m: 300, y_m: 240}}
+  - {id: esses_entry, type: road_joint, pose: {x_m: 140, y_m: 240}}
+  - {id: esses_exit, type: road_joint, pose: {x_m: -100, y_m: 160}}
+  - {id: cape_entry, type: road_joint, pose: {x_m: -300, y_m: 160}}
+  - {id: cape_exit, type: road_joint, pose: {x_m: -300, y_m: -160}}
+
+roads:
+  - id: pit_straight
+    from: cape_exit
+    to: timing_line
+    profile: coastal_circuit
+    prompt_context: >-
+      White pit garages with dark glass and a covered spectator stand line
+      the inland edge of the straight. Turquoise water and a stone breakwater
+      sit beyond the seaward fence. Palms rise behind the garages, and
+      the broad asphalt straight remains clear all the way to the horizon.
+
+  - id: breakwater_run
+    from: timing_line
+    to: marina_entry
+    profile: coastal_circuit
+    prompt_context: >-
+      The open waterfront straight runs beside pale breakwater boulders and
+      turquoise water beyond the safety fence. Low white paddock buildings
+      and scattered palms continue along the inland edge; a small white
+      lighthouse marks the distant harbor mouth.
+
+  - id: marina_bend
+    from: marina_entry
+    to: marina_exit
+    profile: coastal_circuit
+    speed_limit_mps: 22.0
+    prompt_context: >-
+      Slender sailboat masts and low white marina sheds rise beyond the
+      outer safety fence. Pale concrete barriers follow the asphalt edge,
+      with small groups of spectators on the protected harbor promenade.
+    bezier:
+      - control_points: [{x_m: 355, y_m: -160}, {x_m: 400, y_m: -115}]
+        end: {x_m: 400, y_m: -60}
+
+  - id: harbor_straight
+    from: marina_exit
+    to: headland_entry
+    profile: coastal_circuit
+    prompt_context: >-
+      Weathered timber boat sheds and neatly stacked sailing dinghies
+      stand beyond the fence along the harbor straight. A low sandstone
+      bluff and wind-shaped pines form the background.
+
+  - id: headland_sweeper
+    from: headland_entry
+    to: headland_exit
+    profile: coastal_circuit
+    speed_limit_mps: 22.0
+    prompt_context: >-
+      Honey-colored sandstone outcrops and sparse coastal grass border
+      the fenced circuit. Wind-shaped pines stand beyond the barriers,
+      with blue sea visible through gaps between the trees.
+    bezier:
+      - control_points: [{x_m: 400, y_m: 195}, {x_m: 355, y_m: 240}]
+        end: {x_m: 300, y_m: 240}
+
+  - id: pine_straight
+    from: headland_exit
+    to: esses_entry
+    profile: coastal_circuit
+    prompt_context: >-
+      A low grove of wind-shaped pines borders the level straight.
+      Sandstone retaining walls sit behind the white barriers, and
+      patches of coastal grass alternate with gravel runoff.
+
+  - id: coastal_esses
+    from: esses_entry
+    to: esses_exit
+    profile: coastal_circuit
+    speed_limit_mps: 20.0
+    prompt_context: >-
+      Close white barriers trace the asphalt through low coastal scrub.
+      Pale gravel runoff and rounded sandstone rocks fill the spaces
+      outside the track, with the same pine grove visible beyond the fence.
+    bezier:
+      - control_points: [{x_m: 80, y_m: 240}, {x_m: 80, y_m: 200}]
+        end: {x_m: 20, y_m: 200}
+      - control_points: [{x_m: -40, y_m: 200}, {x_m: -40, y_m: 160}]
+        end: {x_m: -100, y_m: 160}
+
+  - id: ocean_straight
+    from: esses_exit
+    to: cape_entry
+    profile: coastal_circuit
+    prompt_context: >-
+      The exposed ocean straight has uninterrupted blue water beyond
+      the outer catch fence. Coastal grass, a low stone lookout and
+      a few wind-shaped pines occupy the landward side of the track.
+
+  - id: cape_hairpin
+    from: cape_entry
+    to: cape_exit
+    profile: coastal_circuit
+    speed_limit_mps: 23.0
+    prompt_context: >-
+      The circuit wraps around a grassy coastal cape above dark shoreline
+      rocks. White concrete barriers and catch fencing trace the full bend;
+      a small sheltered spectator terrace overlooks the open water.
+    bezier:
+      - control_points: [{x_m: -388, y_m: 160}, {x_m: -460, y_m: 88}]
+        end: {x_m: -460, y_m: 0}
+      - control_points: [{x_m: -460, y_m: -88}, {x_m: -388, y_m: -160}]
+        end: {x_m: -300, y_m: -160}
+
+traffic_count: 0
+
+race_courses:
+  - id: coastal-sprint
+    spawn: pit_start
+    start: timing_line
+    checkpoints: &coastal_checkpoints
+      - breakwater_run
+      - marina_bend
+      - harbor_straight
+      - headland_sweeper
+      - pine_straight
+      - coastal_esses
+      - ocean_straight
+      - cape_hairpin
+      - pit_straight
+    lap_count: 1
+    checkpoint_markers: true
+  - id: coastal-grand-prix
+    spawn: pit_start
+    start: timing_line
+    checkpoints: *coastal_checkpoints
+    lap_count: 3
+    checkpoint_markers: true
+
+spawns:
+  - id: pit_start
+    road: pit_straight
+    lane: 2
+    distance_m: 250
+    image: debug_pacific_breakwater_initial_frame.png
+    prompt: >-
+      Onboard footage of a taxi driving through a coastal motor-racing circuit. Pit
+      garages, spectator stands, palms, marina buildings, a lighthouse, stone
+      breakwaters and rocky headlands. Asphalt, concrete barriers and catch fences.
+      Car hood visible. The view follows the steering and movement of the car.
+    prompt_context: >-
+      Onboard footage of a taxi driving through a coastal motor-racing circuit. Car
+      hood visible. The view follows the steering and movement of the car.
