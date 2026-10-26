@@ -55,6 +55,7 @@ from crazy_robotaxi.settings import (
     normalize_settings,
     options_documentation,
     presentation_resolution_wh,
+    settings_to_dict,
 )
 from crazy_robotaxi.ui import bev_display_extent
 from flashdreams.api_v2.application import IApplication
@@ -224,6 +225,7 @@ class CrazyRobotaxiApplication(IApplication):
         self._pipeline: Any | None = None
         self._scenes: dict[SceneRequest, SceneDefinition] = {}
         self._config: ApplicationConfig | None = None
+        self._capture_settings: dict[str, object] = {}
         self._map_options: tuple[GameMapOption, ...] = ()
         self._allow_exit = True
 
@@ -361,6 +363,20 @@ class CrazyRobotaxiApplication(IApplication):
         native_dit_disabled_for_live_edit = configured_pipeline is not pipeline_config
         pipeline_config = configured_pipeline
         live_edit = resolve_live_edit_assets(settings.live_edit)
+        self._capture_settings = (
+            {
+                "schema_version": 1,
+                **settings_to_dict(
+                    replace(
+                        settings,
+                        model=replace(settings.model, pipeline=pipeline_config),
+                        live_edit=live_edit,
+                    )
+                ),
+            }
+            if driving_script is not None
+            else {}
+        )
         self._pipeline_config = pipeline_config
         self._config = ApplicationConfig(
             scene_request=SceneRequest(
@@ -664,6 +680,7 @@ class CrazyRobotaxiApplication(IApplication):
                                 "model_preset": config.model_preset_name,
                                 "model_seed": pipeline_config.diffusion_model.seed,
                                 "game_seed": config.game.seed,
+                                "settings": self._capture_settings,
                                 "map_source": cast(
                                     Path, config.initial_map_path
                                 ).read_text(encoding="utf-8"),

@@ -1170,6 +1170,7 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     import json
 
     from crazy_robotaxi.debug import RobotaxiDebugWindow
+    from crazy_robotaxi.settings import SettingsDocument
     from omnidreams_game_engine.types import VehicleState
     from PIL import Image
 
@@ -1178,6 +1179,11 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     script = tmp_path / "drive.yaml"
     script.write_text(
         "steps:\n  - {frames: 3, throttle: 0.5}\n  - {frames: 4, steer: -0.5}\n"
+    )
+    (tmp_path / "settings.yaml").write_text(
+        "game:\n  taxi:\n    vehicle: {max_speed_mps: 17}\n"
+        "    rules: {global_time_s: 180}\n"
+        "live_edit:\n  items: {nitro_duration_s: 2.5}\n"
     )
     snapshot: TaxiGameSnapshot | RaceGameSnapshot | FreeRoamSnapshot = TaxiGameSnapshot(
         phase="seeking_pickup",
@@ -1310,6 +1316,8 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         [
             "--device",
             "cpu",
+            "--game-time-s",
+            "140",
             "--game-mode",
             game_mode,
             "--map",
@@ -1365,6 +1373,19 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     if terminal_frame is not None and terminal_frame < 7:
         assert records[-1]["game"]["session_state"] == "awaiting_name"
     assert manifest["model_preset"] == _STUB_PIPELINE_CONFIG.name
+    captured_settings = window.directory / "inputs/settings.yaml"
+    assert json.loads(captured_settings.read_text()) == manifest["settings"]
+    restored = SettingsDocument.load(
+        captured_settings,
+        pipeline_config=_STUB_PIPELINE_CONFIG,
+        width=8,
+        height=4,
+    ).settings
+    assert restored.game.taxi.vehicle.max_speed_mps == 17
+    assert restored.game.taxi.rules.global_time_s == 140
+    assert restored.live_edit.items.nitro_duration_s == 2.5
+    assert restored.model.device == "cpu"
+    assert restored.runtime.prewarm_blocks == 0
     assert (
         window.directory / "inputs" / _RACE_MAP.name
     ).read_text() == _RACE_MAP.read_text()
