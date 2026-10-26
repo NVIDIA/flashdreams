@@ -3,8 +3,8 @@
 
 """Elevation of node-graph road geometry and its continuous ground mesh."""
 
-from dataclasses import replace
 from collections.abc import Iterator
+from dataclasses import replace
 
 import numpy as np
 import shapely
