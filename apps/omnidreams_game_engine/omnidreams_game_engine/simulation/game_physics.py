@@ -886,6 +886,14 @@ class GamePhysicsWorld:
             timestamp_us,
             dt_s,
         )
+        # Preserve the native body before gameplay adds curb rebound or ground snap.
+        ego = physics_step.ego
+        self._last_debug_ego = BodyState(
+            position_m=ego.position_m.copy(),
+            orientation_xyzw=ego.orientation_xyzw.copy(),
+            linear_velocity_mps=ego.linear_velocity_mps.copy(),
+            angular_velocity_radps=ego.angular_velocity_radps.copy(),
+        )
         barrier_rebound_started_at = time.perf_counter()
         self.last_step_static_barrier_collision = False
         if self._static_barrier_restitution is not None:
@@ -1027,13 +1035,6 @@ class GamePhysicsWorld:
         self._detached_entity_ids = detached_ids
 
         ego = physics_step.ego
-        # Preserve observations independently of gameplay policy and ground snap.
-        self._last_debug_ego = BodyState(
-            position_m=ego.position_m.copy(),
-            orientation_xyzw=ego.orientation_xyzw.copy(),
-            linear_velocity_mps=ego.linear_velocity_mps.copy(),
-            angular_velocity_radps=ego.angular_velocity_radps.copy(),
-        )
         yaw = _yaw_from_quaternion_xyzw(ego.orientation_xyzw)
         collision_response_active = (
             physics_step.impact
