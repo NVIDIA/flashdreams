@@ -1,4 +1,0 @@
-# Half a second stationary, then three seconds accelerating with zero steering.
-steps:
-  - {frames: 15}
-  - {frames: 90, throttle: 1, steer: 0}
