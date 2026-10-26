@@ -1,0 +1,261 @@
+# Frozen CI fixture from cfb9b170; maintained independently of playable maps.
+schema_version: 1
+id: debug-regression-mesa-gardens
+name: Debug Mesa Gardens
+compiler:
+  sample_spacing_m: 2.0
+  ground_margin_m: 25.0
+  intersection_connector_samples: 8
+profiles:
+  avenue:
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
+    lanes:
+    - backward
+    - backward
+    - forward
+    - forward
+    speed_limit_mps: 14.0
+    lane_marking:
+      style: SOLID_SINGLE
+      color: WHITE
+    divider_markings:
+    - style: DASHED_SINGLE
+      color: WHITE
+    - style: SOLID_GROUP
+      color: YELLOW
+    - style: DASHED_SINGLE
+      color: WHITE
+  street:
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
+    lanes:
+    - backward
+    - forward
+    speed_limit_mps: 9.0
+    lane_marking:
+      style: SOLID_SINGLE
+      color: WHITE
+    divider_markings:
+    - style: SOLID_GROUP
+      color: YELLOW
+nodes:
+- id: west_gate
+  type: intersection
+  pose:
+    x_m: -300
+    y_m: 0
+- id: south_gate
+  type: intersection
+  pose:
+    x_m: 60
+    y_m: -280
+- id: east_gate
+  type: intersection
+  pose:
+    x_m: 400
+    y_m: 80
+- id: north_gate
+  type: intersection
+  pose:
+    x_m: -80
+    y_m: 280
+- id: garden_square
+  type: intersection
+  pose:
+    x_m: 60
+    y_m: 0
+- id: resort_driveway
+  type: driveway
+  pose:
+    x_m: 210
+    y_m: 0
+- id: south_terminal
+  type: cul_de_sac
+  pose:
+    x_m: 60
+    y_m: -420
+  culdesac_radius_m: 11
+- id: north_terminal
+  type: cul_de_sac
+  pose:
+    x_m: -80
+    y_m: 420
+  culdesac_radius_m: 11
+- id: resort_court
+  type: parking_lot
+  connected_to: resort_driveway
+  opening_vertex: 2
+  vertices:
+  - x_m: 180
+    y_m: -30
+  - x_m: 204
+    y_m: -30
+  - x_m: 216
+    y_m: -30
+  - x_m: 240
+    y_m: -30
+  - x_m: 240
+    y_m: -80
+  - x_m: 180
+    y_m: -80
+  prompt_context: A paved visitor parking court sits behind low buildings, with an open driveway connecting
+    it to the street.
+roads:
+- id: garden_ring_0
+  from: west_gate
+  to: south_gate
+  profile: avenue
+  prompt_context: Low adobe villas and garden walls line a gently curving desert avenue. Date palms
+    rise behind xeriscaped gardens. An open southern avenue passes a terracotta-roofed hotel and gardens
+    of agave, gravel and desert shrubs.
+  bezier:
+  - control_points:
+    - x_m: -280.0
+      y_m: -66.667
+    - x_m: -260.0
+      y_m: -173.333
+    end:
+      x_m: -200
+      y_m: -220
+  - control_points:
+    - x_m: -140.0
+      y_m: -266.667
+    - x_m: -26.667
+      y_m: -286.667
+    end:
+      x_m: 60
+      y_m: -280
+- id: garden_ring_2
+  from: south_gate
+  to: east_gate
+  profile: avenue
+  prompt_context: Cream stucco resort buildings stand behind low walls, with palms and flowering bougainvillea
+    along the sidewalk. A broad eastern avenue borders a cactus garden and low sandstone outcrops, with
+    distant rust-colored mesas above the roofs.
+  bezier:
+  - control_points:
+    - x_m: 146.667
+      y_m: -273.333
+    - x_m: 263.333
+      y_m: -240.0
+    end:
+      x_m: 320
+      y_m: -180
+  - control_points:
+    - x_m: 376.667
+      y_m: -120.0
+    - x_m: 420.0
+      y_m: 6.667
+    end:
+      x_m: 400
+      y_m: 80
+- id: garden_ring_4
+  from: east_gate
+  to: north_gate
+  profile: avenue
+  prompt_context: A modern low-rise wellness center and palm gardens border the northeastern avenue. A
+    quiet northern avenue passes a botanical visitor center and landscaped desert gardens.
+  bezier:
+  - control_points:
+    - x_m: 380.0
+      y_m: 153.333
+    - x_m: 280.0
+      y_m: 226.667
+    end:
+      x_m: 200
+      y_m: 260
+  - control_points:
+    - x_m: 120.0
+      y_m: 293.333
+    - x_m: 6.667
+      y_m: 293.333
+    end:
+      x_m: -80
+      y_m: 280
+- id: garden_ring_6
+  from: north_gate
+  to: west_gate
+  profile: avenue
+  prompt_context: Flat-roofed adobe houses and covered arcades sit behind low garden walls along the northern
+    curve. Date palms and landscaped hotel entrances border the western avenue, with pale desert mountains
+    in the distance.
+  bezier:
+  - control_points:
+    - x_m: -166.667
+      y_m: 266.667
+    - x_m: -283.333
+      y_m: 226.667
+    end:
+      x_m: -320
+      y_m: 180
+  - control_points:
+    - x_m: -356.667
+      y_m: 133.333
+    - x_m: -320.0
+      y_m: 66.667
+    end:
+      x_m: -300
+      y_m: 0
+- id: palm_avenue
+  from: west_gate
+  to: garden_square
+  profile: avenue
+  prompt_context: Tall date palms line a broad avenue between cream stucco shops, terracotta arcades and
+    low adobe garden walls. Bougainvillea and desert planting frame the sidewalks; distant mesas rise
+    above the roofs.
+- id: resort_avenue_west
+  from: garden_square
+  to: resort_driveway
+  profile: avenue
+  prompt_context: A covered shopping arcade and low resort buildings face palm-lined pavements. An open
+    visitor parking court sits behind the hotels.
+- id: resort_avenue_east
+  from: resort_driveway
+  to: east_gate
+  profile: avenue
+  prompt_context: A palm-lined resort avenue passes cream stucco villas and well-kept desert gardens.
+  path:
+  - x_m: 315
+    y_m: 10
+- id: botanical_link
+  from: garden_square
+  to: north_gate
+  profile: street
+  prompt_context: A quieter neighborhood street passes low adobe houses, garden walls and small
+    courtyards.
+  path:
+  - x_m: -45
+    y_m: 145
+- id: south_garden_link
+  from: south_gate
+  to: garden_square
+  profile: street
+  prompt_context: The local garden street passes a community courtyard, a small library and adobe homes
+    with covered porches.
+- id: spa_approach
+  from: south_terminal
+  to: south_gate
+  profile: street
+  prompt_context: A small spa hotel and landscaped arrival court stand beside a quiet local approach.
+- id: museum_approach
+  from: north_gate
+  to: north_terminal
+  profile: street
+  prompt_context: A low sandstone museum and desert botanical visitor center stand beside a quiet local
+    approach.
+traffic_count: 28
+spawns:
+- id: palm_start
+  road: palm_avenue
+  lane: 2
+  distance_m: 60
+  prompt: >-
+    Onboard footage of a taxi driving through a desert resort town. Cream stucco shops,
+    terracotta arcades, adobe garden walls, resort hotels and mesas. Date palms,
+    bougainvillea, agave and gravel gardens. Asphalt, concrete curbs and sidewalks.
+    Car hood visible. The view follows the steering and movement of the car.
+  prompt_context: >-
+    Onboard footage of a taxi driving through a desert resort town. Car hood
+    visible. The view follows the steering and movement of the car.
+  image: debug_mesa_gardens_initial_frame.png
