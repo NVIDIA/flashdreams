@@ -19,7 +19,8 @@ profiles:
       - {style: DASHED_SINGLE, color: WHITE}
       - {style: DASHED_SINGLE, color: WHITE}
 
-# A flat, closed coastal loop. All lanes follow the race direction.
+# The western cape rises behind the starting camera; the starting view stays flat.
+# All lanes follow the race direction.
 # Road fragments describe local scenery; the runtime supplies turn and motion
 # clauses so prompts remain valid when the player stops or reverses.
 nodes:
@@ -30,7 +31,7 @@ nodes:
   - {id: headland_exit, type: road_joint, pose: {x_m: 300, y_m: 240}}
   - {id: esses_entry, type: road_joint, pose: {x_m: 140, y_m: 240}}
   - {id: esses_exit, type: road_joint, pose: {x_m: -100, y_m: 160}}
-  - {id: cape_entry, type: road_joint, pose: {x_m: -300, y_m: 160}}
+  - {id: cape_entry, type: road_joint, pose: {x_m: -300, y_m: 160, z_m: 12}}
   - {id: cape_exit, type: road_joint, pose: {x_m: -300, y_m: -160}}
 
 roads:

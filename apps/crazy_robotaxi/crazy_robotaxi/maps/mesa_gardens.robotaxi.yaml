@@ -75,11 +75,18 @@ nodes:
     x_m: 60
     y_m: -420
   culdesac_radius_m: 11
+- id: museum_landing
+  type: road_joint
+  pose:
+    x_m: -80
+    y_m: 340
+# The climb starts beyond the starting camera's left edge; the avenues stay flat.
 - id: north_terminal
   type: cul_de_sac
   pose:
     x_m: -80
     y_m: 420
+    z_m: 4
   culdesac_radius_m: 11
 - id: resort_court
   type: parking_lot
@@ -239,6 +246,12 @@ roads:
   prompt_context: A small spa hotel and landscaped arrival court stand beside a quiet local approach.
 - id: museum_approach
   from: north_gate
+  to: museum_landing
+  profile: street
+  prompt_context: A low sandstone museum and desert botanical visitor center stand beside a quiet local
+    approach.
+- id: museum_climb
+  from: museum_landing
   to: north_terminal
   profile: street
   prompt_context: A low sandstone museum and desert botanical visitor center stand beside a quiet local

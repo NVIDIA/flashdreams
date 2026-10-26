@@ -99,11 +99,13 @@ nodes:
   pose:
     x_m: 480
     y_m: 180
+# The ferry terrace rises behind the starting camera; the market avenue stays flat.
 - id: ferry_terminal
   type: cul_de_sac
   pose:
     x_m: -400
     y_m: 0
+    z_m: 6
   culdesac_radius_m: 15
   prompt_context: A low ferry terminal and a glass passenger shelter face the harbor beyond the turnaround.
 - id: market_driveway
