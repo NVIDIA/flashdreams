@@ -1193,7 +1193,7 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     elif game_mode == "race":
         snapshot = RaceGameSnapshot(
             map_id="test",
-            course_id="grand-prix",
+            course_id="test-loop",
             session_state="racing",
             target_kind="checkpoint",
             target_element_id="finish",
@@ -1313,8 +1313,8 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
             "--game-mode",
             game_mode,
             "--map",
-            str(_DEMO_RACE_MAP),
-            *(["--race-course", "grand-prix"] if game_mode == "race" else []),
+            str(_RACE_MAP),
+            *(["--race-course", "test-loop"] if game_mode == "race" else []),
             "--drive-script",
             str(script),
             "--config",
@@ -1366,8 +1366,8 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         assert records[-1]["game"]["session_state"] == "awaiting_name"
     assert manifest["model_preset"] == _STUB_PIPELINE_CONFIG.name
     assert (
-        window.directory / "inputs" / _DEMO_RACE_MAP.name
-    ).read_text() == _DEMO_RACE_MAP.read_text()
+        window.directory / "inputs" / _RACE_MAP.name
+    ).read_text() == _RACE_MAP.read_text()
     from crazy_robotaxi.driving_script import load_driving_script
 
     captured_script = load_driving_script(window.directory / "inputs/drive.yaml")
@@ -1389,9 +1389,9 @@ def test_scripted_headless_startup_requires_complete_cli_selection(
         "--game-mode",
         "race",
         "--map",
-        str(_DEMO_RACE_MAP),
+        str(_RACE_MAP),
         "--race-course",
-        "grand-prix",
+        "test-loop",
     ]
     index = arguments.index(missing)
     del arguments[index : index + 2]
