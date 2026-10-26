@@ -644,7 +644,10 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 game_ended = False
                 for index, frame in enumerate(game_frames[:valid_count]):
                     if (
-                        cast(TaxiGameSnapshot | RaceGameSnapshot, frame).session_state
+                        cast(
+                            TaxiGameSnapshot | RaceGameSnapshot | FreeRoamSnapshot,
+                            frame,
+                        ).session_state
                         not in active_states
                     ):
                         valid_count = index + 1
@@ -682,7 +685,9 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                             "physics_colliders": asdict(physics),
                             "game": asdict(
                                 cast(
-                                    TaxiGameSnapshot | RaceGameSnapshot,
+                                    TaxiGameSnapshot
+                                    | RaceGameSnapshot
+                                    | FreeRoamSnapshot,
                                     game_frames[index],
                                 )
                             ),
