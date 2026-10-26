@@ -12,9 +12,10 @@ from pathlib import Path
 from omnidreams_game_engine.game_map import (
     compile_game_map,
     load_game_map,
-    write_game_map_preview,
-    write_spawn_first_frame_preview,
 )
+
+from omnidreams_game_engine_tools.preview import write_game_map_preview
+from omnidreams_game_engine_tools.spawn_preview import write_spawn_first_frame_preview
 
 
 def main(argv: Sequence[str] | None = None) -> None:

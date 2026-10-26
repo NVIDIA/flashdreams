@@ -22,6 +22,7 @@ conflicts = [[
 [manifest]
 members = [
     "crazy-robotaxi",
+    "crazy-robotaxi-tools",
     "flashdreams",
     "flashdreams-action2v",
     "flashdreams-cam2v",
@@ -53,6 +54,7 @@ members = [
     "flashdreams-waypoint",
     "ludus-renderer",
     "omnidreams-game-engine",
+    "omnidreams-game-engine-tools",
 ]
 overrides = [
     { name = "anyio", specifier = ">=4.14.2" },
@@ -472,6 +474,21 @@ requires-dist = [
     { name = "torch" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "crazy-robotaxi-tools"
+version = "0.2.0"
+source = { editable = "apps/crazy_robotaxi_tools" }
+dependencies = [
+    { name = "crazy-robotaxi" },
+    { name = "omnidreams-game-engine-tools" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "crazy-robotaxi", editable = "apps/crazy_robotaxi" },
+    { name = "omnidreams-game-engine-tools", editable = "apps/omnidreams_game_engine_tools" },
+]
 
 [[package]]
 name = "cryptography"
@@ -2749,6 +2766,17 @@ requires-dist = [
     { name = "torch" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "omnidreams-game-engine-tools"
+version = "0.2.0"
+source = { editable = "apps/omnidreams_game_engine_tools" }
+dependencies = [
+    { name = "omnidreams-game-engine" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "omnidreams-game-engine", editable = "apps/omnidreams_game_engine" }]
 
 [[package]]
 name = "onnx"

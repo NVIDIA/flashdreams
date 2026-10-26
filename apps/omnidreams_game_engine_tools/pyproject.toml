@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omnidreams-game-engine-tools"
+version = "0.2.0"
+description = "Offline map preview tools for Omnidreams Game Engine"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = ["omnidreams-game-engine"]
+
+[tool.uv.sources]
+omnidreams-game-engine = { workspace = true }
+
+[tool.setuptools.packages.find]
+include = ["omnidreams_game_engine_tools*"]

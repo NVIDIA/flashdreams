@@ -31,7 +31,7 @@ owns the model and UI loops, threads, client windows, and presentation.
 
 | Module | Provides |
 | --- | --- |
-| `game_map/` | Strict map loading, road-graph resolution, scene compilation, traffic routes, SVG previews, and first-frame spawn previews. |
+| `game_map/` | Strict map loading, road-graph resolution, scene compilation, traffic routes, and runtime first-frame fallback rendering. |
 | `scene_loader.py` | Load compiled scene archives, camera calibration, initial images, prompts, and geometry. |
 | `simulation/` | Vehicle kinematics, PhysX integration, ground snapping, traffic control, and simulation components. |
 | `conditioning.py` | `LudusConditionRenderer`, including main-camera HD-map conditioning and a top-down view. |
@@ -50,7 +50,8 @@ for a selected spawn and caches it under
 Spawn images can be map-relative files or `package://package/resource`
 references. If a spawn omits its image, the compiler generates a deterministic
 first-person road preview as the initial image. Map validation, compilation,
-and previews run without a world model or GPU. The `crazy-robotaxi-map` command
+and previews run without a world model or GPU. The `crazy-robotaxi-map` command in
+[`crazy-robotaxi-tools`](../crazy_robotaxi_tools/README.md)
 belongs to the Crazy Robotaxi package; see its
 [map commands](../crazy_robotaxi/README.md#authored-maps) for runnable examples.
 

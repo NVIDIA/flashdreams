@@ -296,11 +296,11 @@ without loading a model:
 
 ```bash
 
-uv run --package crazy-robotaxi crazy-robotaxi-map validate path/to/city.robotaxi.yaml
-uv run --package crazy-robotaxi crazy-robotaxi-map compile path/to/city.robotaxi.yaml
-uv run --package crazy-robotaxi crazy-robotaxi-map preview \
+uv run --package crazy-robotaxi-tools crazy-robotaxi-map validate path/to/city.robotaxi.yaml
+uv run --package crazy-robotaxi-tools crazy-robotaxi-map compile path/to/city.robotaxi.yaml
+uv run --package crazy-robotaxi-tools crazy-robotaxi-map preview \
   path/to/city.robotaxi.yaml --output city.svg
-uv run --package crazy-robotaxi crazy-robotaxi-map preview-spawn \
+uv run --package crazy-robotaxi-tools crazy-robotaxi-map preview-spawn \
   path/to/city.robotaxi.yaml --spawn taxi_start --output taxi_start.png
 
 ```

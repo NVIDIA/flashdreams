@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -13,12 +14,19 @@ import numpy as np
 from omnidreams_game_engine.game_map.loader import load_game_map
 
 
-def _points(points: np.ndarray, transform: object) -> str:
+def _points(
+    points: np.ndarray, transform: Callable[[np.ndarray], tuple[float, float]]
+) -> str:
     convert = transform
     return " ".join(f"{x:.2f},{y:.2f}" for x, y in (convert(point) for point in points))
 
 
-def _label(text: str, point: np.ndarray, transform: object, color: str) -> str:
+def _label(
+    text: str,
+    point: np.ndarray,
+    transform: Callable[[np.ndarray], tuple[float, float]],
+    color: str,
+) -> str:
     x, y = transform(point)
     return (
         f'<text x="{x + 3.0:.2f}" y="{y - 3.0:.2f}" fill="{color}" '
