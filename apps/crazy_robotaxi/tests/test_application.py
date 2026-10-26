@@ -2024,3 +2024,25 @@ def test_no_traffic_flag_rejects_native_mode_before_preparation(tmp_path):
         ValueError, match="--debug-no-traffic requires --mode robotaxi-debug"
     ):
         app.init(["--config", str(tmp_path / "settings.yaml"), "--debug-no-traffic"])
+
+
+def test_input_windows_compensate_slow_chunks_without_startup_or_reset_debt() -> None:
+    state = ModelState(
+        pipeline_factory=lambda: None,
+        scene_factory=lambda *args: _scene(),
+        config=cast(Any, SimpleNamespace(controls=ControlsConfig())),
+        session_desc=cast(Any, SimpleNamespace(frames_per_second_for_step=30)),
+        driver_input=DriverInput(),
+        ui_loop=cast(Any, None),
+    )
+    first = state.next_input_window(5, (), now_s=1000)
+    assert first.end_s - first.start_s == pytest.approx(5 / 30)
+    slow = state.next_input_window(8, (), now_s=1000.4)
+    assert slow.end_s - slow.start_s == pytest.approx(0.4)
+    assert np.diff((slow.start_s, *slow.sample_times_s)) == pytest.approx([0.05] * 8)
+    fast = state.next_input_window(8, (), now_s=1000.5)
+    assert fast.end_s - fast.start_s == pytest.approx(8 / 30)
+    state.reset()
+    reset = state.next_input_window(5, (), now_s=2000)
+    assert reset.end_s - reset.start_s == pytest.approx(5 / 30)
+    assert reset.start_s == 0
