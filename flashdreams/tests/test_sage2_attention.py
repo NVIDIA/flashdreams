@@ -203,12 +203,17 @@ def test_context_parallel_sage2_ring_waits_for_kv_and_requests_lse(
     )
     attention.device_mesh = cast(Any, _FakeDeviceMesh())
     query = torch.randn(1, 5, 4, 16)
+    key = torch.randn(1, 7, 4, 16)
+    value = torch.randn_like(key)
 
-    output = attention(query, query, query)
+    output = attention(query, key, value)
 
     assert output.shape == query.shape
     assert events == ["gather", "sage", "wait", "sage"]
     assert len(fake_sage2) == 2
+    assert all(call["query"].shape == (1, 4, 5, 16) for call in fake_sage2)
+    assert all(call["key"].shape == (1, 4, 7, 16) for call in fake_sage2)
+    assert all(call["value"].shape == (1, 4, 7, 16) for call in fake_sage2)
     assert all(call["tensor_layout"] == "HND" for call in fake_sage2)
     assert all(call["return_lse"] is True for call in fake_sage2)
 
@@ -224,12 +229,16 @@ def test_context_parallel_sage2_ulysses_uses_hnd(
     )
     attention.device_mesh = cast(Any, _FakeDeviceMesh())
     query = torch.randn(1, 5, 4, 16)
+    key = torch.randn(1, 7, 4, 16)
+    value = torch.randn_like(key)
 
-    output = attention(query, query, query)
+    output = attention(query, key, value)
 
     assert output.shape == query.shape
     assert len(fake_sage2) == 1
     assert fake_sage2[0]["query"].shape == (1, 2, 10, 16)
+    assert fake_sage2[0]["key"].shape == (1, 2, 14, 16)
+    assert fake_sage2[0]["value"].shape == (1, 2, 14, 16)
     assert fake_sage2[0]["tensor_layout"] == "HND"
     assert fake_sage2[0]["return_lse"] is False
 

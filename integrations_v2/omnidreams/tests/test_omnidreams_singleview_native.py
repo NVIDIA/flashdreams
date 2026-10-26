@@ -1134,8 +1134,19 @@ def test_optimized_dit_default_attention_backend_uses_cudnn(
 
 
 @pytest.mark.ci_cpu
-def test_optimized_dit_explicit_sage2_resolves_for_fp8_native_backend(
+@pytest.mark.parametrize(
+    ("head_dim", "expected_error"),
+    (
+        (64, None),
+        (128, None),
+        (96, "requires head_dim=64 or 128"),
+    ),
+    ids=("d64", "d128", "unsupported-d96"),
+)
+def test_optimized_dit_explicit_sage2_validates_head_dim(
     monkeypatch: pytest.MonkeyPatch,
+    head_dim: int,
+    expected_error: str | None,
 ) -> None:
     optimized_dit = native.load_python_module("optimized_dit")
     monkeypatch.setattr(
@@ -1148,7 +1159,7 @@ def test_optimized_dit_explicit_sage2_resolves_for_fp8_native_backend(
             network=SimpleNamespace(
                 num_blocks=28,
                 num_heads=16,
-                model_channels=2048,
+                model_channels=16 * head_dim,
                 adaln_lora_dim=256,
                 timestep_scale=0.001,
             ),
@@ -1170,9 +1181,13 @@ def test_optimized_dit_explicit_sage2_resolves_for_fp8_native_backend(
         dit_backend="fp8_kvcache_cudnn",
         attention_backend="sage2",
     )
-    executor._resolve_runtime_attention_backend(torch.device("cuda:0"))
 
-    assert executor._attention_backend == "sage2"
+    if expected_error is None:
+        executor._resolve_runtime_attention_backend(torch.device("cuda:0"))
+        assert executor._attention_backend == "sage2"
+    else:
+        with pytest.raises(ValueError, match=expected_error):
+            executor._resolve_runtime_attention_backend(torch.device("cuda:0"))
 
 
 @pytest.mark.ci_cpu
@@ -1459,22 +1474,49 @@ def test_cuda_native_extension_builds(tmp_path: Path) -> None:
     assert descriptor["nbytes"] == transposed.numel() * transposed.element_size()
 
     if extension.sage2_is_built() and extension.sage2_is_runtime_supported(0):
-        q = torch.randn((1, 256, 4, 128), device="cuda", dtype=torch.bfloat16)
-        k = torch.randn((1, 1024, 4, 128), device="cuda", dtype=torch.bfloat16)
-        v = torch.randn_like(k)
-        actual = extension.sage2_test_attention(q, k, v, False)
-        expected = torch.nn.functional.scaled_dot_product_attention(
-            q.transpose(1, 2),
-            k.transpose(1, 2),
-            v.transpose(1, 2),
-        ).transpose(1, 2)
-        torch.cuda.synchronize()
-        cosine = torch.nn.functional.cosine_similarity(
-            actual.float().flatten(),
-            expected.float().flatten(),
-            dim=0,
+        for query_length, key_value_length, head_dim in (
+            (129, 257, 64),
+            (256, 1024, 128),
+        ):
+            q = torch.randn(
+                (1, query_length, 4, head_dim),
+                device="cuda",
+                dtype=torch.bfloat16,
+            )
+            k = torch.randn(
+                (1, key_value_length, 4, head_dim),
+                device="cuda",
+                dtype=torch.bfloat16,
+            )
+            v = torch.randn_like(k)
+            actual = extension.sage2_test_attention(q, k, v, False)
+            expected = torch.nn.functional.scaled_dot_product_attention(
+                q.transpose(1, 2),
+                k.transpose(1, 2),
+                v.transpose(1, 2),
+            ).transpose(1, 2)
+            torch.cuda.synchronize()
+            cosine = torch.nn.functional.cosine_similarity(
+                actual.float().flatten(),
+                expected.float().flatten(),
+                dim=0,
+            )
+            assert cosine.item() > 0.995, (
+                f"Native Sage2 cosine {cosine.item():.6f} for "
+                f"Q={query_length}, KV={key_value_length}, D={head_dim}"
+            )
+
+        gqa_query = torch.randn((1, 128, 4, 64), device="cuda", dtype=torch.bfloat16)
+        gqa_key_value = torch.randn(
+            (1, 128, 2, 64), device="cuda", dtype=torch.bfloat16
         )
-        assert cosine.item() > 0.995
+        with pytest.raises(RuntimeError, match="BMHD shapes are incompatible"):
+            extension.sage2_test_attention(
+                gqa_query,
+                gqa_key_value,
+                gqa_key_value,
+                False,
+            )
 
     byte_workspace = torch.empty((128,), device="cuda", dtype=torch.uint8)
     plan = extension.workspace_allocation_plan(byte_workspace, [13, 16, 32], 16)

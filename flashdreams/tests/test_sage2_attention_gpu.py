@@ -140,20 +140,26 @@ def distributed_group(
 
 def _make_qkv(
     *,
-    sequence_length: int,
+    query_sequence_length: int,
+    key_value_sequence_length: int,
     num_heads: int,
+    head_dim: int,
     device: torch.device,
 ) -> tuple[Tensor, Tensor, Tensor]:
     """Create deterministic, non-identical Q/K/V inputs in BSHD layout."""
     generator = torch.Generator(device="cpu").manual_seed(2026)
-    shape = (1, sequence_length, num_heads, 64)
 
-    def sample() -> Tensor:
+    def sample(sequence_length: int) -> Tensor:
+        shape = (1, sequence_length, num_heads, head_dim)
         return torch.randn(shape, generator=generator, dtype=torch.float32).to(
             device=device, dtype=torch.bfloat16
         )
 
-    return sample(), sample(), sample()
+    return (
+        sample(query_sequence_length),
+        sample(key_value_sequence_length),
+        sample(key_value_sequence_length),
+    )
 
 
 def _sdpa_reference(query: Tensor, key: Tensor, value: Tensor) -> Tensor:
@@ -195,14 +201,24 @@ def _assert_numerical_parity(
     )
 
 
+@pytest.mark.parametrize(
+    ("query_sequence_length", "key_value_sequence_length", "head_dim"),
+    ((256, 256, 64), (128, 256, 128)),
+    ids=("equal-qkv-d64", "cached-kv-d128"),
+)
 def test_sage2_single_rank_matches_float32_sdpa(
+    query_sequence_length: int,
+    key_value_sequence_length: int,
+    head_dim: int,
     cuda_device: torch.device,
     sage2_attention: NativeAttention,
 ) -> None:
     """The real Sage2 kernel remains numerically close to unquantized SDPA."""
     query, key, value = _make_qkv(
-        sequence_length=256,
+        query_sequence_length=query_sequence_length,
+        key_value_sequence_length=key_value_sequence_length,
         num_heads=4,
+        head_dim=head_dim,
         device=cuda_device,
     )
 
@@ -232,8 +248,10 @@ def test_context_parallel_sage2_matches_full_sequence_reference(
     global_sequence_length = local_sequence_length * world_size
     num_heads = 2 * world_size
     query, key, value = _make_qkv(
-        sequence_length=global_sequence_length,
+        query_sequence_length=global_sequence_length,
+        key_value_sequence_length=global_sequence_length,
         num_heads=num_heads,
+        head_dim=64,
         device=cuda_device,
     )
     if method == "ring":
