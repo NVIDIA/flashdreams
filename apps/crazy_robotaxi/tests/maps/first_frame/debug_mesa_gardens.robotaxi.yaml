@@ -99,7 +99,7 @@ nodes:
     y_m: -80
   - x_m: 180
     y_m: -80
-  prompt_context: A paved visitor parking court sits behind low buildings, with 
+  prompt_context: A paved visitor parking court sits behind low buildings, with
     an open driveway connecting it to the street.
 roads:
 - id: garden_ring_0
@@ -107,8 +107,8 @@ roads:
   to: south_gate
   profile: avenue
   prompt_context: Low adobe villas and garden walls line a gently curving desert
-    avenue. Date palms rise behind xeriscaped gardens. An open southern avenue 
-    passes a terracotta-roofed hotel and gardens of agave, gravel and desert 
+    avenue. Date palms rise behind xeriscaped gardens. An open southern avenue
+    passes a terracotta-roofed hotel and gardens of agave, gravel and desert
     shrubs.
   bezier:
   - control_points:
@@ -131,9 +131,9 @@ roads:
   from: south_gate
   to: east_gate
   profile: avenue
-  prompt_context: Cream stucco resort buildings stand behind low walls, with 
+  prompt_context: Cream stucco resort buildings stand behind low walls, with
     palms and flowering bougainvillea along the sidewalk. A broad eastern avenue
-    borders a cactus garden and low sandstone outcrops, with distant 
+    borders a cactus garden and low sandstone outcrops, with distant
     rust-colored mesas above the roofs.
   bezier:
   - control_points:
@@ -156,8 +156,8 @@ roads:
   from: east_gate
   to: north_gate
   profile: avenue
-  prompt_context: A modern low-rise wellness center and palm gardens border the 
-    northeastern avenue. A quiet northern avenue passes a botanical visitor 
+  prompt_context: A modern low-rise wellness center and palm gardens border the
+    northeastern avenue. A quiet northern avenue passes a botanical visitor
     center and landscaped desert gardens.
   bezier:
   - control_points:
@@ -180,9 +180,9 @@ roads:
   from: north_gate
   to: west_gate
   profile: avenue
-  prompt_context: Flat-roofed adobe houses and covered arcades sit behind low 
-    garden walls along the northern curve. Date palms and landscaped hotel 
-    entrances border the western avenue, with pale desert mountains in the 
+  prompt_context: Flat-roofed adobe houses and covered arcades sit behind low
+    garden walls along the northern curve. Date palms and landscaped hotel
+    entrances border the western avenue, with pale desert mountains in the
     distance.
   bezier:
   - control_points:
@@ -205,20 +205,20 @@ roads:
   from: west_gate
   to: garden_square
   profile: avenue
-  prompt_context: Tall date palms line a broad avenue between cream stucco 
-    shops, terracotta arcades and low adobe garden walls. Bougainvillea and 
+  prompt_context: Tall date palms line a broad avenue between cream stucco
+    shops, terracotta arcades and low adobe garden walls. Bougainvillea and
     desert planting frame the sidewalks; distant mesas rise above the roofs.
 - id: resort_avenue_west
   from: garden_square
   to: resort_driveway
   profile: avenue
-  prompt_context: A covered shopping arcade and low resort buildings face 
+  prompt_context: A covered shopping arcade and low resort buildings face
     palm-lined pavements. An open visitor parking court sits behind the hotels.
 - id: resort_avenue_east
   from: resort_driveway
   to: east_gate
   profile: avenue
-  prompt_context: A palm-lined resort avenue passes cream stucco villas and 
+  prompt_context: A palm-lined resort avenue passes cream stucco villas and
     well-kept desert gardens.
   path:
   - x_m: 315
@@ -227,7 +227,7 @@ roads:
   from: garden_square
   to: north_gate
   profile: street
-  prompt_context: A quieter neighborhood street passes low adobe houses, garden 
+  prompt_context: A quieter neighborhood street passes low adobe houses, garden
     walls and small courtyards.
   path:
   - x_m: -45
@@ -236,19 +236,19 @@ roads:
   from: south_gate
   to: garden_square
   profile: street
-  prompt_context: The local garden street passes a community courtyard, a small 
+  prompt_context: The local garden street passes a community courtyard, a small
     library and adobe homes with covered porches.
 - id: spa_approach
   from: south_terminal
   to: south_gate
   profile: street
-  prompt_context: A small spa hotel and landscaped arrival court stand beside a 
+  prompt_context: A small spa hotel and landscaped arrival court stand beside a
     quiet local approach.
 - id: museum_approach
   from: north_gate
   to: north_terminal
   profile: street
-  prompt_context: A low sandstone museum and desert botanical visitor center 
+  prompt_context: A low sandstone museum and desert botanical visitor center
     stand beside a quiet local approach.
 traffic_count: 0
 spawns:
