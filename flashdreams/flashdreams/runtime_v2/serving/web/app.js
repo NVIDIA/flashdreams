@@ -7,6 +7,12 @@ const pointerControls = peer.createDataChannel("pointer-controls");
 peer.addTransceiver("video", {direction: "recvonly"});
 const video = document.getElementById("video");
 const status = document.getElementById("status");
+const promptDialog = document.getElementById("prompt-dialog");
+const promptBackdrop = document.getElementById("prompt-backdrop");
+const promptDialogTitle = document.getElementById("prompt-dialog-title");
+const promptDialogDetails = document.getElementById("prompt-dialog-details");
+const promptDialogConfirm = document.getElementById("prompt-dialog-confirm");
+const promptDialogCancel = document.getElementById("prompt-dialog-cancel");
 const pressedKeys = new Map();
 const pressedButtons = new Set();
 const gamepadSnapshots = new Map();
@@ -74,6 +80,321 @@ const applyCursorOptions = options => {
   }
 };
 
+let promptSettled = false;
+let promptOnConfirm = null;
+let promptOnCancel = null;
+
+const setPromptBackdropVisible = visible => {
+  if (promptBackdrop !== null) {
+    promptBackdrop.hidden = !visible;
+  }
+};
+
+const closePromptDialog = () => {
+  setPromptBackdropVisible(false);
+  if (promptDialog !== null && promptDialog.open) {
+    promptDialog.close();
+  }
+};
+
+const fillPromptDetails = details => {
+  if (promptDialogDetails === null) {
+    return;
+  }
+  promptDialogDetails.replaceChildren();
+  if (!Array.isArray(details) || details.length === 0) {
+    promptDialogDetails.hidden = true;
+    return;
+  }
+  for (const section of details) {
+    const row = document.createElement("div");
+    row.className = "prompt-dialog-row";
+    const label = document.createElement("div");
+    label.className = "prompt-dialog-detail-label";
+    label.textContent = section.label;
+    const value = document.createElement("div");
+    value.className = "prompt-dialog-row-value";
+    const values = Array.isArray(section.items) ? section.items : [];
+    for (const item of values) {
+      const chip = document.createElement("span");
+      chip.className = "prompt-dialog-chip";
+      chip.textContent = item;
+      value.append(chip);
+    }
+    row.append(label, value);
+    promptDialogDetails.append(row);
+  }
+  promptDialogDetails.hidden = false;
+};
+
+const showPromptDialog = ({
+  title,
+  details = [],
+  confirmLabel = "OK",
+  cancelLabel = "Cancel",
+  onConfirm = null,
+  onCancel = null,
+} = {}) => {
+  if (
+    promptDialog === null
+    || promptDialogTitle === null
+    || promptDialogConfirm === null
+    || promptDialogCancel === null
+  ) {
+    return;
+  }
+  if (document.pointerLockElement === video) {
+    document.exitPointerLock();
+  }
+  if (promptDialog.open) {
+    promptSettled = true;
+    promptOnConfirm = null;
+    promptOnCancel = null;
+    promptDialog.close();
+  }
+  promptDialogTitle.textContent = title;
+  fillPromptDetails(details);
+  promptDialogConfirm.textContent = confirmLabel;
+  promptDialogCancel.textContent = cancelLabel;
+  promptOnConfirm = onConfirm;
+  promptOnCancel = onCancel;
+  promptSettled = false;
+  setPromptBackdropVisible(true);
+  promptDialog.show();
+  promptDialogConfirm.focus();
+};
+
+if (promptDialog !== null) {
+  promptDialogConfirm?.addEventListener("click", () => {
+    if (promptSettled) {
+      return;
+    }
+    promptSettled = true;
+    const onConfirm = promptOnConfirm;
+    promptOnConfirm = null;
+    promptOnCancel = null;
+    closePromptDialog();
+    onConfirm?.();
+  });
+  promptDialogCancel?.addEventListener("click", () => {
+    if (promptSettled) {
+      return;
+    }
+    promptSettled = true;
+    const onCancel = promptOnCancel;
+    promptOnConfirm = null;
+    promptOnCancel = null;
+    closePromptDialog();
+    onCancel?.();
+  });
+  promptDialog.addEventListener("close", () => {
+    // The event is queued, so it can arrive after a newer prompt reopened the dialog.
+    if (promptDialog.open) {
+      return;
+    }
+    setPromptBackdropVisible(false);
+    if (promptSettled) {
+      return;
+    }
+    promptSettled = true;
+    const onCancel = promptOnCancel;
+    promptOnConfirm = null;
+    promptOnCancel = null;
+    onCancel?.();
+  });
+}
+
+window.addEventListener("keydown", event => {
+  if (event.key !== "Escape" || promptDialog === null || !promptDialog.open) {
+    return;
+  }
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  promptDialogCancel?.click();
+});
+
+if (promptBackdrop !== null) {
+  promptBackdrop.addEventListener("click", () => {
+    promptDialogCancel?.click();
+  });
+}
+
+let pendingFileRequest = null;
+
+const hideFilePicker = () => {
+  pendingFileRequest = null;
+  if (promptDialog !== null && promptDialog.open) {
+    promptSettled = true;
+    promptOnConfirm = null;
+    promptOnCancel = null;
+    closePromptDialog();
+  }
+};
+
+const completeFileSelection = (requestId, status) => {
+  send({type: "file_selector_result", id: requestId, status});
+};
+
+const formatByteBudget = bytes => {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "the allowed size";
+  }
+  const mib = bytes / (1024 * 1024);
+  if (mib >= 1) {
+    return Number.isInteger(mib) ? `${mib} MiB` : `${mib.toFixed(1)} MiB`;
+  }
+  const kib = bytes / 1024;
+  if (kib >= 1) {
+    return Number.isInteger(kib) ? `${kib} KiB` : `${kib.toFixed(1)} KiB`;
+  }
+  return `${bytes} bytes`;
+};
+
+const fileNameMatchesAccept = (name, accept) => {
+  if (!Array.isArray(accept) || accept.length === 0) {
+    return true;
+  }
+  const lower = name.toLowerCase();
+  return accept.some(
+    suffix => typeof suffix === "string" && lower.endsWith(suffix.toLowerCase()),
+  );
+};
+
+const startFileInput = pending => {
+  const requestId = pending.id;
+  const input = document.createElement("input");
+  input.type = "file";
+  if (pending.accept.length > 0) {
+    input.accept = pending.accept.join(",");
+  }
+  input.multiple = pending.multiple === true;
+  let settled = false;
+  const finishFileSelection = status => {
+    if (settled || pendingFileRequest === null || pendingFileRequest.id !== requestId) {
+      return;
+    }
+    settled = true;
+    completeFileSelection(requestId, status);
+    hideFilePicker();
+  };
+  input.addEventListener("change", () => {
+    if (pendingFileRequest === null || pendingFileRequest.id !== requestId) {
+      return;
+    }
+    const files = pending.multiple
+      ? Array.from(input.files || [])
+      : Array.from(input.files || []).slice(0, 1);
+    if (files.length === 0) {
+      finishFileSelection("cancelled");
+      return;
+    }
+    let rejected = null;
+    for (const file of files) {
+      if (!fileNameMatchesAccept(file.name || "", pending.accept)) {
+        rejected = "disallowed_type";
+        break;
+      }
+    }
+    if (rejected === null) {
+      for (const file of files) {
+        if (file.size > pending.maxBytes) {
+          rejected = "too_large";
+          break;
+        }
+      }
+    }
+    if (rejected !== null) {
+      finishFileSelection(rejected);
+      return;
+    }
+    // One request per file, in order, so the server reads only file bytes.
+    const uploadFiles = async () => {
+      for (const [index, file] of files.entries()) {
+        const query = new URLSearchParams({
+          id: requestId,
+          name: file.name,
+          index: String(index),
+          count: String(files.length),
+        });
+        const response = await fetch(`/api/files?${query}`, {method: "POST", body: file});
+        if (!response.ok) {
+          // A proxy may refuse the upload before the server can answer it.
+          console.debug("File upload was rejected.", response.status);
+          finishFileSelection("unavailable");
+          return;
+        }
+      }
+      if (settled || pendingFileRequest === null || pendingFileRequest.id !== requestId) {
+        return;
+      }
+      settled = true;
+      hideFilePicker();
+    };
+    uploadFiles().catch(error => {
+      console.debug("Unable to upload the selected file.", error);
+      finishFileSelection("unavailable");
+    });
+  });
+  input.addEventListener("cancel", () => finishFileSelection("cancelled"));
+  input.click();
+};
+
+const openFileSelector = options => {
+  const requestId = options?.id;
+  if (typeof requestId !== "string" || !requestId) {
+    return;
+  }
+  if (pendingFileRequest !== null) {
+    if (pendingFileRequest.id === requestId) {
+      return;
+    }
+    // The server opens one selector at a time, so a new one means the old one finished.
+    hideFilePicker();
+  }
+  const accept = Array.isArray(options.accept) ? options.accept : [];
+  const maxBytes = Number(options.max_file_bytes);
+  pendingFileRequest = {
+    id: requestId,
+    accept,
+    maxBytes: Number.isFinite(maxBytes) ? maxBytes : 0,
+    multiple: Number(options.max_file_count) > 1,
+  };
+  showPromptDialog({
+    title: pendingFileRequest.multiple
+      ? "The app requested files"
+      : "The app requested a file",
+    details: [
+      {
+        label: "Accepted types",
+        items: accept.length > 0 ? accept : ["Any"],
+      },
+      {
+        label: "Max size per file",
+        items: [formatByteBudget(pendingFileRequest.maxBytes)],
+      },
+    ],
+    confirmLabel: "Select…",
+    onConfirm: () => {
+      const pending = pendingFileRequest;
+      if (pending === null || pending.id !== requestId) {
+        return;
+      }
+      startFileInput(pending);
+    },
+    onCancel: () => {
+      if (pendingFileRequest === null || pendingFileRequest.id !== requestId) {
+        return;
+      }
+      completeFileSelection(requestId, "cancelled");
+      hideFilePicker();
+    },
+  });
+  if (promptDialog === null || !promptDialog.open) {
+    completeFileSelection(requestId, "unavailable");
+    hideFilePicker();
+  }
+};
+
 window.addEventListener("focus", updateCursorVisibility);
 window.addEventListener("blur", updateCursorVisibility);
 
@@ -89,6 +410,14 @@ controls.addEventListener("message", event => {
     }
     if (payload?.type === "open_url") {
       openUrl(payload.url);
+      return;
+    }
+    if (payload?.type === "file_selector") {
+      openFileSelector(payload);
+      return;
+    }
+    if (payload?.type === "file_selector_cancel") {
+      hideFilePicker();
       return;
     }
     if (payload?.type === "error") {
@@ -124,7 +453,7 @@ peer.addEventListener("connectionstatechange", () => {
 
 window.addEventListener("keydown", event => {
   const keyId = event.code || event.key;
-  if (pressedKeys.has(keyId)) {
+  if (pressedKeys.has(keyId) || (promptDialog !== null && promptDialog.open)) {
     return;
   }
   const wasSent = sendInput({

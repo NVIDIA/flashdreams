@@ -12,6 +12,7 @@ from red_screen import create_app
 
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
     PresentationMode,
@@ -61,6 +62,9 @@ class ScriptedClientWindow(IClientWindow):
             if self._batches:
                 return self._batches.pop(0)
         return UserInputEvents([])
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        del event
 
     def open(self, session_desc: SessionDesc) -> None:
         self.session_desc = session_desc
