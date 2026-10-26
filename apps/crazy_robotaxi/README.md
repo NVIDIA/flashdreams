@@ -471,20 +471,11 @@ The bundled 1280x704 initial frame uses the compiled spawn's calibrated front
 camera, with a visible silver hood. Its road surface, curbs and white markings
 are projected directly from the semantic map. Generated scenery and asphalt
 texture are composited around that geometry; the generated road layout is
-discarded. Its generation prompt and compositing notes are saved beside the
-image as `pacific_breakwater_initial_frame.prompt.txt`.
+discarded.
 The full spawn prompt establishes the coastal setting for normal play; the
 shorter base and nine road fragments keep lighting and hood framing consistent
 while adding local landmarks with dynamic prompts enabled. The runtime supplies
 turn direction and vehicle motion.
-
-After changing this map or its spawn, rebuild the frame from the repository
-root with `python apps/crazy_robotaxi/tools/compose_map_frames.py pacific_breakwater`
-in the app environment. This uses the checked-in artwork and existing OpenCV,
-Pillow, NumPy and Shapely dependencies. The map-specific compositor checks
-visible paint pixels against the projected marking mask and saves a semantic
-geometry preview plus a cyan alignment overlay beside the seed image.
-Dash segments are 3 metres with 6-metre gaps along the semantic divider paths.
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
@@ -575,12 +566,11 @@ fragments are appended only to the latter.
 The static `prompt` persists throughout driving: describe the camera,
 visual style and regional scenery without fixing the current road
 placement, lane count, upcoming turn or landmark position. Spawn-specific
-geometry belongs in the initial image and its offline generation prompt;
+geometry belongs in the initial image;
 location-specific descriptions belong in the dynamic map fragments.
 Keep weather, haze, fog, lighting and time of day out of both map prompts and
 scenery fragments. Weather effects belong to the separate live-edit weather
-controls. The saved artwork-generation prompts record how the existing seed
-images were made; they are offline provenance, not runtime scenery prompts.
+controls.
 
 The bundled maps each have a dedicated hood-view initial frame. FlashDreams
 Raceway shows grandstands, pit garages and a city skyline; Boulevard District
@@ -598,18 +588,3 @@ cross-town avenues, garden streets, two terminal turnarounds, a resort parking
 court and 28 traffic vehicles. Its fragments describe cream stucco shops,
 terracotta arcades, botanical gardens and desert landscaping. Both maps are
 available from the map menu for Taxi and Free Roam modes.
-
-To rebuild these frames from the saved artwork, run in the app environment:
-
-```bash
-python apps/crazy_robotaxi/tools/compose_map_frames.py flashdreams_raceway
-python apps/crazy_robotaxi/tools/compose_map_frames.py boulevard_district
-python apps/crazy_robotaxi/tools/compose_map_frames.py harbor_market
-python apps/crazy_robotaxi/tools/compose_map_frames.py mesa_gardens
-```
-
-The compositor projects semantic road surfaces and white/yellow markings,
-retains the generated hood and scenery, and checks visible paint coverage.
-Each map's `*_alignment.png` shows the semantic lines in cyan;
-`*_spawn_geometry.png` and `*_initial_frame.prompt.txt` retain the geometry
-reference and generation provenance. Inspect the new frame after map edits.
