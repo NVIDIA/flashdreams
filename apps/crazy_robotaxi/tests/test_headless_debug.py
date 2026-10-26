@@ -46,6 +46,7 @@ from flashdreams.runtime_v2.session_desc import (
     PresentationMode,
     SessionDesc,
 )
+from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
@@ -338,6 +339,18 @@ def test_sink_requires_a_lossless_scripted_session(tmp_path: Path) -> None:
         )
     with pytest.raises(ValueError, match="requires Crazy Robotaxi"):
         window.open(replace(desc, metadata={}))
+
+
+def test_debug_window_delivers_runtime_events_once_in_timestamp_order(
+    tmp_path: Path,
+) -> None:
+    window = RobotaxiDebugWindow(tmp_path / "capture")
+    earlier = CloseUserInputEvent(timestamp=np.uint64(1))
+    later = CloseUserInputEvent(timestamp=np.uint64(2))
+    window.put_user_input_event(later)
+    window.put_user_input_event(earlier)
+    assert window.get_user_input_events().get_events() == [earlier, later]
+    assert window.get_user_input_events().get_events() == []
 
 
 def test_mode_rejects_bad_arguments_and_existing_captures(tmp_path: Path) -> None:

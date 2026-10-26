@@ -176,7 +176,7 @@ class GroundSnapper:
             y: World y coordinate.
             z_ref: Reference height for choosing among overlapping surfaces.
         """
-        height = self._raycast(x, y, z_ref)
+        height = self._raycast(np.asarray([[x, y, z_ref]], dtype=np.float64))[0]
         return float(height) if math.isfinite(height) else None
 
     def _sample_body_grid(self, vehicle: VehicleConfig) -> np.ndarray:
