@@ -430,13 +430,7 @@ def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
 def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    source = (
-        Path(__file__).resolve().parents[3]
-        / "apps/crazy_robotaxi/tests/maps/race_course.robotaxi.yaml"
-    )
-    map_path = tmp_path / source.name
-    map_path.write_bytes(source.read_bytes())
-    monkeypatch.setattr("crazy_robotaxi.application._DEFAULT_MAP", map_path)
+    monkeypatch.setattr("crazy_robotaxi.application._discover_game_maps", lambda _: ())
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("FLASHDREAMS_CACHE_DIR", str(tmp_path / "cache"))
     app = CrazyRobotaxiApplication(
