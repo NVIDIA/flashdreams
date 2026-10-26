@@ -144,4 +144,8 @@ _vk_compare/
 
 imgui.ini
 
+# Local map-authoring previews; runtime initial frames remain tracked.
+/apps/crazy_robotaxi/crazy_robotaxi/maps/*_alignment.png
+/apps/crazy_robotaxi/crazy_robotaxi/maps/*_spawn_geometry.png
+
 # Generated from the canonical root LICENSES during integration builds.
