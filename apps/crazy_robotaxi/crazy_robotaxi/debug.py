@@ -35,6 +35,7 @@ from PIL import Image, ImageDraw, ImageFont
 from crazy_robotaxi.ui import TaxiHudState
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IUILoop, ModelInferenceState
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
 from flashdreams.runtime_v2.session_desc import (
     BackpressureMode,
@@ -223,6 +224,7 @@ class RobotaxiDebugWindow(IClientWindow):
         self._physics_trail: deque[tuple[float, float]] = deque(maxlen=90)
         self._contact_frames: list[int] = []
         self._last_frames: dict[str, np.ndarray] = {}
+        self._input_events: list[UserInputEvent] = []
 
     def open(self, session_desc: SessionDesc) -> None:
         """Start one capture in a fresh directory using the game session contract."""
@@ -267,8 +269,13 @@ class RobotaxiDebugWindow(IClientWindow):
         self._write_manifest()
 
     def get_user_input_events(self) -> UserInputEvents:
-        """Return no keyboard input; the model loop owns scripted commands."""
-        return UserInputEvents([])
+        """Return queued runtime events; the model loop owns scripted controls."""
+        events, self._input_events = self._input_events, []
+        return UserInputEvents(events)
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        """Queue one runtime event for delivery on the UI thread."""
+        self._input_events.append(event)
 
     def write(self, result: StepResult) -> None:
         """Write exactly one aligned pair without dropping or repeating frames."""
