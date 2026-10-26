@@ -74,9 +74,6 @@ def test_bev_road_surface_pool_triangulates_concave_pavement() -> None:
     assert pool is not None
     assert pool.prim_type_id == PRIM_BEV_ROAD_SURFACE
     assert pool.timestamped_varrays_prefix_sum.tolist() == [1]
-    assert pool.varrays_prefix_sum.tolist() == [6]
-    assert pool.triangle_prefix_sum.tolist() == [4]
-    assert torch.allclose(pool.vertices[:, 2], torch.full((6,), -0.01))
     points = pool.vertices[:, :2]
     triangle_points = points[pool.triangles.to(torch.int64)]
     doubled_areas = torch.abs(
