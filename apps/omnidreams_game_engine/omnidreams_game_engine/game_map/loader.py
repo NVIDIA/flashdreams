@@ -37,6 +37,7 @@ from omnidreams_game_engine.game_map._schema import (
     _sequence,
     _xyz,
 )
+from omnidreams_game_engine.game_map.elevation import elevate_geometry
 from omnidreams_game_engine.game_map.traffic import compile_traffic
 from omnidreams_game_engine.game_map.types import (
     GameMapBoundaryAttributes,
@@ -338,8 +339,10 @@ def _parse_nodes(
         if not {"id", "type", "pose"} <= set(raw):
             raise GameMapError(f"nodes[{index}] requires id, type, and pose")
         pose = _mapping(raw["pose"], f"node {node_id!r}.pose")
-        if set(pose) != {"x_m", "y_m"}:
-            raise GameMapError(f"Node {node_id!r}.pose requires x_m and y_m")
+        if not {"x_m", "y_m"} <= set(pose) or set(pose) - {"x_m", "y_m", "z_m"}:
+            raise GameMapError(
+                f"Node {node_id!r}.pose requires x_m, y_m, and optional z_m"
+            )
         if node_type in {"road_joint", "driveway"}:
             expected = {"id", "type", "pose"}
             allowed = set(expected)
@@ -403,6 +406,7 @@ def _parse_nodes(
                 node_type=node_type,
                 x_m=_finite_float(pose["x_m"], f"node {node_id!r}.pose.x_m"),
                 y_m=_finite_float(pose["y_m"], f"node {node_id!r}.pose.y_m"),
+                z_m=_finite_float(pose.get("z_m", 0.0), f"node {node_id!r}.pose.z_m"),
                 profile_id=profile_id,
                 attributes=attributes,
                 geometry=geometry,
@@ -2767,6 +2771,9 @@ def _spawn(
         distance_m=distance,
         position_world=position.astype(np.float32),
         yaw_rad=math.atan2(float(direction[1]), float(direction[0])),
+        pitch_rad=-math.atan2(
+            float(direction[2]), float(np.linalg.norm(direction[:2]))
+        ),
         image=image,
         prompt=prompt,
         prompt_context=prompt_context,
@@ -2786,6 +2793,17 @@ def load_game_map(path: Path) -> ResolvedGameMap:
     node_values = _resolve_linear_joint_nodes(node_values, road_specs)
     nodes = {node.node_id: node for node in node_values}
     parking_accesses = _parking_accesses_from_nodes(doc, nodes)
+    lot_heights = {
+        access.parking_lot_node_id: nodes[access.source_node_id].z_m
+        for access in parking_accesses
+    }
+    node_values = tuple(
+        replace(node, z_m=lot_heights[node.node_id])
+        if node.node_id in lot_heights
+        else node
+        for node in node_values
+    )
+    nodes = {node.node_id: node for node in node_values}
     adjacency: dict[str, list[str]] = {node_id: [] for node_id in nodes}
     for spec in road_specs:
         adjacency[spec.road.from_node_id].append(f"road:{spec.road.road_id}")
@@ -2836,6 +2854,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
     lanes: list[_LaneBuild] = []
     lane_dividers: list[GameMapLaneDivider] = []
     incidences: dict[str, list[_LaneIncidence]] = {node_id: [] for node_id in nodes}
+    reference_lines: dict[str, np.ndarray] = {}
 
     for spec in road_specs:
         road = spec.road
@@ -2869,6 +2888,16 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                     f"on {road.road_id!r}"
                 ) from error
             raise
+        reference_lines[road.road_id] = points
+        if spec.spans_xy and nodes[road.from_node_id].z_m != nodes[road.to_node_id].z_m:
+            # Coarse curve chords make station projection pause at vertices on
+            # the inside of a bend, producing small terraces across a hill.
+            reference_lines[road.road_id] = _trim_line(
+                _sample_road(spec, min(settings.sample_spacing_m, 0.1)),
+                polygons[road.from_node_id],
+                polygons[road.to_node_id],
+                f"Road {road.road_id!r} elevation",
+            )
         built = _build_linear_lanes(road.road_id, points, attributes, True)
         lanes.extend(built)
         lane_dividers.extend(_build_lane_dividers(built, attributes))
@@ -2941,6 +2970,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
             polygons[lot.node_id],
             f"Parking access {access.access_id!r}",
         )
+        reference_lines[access.access_id] = points
         built = _build_linear_lanes(access.access_id, points, attributes, False)
         lanes.extend(built)
         lane_dividers.extend(_build_lane_dividers(built, attributes))
@@ -3046,6 +3076,49 @@ def load_game_map(path: Path) -> ResolvedGameMap:
                 settings.intersection_connector_samples,
             )
 
+    permitted_boundary_contacts = {
+        tuple(sorted((access.access_id, road.road_id)))
+        for access in parking_accesses
+        for road in topology.roads
+        if access.source_node_id in {road.from_node_id, road.to_node_id}
+    }
+    transition_curb_regions: dict[str, list[tuple[BaseGeometry, bool]]] = {}
+    for (node_id, _road_id), geometry in transition_geometry.items():
+        transition = geometry.transition
+        region = _taper_polygon(
+            geometry.path_xy,
+            transition.local_attributes.surface_width_m,
+            transition.arm.attributes.surface_width_m,
+            f"Node {node_id!r} curb region",
+        ).buffer(_POSITION_TOLERANCE_M)
+        transition_curb_regions.setdefault(node_id, []).append(
+            (region, transition.arm.attributes.curb)
+        )
+    elements = _boundaries_for_elements(
+        elements,
+        connections,
+        permitted_boundary_contacts,
+        transition_curb_regions,
+    )
+    elements = [
+        replace(
+            element,
+            surface_world=np.asarray(element.surface_world, dtype=np.float32),
+        )
+        for element in elements
+    ]
+    elevated = any(node.z_m != 0 for node in node_values)
+    if elevated:
+        elements, lane_dividers, mesh_vertices, mesh_faces = elevate_geometry(
+            topology,
+            elements,
+            lanes,
+            lane_dividers,
+            reference_lines,
+            sample_spacing_m=settings.sample_spacing_m,
+            ground_margin_m=settings.ground_margin_m,
+        )
+
     lane_by_id = {lane.lane_id: lane for lane in lanes}
     spawn_values = _sequence(doc["spawns"], "spawns")
     if not spawn_values:
@@ -3087,37 +3160,6 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         map_id=map_id,
         spawns=spawns,
     )
-    permitted_boundary_contacts = {
-        tuple(sorted((access.access_id, road.road_id)))
-        for access in parking_accesses
-        for road in topology.roads
-        if access.source_node_id in {road.from_node_id, road.to_node_id}
-    }
-    transition_curb_regions: dict[str, list[tuple[BaseGeometry, bool]]] = {}
-    for (node_id, _road_id), geometry in transition_geometry.items():
-        transition = geometry.transition
-        region = _taper_polygon(
-            geometry.path_xy,
-            transition.local_attributes.surface_width_m,
-            transition.arm.attributes.surface_width_m,
-            f"Node {node_id!r} curb region",
-        ).buffer(_POSITION_TOLERANCE_M)
-        transition_curb_regions.setdefault(node_id, []).append(
-            (region, transition.arm.attributes.curb)
-        )
-    elements = _boundaries_for_elements(
-        elements,
-        connections,
-        permitted_boundary_contacts,
-        transition_curb_regions,
-    )
-    elements = [
-        replace(
-            element,
-            surface_world=np.asarray(element.surface_world, dtype=np.float32),
-        )
-        for element in elements
-    ]
     all_points = np.concatenate([element.surface_world for element in elements])
     minimum = np.min(all_points[:, :2], axis=0) - settings.ground_margin_m
     maximum = np.max(all_points[:, :2], axis=0) + settings.ground_margin_m
@@ -3142,8 +3184,10 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         road_marking_polygons_world=(),
         lane_dividers=tuple(lane_dividers),
         line_markings=(),
-        ground_vertices=ground_vertices,
-        ground_faces=np.asarray([[0, 1, 2], [0, 2, 3]], dtype=np.int32),
+        ground_vertices=mesh_vertices if elevated else ground_vertices,
+        ground_faces=mesh_faces
+        if elevated
+        else np.asarray([[0, 1, 2], [0, 2, 3]], dtype=np.int32),
         spawns=spawns,
         race_courses=race_courses,
         traffic=traffic,

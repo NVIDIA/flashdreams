@@ -15,6 +15,8 @@ from ludus_renderer import BodyState, SceneObject
 from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
+from omnidreams_game_engine.math3d import quaternion_to_matrix_xyzw
+from omnidreams_game_engine.math_utils import quaternion_from_rpy_deg
 from omnidreams_game_engine.simulation.actor_controller import (
     ActorControlDecision,
     ActorTrackTarget,
@@ -118,7 +120,6 @@ def _route_track(
 ) -> tuple[SceneObject, int, int]:
     positions = np.asarray(traffic.centerline_world, dtype=np.float32).copy()
     dimensions = np.asarray(traffic.dimensions_lwh_m, dtype=np.float32)
-    positions[:, 2] += dimensions[2] * 0.5
     segment_lengths = np.linalg.norm(np.diff(positions, axis=0), axis=1)
     segment_speeds = np.maximum(
         np.minimum(traffic.speed_limits_mps[:-1], traffic.speed_limits_mps[1:]),
@@ -132,12 +133,27 @@ def _route_track(
         (np.zeros(1, dtype=np.int64), np.cumsum(durations_us, dtype=np.int64))
     )
 
-    tangents = np.diff(positions[:, :2], axis=0)
+    tangents = np.diff(positions, axis=0)
     yaw = np.arctan2(tangents[:, 1], tangents[:, 0])
     yaw = np.concatenate((yaw, yaw[:1]))
     orientations = np.zeros((len(positions), 4), dtype=np.float32)
     orientations[:, 2] = np.sin(yaw * 0.5)
     orientations[:, 3] = np.cos(yaw * 0.5)
+    if np.any(tangents[:, 2] != 0):
+        pitch = -np.arctan2(tangents[:, 2], np.linalg.norm(tangents[:, :2], axis=1))
+        pitch = np.concatenate((pitch, pitch[:1]))
+        orientations = np.asarray(
+            [
+                quaternion_from_rpy_deg(0, math.degrees(p), math.degrees(y))
+                for p, y in zip(pitch, yaw, strict=True)
+            ],
+            dtype=np.float32,
+        )
+        for index, quaternion in enumerate(orientations):
+            up = quaternion_to_matrix_xyzw(quaternion.tolist())[:, 2]
+            positions[index] += up * dimensions[2] * 0.5
+    else:
+        positions[:, 2] += dimensions[2] * 0.5
 
     cumulative_distance = np.concatenate(
         (np.zeros(1, dtype=np.float64), np.cumsum(segment_lengths, dtype=np.float64))

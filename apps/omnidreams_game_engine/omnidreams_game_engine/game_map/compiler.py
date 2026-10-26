@@ -38,6 +38,7 @@ from omnidreams_game_engine.game_map.types import (
 from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 from omnidreams_game_engine.scene_fixture import _calibration_row
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 
 # Pre-release maps and compiler output stay at version 1. Do not increment this
 # during development; a future release process owns version changes.
@@ -254,20 +255,29 @@ def _boundary_chunks(game_map: ResolvedGameMap) -> tuple[np.ndarray, ...]:
     surfaces = [Polygon(element.surface_world[:, :2]) for element in game_map.elements]
     lines = _line_geometries(unary_union(surfaces).boundary)
     lines.sort(key=lambda line: tuple(round(value, 6) for value in line.bounds))
-    z_m = float(game_map.elements[0].surface_world[0, 2])
+    ground = (
+        GroundSnapper(game_map.ground_vertices, game_map.ground_faces)
+        if np.ptp(game_map.ground_vertices[:, 2]) > 0
+        else None
+    )
+
+    def xyz(points_xy: np.ndarray) -> np.ndarray:
+        points = np.column_stack((points_xy, np.zeros(len(points_xy))))
+        points[:, 2] = (
+            ground._raycast(points)
+            if ground is not None
+            else game_map.ground_vertices[0, 2]
+        )
+        if not np.isfinite(points).all():
+            raise GameMapError("Road boundary is outside the compiled ground mesh")
+        return points.astype(np.float32)
+
     chunks: list[np.ndarray] = []
     for line in lines:
         length = float(line.length)
         chunk_count = max(1, math.ceil(length / _BOUNDARY_CHUNK_CORE_LENGTH_M))
         if chunk_count == 1:
-            chunks.append(
-                np.column_stack(
-                    (
-                        np.asarray(line.coords, dtype=np.float32),
-                        np.full(len(line.coords), z_m, dtype=np.float32),
-                    )
-                )
-            )
+            chunks.append(xyz(np.asarray(line.coords, dtype=np.float32)))
             continue
         core_length = length / chunk_count
         for index in range(chunk_count):
@@ -276,14 +286,7 @@ def _boundary_chunks(game_map: ResolvedGameMap) -> tuple[np.ndarray, ...]:
                 index * core_length - _BOUNDARY_CHUNK_OVERLAP_M,
                 (index + 1) * core_length + _BOUNDARY_CHUNK_OVERLAP_M,
             )
-            chunks.append(
-                np.column_stack(
-                    (
-                        points_xy,
-                        np.full(len(points_xy), z_m, dtype=np.float32),
-                    )
-                )
-            )
+            chunks.append(xyz(points_xy))
     return tuple(chunks)
 
 
@@ -395,6 +398,7 @@ def _trajectory(spawn: GameMapSpawn) -> dict[str, object]:
         float(spawn.position_world[1]),
         float(spawn.position_world[2]),
         spawn.yaw_rad,
+        pitch_rad=spawn.pitch_rad,
     ).tolist()
     return {
         "rig_trajectories": [

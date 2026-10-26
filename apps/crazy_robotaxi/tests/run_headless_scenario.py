@@ -80,7 +80,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "scenario",
-        choices=("raceway_start", "flat_acceleration", "curb_impact"),
+        choices=("raceway_start", "flat_acceleration", "curb_impact", "hill_climb"),
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--slug", default="crazy-robotaxi-omnidreams-perf")
@@ -96,7 +96,8 @@ def main() -> None:
         )
         course = "grand-prix"
     else:
-        map_path = tests / "maps/debug_flat.robotaxi.yaml"
+        filename = "debug_hill" if args.scenario == "hill_climb" else "debug_flat"
+        map_path = tests / "maps" / f"{filename}.robotaxi.yaml"
         course = "debug-lap"
     command = [
         args.slug,
