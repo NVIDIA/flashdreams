@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import logging
 import queue
+import stat
 import threading
 import time
 import webbrowser
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -22,6 +24,12 @@ from torch import Tensor
 
 from flashdreams.api_v2.client_window import ClientWindowLink, IClientWindow
 from flashdreams.api_v2.user_input_event import UserInputEvent
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    SelectedFile,
+    SelectedFilesStatus,
+    selected_files_policy_status,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -39,6 +47,76 @@ if TYPE_CHECKING:
     import slangpy as spy
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _choose_paths(request: FileSelectionRequest) -> list[str]:
+    """Block in the Tk file dialog and return the chosen paths.
+
+    Tk shows Explorer on Windows and its own dialog on Linux. Raises when Tk is
+    missing or cannot open a display.
+    """
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    try:
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        kwargs: dict[str, Any] = {
+            "parent": root,
+            "initialdir": request.initial_path or str(Path.home()),
+            "title": "Select a file",
+        }
+        if request.accept:
+            kwargs["filetypes"] = [
+                ("Accepted", " ".join("*" + suffix for suffix in request.accept))
+            ]
+        if request.max_file_count > 1:
+            return [str(path) for path in filedialog.askopenfilenames(**kwargs) if path]
+        path = filedialog.askopenfilename(**kwargs)
+        return [str(path)] if path else []
+    finally:
+        root.destroy()
+
+
+def _selected_files_from_paths(
+    paths: Sequence[str], request: FileSelectionRequest
+) -> tuple[tuple[SelectedFile, ...], SelectedFilesStatus]:
+    """Load chosen files, or empty files and a failure status."""
+    rejected = selected_files_policy_status(
+        [(Path(path).name, None) for path in paths], request
+    )
+    if rejected is not None:
+        return (), rejected
+    sized: list[tuple[str, int]] = []
+    for path in paths:
+        try:
+            info = Path(path).stat()
+        except OSError:
+            return (), SelectedFilesStatus.UNAVAILABLE
+        if not stat.S_ISREG(info.st_mode):
+            return (), SelectedFilesStatus.UNAVAILABLE
+        sized.append((path, info.st_size))
+    rejected = selected_files_policy_status(
+        [(Path(path).name, size) for path, size in sized], request
+    )
+    if rejected is not None:
+        return (), rejected
+    files: list[SelectedFile] = []
+    for path, _size in sized:
+        try:
+            with open(path, "rb") as stream:
+                # Read one byte past the limit so a file over it is
+                # rejected, not truncated.
+                data = stream.read(request.max_file_bytes + 1)
+        except OSError:
+            return (), SelectedFilesStatus.UNAVAILABLE
+        files.append(SelectedFile(name=Path(path).name, data=data))
+    return tuple(files), SelectedFilesStatus.OK
+
 
 _PRINTABLE_KEY_NAMES = {
     "space": " ",
@@ -143,6 +221,10 @@ class NativeWindowClientWindow(IClientWindow):
         self._lock_cursor_to_window = False
         self._links: tuple[ClientWindowLink, ...] = ()
         self._pressed_link: ClientWindowLink | None = None
+        self._file_dialog_thread: threading.Thread | None = None
+        self._file_dialog_results: queue.SimpleQueue[
+            tuple[int, FileSelectionRequest, list[str] | None]
+        ] = queue.SimpleQueue()
 
     def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:
         """Replace the clickable regions over the native window output."""
@@ -186,6 +268,56 @@ class NativeWindowClientWindow(IClientWindow):
                 "NativeWindowClientWindow.open() must run before resizing."
             )
         self._window_size = presenter.resize(*new_window_size)
+
+    def _request_file_selector(
+        self, selector_id: int, request: FileSelectionRequest
+    ) -> None:
+        """Show the Tk file dialog on a worker thread that queues its result."""
+        thread = self._file_dialog_thread
+        if thread is not None and thread.is_alive():
+            # A flushed dialog stays open until the user closes it, and two Tk
+            # dialogs on separate threads are not safe.
+            self._complete_file_selector(selector_id, SelectedFilesStatus.BUSY)
+            return
+        results = self._file_dialog_results
+
+        def show_dialog() -> None:
+            try:
+                paths: list[str] | None = _choose_paths(request)
+            except Exception:
+                _LOGGER.exception(
+                    "Native file picker failed for request id %r.", request.request_id
+                )
+                paths = None
+            results.put((selector_id, request, paths))
+
+        thread = threading.Thread(
+            target=show_dialog, name="flashdreams-file-dialog", daemon=True
+        )
+        thread.start()
+        self._file_dialog_thread = thread
+
+    def _poll_file_dialog(self) -> None:
+        """Report the results the dialog thread queued; stale ones are dropped."""
+        while True:
+            try:
+                selector_id, request, paths = self._file_dialog_results.get_nowait()
+            except queue.Empty:
+                return
+            active = self._active_file_selector
+            if active is None or active[0] != selector_id:
+                continue
+            files: tuple[SelectedFile, ...] = ()
+            if paths is None:
+                status = SelectedFilesStatus.UNAVAILABLE
+            elif not paths:
+                status = SelectedFilesStatus.CANCELLED
+            else:
+                # ponytail: files are read on the UI thread, up to the
+                # request's max_total_bytes, which stalls presentation while
+                # they load. Upgrade path: read them on the dialog thread.
+                files, status = _selected_files_from_paths(paths, request)
+            self._complete_file_selector(selector_id, status, files)
 
     def open(self, session_desc: SessionDesc) -> None:
         """Open a session in the GLFW window on the runtime's UI thread.
@@ -251,6 +383,7 @@ class NativeWindowClientWindow(IClientWindow):
 
     def get_user_input_events(self) -> UserInputEvents:
         """Pump GLFW and return native input events not yet read."""
+        self._poll_file_dialog()
         presenter = self._presenter
         if presenter is not None:
             pending_before_poll = tuple(self._pending_printable_keys)
@@ -452,6 +585,12 @@ class NativeWindowClientWindow(IClientWindow):
             return
         self._close_event_enqueued = True
         self._put_input(CloseUserInputEvent(timestamp=uint64(0)))
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        """Queue ``event``, bypassing the poll-time buffer."""
+        started_ns = self._session_started_ns
+        elapsed_ns = 0 if started_ns is None else max(0, self._clock_ns() - started_ns)
+        self._input_events.put(replace(event, timestamp=uint64(elapsed_ns // 1_000)))
 
 
 class _SlangPyNativeWindowPresenter:

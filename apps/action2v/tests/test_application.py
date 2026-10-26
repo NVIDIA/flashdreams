@@ -22,6 +22,7 @@ from action2v.dummy import create_app as create_dummy_app
 from numpy import uint64
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.session_runner import run_session
 from flashdreams.runtime_v2.step_result import StepResult
@@ -137,6 +138,9 @@ class _CursorWindow(IClientWindow):
     def __init__(self) -> None:
         self.opened = False
         self.cursor_requests: list[tuple[str, bool]] = []
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        del event
 
     def open(self, session_desc: SessionDesc) -> None:
         del session_desc

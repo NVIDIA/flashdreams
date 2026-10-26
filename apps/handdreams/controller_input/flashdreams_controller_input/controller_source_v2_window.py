@@ -26,6 +26,7 @@ from collections.abc import Callable
 from numpy import uint64
 
 from flashdreams.api_v2.client_window import ClientWindowLink, IClientWindow
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -242,6 +243,10 @@ class ControllerSourceWindow(IClientWindow):
             self._source_generation = None
             self._disconnect_emitted = False
             self._last_status = None
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        """Forward event to the presentation backend, merged with its input."""
+        self.output_window.put_user_input_event(event)
 
     def get_user_input_events(self) -> UserInputEvents:
         """Merge source-clock controller history with buffered window input."""

@@ -18,6 +18,7 @@ import pytest
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2 import cli, client_window_factory
 from flashdreams.runtime_v2.application_runner import ApplicationRunner, Unbound
 from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
@@ -41,6 +42,9 @@ class _StubApplication(IApplication):
 class _StubWindow(IClientWindow):
     def get_user_input_events(self) -> UserInputEvents:
         return UserInputEvents([])
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        del event
 
     def open(self, session_desc: SessionDesc) -> None:
         del session_desc
