@@ -538,3 +538,30 @@ cross-town avenues, garden streets, two terminal turnarounds, a resort parking
 court and 28 traffic vehicles. Its fragments describe cream stucco shops,
 terracotta arcades, botanical gardens and desert landscaping. Both maps are
 available from the map menu for Taxi and Free Roam modes.
+
+## Map-frame authoring
+
+`crazy-robotaxi-compose-frames` combines the saved generated artwork with the
+map's compiled camera and semantic geometry. The source artwork and original
+generation notes live in `crazy_robotaxi/artwork/`; the compositor does
+not invoke image generation.
+
+```bash
+uv run --package crazy-robotaxi --extra authoring crazy-robotaxi-compose-frames \
+  boulevard_district --output-dir /tmp/robotaxi-frames
+```
+
+Supported maps are `boulevard_district`, `flashdreams_raceway`,
+`pacific_breakwater`, `harbor_market`, and `mesa_gardens`. The command writes
+`*_initial_frame.png`, `*_alignment.png`, and `*_spawn_geometry.png` into the
+explicit output directory. Review a candidate before copying its initial frame
+into the game's map directory.
+
+The compositor projects road surfaces, curbs, and runtime-loaded lane markings,
+reuses the generated asphalt texture, warps scenery to the road edges, and
+blends the car hood. It uses the engine's ground intersections, including
+authored elevation. Registration landmarks are specific to the saved artwork.
+
+Its assertions check static paint coverage only. They do not establish that
+Omnidreams respects vehicle motion; inspect the candidate and validate motion
+before promoting it to a runtime frame.

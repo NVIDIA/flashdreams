@@ -457,6 +457,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+authoring = [
+    { name = "opencv-python-headless" },
+]
 dev = [
     { name = "pytest" },
     { name = "pytest-manual-marker" },
@@ -466,12 +469,13 @@ dev = [
 requires-dist = [
     { name = "flashdreams", extras = ["local-window"], editable = "flashdreams" },
     { name = "omnidreams-game-engine", editable = "apps/omnidreams_game_engine" },
+    { name = "opencv-python-headless", marker = "extra == 'authoring'", specifier = ">=4.5,<5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-manual-marker", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "ruamel-yaml", specifier = ">=0.18" },
     { name = "torch" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["authoring", "dev"]
 
 [[package]]
 name = "cryptography"

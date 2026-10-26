@@ -16,6 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
+crazy-robotaxi-compose-frames = "crazy_robotaxi.compose_map_frames:main"
 crazy-robotaxi-map = "crazy_robotaxi.map_tool:main"
 
 [project.entry-points."flashdreams.client_windows_v2"]
@@ -26,6 +27,7 @@ flashdreams = { workspace = true }
 omnidreams-game-engine = { workspace = true }
 
 [project.optional-dependencies]
+authoring = ["opencv-python-headless>=4.5,<5"]
 dev = ["pytest>=8.0", "pytest-manual-marker>=2.0"]
 
 [tool.setuptools.packages.find]
@@ -34,6 +36,8 @@ include = ["crazy_robotaxi*"]
 [tool.setuptools.package-data]
 crazy_robotaxi = [
     "assets/*.npz",
+    "artwork/*.png",
+    "artwork/*.prompt.txt",
     "maps/*.robotaxi.yaml",
     "maps/*_initial_frame.png",
 ]
