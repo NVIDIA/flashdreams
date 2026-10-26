@@ -82,6 +82,7 @@ class _Engine:
     closed: bool = False
     is_running: bool = True
     live_edit: object | None = None
+    simulation_duration_s: float | None = None
 
     @property
     def current_game_frame(self):
@@ -90,7 +91,8 @@ class _Engine:
     def submit_text(self, value):
         return value
 
-    def step(self, commands):
+    def step(self, commands, *, simulation_duration_s=None):
+        self.simulation_duration_s = simulation_duration_s
         count = len(commands)
         state = VehicleState(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         trajectory = TrajectoryChunk(
@@ -200,3 +202,47 @@ def test_initial_image_tensor_owns_writable_numpy_storage(monkeypatch) -> None:
 
     assert writable_flags == [True]
     assert tensor.shape == (1, 1, 1, 3, 4, 8)
+
+
+def test_observer_receives_simulation_before_failed_generation(monkeypatch):
+    pipeline = _Pipeline()
+    observed = []
+
+    def fail(**kwargs):
+        assert len(observed) == 1
+        raise RuntimeError("test generation failure")
+
+    monkeypatch.setattr(pipeline, "generate", fail)
+    rollout = WorldModelRollout(
+        pipeline=pipeline, scene=_scene(), engine_factory=_Engine
+    )
+    try:
+        with pytest.raises(RuntimeError, match="test generation failure"):
+            rollout.step(
+                autoregressive_index=0,
+                commands=(DriverCommand(),) * 2,
+                observe_engine_step=observed.append,
+            )
+        assert len(observed[0].trajectory.vehicle_states) == 2
+    finally:
+        rollout.close()
+
+
+def test_rollout_passes_compensation_to_engine_without_changing_model_frame_count() -> (
+    None
+):
+    pipeline = _Pipeline()
+    engine = _Engine()
+    rollout = WorldModelRollout(
+        pipeline=pipeline,
+        scene=_scene(),
+        engine_factory=lambda: engine,
+    )
+    result = rollout.step(
+        autoregressive_index=0,
+        commands=(DriverCommand(),) * 2,
+        simulation_duration_s=0.1,
+    )
+    assert engine.simulation_duration_s == 0.1
+    assert result.video_bvtchw.shape[2] == 2
+    assert [call[0] for call in pipeline.calls][-2:] == ["generate", "finalize"]
