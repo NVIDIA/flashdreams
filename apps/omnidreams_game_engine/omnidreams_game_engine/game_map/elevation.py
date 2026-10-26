@@ -17,6 +17,7 @@ from omnidreams_game_engine.game_map.types import (
     GameMapLaneDivider,
     GameMapTopology,
 )
+from omnidreams_game_engine.patterns import subdivide_polyline
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 
 
@@ -206,8 +207,8 @@ def elevate_geometry(
     ground = GroundSnapper(vertices, faces)
 
     def drape(points: np.ndarray) -> np.ndarray:
-        result = points.copy()
-        result[:, 2] = ground._raycast(points)
+        result = subdivide_polyline(points, spacing)
+        result[:, 2] = ground._raycast(result)
         return result
 
     # Paint, curb bases and gameplay paths share the sampled physical surface.
