@@ -7,13 +7,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
 from torch import Tensor
 
-from omnidreams_game_engine.game_map.types import ResolvedGameMap
+if TYPE_CHECKING:
+    from omnidreams_game_engine.game_map.types import ResolvedGameMap
 
 FloatArray = npt.NDArray[np.float32]
 UInt8Array = npt.NDArray[np.uint8]
@@ -108,6 +109,12 @@ class VehicleState:
     suspension_pitch_rate_radps: float = 0.0
     suspension_roll_rate_radps: float = 0.0
     ragdoll_active: bool = False
+    velocity_z_mps: float | None = None
+    """Physical world vertical velocity; infer the initial grade when unset."""
+    angular_velocity_x_radps: float = 0.0
+    """Physical angular velocity around world x, retained across drive updates."""
+    angular_velocity_y_radps: float = 0.0
+    """Physical angular velocity around world y, retained across drive updates."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +173,8 @@ class PhysicsDebugFrame:
     barrier_heights_m: FloatArray
     actor_ids: tuple[str, ...] = ()
     barrier_ids: tuple[str, ...] = ()
+    barrier_base_heights_m: FloatArray | None = None
+    """World heights at the bottom of the barrier collision boxes."""
 
     vehicle_state: VehicleState | None = None
     """Physical vehicle pose before gameplay policy and render ground alignment."""
