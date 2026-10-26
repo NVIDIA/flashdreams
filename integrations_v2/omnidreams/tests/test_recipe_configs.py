@@ -5,11 +5,11 @@
 
 import re
 from collections.abc import Callable
-from importlib.metadata import distribution
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import tomli as tomllib
 from crazy_robotaxi.application import CrazyRobotaxiApplication
 from crazy_robotaxi.settings import (
     SettingsDocument,
@@ -18,7 +18,25 @@ from crazy_robotaxi.settings import (
 )
 from interactive_drive import InteractiveDriveApplication, InteractiveDriveConfig
 from omnidreams.apps.crazy_robotaxi.adapter import (
+    OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS,
     OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_RESPONSIVE_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_RESPONSIVE_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_RTX_PRO_6000_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_PERF_RESPONSIVE_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_RESPONSIVE_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_DEFAULTS,
+    OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_FAST_DEFAULTS,
+)
+from omnidreams.apps.interactive_drive.adapter import (
+    OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS,
+    OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS,
+    OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS,
+    OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_RTX_PRO_6000_DEFAULTS,
+    OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS,
 )
 from omnidreams.apps.interactive_drive.adapter import (
     create_app as create_interactive_drive_app,
@@ -39,8 +57,11 @@ from omnidreams.config import (
     OMNIDREAMS_CONFIGS,
     OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG,
+    OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
     OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG,
+    OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
     OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG,
+    OMNIDREAMS_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
     OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
@@ -158,44 +179,252 @@ def test_build_and_tuning_controls_round_trip(
     assert transformer.num_views == expected_transformer.num_views
 
 
+def test_pipeline_configs_are_keyed_by_name() -> None:
+    """Expose every model-owned OmniDreams pipeline config."""
+    assert OMNIDREAMS_CONFIGS == {
+        "omnidreams": OMNIDREAMS_PIPELINE_CONFIG,
+        "omnidreams-optimized-gb300": OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+        "omnidreams-optimized-rtx-pro-6000": (
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG
+        ),
+        "omnidreams-perf": OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        "omnidreams-fast-perf": OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        "omnidreams-rtx-5090": OMNIDREAMS_RTX_5090_PIPELINE_CONFIG,
+        "omnidreams-rtx-5090-fast": OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG,
+        "omnidreams-responsive": OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
+        "omnidreams-perf-responsive": (OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG),
+        "omnidreams-fast-perf-responsive": (
+            OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG
+        ),
+        "omnidreams-optimized-gb300-responsive": (
+            OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG
+        ),
+        "omnidreams-optimized-rtx-pro-6000-responsive": (
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG
+        ),
+    }
+
+
 @pytest.mark.parametrize(
-    "config",
+    ("config", "base"),
     [
-        OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
-        OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
-        OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG,
-        OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG,
-        OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG,
+        (OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG, OMNIDREAMS_PIPELINE_CONFIG),
+        (
+            OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
+            OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG,
+            OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG,
+            OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG,
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
+        ),
     ],
 )
-def test_responsive_presets_use_compatible_short_history_caches(
+def test_responsive_configs_preserve_their_base_presets(
     config: OmnidreamsPipelineConfig,
+    base: OmnidreamsPipelineConfig,
 ) -> None:
     transformer = cast(CosmosTransformerConfig, config.diffusion_model.transformer)
-    assert transformer.early_short_history_block_count is not None
-    assert transformer.early_short_history_block_count > 0
+    base_transformer = cast(
+        CosmosTransformerConfig,
+        base.diffusion_model.transformer,
+    )
+
+    assert config.name == f"{base.name}-responsive"
+    assert transformer.window_size_t == 4
+    assert transformer.sink_size_t == base_transformer.sink_size_t
+    assert transformer.early_short_history_block_count == 9
     assert not transformer.network.apply_rope_before_kvcache
     assert transformer.native_dit_acceleration == "disabled"
+    assert transformer.skip_finalize_kv_cache == base_transformer.skip_finalize_kv_cache
+    assert (
+        transformer.network.self_attention_backend
+        == base_transformer.network.self_attention_backend
+    )
+    assert (
+        transformer.network.cross_attention_backend
+        == base_transformer.network.cross_attention_backend
+    )
+    assert (
+        transformer.network.self_attn_optimized_impl_config
+        == base_transformer.network.self_attn_optimized_impl_config
+    )
+    assert (
+        transformer.network.cross_attn_optimized_impl_config
+        == base_transformer.network.cross_attn_optimized_impl_config
+    )
+    assert config.diffusion_model.seed == base.diffusion_model.seed
+    assert config.diffusion_model.scheduler == base.diffusion_model.scheduler
+    assert config.image_encoder == base.image_encoder
+    assert config.encoder == base.encoder
+    assert config.decoder == base.decoder
+
+    assert base_transformer.window_size_t == 6
+    assert base_transformer.early_short_history_block_count is None
+    assert base_transformer.network.apply_rope_before_kvcache
 
 
-def test_fast_perf_configures_native_fp8_vae_and_dit() -> None:
+def test_fast_perf_uses_native_vae_when_available() -> None:
     config = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
-    for encoder in (config.image_encoder, config.encoder):
-        encoder = cast(OmnidreamsWanVAEEncoderConfig, encoder)
-        assert encoder.native_vae_acceleration == "required"
-        assert encoder.native_vae_backend == "fp8"
-        assert encoder.native_vae_fp8_state_path or encoder.native_vae_fp8_auto_export
-    transformer = cast(CosmosTransformerConfig, config.diffusion_model.transformer)
+    image_encoder = config.image_encoder
+    encoder = config.encoder
+    transformer = config.diffusion_model.transformer
+    assert isinstance(image_encoder, OmnidreamsWanVAEEncoderConfig)
+    assert isinstance(encoder, OmnidreamsWanVAEEncoderConfig)
+    assert isinstance(transformer, CosmosTransformerConfig)
+
+    assert image_encoder.native_vae_acceleration == "required"
+    assert image_encoder.native_vae_backend == "fp8"
+    assert image_encoder.native_vae_fp8_state_path is None
+    assert image_encoder.native_vae_fp8_auto_export is True
+    assert encoder.native_vae_acceleration == "required"
+    assert encoder.native_vae_backend == "fp8"
+    assert encoder.native_vae_fp8_state_path is None
+    assert encoder.native_vae_fp8_auto_export is True
     assert transformer.native_dit_acceleration == "required"
 
 
-def test_rtx_5090_presets_place_text_encoder_on_host() -> None:
-    for pipeline in (
-        OMNIDREAMS_RTX_5090_PIPELINE_CONFIG,
-        OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG,
+def test_application_defaults_are_owned_by_each_adapter() -> None:
+    """Keep demo-specific configuration beside each application factory."""
+    assert OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.slug == "interactive-drive"
+    assert OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS.slug == "interactive-drive-perf"
+    assert (
+        OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS.slug
+        == "interactive-drive-fast-perf"
+    )
+    assert (
+        OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS.slug
+        == "interactive-drive-optimized-gb300"
+    )
+    assert (
+        OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_RTX_PRO_6000_DEFAULTS.slug
+        == "interactive-drive-optimized-rtx-pro-6000"
+    )
+    assert OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS.width == 1280
+    assert OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS.width == 1168
+    for defaults, pipeline_config in (
+        (OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS, OMNIDREAMS_PIPELINE_CONFIG),
+        (
+            OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS,
+            OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_RTX_PRO_6000_DEFAULTS,
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS,
+            OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS,
+            OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        ),
+        (OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS, OMNIDREAMS_PIPELINE_CONFIG),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS,
+            OMNIDREAMS_PERF_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+            OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_DEFAULTS,
+            OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_RTX_PRO_6000_DEFAULTS,
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_DEFAULTS,
+            OMNIDREAMS_RTX_5090_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_FAST_DEFAULTS,
+            OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_RESPONSIVE_DEFAULTS,
+            OMNIDREAMS_RESPONSIVE_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_PERF_RESPONSIVE_DEFAULTS,
+            OMNIDREAMS_PERF_RESPONSIVE_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_RESPONSIVE_DEFAULTS,
+            OMNIDREAMS_FAST_PERF_RESPONSIVE_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_GB300_RESPONSIVE_DEFAULTS,
+            OMNIDREAMS_OPTIMIZED_GB300_RESPONSIVE_PIPELINE_CONFIG,
+        ),
+        (
+            OMNIDREAMS_CRAZY_ROBOTAXI_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_DEFAULTS,
+            OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_RESPONSIVE_PIPELINE_CONFIG,
+        ),
     ):
-        assert pipeline.text_encoder is not None
-        assert pipeline.text_encoder.run_on_cpu
+        assert defaults.pipeline_config is pipeline_config
+
+
+def test_rtx_5090_configs_place_text_encoder_on_host_and_prefer_sage3() -> None:
+    pipeline: Any = OMNIDREAMS_RTX_5090_PIPELINE_CONFIG
+    base: Any = OMNIDREAMS_PERF_PIPELINE_CONFIG
+    assert pipeline.text_encoder.run_on_cpu is True
+    assert pipeline.text_encoder.embedding_cache_size == 8
+    assert base.text_encoder.run_on_cpu is False
+    transformer = pipeline.diffusion_model.transformer
+    base_transformer = base.diffusion_model.transformer
+    assert transformer.native_dit_acceleration == "required"
+    assert transformer.native_dit_backend == base_transformer.native_dit_backend
+    assert transformer.native_dit_attention_backend == "prefer_sage3_fp8"
+    assert transformer.window_size_t == 4
+    assert transformer.skip_finalize_kv_cache is True
+    assert OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_DEFAULTS.width == 1168
+    assert OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_DEFAULTS.height == 640
+
+    fast: Any = OMNIDREAMS_RTX_5090_FAST_PIPELINE_CONFIG
+    assert fast.text_encoder.run_on_cpu is True
+    assert (
+        fast.diffusion_model.transformer.native_dit_attention_backend
+        == "prefer_sage3_fp8"
+    )
+    assert fast.diffusion_model.transformer.window_size_t == 4
+    assert fast.encoder.native_vae_acceleration == "required"
+    assert fast.image_encoder.native_vae_acceleration == "required"
+    assert OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_FAST_DEFAULTS.width == 1024
+    assert OMNIDREAMS_CRAZY_ROBOTAXI_RTX_5090_FAST_DEFAULTS.height == 560
+
+
+def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
+    """Moved from apps/crazy_robotaxi/tests/test_application.py: pure OmniDreams
+    pipeline-config assertions, no Crazy Robotaxi app involved."""
+    pipeline: Any = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
+    perf_pipeline: Any = OMNIDREAMS_PERF_PIPELINE_CONFIG
+    assert pipeline.name == "omnidreams-fast-perf"
+    assert pipeline.diffusion_model.seed is None
+    assert pipeline.decoder.use_compile is perf_pipeline.decoder.use_compile
+    assert pipeline.decoder.use_cuda_graph is True
+    assert pipeline.image_encoder.native_vae_acceleration == "required"
+    assert pipeline.image_encoder.native_vae_backend == "fp8"
+    assert pipeline.image_encoder.native_vae_fp8_auto_export is True
+    assert pipeline.encoder.native_vae_acceleration == "required"
+    assert pipeline.encoder.native_vae_backend == "fp8"
+    assert pipeline.encoder.native_vae_fp8_auto_export is True
+    assert pipeline.diffusion_model.transformer.native_dit_acceleration == "required"
+    assert (
+        pipeline.diffusion_model.transformer.native_dit_backend == "fp8_kvcache_cudnn"
+    )
+    assert pipeline.diffusion_model.transformer.native_dit_attention_backend == "cudnn"
 
 
 def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides(
@@ -262,11 +491,66 @@ def test_each_application_owns_its_parsed_config(
     assert type(app._config) is InteractiveDriveConfig
 
 
-def test_installed_application_entry_points_construct_apps() -> None:
-    entry_points = distribution("flashdreams-omnidreams").entry_points.select(
-        group="flashdreams.applications_v2"
-    )
-    assert "crazy-robotaxi-omnidreams" in entry_points.names
-    for entry_point in entry_points:
-        factory = entry_point.load()
-        assert isinstance(factory(), IApplication), entry_point.name
+def test_pyproject_registers_model_owned_app_adapters() -> None:
+    """Expose applications through nested adapters and no runner entry points."""
+    path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    project = tomllib.loads(path.read_text())
+    entry_points = project["project"]["entry-points"]
+
+    assert "flashdreams.runner_configs" not in entry_points
+    assert entry_points["flashdreams.applications_v2"] == {
+        "interactive-drive-omnidreams": (
+            "omnidreams.apps.interactive_drive.adapter:create_app"
+        ),
+        "interactive-drive-omnidreams-optimized-gb300": (
+            "omnidreams.apps.interactive_drive.adapter:create_optimized_gb300_app"
+        ),
+        "interactive-drive-omnidreams-optimized-rtx-pro-6000": (
+            "omnidreams.apps.interactive_drive.adapter:"
+            "create_optimized_rtx_pro_6000_app"
+        ),
+        "interactive-drive-omnidreams-perf": (
+            "omnidreams.apps.interactive_drive.adapter:create_perf_app"
+        ),
+        "interactive-drive-omnidreams-fast-perf": (
+            "omnidreams.apps.interactive_drive.adapter:create_fast_perf_app"
+        ),
+        "crazy-robotaxi-omnidreams": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_app"
+        ),
+        "crazy-robotaxi-omnidreams-perf": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_perf_app"
+        ),
+        "crazy-robotaxi-omnidreams-fast-perf": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_fast_perf_app"
+        ),
+        "crazy-robotaxi-omnidreams-rtx-5090": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_rtx_5090_app"
+        ),
+        "crazy-robotaxi-omnidreams-rtx-5090-fast": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_rtx_5090_fast_app"
+        ),
+        "crazy-robotaxi-omnidreams-optimized-gb300": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_optimized_gb300_app"
+        ),
+        "crazy-robotaxi-omnidreams-optimized-rtx-pro-6000": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_optimized_rtx_pro_6000_app"
+        ),
+        "crazy-robotaxi-omnidreams-responsive": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_responsive_app"
+        ),
+        "crazy-robotaxi-omnidreams-perf-responsive": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_perf_responsive_app"
+        ),
+        "crazy-robotaxi-omnidreams-fast-perf-responsive": (
+            "omnidreams.apps.crazy_robotaxi.adapter:create_fast_perf_responsive_app"
+        ),
+        "crazy-robotaxi-omnidreams-optimized-gb300-responsive": (
+            "omnidreams.apps.crazy_robotaxi.adapter:"
+            "create_optimized_gb300_responsive_app"
+        ),
+        "crazy-robotaxi-omnidreams-optimized-rtx-pro-6000-responsive": (
+            "omnidreams.apps.crazy_robotaxi.adapter:"
+            "create_optimized_rtx_pro_6000_responsive_app"
+        ),
+    }
