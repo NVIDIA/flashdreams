@@ -172,7 +172,7 @@ spawns:
       Onboard footage of a taxi driving through a coastal motor-racing circuit. Pit
       garages, spectator stands, palms, marina buildings, a lighthouse, stone
       breakwaters and rocky headlands. Asphalt, concrete barriers and catch fences.
-      Vehicle bonnet visible. The view follows the steering and movement of the car.
+      Car hood visible. The view follows the steering and movement of the car.
     prompt_context: >-
-      Onboard footage of a taxi driving through a coastal motor-racing circuit. Vehicle
-      bonnet visible. The view follows the steering and movement of the car.
+      Onboard footage of a taxi driving through a coastal motor-racing circuit. Car
+      hood visible. The view follows the steering and movement of the car.
