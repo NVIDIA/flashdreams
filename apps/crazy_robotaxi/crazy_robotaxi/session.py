@@ -134,22 +134,13 @@ class ModelState:
         self, frame_count: int, input_times_s: tuple[float, ...], *, now_s: float
     ) -> InputWindow:
         """Extend input application time to compensate for a late model chunk."""
-        window = self.input_timeline.next_window(
-            frame_count, input_times_s=input_times_s
-        )
         duration = frame_count / self.session_desc.frames_per_second_for_step
         if self.previous_chunk_started_s is not None:
             duration = max(duration, now_s - self.previous_chunk_started_s)
-        self.previous_chunk_started_s = now_s
-        window = InputWindow(
-            start_s=window.start_s,
-            end_s=window.start_s + duration,
-            sample_times_s=tuple(
-                window.start_s + duration * (i + 1) / frame_count
-                for i in range(frame_count)
-            ),
+        window = self.input_timeline.next_window(
+            frame_count, input_times_s=input_times_s, duration_s=duration
         )
-        self.input_timeline.reset(start_s=window.end_s)
+        self.previous_chunk_started_s = now_s
         return window
 
     def ensure_rollout(self) -> WorldModelRollout:

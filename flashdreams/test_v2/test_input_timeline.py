@@ -72,6 +72,27 @@ def test_input_at_nominal_window_end_does_not_trigger_catch_up() -> None:
     assert window.end_s == pytest.approx(0.2)
 
 
+@pytest.mark.parametrize("input_time, expected_start", [(0.9, 0.2), (2.0, 2.0)])
+def test_extended_window_catches_up_only_beyond_its_actual_end(
+    input_time: float, expected_start: float
+) -> None:
+    timeline = RealtimeInputTimeline(samples_per_second=10, start_s=0.2)
+    window = timeline.next_window(2, input_times_s=(input_time,), duration_s=1.0)
+    assert window.start_s == pytest.approx(expected_start)
+    assert window.sample_times_s == pytest.approx(
+        (expected_start + 0.5, expected_start + 1.0)
+    )
+    assert timeline.next_window(2).start_s == window.end_s
+
+
+@pytest.mark.parametrize("duration", [0.0, -1.0, float("nan"), float("inf")])
+def test_realtime_input_timeline_rejects_invalid_duration(duration: float) -> None:
+    timeline = RealtimeInputTimeline(samples_per_second=30)
+    with pytest.raises(ValueError, match="duration_s"):
+        timeline.next_window(8, duration_s=duration)
+    assert timeline.next_window_start_s == 0
+
+
 def test_input_window_rejects_invalid_bounds_and_sample_times() -> None:
     """Fail at the public window boundary instead of corrupting a state track."""
     with pytest.raises(ValueError, match="greater than"):

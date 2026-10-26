@@ -1531,3 +1531,50 @@ def test_input_windows_compensate_slow_chunks_without_startup_or_reset_debt() ->
     reset = state.next_input_window(5, (), now_s=2000)
     assert reset.end_s - reset.start_s == pytest.approx(5 / 30)
     assert reset.start_s == 0
+
+
+def test_slow_chunk_preserves_timestamped_press_and_following_release() -> None:
+    state = ModelState(
+        pipeline_factory=lambda: None,
+        scene_factory=lambda *args: _scene(),
+        config=cast(Any, SimpleNamespace(controls=ControlsConfig())),
+        session_desc=cast(Any, SimpleNamespace(frames_per_second_for_step=30)),
+        driver_input=DriverInput(),
+        ui_loop=cast(Any, None),
+    )
+    first = state.next_input_window(5, (), now_s=1000)
+    state.driver_input.sample(first)
+    press_times = state.driver_input.apply(
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(900_000),
+                    key="W",
+                    state=KeyboardInputState.PRESSED,
+                )
+            ]
+        )
+    )
+    slow = state.next_input_window(8, press_times, now_s=1001)
+    commands, timestamps = state.driver_input.sample(slow)
+    assert slow.start_s == first.end_s
+    assert slow.end_s == pytest.approx(5 / 30 + 1)
+    assert [command.throttle for command in commands] == [0] * 6 + [1] * 2
+    assert timestamps == (None,) * 6 + (900_000, None)
+
+    release_times = state.driver_input.apply(
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(1_310_000),
+                    key="W",
+                    state=KeyboardInputState.RELEASED,
+                )
+            ]
+        )
+    )
+    following = state.next_input_window(8, release_times, now_s=1001 + 8 / 30)
+    commands, timestamps = state.driver_input.sample(following)
+    assert following.start_s == slow.end_s
+    assert [command.throttle for command in commands] == [1] * 5 + [0] * 3
+    assert timestamps == (None,) * 5 + (1_310_000, None, None)
