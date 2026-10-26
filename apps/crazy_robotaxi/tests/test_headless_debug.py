@@ -17,6 +17,7 @@
 
 import argparse
 import json
+import socket
 from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -46,10 +47,94 @@ from flashdreams.runtime_v2.session_desc import (
     PresentationMode,
     SessionDesc,
 )
-from flashdreams.runtime_v2.user_input_event import CloseUserInputEvent
+from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEvent,
+    KeyboardInputState,
+    KeyboardUserInputEvent,
+)
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def test_live_headless_input_uses_runtime_timestamps_and_captures_ui(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("crazy_robotaxi.debug.Mp4Encoder", RecordingEncoder)
+    now = [10_000_000_000]
+    window = RobotaxiDebugWindow(
+        tmp_path / "live", snapshot_every=1, clock_ns=lambda: now[0]
+    )
+    window.open(
+        SessionDesc(
+            video_width=6,
+            video_height=4,
+            presentation_mode=PresentationMode.CONTINUOUS,
+            metadata={
+                DEBUG_METADATA_KEY: {"input_mode": "runtime", "frame_count": None}
+            },
+        )
+    )
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as controller:
+            now[0] += 125_000_000
+            controller.sendto(
+                b'{"type":"keyboard","key":"w","pressed":true}',
+                str(window.directory / "control.sock"),
+            )
+            (pressed,) = window.get_user_input_events().get_events()
+            assert isinstance(pressed, KeyboardUserInputEvent)
+            assert pressed.key == "w" and pressed.state is KeyboardInputState.PRESSED
+            assert int(pressed.timestamp) == 125_000
+            assert window.get_user_input_events().get_events() == []
+            now[0] += 400_000_000
+            controller.sendto(
+                b'{"type":"keyboard","key":"w","pressed":false}',
+                str(window.directory / "control.sock"),
+            )
+            (released,) = window.get_user_input_events().get_events()
+            assert isinstance(released, KeyboardUserInputEvent)
+            assert released.state is KeyboardInputState.RELEASED
+            assert int(released.timestamp) == 525_000
+        window.write(
+            StepResult(
+                step_index=7,
+                output=torch.ones(1, 3, 4, 6),
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+            )
+        )
+        assert (window.directory / "latest.png").is_file()
+    finally:
+        window.close()
+    assert not (window.directory / "control.sock").exists()
+    inputs = [
+        json.loads(line)
+        for line in (window.directory / "input_events.jsonl").read_text().splitlines()
+    ]
+    assert [event["state"] for event in inputs] == ["Pressed", "Released"]
+    assert [event["timestamp_us"] for event in inputs] == [125_000, 525_000]
+    record = json.loads((window.directory / "telemetry.jsonl").read_text())
+    assert record["ui_step"] == 7 and record["session_time_s"] == 0.525
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert manifest["views"] == ["presentation"] and manifest["frames_written"] == 1
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {"type": "keyboard", "key": "w", "pressed": 1},
+        {"type": "keyboard", "key": "", "pressed": True},
+        {"type": "close", "extra": 1},
+    ],
+)
+def test_live_headless_input_rejects_malformed_packets(payload: object) -> None:
+    from crazy_robotaxi.debug import _control_event
+
+    with pytest.raises(ValueError):
+        _control_event(payload)
 
 
 def test_observation_preserves_native_pose_before_game_policy() -> None:
