@@ -103,6 +103,7 @@ def test_grade_spawn_compiles_directly_to_clipgt_without_opendrive(
 ) -> None:
     document = yaml.safe_load((_MAPS / "debug_hill.robotaxi.yaml").read_text())
     document["compiler"]["sample_spacing_m"] = sample_spacing_m
+    document["traffic_count"] = 2
     document["spawns"][0].update(road="climb", distance_m=73)
     source = tmp_path / "grade.robotaxi.yaml"
     source.write_text(yaml.safe_dump(document, sort_keys=False))
@@ -131,6 +132,30 @@ def test_grade_spawn_compiles_directly_to_clipgt_without_opendrive(
     assert float(scene.initial_rig_to_world[:3, 0] @ normal) == pytest.approx(
         0, abs=1e-6
     )
+    paths = [
+        points
+        for lane in scene.game_map.lanes
+        for points in (
+            lane.centerline_world,
+            lane.left_edge_world,
+            lane.right_edge_world,
+            lane.roadside_edge_world,
+        )
+    ]
+    paths += [divider.polyline_world for divider in scene.game_map.lane_dividers]
+    paths += [
+        item.polyline_world
+        for element in scene.game_map.elements
+        for item in (*element.curbs, *element.road_boundaries)
+    ]
+    assert len(scene.game_map.traffic) == 2
+    paths += [traffic.centerline_world for traffic in scene.game_map.traffic]
+    for points in paths:
+        for fraction in (0.25, 0.5, 0.75):
+            between = points[:-1] * (1 - fraction) + points[1:] * fraction
+            np.testing.assert_allclose(
+                ground._raycast(between), between[:, 2], atol=0.003
+            )
 
 
 @pytest.mark.parametrize("value", [True, float("nan"), float("inf"), "uphill"])
