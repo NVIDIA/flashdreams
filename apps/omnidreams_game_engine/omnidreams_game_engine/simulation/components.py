@@ -410,6 +410,11 @@ def _physx_vehicle_model(
         rolling_resistance=dynamics.rolling_resistance,
         max_engine_force_n=dynamics.max_engine_force_n,
         max_brake_force_n=dynamics.max_brake_force_n,
+        center_of_mass_offset_m=(
+            0.0,
+            0.0,
+            dynamics.center_of_mass_height_m - height * 0.5,
+        ),
     )
 
 
