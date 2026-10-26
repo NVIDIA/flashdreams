@@ -427,12 +427,10 @@ def test_fast_perf_combines_native_dit_and_native_vae_paths() -> None:
     assert pipeline.diffusion_model.transformer.native_dit_attention_backend == "cudnn"
 
 
-def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("crazy_robotaxi.application._discover_game_maps", lambda _: ())
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.setenv("FLASHDREAMS_CACHE_DIR", str(tmp_path / "cache"))
+def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
+    """Moved from apps/crazy_robotaxi/tests/test_application.py: tests that Crazy
+    Robotaxi's CLI parsing correctly mutates OmniDreams's pipeline config, which
+    is inherently an adapter-level (app x model) concern."""
     app = CrazyRobotaxiApplication(
         defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
         pipeline_factory=lambda config, device: object(),

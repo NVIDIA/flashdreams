@@ -84,7 +84,9 @@ from flashdreams.runtime_v2.user_input_event import (
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
-pytestmark = [pytest.mark.ci_cpu, pytest.mark.usefixtures("race_map")]
+pytestmark = pytest.mark.ci_cpu
+
+_RACE_MAP = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
 
 
 @dataclass(kw_only=True)
@@ -1258,7 +1260,7 @@ def test_application_forces_continuous_presentation_for_interactive_input() -> N
 @pytest.mark.parametrize("no_ui", (False, True))
 @pytest.mark.parametrize("game_mode", ("race", "free-roam"))
 def test_cli_selection_starts_game_with_or_without_ui(
-    monkeypatch: pytest.MonkeyPatch, no_ui: bool, game_mode: str, race_map: Path
+    monkeypatch: pytest.MonkeyPatch, no_ui: bool, game_mode: str
 ) -> None:
     monkeypatch.setattr(
         "crazy_robotaxi.session.WorldModelRollout", lambda **_: SimpleNamespace()
@@ -1281,7 +1283,7 @@ def test_cli_selection_starts_game_with_or_without_ui(
             "--race-course",
             "test-loop",
             "--map",
-            str(race_map),
+            str(_RACE_MAP),
         ]
     )
     assert app._config is not None
@@ -1295,11 +1297,11 @@ def test_cli_selection_starts_game_with_or_without_ui(
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.initial_game_mode == "race"
-    assert ui_loop.state.initial_map_path == race_map.resolve()
+    assert ui_loop.state.initial_map_path == _RACE_MAP.resolve()
     assert ui_loop.state.initial_race_course_id == "test-loop"
 
 
-def test_no_ui_in_race_mode_requires_a_course(race_map: Path) -> None:
+def test_no_ui_in_race_mode_requires_a_course() -> None:
     app = _application(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
@@ -1314,7 +1316,7 @@ def test_no_ui_in_race_mode_requires_a_course(race_map: Path) -> None:
             "--game-mode",
             "race",
             "--map",
-            str(race_map),
+            str(_RACE_MAP),
         ]
     )
 
@@ -1324,10 +1326,8 @@ def test_no_ui_in_race_mode_requires_a_course(race_map: Path) -> None:
 
 
 @pytest.mark.parametrize("missing", ["--game-mode", "--map", "--total-blocks"])
-def test_no_ui_requires_explicit_mode_map_and_block_count(
-    missing: str, race_map: Path
-) -> None:
-    arguments = {"--game-mode": "taxi", "--map": str(race_map), "--total-blocks": "4"}
+def test_no_ui_requires_explicit_mode_map_and_block_count(missing: str) -> None:
+    arguments = {"--game-mode": "taxi", "--map": str(_RACE_MAP), "--total-blocks": "4"}
     del arguments[missing]
     app = _application()
     app.init(
