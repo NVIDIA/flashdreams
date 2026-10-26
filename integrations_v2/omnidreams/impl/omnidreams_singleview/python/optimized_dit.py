@@ -81,8 +81,7 @@ _ATTENTION_BACKEND_CHOICES = frozenset(
     }
 )
 _ATTENTION_BACKEND_CHOICES_TEXT = (
-    "'auto', 'cudnn', 'sage2', 'sparge', 'sage3', 'sage3_fp8', or "
-    "'prefer_sage3_fp8'"
+    "'auto', 'cudnn', 'sage2', 'sparge', 'sage3', 'sage3_fp8', or 'prefer_sage3_fp8'"
 )
 
 _DEFAULT_SPARGE_TOPK = 0.25

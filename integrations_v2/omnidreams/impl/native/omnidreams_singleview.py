@@ -587,7 +587,7 @@ def _load_prebuilt_extension() -> ModuleType:
     build_root = Path(os.environ["TORCH_EXTENSIONS_DIR"]) / "torch_extensions"
     binaries = [
         (directory.name, binary)
-        for directory in build_root.glob("omnidreams_singleview_native_sage3_*")
+        for directory in build_root.glob("omnidreams_singleview_native_sage2_*_sage3_*")
         for suffix in importlib.machinery.EXTENSION_SUFFIXES
         if (binary := directory / f"{directory.name}{suffix}").is_file()
     ]

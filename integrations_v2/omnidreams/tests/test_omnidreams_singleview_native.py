@@ -128,6 +128,45 @@ def test_build_info_uses_script_managed_source_provenance(
 
 
 @pytest.mark.ci_cpu
+def test_load_prebuilt_extension_discovers_sage2_aware_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extension_name = "omnidreams_singleview_native_sage2_1_sage3_0_test"
+    extension_dir = tmp_path / "torch_extensions" / extension_name
+    extension_dir.mkdir(parents=True)
+    binary = extension_dir / f"{extension_name}.test.so"
+    binary.touch()
+    module = ModuleType(extension_name)
+    loaded: dict[str, object] = {}
+    loader = SimpleNamespace(
+        exec_module=lambda loaded_module: loaded.update(module=loaded_module)
+    )
+    spec = SimpleNamespace(loader=loader)
+
+    monkeypatch.setenv("TORCH_EXTENSIONS_DIR", str(tmp_path))
+    monkeypatch.setattr(native.importlib.machinery, "EXTENSION_SUFFIXES", [".test.so"])
+    monkeypatch.setattr(
+        native.importlib.util,
+        "spec_from_file_location",
+        lambda name, path: loaded.update(name=name, path=path) or spec,
+    )
+    monkeypatch.setattr(native.importlib.util, "module_from_spec", lambda _: module)
+    monkeypatch.setattr(native, "_python_package_dir", lambda package: None)
+    monkeypatch.setattr(native, "_add_windows_cuda_dll_directories", lambda path: None)
+
+    try:
+        assert native._load_prebuilt_extension() is module
+        assert loaded == {
+            "name": extension_name,
+            "path": binary,
+            "module": module,
+        }
+    finally:
+        sys.modules.pop(extension_name, None)
+
+
+@pytest.mark.ci_cpu
 def test_load_extension_uses_build_root_for_torch_cache(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
