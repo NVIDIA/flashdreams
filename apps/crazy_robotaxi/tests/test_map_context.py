@@ -153,6 +153,7 @@ def test_reversing_away_recomputes_destination_immediately() -> None:
     assert "approaching an intersection" in approaching.suffix
     assert "approaching an intersection" not in reversing.suffix
     assert reversing.motion == "reverse"
+    assert "reversing" in reversing.suffix
 
 
 def test_velocity_selects_actual_travel_direction_over_vehicle_yaw() -> None:
@@ -184,6 +185,7 @@ def test_two_off_map_chunks_clear_scene_context_but_keep_motion() -> None:
     assert second.road_id is None
     assert second.node_id is None
     assert second.motion == "forward"
+    assert "forward" in second.suffix
     assert "Setting along" not in second.suffix
     assert "Landmark at" not in second.suffix
 

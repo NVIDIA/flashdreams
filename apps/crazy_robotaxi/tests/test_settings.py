@@ -197,6 +197,26 @@ live_edit:
     )
 
 
+def test_load_and_save_style_skins_beyond_default_count(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    count = len(_load(path).defaults.live_edit.style.skins) + 1
+    expected = [(f"skin-{index}", f"prompt-{index}") for index in range(count)]
+    skins = "\n".join(
+        f"      - {{name: {name}, prompt: {prompt}}}" for name, prompt in expected
+    )
+    path.write_text(f"live_edit:\n  style:\n    skins:\n{skins}\n", encoding="utf-8")
+
+    document = _load(path)
+    assert [
+        (skin.name, skin.prompt) for skin in document.settings.live_edit.style.skins
+    ] == expected
+    document.save(document.settings)
+
+    assert [
+        (skin.name, skin.prompt) for skin in _load(path).settings.live_edit.style.skins
+    ] == expected
+
+
 def test_pipeline_name_is_not_a_user_setting(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     path.write_text("model:\n  pipeline:\n    name: other\n", encoding="utf-8")
