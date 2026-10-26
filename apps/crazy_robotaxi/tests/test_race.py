@@ -61,8 +61,12 @@ def _drive(
 
 
 def test_loop_finishes_only_after_final_return_to_start(tmp_path: Path) -> None:
-    game_map = load_game_map(_MAP)
-    course = replace(game_map.race_courses[0], checkpoint_markers=False)
+    document = yaml.safe_load(_MAP.read_text(encoding="utf-8"))
+    document["race_courses"][0]["checkpoint_markers"] = False
+    path = tmp_path / "hidden-markers.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    game_map = load_game_map(path)
+    course = game_map.race_courses[0]
     controller = RaceController(
         game_map, course, _state(-20.0, -100.0), RaceTimeStore(tmp_path / "times.csv")
     )

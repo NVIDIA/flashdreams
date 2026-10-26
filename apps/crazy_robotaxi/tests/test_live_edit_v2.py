@@ -164,6 +164,24 @@ def test_style_and_weather_items_request_named_effects() -> None:
     assert requests == [("style", "comic"), ("weather", "rain")]
 
 
+def test_manual_actions_dispatch_to_the_requested_ability() -> None:
+    requests: list[str] = []
+    gameplay = LiveEditGameplay.__new__(LiveEditGameplay)
+    gameplay.style = SimpleNamespace(
+        request_cycle=lambda: requests.append("style"),
+        request_weather_cycle=lambda: requests.append("weather"),
+    )
+    gameplay.coins = SimpleNamespace(toggle=lambda: requests.append("coins"))
+    gameplay.obstacles = SimpleNamespace(
+        request_spawn=lambda: requests.append("obstacle")
+    )
+
+    for action in ("style", "weather", "coins", "obstacle"):
+        gameplay.request_action(action)
+        assert requests == [action]
+        requests.clear()
+
+
 def test_live_edit_rules_preserve_actors_and_complete_frame_capture() -> None:
     completed: list[int] = []
     inner_actor = cast(DynamicActorTrajectory, object())
@@ -327,6 +345,7 @@ def test_weather_suffix_composes_without_changing_style_prompt() -> None:
     style_config = LiveEditStyleConfig(
         enabled=True,
         skins=(StyleSkin("comic", "Comic-book visuals."),),
+        guidance_chunks=3,
     )
     weather_config = LiveEditWeatherConfig(
         enabled=True,
@@ -349,6 +368,7 @@ def test_weather_suffix_composes_without_changing_style_prompt() -> None:
     assert base.prompt == "A city road. The taxi is driving forward."
     assert style.prompt == "Comic-book visuals. The taxi is driving forward."
     assert style.use_lora is True
+    assert style.guidance_chunks == 3
     assert weather.prompt == (
         "A city road. The taxi is driving forward. Heavy rain falls."
     )
@@ -429,6 +449,7 @@ def test_visual_swap_absorbs_pending_map_change_once() -> None:
         f"{style.skins[0].prompt} The taxi is driving forward."
     )
     assert ability._pending_map_suffix is None
+    assert ability.active_prompt == targets[0].prompt
 
     ability.before_v2_chunk()
     assert len(targets) == 1

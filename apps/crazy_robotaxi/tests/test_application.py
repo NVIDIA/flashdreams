@@ -18,6 +18,7 @@ from crazy_robotaxi.application import (
     CrazyRobotaxiApplication,
     CrazyRobotaxiApplicationDefaults,
     _configure_live_edit_pipeline,
+    _fit_bev_renderer_to_ui,
 )
 from crazy_robotaxi.controls import BoundActionState, ControlsConfig
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
@@ -43,7 +44,11 @@ from crazy_robotaxi.session import (
     _pace_realtime_chunk,
     _taxi_driver_command,
 )
-from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
+from crazy_robotaxi.ui import (
+    CrazyRobotaxiImGuiUILoop,
+    TaxiHudState,
+    bev_display_extent,
+)
 from ludus_renderer.physx import PhysXStepTimings, _CompactPhysicsStep
 from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.engine import GameEngine
@@ -269,6 +274,8 @@ def test_application_registers_model_and_imgui_ui_loops(mode: str | None) -> Non
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
     assert ui_loop.state.allow_exit is (mode != "webrtc")
+    assert ui_loop.state.profile_input_latency
+    assert ui_loop.state.show_fps
     assert session._presentation_manager._presentation_stream is None
     assert model_loop.state.pipeline is None
     assert app._pipeline is not None
@@ -350,8 +357,10 @@ runtime:
     assert app.session_desc().video_height == 704
 
 
+@pytest.mark.parametrize("profile_pipeline", (False, True))
 def test_explicit_cli_overrides_user_config_without_rewriting_it(
     tmp_path: Path,
+    profile_pipeline: bool,
 ) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -375,7 +384,7 @@ runtime:
             "--device",
             "cpu",
             "--show-fps",
-            "--profile-pipeline",
+            *(["--profile-pipeline"] if profile_pipeline else []),
             "--prewarm-blocks",
             "0",
         ]
@@ -393,7 +402,7 @@ runtime:
     assert document.cli_overrides[("model", "device")] == "cpu"
     assert document.cli_overrides[("presentation", "show_fps")] is True
 
-    assert app._config.pipeline_profiling
+    assert app._config.pipeline_profiling is profile_pipeline
     assert config_path.read_bytes() == saved_bytes
 
 
@@ -1229,6 +1238,21 @@ def test_saved_presentation_resolution_and_cli_override(
     assert (session.ui_loop.state.width, session.ui_loop.state.height) == (1280, 704)
 
 
+def test_bev_fit_preserves_aspect_ratio_without_upscaling() -> None:
+    wide = RendererSettings(raster=RasterConfig(), bev=BevConfig(width=800, height=400))
+    fitted = _fit_bev_renderer_to_ui(wide, video_width=1280, video_height=704)
+    maximum_width, maximum_height = bev_display_extent(1280, 704)
+
+    assert 0 < fitted.bev.width <= maximum_width
+    assert 0 < fitted.bev.height <= maximum_height
+    assert fitted.bev.width < wide.bev.width
+    assert fitted.bev.width / fitted.bev.height == pytest.approx(2.0)
+
+    small = RendererSettings(raster=RasterConfig(), bev=BevConfig(width=120, height=80))
+    fitted = _fit_bev_renderer_to_ui(small, video_width=1280, video_height=704)
+    assert (fitted.bev.width, fitted.bev.height) == (120, 80)
+
+
 def test_application_rejects_mismatched_generation_rate() -> None:
     app = _application(
         pipeline_factory=lambda config, device: object(),
@@ -1275,30 +1299,37 @@ def test_cli_selection_starts_game_with_or_without_ui(
             "cpu",
             "--prewarm-blocks",
             "0",
-            "--no-ui",
+            *(["--no-ui"] if no_ui else []),
             "--total-blocks",
             "4",
             "--game-mode",
-            "race",
-            "--race-course",
-            "test-loop",
+            game_mode,
+            *(["--race-course", "test-loop"] if game_mode == "race" else []),
             "--map",
             str(_RACE_MAP),
         ]
     )
     assert app._config is not None
-    assert app._config.no_ui
+    assert app._config.no_ui is no_ui
 
     session = app.create_session(app.session_desc())
     session.init()
     ui_loop, model_loop = session._take_loops()
 
-    assert isinstance(ui_loop, CrazyRobotaxiHeadlessUILoop)
+    assert isinstance(
+        ui_loop, CrazyRobotaxiHeadlessUILoop if no_ui else CrazyRobotaxiImGuiUILoop
+    )
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert model_loop.state.ui_loop is ui_loop
-    assert ui_loop.state.initial_game_mode == "race"
+    assert ui_loop.state.initial_game_mode == game_mode
     assert ui_loop.state.initial_map_path == _RACE_MAP.resolve()
-    assert ui_loop.state.initial_race_course_id == "test-loop"
+    expected_course = "test-loop" if game_mode == "race" else None
+    assert ui_loop.state.initial_race_course_id == expected_course
+    assert ui_loop.state._menu_stage == "loading"
+    model_loop._run_message_batch()
+    assert model_loop.state.game_selected
+    assert model_loop.state.config.game_mode == game_mode
+    assert model_loop.state.config.race_course_id == expected_course
 
 
 def test_no_ui_in_race_mode_requires_a_course() -> None:
