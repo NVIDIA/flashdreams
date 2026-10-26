@@ -28,6 +28,7 @@ from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.contracts import ConditionRenderer
 from omnidreams_game_engine.dynamic_scene import MutableObjectSceneBuffer
 from omnidreams_game_engine.game_map.types import GameMapElement
+from omnidreams_game_engine.patterns import triangulate_polygon_xy
 from omnidreams_game_engine.types import (
     ConditionBatch,
     SceneDefinition,
@@ -234,21 +235,36 @@ def _build_bev_road_surface_pool(
     elevated = ground_vertices is not None and np.ptp(ground_vertices[:, 2]) > 0
     if elevated:
         assert ground_vertices is not None and ground_faces is not None
-        footprint = shapely.union_all(
-            [Polygon(element.surface_world[:, :2]) for element in elements]
-        )
-        centers = ground_vertices[ground_faces].mean(axis=1)
-        faces = ground_faces[
-            shapely.intersects_xy(footprint, centers[:, 0], centers[:, 1])
-        ]
-        if len(faces):
-            used, indices = np.unique(faces, return_inverse=True)
-            xyz = ground_vertices[used].copy()
-            xyz[:, 2] += _BEV_ROAD_DEPTH_OFFSET_M
+        ground = ground_vertices[ground_faces].astype(np.float64)
+        ground_polygons = shapely.polygons(ground[:, :, :2])
+        ground_index = shapely.STRtree(ground_polygons)
+        clipped_triangles = []
+        for element in elements:
+            pavement = triangulate_polygon_xy(element.surface_world)
+            pavement_polygons = shapely.polygons(pavement[:, :, :2])
+            road_ids, ground_ids = ground_index.query(
+                pavement_polygons, predicate="intersects"
+            )
+            pieces = shapely.intersection(
+                pavement_polygons[road_ids], ground_polygons[ground_ids]
+            )
+            for piece, ground_id in zip(pieces, ground_ids, strict=True):
+                if piece.is_empty or piece.area == 0:
+                    continue
+                xy = np.asarray(piece.exterior.coords[:-1])
+                face = ground[ground_id]
+                normal = np.cross(face[1] - face[0], face[2] - face[0])
+                z = face[0, 2] - (xy - face[0, :2]) @ normal[:2] / normal[2]
+                xyz = np.column_stack((xy, z + _BEV_ROAD_DEPTH_OFFSET_M))
+                clipped_triangles.extend(
+                    xyz[[0, i, i + 1]] for i in range(1, len(xyz) - 1)
+                )
+        if clipped_triangles:
+            xyz = np.asarray(clipped_triangles, dtype=np.float32).reshape(-1, 3)
             vertices.append(torch.from_numpy(xyz))
-            triangles.append(torch.from_numpy(indices.reshape(-1, 3).astype(np.int32)))
+            triangles.append(torch.arange(len(xyz), dtype=torch.int32).reshape(-1, 3))
             vertex_counts.append(len(xyz))
-            triangle_counts.append(len(faces))
+            triangle_counts.append(len(clipped_triangles))
     for element in () if elevated else elements:
         surface = np.asarray(element.surface_world, dtype=np.float32)
         polygon = Polygon(surface[:, :2]).simplify(
