@@ -47,7 +47,7 @@ from crazy_robotaxi.ui import (
 )
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
-from flashdreams.runtime_v2.input_timeline import RealtimeInputTimeline
+from flashdreams.runtime_v2.input_timeline import InputWindow, RealtimeInputTimeline
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -121,11 +121,36 @@ class ModelState:
     prewarm_wall_ms: float = 0.0
     """Wall time spent in hidden startup generation, excluding rollout creation."""
 
+    previous_chunk_started_s: float | None = None
+    """Start of the previous playable chunk, excluding menu and warmup time."""
+
     def __post_init__(self) -> None:
         self.input_timeline = RealtimeInputTimeline(
             samples_per_second=self.session_desc.frames_per_second_for_step,
         )
         self.control_actions = BoundActionState(self.config.controls)
+
+    def next_input_window(
+        self, frame_count: int, input_times_s: tuple[float, ...], *, now_s: float
+    ) -> InputWindow:
+        """Extend input application time to compensate for a late model chunk."""
+        window = self.input_timeline.next_window(
+            frame_count, input_times_s=input_times_s
+        )
+        duration = frame_count / self.session_desc.frames_per_second_for_step
+        if self.previous_chunk_started_s is not None:
+            duration = max(duration, now_s - self.previous_chunk_started_s)
+        self.previous_chunk_started_s = now_s
+        window = InputWindow(
+            start_s=window.start_s,
+            end_s=window.start_s + duration,
+            sample_times_s=tuple(
+                window.start_s + duration * (i + 1) / frame_count
+                for i in range(frame_count)
+            ),
+        )
+        self.input_timeline.reset(start_s=window.end_s)
+        return window
 
     def ensure_rollout(self) -> WorldModelRollout:
         """Build and prewarm renderer, PhysX, game, and cache on the model thread."""
@@ -314,6 +339,7 @@ class ModelState:
         self.last_pose = None
         self.driver_input.reset()
         self.input_timeline.reset()
+        self.previous_chunk_started_s = None
         self.last_speed_mps = 0.0
         if self.rollout is not None:
             self.rollout.reset()
@@ -418,14 +444,20 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                         live_edit.request_action(action)
             autoregressive_index = state.blocks_generated
             frame_count = rollout.frame_count(autoregressive_index)
+            simulation_duration_s = None
             if script is not None:
                 commands, valid_count = script.batch(state.scripted_frames, frame_count)
                 transition_timestamps_us = (None,) * valid_count
             else:
                 valid_count = frame_count
-                input_window = state.input_timeline.next_window(
+                input_window = state.next_input_window(
                     frame_count,
-                    input_times_s=input_times_s,
+                    input_times_s,
+                    now_s=time.perf_counter(),
+                )
+                simulation_duration_s = max(
+                    frame_count / state.session_desc.frames_per_second_for_step,
+                    input_window.end_s - input_window.start_s,
                 )
                 sampled_commands, transition_timestamps_us = state.driver_input.sample(
                     input_window
@@ -461,6 +493,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             generated = rollout.step(
                 autoregressive_index=autoregressive_index,
                 commands=commands,
+                simulation_duration_s=simulation_duration_s,
             )
             if trace_enabled and generated._trace is not None:
                 trace = generated._trace
@@ -486,6 +519,10 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 live_edit.style.after_v2_chunk()
             if live_edit is not None:
                 live_edit_statuses = live_edit.hud_statuses()
+                live_edit_statuses = tuple(
+                    live_edit_statuses[index]
+                    for index in generated.engine.simulation_frame_indices
+                )
                 if live_edit.style is not None:
                     current_prompt = live_edit.style.active_prompt or current_prompt
             state.blocks_generated += 1

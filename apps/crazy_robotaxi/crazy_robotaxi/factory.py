@@ -146,6 +146,8 @@ def build_taxi_engine(
         rules=rules,
         condition_renderer=renderer,
         frame_interval_s=frame_interval_s,
+        physics_frame_interval_s=1.0 / 120.0,
+        preserve_initial_frame=True,
     )
     setattr(engine, "live_edit", live_edit_gameplay)
     return engine

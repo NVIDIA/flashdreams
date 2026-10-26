@@ -33,7 +33,12 @@ class RolloutEngine(Protocol):
     @property
     def current_game_frame(self) -> object: ...
 
-    def step(self, commands: tuple[DriverCommand, ...]) -> EngineStep: ...
+    def step(
+        self,
+        commands: tuple[DriverCommand, ...],
+        *,
+        simulation_duration_s: float | None = None,
+    ) -> EngineStep: ...
 
     def submit_text(self, value: str) -> object: ...
 
@@ -104,6 +109,7 @@ class WorldModelRollout:
         *,
         autoregressive_index: int,
         commands: tuple[DriverCommand, ...],
+        simulation_duration_s: float | None = None,
     ) -> WorldModelStep:
         """Simulate, condition, generate, and finalize one block directly."""
         if self._closed:
@@ -119,7 +125,11 @@ class WorldModelRollout:
         )
         engine_wall_started = time.perf_counter()
         engine_cpu_started = time.thread_time()
-        engine_step = self.engine.step(commands)
+        engine_step = (
+            self.engine.step(commands)
+            if simulation_duration_s is None
+            else self.engine.step(commands, simulation_duration_s=simulation_duration_s)
+        )
         engine_step_returned_ns = (
             time.monotonic_ns() if self._trace_chunk_lifecycle else None
         )

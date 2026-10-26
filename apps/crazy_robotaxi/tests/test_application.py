@@ -1509,3 +1509,25 @@ def test_scripted_headless_startup_requires_complete_cli_selection(
     del arguments[index : index + 2]
     with pytest.raises(ValueError, match="--drive-script.*requires"):
         _application().init(arguments)
+
+
+def test_input_windows_compensate_slow_chunks_without_startup_or_reset_debt() -> None:
+    state = ModelState(
+        pipeline_factory=lambda: None,
+        scene_factory=lambda *args: _scene(),
+        config=cast(Any, SimpleNamespace(controls=ControlsConfig())),
+        session_desc=cast(Any, SimpleNamespace(frames_per_second_for_step=30)),
+        driver_input=DriverInput(),
+        ui_loop=cast(Any, None),
+    )
+    first = state.next_input_window(5, (), now_s=1000)
+    assert first.end_s - first.start_s == pytest.approx(5 / 30)
+    slow = state.next_input_window(8, (), now_s=1000.4)
+    assert slow.end_s - slow.start_s == pytest.approx(0.4)
+    assert np.diff((slow.start_s, *slow.sample_times_s)) == pytest.approx([0.05] * 8)
+    fast = state.next_input_window(8, (), now_s=1000.5)
+    assert fast.end_s - fast.start_s == pytest.approx(8 / 30)
+    state.reset()
+    reset = state.next_input_window(5, (), now_s=2000)
+    assert reset.end_s - reset.start_s == pytest.approx(5 / 30)
+    assert reset.start_s == 0

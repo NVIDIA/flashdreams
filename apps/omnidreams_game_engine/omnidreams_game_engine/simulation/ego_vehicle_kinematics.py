@@ -320,18 +320,15 @@ def sample_chunk_trajectory(
     ] = integrate_vehicle,
     physics_step_fn: PhysicsStepFn = step_physics_world,
     include_start_state: bool = False,
+    elapsed_s: float = 0.0,
 ) -> TrajectoryChunk:
     if len(commands) != chunk_size:
         raise ValueError(
             f"commands must match chunk_size; got {len(commands)} for {chunk_size}"
         )
-    timestamps = np.array(
-        [
-            start_timestamp_us + frame_idx * chunk_config.frame_interval_us
-            for frame_idx in range(chunk_size)
-        ],
-        dtype=np.int64,
-    )
+    timestamps = start_timestamp_us + np.rint(
+        (elapsed_s + np.arange(chunk_size) * chunk_config.frame_interval_s) * 1_000_000
+    ).astype(np.int64)
     poses = np.zeros((chunk_size, 4, 4), dtype=np.float32)
 
     state = replace(start_state)
@@ -359,7 +356,7 @@ def sample_chunk_trajectory(
         physx_started_at = time.perf_counter()
         physics_world.synchronize_window(
             np.asarray([state.x_m, state.y_m], dtype=np.float32),
-            timestamp_us=start_timestamp_us,
+            timestamp_us=int(timestamps[0]),
         )
         sync_elapsed_s = time.perf_counter() - physx_started_at
         physx_sync_s += sync_elapsed_s
@@ -529,7 +526,8 @@ class EgoVehicleKinematics:
         self._state = initial_state
         self._vehicle_config = vehicle_config
         self._ground_snapper = ground_snapper
-        self._next_timestamp_us = initial_timestamp_us
+        self._initial_timestamp_us = initial_timestamp_us
+        self._elapsed_s = 0.0
         self._integrate_fn = integrate_fn
         self._physics_step_fn = physics_step_fn
         self._include_initial_state_in_next_chunk = bool(
@@ -581,7 +579,8 @@ class EgoVehicleKinematics:
         )
         trajectory = sample_chunk_trajectory(
             start_state=self._state,
-            start_timestamp_us=self._next_timestamp_us,
+            start_timestamp_us=self._initial_timestamp_us,
+            elapsed_s=self._elapsed_s,
             commands=commands,
             chunk_size=chunk_size,
             chunk_config=chunk_config,
@@ -595,7 +594,5 @@ class EgoVehicleKinematics:
         )
         self._include_initial_state_in_next_chunk = False
         self._state = trajectory.boundary_state_after_chunk
-        self._next_timestamp_us = int(
-            trajectory.timestamps_us[-1] + chunk_config.frame_interval_us
-        )
+        self._elapsed_s += chunk_size * chunk_config.frame_interval_s
         return trajectory
