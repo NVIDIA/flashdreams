@@ -120,7 +120,11 @@ def test_taxi_brake_from_rest_enters_reverse() -> None:
 
 
 def test_direct_steering_preserves_keyboard_arcade_response() -> None:
-    vehicle = TaxiVehicleConfig()
+    vehicle = TaxiVehicleConfig(
+        max_steer_rad=0.8,
+        steer_rate_rad_per_s=2.0,
+        steer_return_rate_rad_per_s=1.0,
+    )
     direct = integrate_taxi_vehicle(
         _state(),
         DriverCommand(steer=1.0, steer_is_direct=True),
@@ -134,7 +138,8 @@ def test_direct_steering_preserves_keyboard_arcade_response() -> None:
         vehicle=vehicle,
     )
 
-    assert direct.steer_rad == pytest.approx(legacy_keyboard.steer_rad)
+    assert direct.steer_rad == pytest.approx(0.2)
+    assert legacy_keyboard.steer_rad == pytest.approx(0.2)
 
     half_lock = _state()
     half_lock.steer_rad = vehicle.max_steer_rad * 0.5
@@ -144,24 +149,14 @@ def test_direct_steering_preserves_keyboard_arcade_response() -> None:
         dt_s=0.1,
         vehicle=vehicle,
     )
-    assert released.steer_rad == pytest.approx(
-        half_lock.steer_rad - vehicle.steer_return_rate_rad_per_s * 0.1
-    )
-
-
-def test_collected_coins_add_to_overall_taxi_score() -> None:
-    controller = _controller()
-
-    controller.collect_coins(3)
-
-    assert controller.snapshot(_state()).score == 300
+    assert released.steer_rad == pytest.approx(0.3)
 
 
 def test_frame_effects_align_with_taxi_score_and_stop_at_game_over(
     tmp_path: Path,
 ) -> None:
     active_states: list[bool] = []
-    coin_counts = iter((0, 1, 9))
+    coin_counts = iter((0, 3, 9))
 
     def frame_advance(_state: VehicleState, active: bool) -> int:
         active_states.append(active)
@@ -184,7 +179,7 @@ def test_frame_effects_align_with_taxi_score_and_stop_at_game_over(
     )
 
     assert active_states == [True, True, False]
-    assert [snapshot.score for snapshot in snapshots] == [0, 100, 100]
+    assert [snapshot.score for snapshot in snapshots] == [0, 300, 300]
 
 
 def test_fare_and_game_over_flow_reaches_v2_name_entry(tmp_path: Path) -> None:
@@ -194,6 +189,12 @@ def test_fare_and_game_over_flow_reaches_v2_name_entry(tmp_path: Path) -> None:
             waypoint_spacing_m=1000.0,
             global_time_s=1.0,
             dropoff_time_bonus_s=0.0,
+            seed=0,
+            min_time_s=18.0,
+            max_time_s=18.0,
+            trip_time_multiplier=2.0,
+            base_fare_points=500,
+            bonus_points_per_second=100,
             high_scores_path=store.path,
         ),
         high_score_store=store,
