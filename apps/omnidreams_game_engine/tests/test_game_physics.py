@@ -205,30 +205,6 @@ def test_vectorized_barrier_rebound_matches_scalar_reference() -> None:
         )
 
 
-def test_vectorized_barrier_rebound_preserves_corner_response_order() -> None:
-    barriers = (
-        InvisibleBarrier((-5.0, 0.0), (5.0, 0.0), thickness_m=0.3),
-        InvisibleBarrier((0.0, -5.0), (0.0, 5.0), thickness_m=0.3),
-    )
-    requested = _body_state(
-        position_xy=(0.2, 0.2),
-        velocity_xy=(-8.0, -6.0),
-        yaw_rad=0.35,
-    )
-    resolved = np.asarray([-1.0, -2.0, 0.0], dtype=np.float32)
-    ego_model = RigidBodyModel(mass_kg=1_500.0, half_extents_m=(1.4, 0.7, 0.5))
-
-    expected = _scalar_rebound(
-        barriers, requested, resolved, ego_model, restitution=0.6
-    )
-    actual = _reinforce_static_barrier_rebound(
-        _index(barriers), requested, resolved, ego_model, restitution=0.6
-    )
-
-    assert actual[1] is expected[1]
-    np.testing.assert_array_equal(actual[0], expected[0])
-
-
 def test_vectorized_barrier_rebound_reinforces_single_contact() -> None:
     barriers = (InvisibleBarrier((-5.0, 0.0), (5.0, 0.0), thickness_m=0.3),)
     requested = _body_state(

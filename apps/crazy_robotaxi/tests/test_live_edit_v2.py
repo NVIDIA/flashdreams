@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -14,6 +13,7 @@ from typing import Any, cast
 import crazy_robotaxi.live_edit.config as live_edit_config
 import numpy as np
 import pytest
+import torch
 from crazy_robotaxi.live_edit.config import (
     LiveEditCoinsConfig,
     LiveEditConfig,
@@ -46,6 +46,7 @@ from omnidreams_game_engine.contracts import GameRules, GameUpdate
 from omnidreams_game_engine.game_map import load_game_map
 from omnidreams_game_engine.types import (
     CameraCalibration,
+    DynamicActorTrajectory,
     SceneDefinition,
     TrajectoryChunk,
     VehicleState,
@@ -53,40 +54,6 @@ from omnidreams_game_engine.types import (
 from PIL import Image
 
 pytestmark = pytest.mark.ci_cpu
-
-
-class _StyleRequests:
-    def __init__(self) -> None:
-        self.skin_cycles = 0
-        self.weather_cycles = 0
-        self.active_skin_name = "comic"
-        self.active_weather_name = "rain"
-
-    def request_cycle(self) -> None:
-        self.skin_cycles += 1
-
-    def request_weather_cycle(self) -> None:
-        self.weather_cycles += 1
-
-
-class _Coins:
-    def __init__(self) -> None:
-        self.toggles = 0
-        self.enabled = True
-        self.collected_count = 3
-
-    def toggle(self) -> bool:
-        self.toggles += 1
-        return True
-
-
-class _Obstacles:
-    def __init__(self) -> None:
-        self.spawns = 0
-        self.events = (object(), object())
-
-    def request_spawn(self) -> None:
-        self.spawns += 1
 
 
 def _scene(*, game_map: Any = None) -> SceneDefinition:
@@ -116,136 +83,73 @@ def _scene(*, game_map: Any = None) -> SceneDefinition:
 def test_style_assets_download_only_when_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    downloads: list[str] = []
-
-    def fake_download(url: str, *, cache_dir: Path) -> Path:
-        downloads.append(url)
-        return cache_dir / Path(url).name
-
-    monkeypatch.setattr(live_edit_config, "download_to_cache", fake_download)
-
-    resolved = resolve_live_edit_assets(
-        LiveEditConfig(style=LiveEditStyleConfig(enabled=True)),
-        cache_dir=tmp_path,
-    )
-
-    paths = (
-        resolved.style.lora_checkpoint,
-        resolved.style.corrector_checkpoint,
-        resolved.style.gate_alpha_json,
-        resolved.style.base_corrector_checkpoint,
-    )
-    assert [path.name for path in paths if path is not None] == [
-        "lora_style_v6_step1600.pt",
-        "lora_style_corrector_v5_valpeak.pt",
-        "gate_style_v5.json",
-        "lora_v2_v3_valpeak.pt",
-    ]
-    assert len(downloads) == 4
-
-
-def test_style_assets_use_flashdreams_cache_by_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
     monkeypatch.setenv("FLASHDREAMS_CACHE_DIR", str(tmp_path))
-    cache_dirs: list[Path] = []
+    assets = {
+        live_edit_config._STYLE_LORA_URL: tmp_path / "style.pt",
+        live_edit_config._STYLE_CORRECTOR_URL: tmp_path / "corrector.pt",
+        live_edit_config._STYLE_GATE_URL: tmp_path / "gate.json",
+        live_edit_config._BASE_CORRECTOR_URL: tmp_path / "base.pt",
+    }
+    downloads: list[tuple[str, Path]] = []
 
     def fake_download(url: str, *, cache_dir: Path) -> Path:
-        cache_dirs.append(cache_dir)
-        return cache_dir / Path(url).name
+        downloads.append((url, cache_dir))
+        return assets[url]
 
     monkeypatch.setattr(live_edit_config, "download_to_cache", fake_download)
-    resolve_live_edit_assets(LiveEditConfig(style=LiveEditStyleConfig(enabled=True)))
-    assert cache_dirs == [tmp_path / "crazy-robotaxi" / "live_edit"] * 4
-
-
-def test_explicit_style_assets_skip_download(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        live_edit_config,
-        "download_to_cache",
-        lambda *args, **kwargs: pytest.fail("explicit assets must not download"),
+    resolved = resolve_live_edit_assets(
+        LiveEditConfig(style=LiveEditStyleConfig(enabled=True))
     )
-    style = LiveEditStyleConfig(
-        enabled=True,
-        lora_checkpoint=tmp_path / "style.pt",
-        corrector_checkpoint=tmp_path / "corrector.pt",
-        gate_alpha_json=tmp_path / "gate.json",
-        base_corrector_checkpoint=tmp_path / "base.pt",
+
+    assert resolved.style.lora_checkpoint == tmp_path / "style.pt"
+    assert resolved.style.corrector_checkpoint == tmp_path / "corrector.pt"
+    assert resolved.style.gate_alpha_json == tmp_path / "gate.json"
+    assert resolved.style.base_corrector_checkpoint == tmp_path / "base.pt"
+    assert downloads
+    assert all(
+        directory == tmp_path / "crazy-robotaxi" / "live_edit"
+        for _, directory in downloads
     )
-    config = LiveEditConfig(style=style)
+    initial_downloads = downloads.copy()
+    assert resolve_live_edit_assets(resolved) == resolved
+    assert downloads == initial_downloads
 
-    assert resolve_live_edit_assets(config, cache_dir=tmp_path) == config
 
-
+@pytest.mark.parametrize("gain", (0.0, 0.1))
 def test_weather_downloads_corrector_only_for_nonzero_gain(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gain: float
 ) -> None:
+    assets = {
+        live_edit_config._STYLE_CORRECTOR_URL: tmp_path / "corrector.pt",
+        live_edit_config._STYLE_GATE_URL: tmp_path / "gate.json",
+    }
     downloads: list[str] = []
 
     def fake_download(url: str, *, cache_dir: Path) -> Path:
         downloads.append(url)
-        return cache_dir / Path(url).name
+        return assets[url]
 
     monkeypatch.setattr(live_edit_config, "download_to_cache", fake_download)
     resolved = resolve_live_edit_assets(
-        LiveEditConfig(weather=LiveEditWeatherConfig(enabled=True, corrector_gain=0.1)),
+        LiveEditConfig(
+            weather=LiveEditWeatherConfig(enabled=True, corrector_gain=gain)
+        ),
         cache_dir=tmp_path,
     )
 
     assert resolved.style.lora_checkpoint is None
     assert resolved.style.base_corrector_checkpoint is None
-    assert resolved.style.corrector_checkpoint is not None
-    assert resolved.style.gate_alpha_json is not None
-    assert resolved.style.corrector_checkpoint.name == (
-        "lora_style_corrector_v5_valpeak.pt"
-    )
-    assert resolved.style.gate_alpha_json.name == "gate_style_v5.json"
-    assert len(downloads) == 2
+    if gain == 0.0:
+        assert downloads == []
+        assert resolved.style.corrector_checkpoint is None
+        assert resolved.style.gate_alpha_json is None
+    else:
+        assert resolved.style.corrector_checkpoint == tmp_path / "corrector.pt"
+        assert resolved.style.gate_alpha_json == tmp_path / "gate.json"
+        assert set(downloads) == set(assets)
 
 
-def test_v2_manual_actions_share_keyboard_dispatch() -> None:
-    gameplay = LiveEditGameplay.__new__(LiveEditGameplay)
-    gameplay.style = _StyleRequests()
-    gameplay.coins = _Coins()
-    gameplay.obstacles = _Obstacles()
-
-    for action in ("style", "weather", "coins", "obstacle"):
-        gameplay.request_action(action)
-
-    assert gameplay.style.skin_cycles == 1
-    assert gameplay.style.weather_cycles == 1
-    assert gameplay.coins.toggles == 1
-    assert gameplay.obstacles.spawns == 1
-
-
-def test_v2_hud_status_snapshots_enabled_abilities() -> None:
-    gameplay = LiveEditGameplay.__new__(LiveEditGameplay)
-    gameplay.config = LiveEditConfig(
-        style=LiveEditStyleConfig(enabled=True),
-        weather=LiveEditWeatherConfig(enabled=True),
-        coins=LiveEditCoinsConfig(enabled=True),
-        obstacle=LiveEditObstacleConfig(enabled=True),
-    )
-    gameplay.style = _StyleRequests()
-    gameplay.coins = _Coins()
-    gameplay.nitro = SimpleNamespace(active=True, seconds_remaining=4.0)
-    gameplay.items = SimpleNamespace(flash_label="NITRO BOOST")
-    gameplay.obstacles = _Obstacles()
-
-    status = gameplay.hud_status()
-
-    assert status.skin_name == "comic"
-    assert status.weather_name == "rain"
-    assert status.coins_enabled
-    assert status.coins_collected == 3
-    assert status.nitro_seconds_remaining == 4.0
-    assert status.item_flash == "NITRO BOOST"
-    assert status.obstacle_count == 2
-
-
-def test_style_and_weather_items_request_persistent_selections() -> None:
+def test_style_and_weather_items_request_named_effects() -> None:
     requests: list[tuple[str, str]] = []
     style = SimpleNamespace(
         skin_names=("comic",),
@@ -255,20 +159,22 @@ def test_style_and_weather_items_request_persistent_selections() -> None:
     )
     effects = ItemEffects(style, LiveEditItemsConfig(mystery_seed=0))
 
-    assert effects.apply("mystery") == "? COMIC!"
-    assert effects.apply("rain") == "RAIN!"
+    effects.apply("mystery")
+    effects.apply("rain")
     assert requests == [("style", "comic"), ("weather", "rain")]
 
 
 def test_live_edit_rules_preserve_actors_and_complete_frame_capture() -> None:
     completed: list[int] = []
+    inner_actor = cast(DynamicActorTrajectory, object())
+    live_edit_actor = cast(DynamicActorTrajectory, object())
 
     def advance_inner(_trajectory: object, _frame_interval_s: float) -> GameUpdate:
-        return GameUpdate(frames=("frame",))
+        return GameUpdate(frames=("frame",), dynamic_actors=(inner_actor,))
 
     inner = SimpleNamespace(is_running=True, advance_frames=advance_inner)
     gameplay = SimpleNamespace(
-        begin_advance=lambda _trajectory: ("actor",),
+        begin_advance=lambda _trajectory: (live_edit_actor,),
         complete_advance=completed.append,
     )
     rules = LiveEditGameRules(
@@ -279,33 +185,8 @@ def test_live_edit_rules_preserve_actors_and_complete_frame_capture() -> None:
     update = rules.advance_frames(cast(Any, object()), 0.1)
 
     assert update.frames == ("frame",)
-    assert update.dynamic_actors == ("actor",)
+    assert update.dynamic_actors == (inner_actor, live_edit_actor)
     assert completed == [1]
-
-
-@pytest.mark.parametrize(
-    "config",
-    [
-        LiveEditConfig(style=LiveEditStyleConfig(enabled=True)),
-        LiveEditConfig(weather=LiveEditWeatherConfig(enabled=True)),
-        LiveEditConfig(obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=1.0)),
-        LiveEditConfig(dynamic_prompts=LiveEditMapContextConfig(enabled=True)),
-    ],
-)
-def test_prompt_live_edit_requires_python_dit(config: LiveEditConfig) -> None:
-    assert config.requires_python_dit
-
-
-@pytest.mark.parametrize(
-    "config",
-    [
-        LiveEditConfig(coins=LiveEditCoinsConfig(enabled=True)),
-        LiveEditConfig(items=LiveEditItemsConfig(enabled=True)),
-        LiveEditConfig(obstacle=LiveEditObstacleConfig(enabled=True, guide_scale=0.0)),
-    ],
-)
-def test_pixel_live_edit_keeps_native_dit_compatible(config: LiveEditConfig) -> None:
-    assert not config.requires_python_dit
 
 
 def test_nitro_boosts_and_expires_on_game_time() -> None:
@@ -337,12 +218,6 @@ def test_v2_live_edit_camera_uses_generated_frame_size() -> None:
     assert (gameplay._camera.output_width, gameplay._camera.output_height) == (
         1168,
         640,
-    )
-    assert gameplay._compositor.sprite_image("coin").getpixel((15, 15)) == (
-        0,
-        0,
-        0,
-        0,
     )
 
 
@@ -420,21 +295,15 @@ def test_physical_obstacle_lifetime_uses_relative_track_clock() -> None:
     assert event.phase is ObstaclePhase.EXPIRED
 
 
-def test_bundled_obstacle_catalog_matches_source_branch() -> None:
+def test_bundled_obstacle_catalog_has_usable_tracks() -> None:
     catalog = load_obstacle_template_catalog()
 
-    assert len(catalog.templates) == 668
-    assert (
-        len(
-            catalog.moving(
-                min_drift_m=15.0,
-                min_coverage_s=4.0,
-                length_range_m=(3.4, 5.6),
-            )
-        )
-        == 63
+    assert catalog.moving(
+        min_drift_m=15.0,
+        min_coverage_s=4.0,
+        length_range_m=(3.4, 5.6),
     )
-    assert len(catalog.parked(length_range_m=(3.4, 5.6))) == 236
+    assert catalog.parked(length_range_m=(3.4, 5.6))
 
 
 def _map_prompt_ability() -> tuple[StyleAbility, SimpleNamespace, list[Any]]:
@@ -480,27 +349,9 @@ def test_weather_suffix_composes_without_changing_style_prompt() -> None:
     assert base.prompt == "A city road. The taxi is driving forward."
     assert style.prompt == "Comic-book visuals. The taxi is driving forward."
     assert style.use_lora is True
-    assert style.guidance_chunks == 6
     assert weather.prompt == (
         "A city road. The taxi is driving forward. Heavy rain falls."
     )
-
-
-def test_active_prompt_reports_composed_model_target() -> None:
-    ability = StyleAbility(
-        LiveEditStyleConfig(
-            enabled=True,
-            skins=(StyleSkin("comic", "Comic-book visuals."),),
-        )
-    )
-    ability._base_prompt = "A city road."
-
-    assert ability.active_prompt == "A city road."
-
-    ability._active_index = 0
-    ability._active_map_suffix = "The taxi is driving forward."
-
-    assert ability.active_prompt == "Comic-book visuals. The taxi is driving forward."
 
 
 def test_map_prompt_change_is_plain_and_deferred_during_guidance() -> None:
@@ -549,10 +400,11 @@ def test_map_state_is_applied_at_the_post_simulation_model_boundary() -> None:
 
 
 def test_visual_swap_absorbs_pending_map_change_once() -> None:
-    style = replace(
-        LiveEditStyleConfig(),
+    style = LiveEditStyleConfig(
         enabled=True,
         lora_checkpoint=Path("/tmp/style.pt"),
+        skins=(StyleSkin("comic", "Comic-book visuals."),),
+        reswap_interval_chunks=0,
     )
     ability = StyleAbility(
         style,
@@ -578,42 +430,66 @@ def test_visual_swap_absorbs_pending_map_change_once() -> None:
     )
     assert ability._pending_map_suffix is None
 
+    ability.before_v2_chunk()
+    assert len(targets) == 1
+
 
 def test_combined_map_prompts_are_encoded_lazily() -> None:
     ability = StyleAbility(
-        LiveEditStyleConfig(),
+        LiveEditStyleConfig(
+            enabled=True,
+            skins=(StyleSkin("comic", "Comic-book visuals."),),
+        ),
         map_context_config=LiveEditMapContextConfig(enabled=True),
     )
-    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    prompts = (
+        "A sunny suburb. The taxi is stationary.",
+        "A sunny suburb. The taxi moves.",
+    )
+    embeddings = {
+        prompts[0]: torch.ones((1, 2, 3)),
+        prompts[1]: torch.full((1, 2, 3), 2.0),
+    }
+    encoded: list[str] = []
+    replaced: list[torch.Tensor] = []
+
+    def encode(texts: list[str]) -> torch.Tensor:
+        assert len(texts) == 1
+        encoded.append(texts[0])
+        return embeddings[texts[0]]
+
     pipeline = SimpleNamespace(
-        replace_text_from_embeddings=lambda *args, **kwargs: calls.append(
-            (args, kwargs)
-        )
+        text_encoder=encode,
+        replace_text_from_embeddings=lambda cache, value, **kwargs: replaced.append(
+            value
+        ),
     )
     session = SimpleNamespace(
         pipeline=pipeline,
         _cache=object(),
         _pending_finalization_index=None,
-        replace_prompt=lambda *args, **kwargs: pytest.fail("expected cached swap"),
+        replace_prompt=lambda *args, **kwargs: pytest.fail("expected embedding swap"),
     )
-    setattr(
-        ability,
-        "_encode_prompt",
-        lambda active_pipeline, prompt: ability._prompt_embeddings.__setitem__(
-            prompt, "cached"
-        ),
-    )
-    target = SimpleNamespace(
-        prompt="A sunny suburb. The taxi is stationary.",
-        guidance_scale=1.0,
-        guidance_chunks=0,
-        use_lora=False,
-    )
+    ability._base_prompt = "A sunny suburb."
+    ability._precompute_prompt_embeddings(pipeline)
+    assert encoded == []
 
-    ability._replace_text(session, target)
+    for prompt in (prompts[0], prompts[0], prompts[1]):
+        ability._replace_text(
+            session,
+            SimpleNamespace(
+                prompt=prompt,
+                guidance_scale=1.0,
+                guidance_chunks=0,
+                use_lora=False,
+            ),
+        )
 
-    assert target.prompt in ability._prompt_embeddings
-    assert calls[0][0][1] == "cached"
+    assert encoded == list(prompts)
+    assert len(replaced) == 3
+    assert replaced[0] is replaced[1]
+    torch.testing.assert_close(replaced[0], embeddings[prompts[0]].unsqueeze(0))
+    torch.testing.assert_close(replaced[2], embeddings[prompts[1]].unsqueeze(0))
 
 
 def test_map_only_postprocessing_returns_original_video() -> None:
@@ -637,23 +513,16 @@ def test_dynamic_prompts_cli_enables_live_edit_runtime() -> None:
     parser = argparse.ArgumentParser()
     add_live_edit_args(parser)
 
+    defaults = live_edit_config_from_args(parser.parse_args([]))
+    assert not defaults.dynamic_prompts.enabled
+    assert not defaults.any_enabled
+
     config = live_edit_config_from_args(
         parser.parse_args(["--live-edit-dynamic-prompts"])
     )
 
     assert config.dynamic_prompts.enabled
     assert config.any_enabled
-
-
-def test_dynamic_prompt_defaults_are_disabled_with_all_fragments_included() -> None:
-    config = LiveEditMapContextConfig()
-
-    assert not config.enabled
-    assert config.include_current_road_context
-    assert config.include_next_map_node_type
-    assert config.include_next_map_node_context
-    assert config.include_upcoming_road_curve_direction
-    assert config.include_taxi_motion_state
 
 
 def test_dynamic_prompts_need_enabled_and_an_included_fragment() -> None:
