@@ -216,9 +216,9 @@ spawns:
   prompt: >-
     Onboard footage of a taxi driving through a motor-racing circuit. Covered
     spectator grandstands, pit garages, trees and city buildings. Asphalt, concrete
-    barriers and catch fences. Vehicle bonnet visible. The view follows the steering
+    barriers and catch fences. Car hood visible. The view follows the steering
     and movement of the car.
   prompt_context: >-
-    Onboard footage of a taxi driving through a motor-racing circuit. Vehicle bonnet
+    Onboard footage of a taxi driving through a motor-racing circuit. Car hood
     visible. The view follows the steering and movement of the car.
 traffic_count: 0
