@@ -39,6 +39,7 @@ from omnidreams_game_engine.simulation.components import (
     vehicle_dynamics_for_object,
 )
 from omnidreams_game_engine.simulation.gameplay_physx import GameplayPhysXWorld
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import (
     DynamicActorTrajectory,
@@ -80,29 +81,46 @@ def _body_state_from_vehicle(
     state: VehicleState, chassis_half_height_m: float
 ) -> BodyState:
     """Map the ground-anchored rig state to PhysX's chassis-center pose."""
-    half_yaw = state.yaw_rad * 0.5
+    cy, sy = math.cos(state.yaw_rad / 2), math.sin(state.yaw_rad / 2)
+    cp, sp = math.cos(state.pitch_rad / 2), math.sin(state.pitch_rad / 2)
+    cr, sr = math.cos(state.roll_rad / 2), math.sin(state.roll_rad / 2)
+    orientation = np.asarray(
+        [
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy,
+            cr * cp * cy + sr * sp * sy,
+        ],
+        dtype=np.float32,
+    )
+    up = quaternion_to_matrix_xyzw(orientation)[:, 2]
+    vx = (
+        state.velocity_x_mps
+        if state.velocity_x_mps is not None
+        else math.cos(state.yaw_rad) * state.speed_mps
+    )
+    vy = (
+        state.velocity_y_mps
+        if state.velocity_y_mps is not None
+        else math.sin(state.yaw_rad) * state.speed_mps
+    )
+    vz = state.velocity_z_mps
+    if vz is None:
+        vz = -(up[0] * vx + up[1] * vy) / up[2] if abs(up[2]) > 1e-3 else 0.0
     return BodyState(
         position_m=np.asarray(
-            [state.x_m, state.y_m, state.z_m + chassis_half_height_m],
+            np.asarray([state.x_m, state.y_m, state.z_m]) + up * chassis_half_height_m,
             dtype=np.float32,
         ),
-        orientation_xyzw=np.asarray(
-            [0.0, 0.0, math.sin(half_yaw), math.cos(half_yaw)], dtype=np.float32
-        ),
-        linear_velocity_mps=np.asarray(
+        orientation_xyzw=orientation,
+        linear_velocity_mps=np.asarray([vx, vy, vz], dtype=np.float32),
+        angular_velocity_radps=np.asarray(
             [
-                state.velocity_x_mps
-                if state.velocity_x_mps is not None
-                else math.cos(state.yaw_rad) * state.speed_mps,
-                state.velocity_y_mps
-                if state.velocity_y_mps is not None
-                else math.sin(state.yaw_rad) * state.speed_mps,
-                0.0,
+                state.angular_velocity_x_radps,
+                state.angular_velocity_y_radps,
+                state.yaw_rate_radps,
             ],
             dtype=np.float32,
-        ),
-        angular_velocity_radps=np.asarray(
-            [0.0, 0.0, state.yaw_rate_radps], dtype=np.float32
         ),
     )
 
@@ -153,11 +171,11 @@ def _simplify_barrier_segments(segments_world: np.ndarray) -> tuple[np.ndarray, 
     if len(segments) == 0:
         return ()
     simplified: list[np.ndarray] = []
-    start = segments[0, 0, :2].copy()
-    end = segments[0, 1, :2].copy()
+    start = segments[0, 0].copy()
+    end = segments[0, 1].copy()
     for segment in segments[1:]:
-        next_start = segment[0, :2]
-        next_end = segment[1, :2]
+        next_start = segment[0]
+        next_end = segment[1]
         if float(np.linalg.norm(next_start - end)) > 0.25:
             if float(np.linalg.norm(end - start)) > 1e-4:
                 simplified.append(np.stack([start, end]))
@@ -187,17 +205,23 @@ class _BarrierReboundIndex:
     half_thickness_m: np.ndarray
     """Half collision thickness for each active barrier segment."""
 
+    height_bounds_m: np.ndarray
+    """Bottom and top world heights for each active collision box."""
+
     @classmethod
     def from_arrays(
         cls,
         segments_xy_m: np.ndarray,
         thicknesses_m: np.ndarray,
+        height_bounds_m: np.ndarray | None = None,
     ) -> _BarrierReboundIndex:
         """Build an index from active barrier arrays.
 
         Args:
             segments_xy_m: Barrier endpoints with shape ``[N, 2, 2]``.
             thicknesses_m: Barrier thicknesses with shape ``[N]``.
+            height_bounds_m: World height bounds with shape ``[N, 2]``; omit
+                for a planar query with no height restriction.
 
         Returns:
             Contiguous arrays reused for every frame until the physics window
@@ -209,6 +233,13 @@ class _BarrierReboundIndex:
             raise ValueError("segments_xy_m must have shape [N, 2, 2]")
         if thicknesses.shape != (len(segments),):
             raise ValueError("thicknesses_m must have shape [N]")
+        bounds = (
+            np.tile([-np.inf, np.inf], (len(segments), 1)).astype(np.float32)
+            if height_bounds_m is None
+            else np.ascontiguousarray(height_bounds_m, dtype=np.float32)
+        )
+        if bounds.shape != (len(segments), 2):
+            raise ValueError("height_bounds_m must have shape [N, 2]")
         starts = np.ascontiguousarray(segments[:, 0])
         vectors = np.ascontiguousarray(segments[:, 1] - starts)
         length_squared = np.einsum("ni,ni->n", vectors, vectors)
@@ -217,6 +248,7 @@ class _BarrierReboundIndex:
             vectors_xy_m=vectors,
             length_squared_m2=np.ascontiguousarray(length_squared),
             half_thickness_m=np.ascontiguousarray(thicknesses * 0.5),
+            height_bounds_m=bounds,
         )
 
 
@@ -289,8 +321,13 @@ def _reinforce_static_barrier_rebound(
         + np.abs(normals @ left) * half_extents[1]
     )
     incoming_normal_speeds = normals @ incoming_velocity[:2]
+    rotation = quaternion_to_matrix_xyzw(requested_ego.orientation_xyzw)
+    vertical_radius = float(np.abs(rotation[2]) @ np.asarray(half_extents))
+    body_z = float(requested_ego.position_m[2])
     contact_indices = np.flatnonzero(
         valid_segments
+        & (body_z + vertical_radius >= barriers.height_bounds_m[:, 0])
+        & (body_z - vertical_radius <= barriers.height_bounds_m[:, 1])
         & (distances <= supports + barriers.half_thickness_m + _BARRIER_CONTACT_SLOP_M)
         & (incoming_normal_speeds < 0.0)
     )
@@ -319,9 +356,19 @@ class GamePhysicsWorld:
         static_barrier_segments_world: np.ndarray | None = None,
         static_barrier_restitution: float | None = None,
         actor_controllers: tuple[PhysicsActorController, ...] = (),
+        ground_snapper: GroundSnapper | None = None,
     ) -> None:
         started_at = time.perf_counter()
         self._vehicle = vehicle
+        self._ground_sampler = ground_snapper
+        if (
+            scene.ground_mesh_vertices is not None
+            and scene.ground_mesh_faces is not None
+        ):
+            if self._ground_sampler is None:
+                self._ground_sampler = GroundSnapper(
+                    scene.ground_mesh_vertices, scene.ground_mesh_faces
+                )
         if static_barrier_restitution is not None and (
             not math.isfinite(static_barrier_restitution)
             or not 0.0 <= static_barrier_restitution <= 1.0
@@ -350,9 +397,11 @@ class GamePhysicsWorld:
                 )
             barriers = tuple(
                 InvisibleBarrier(
-                    tuple(float(value) for value in segment[0]),
-                    tuple(float(value) for value in segment[1]),
+                    tuple(float(value) for value in segment[0, :2]),
+                    tuple(float(value) for value in segment[1, :2]),
                     barrier_id=f"semantic-{index}",
+                    start_z_m=float(segment[0, 2]),
+                    end_z_m=float(segment[1, 2]),
                 )
                 for index, segment in enumerate(_simplify_barrier_segments(segments))
             )
@@ -416,6 +465,13 @@ class GamePhysicsWorld:
             max_actor_drive_speed_mps=_NON_EGO_MAX_DRIVE_SPEED_MPS,
             max_actor_drive_speeds_mps=self._controller_drive_speed_caps(),
         )
+        if (
+            scene.ground_mesh_vertices is not None
+            and scene.ground_mesh_faces is not None
+        ):
+            self._world.set_ground_mesh(
+                scene.ground_mesh_vertices, scene.ground_mesh_faces
+            )
         self._world.synchronize(
             self._physics_graph,
             timestamp_us=initial_timestamp_us,
@@ -539,9 +595,11 @@ class GamePhysicsWorld:
                 ):
                     barriers.append(
                         InvisibleBarrier(
-                            tuple(float(value) for value in segment[0]),
-                            tuple(float(value) for value in segment[1]),
+                            tuple(float(value) for value in segment[0, :2]),
+                            tuple(float(value) for value in segment[1, :2]),
                             barrier_id=f"line-{layer_index}-{segment_index}",
+                            start_z_m=float(segment[0, 2]),
+                            end_z_m=float(segment[1, 2]),
                         )
                     )
         for layer_index, layer in enumerate(scene.polygon_layers):
@@ -559,6 +617,8 @@ class GamePhysicsWorld:
                             barrier_id=(
                                 f"polygon-{layer_index}-{polygon_index}-{index}"
                             ),
+                            start_z_m=float(points[index - 1, 2]),
+                            end_z_m=float(points[index, 2]),
                         )
                     )
         return tuple(barriers)
@@ -678,7 +738,17 @@ class GamePhysicsWorld:
                 dtype=np.float32,
             )
             self._debug_barrier_heights = np.asarray(
-                [barrier.height_m for barrier in self._physics_graph.barriers],
+                [
+                    barrier.height_m + abs(barrier.end_z_m - barrier.start_z_m)
+                    for barrier in self._physics_graph.barriers
+                ],
+                dtype=np.float32,
+            )
+            self._debug_barrier_bases = np.asarray(
+                [
+                    min(barrier.start_z_m, barrier.end_z_m)
+                    for barrier in self._physics_graph.barriers
+                ],
                 dtype=np.float32,
             )
         else:
@@ -686,9 +756,16 @@ class GamePhysicsWorld:
             self._debug_barrier_segments = np.empty((0, 2, 2), dtype=np.float32)
             self._debug_barrier_thicknesses = np.empty((0,), dtype=np.float32)
             self._debug_barrier_heights = np.empty((0,), dtype=np.float32)
+            self._debug_barrier_bases = np.empty((0,), dtype=np.float32)
         self._barrier_rebound_index = _BarrierReboundIndex.from_arrays(
             self._debug_barrier_segments,
             self._debug_barrier_thicknesses,
+            np.column_stack(
+                (
+                    self._debug_barrier_bases,
+                    self._debug_barrier_bases + self._debug_barrier_heights,
+                )
+            ),
         )
 
     def debug_frame(self, state: VehicleState) -> PhysicsDebugFrame:
@@ -808,6 +885,7 @@ class GamePhysicsWorld:
             barrier_segments = self._debug_barrier_segments[barrier_visible]
             barrier_thicknesses = self._debug_barrier_thicknesses[barrier_visible]
             barrier_heights = self._debug_barrier_heights[barrier_visible]
+            barrier_bases = self._debug_barrier_bases[barrier_visible]
             barrier_ids = tuple(
                 barrier_id
                 for barrier_id, visible in zip(
@@ -819,6 +897,7 @@ class GamePhysicsWorld:
             barrier_segments = self._debug_barrier_segments
             barrier_thicknesses = self._debug_barrier_thicknesses
             barrier_heights = self._debug_barrier_heights
+            barrier_bases = self._debug_barrier_bases
             barrier_ids = self._debug_barrier_ids
         return PhysicsDebugFrame(
             ego_position_m=ego.position_m.copy(),
@@ -833,6 +912,7 @@ class GamePhysicsWorld:
             barrier_segments_xy_m=barrier_segments,
             barrier_thicknesses_m=barrier_thicknesses,
             barrier_heights_m=barrier_heights,
+            barrier_base_heights_m=barrier_bases,
             actor_ids=actor_ids,
             barrier_ids=barrier_ids,
             vehicle_state=state,
@@ -1052,21 +1132,42 @@ class GamePhysicsWorld:
             yaw = state.yaw_rad + yaw_delta
             yaw_rate_radps = float(np.clip(yaw_rate_radps, -max_yaw_rate, max_yaw_rate))
         forward = np.asarray([math.cos(yaw), math.sin(yaw)])
-        ego_height_m = float(ego.position_m[2] - self._ego_model.half_extents_m[2])
+        rotation = quaternion_to_matrix_xyzw(ego.orientation_xyzw)
+        rig_position = (
+            ego.position_m - rotation[:, 2] * self._ego_model.half_extents_m[2]
+        )
+        ground = (
+            None
+            if self._ground_sampler is None
+            else self._ground_sampler.ground_surface_at(
+                float(rig_position[0]), float(rig_position[1]), float(rig_position[2])
+            )
+        )
+        ground_height, normal = (
+            ground if ground is not None else (0.0, np.asarray([0.0, 0.0, 1.0]))
+        )
         remains_unsettled = (
-            abs(ego_height_m) > 0.10
-            or abs(float(ego.linear_velocity_mps[2])) > 0.50
+            abs(float(rig_position[2]) - ground_height) > 0.10
+            or abs(float(np.dot(ego.linear_velocity_mps, normal))) > 0.50
             or float(np.linalg.norm(ego.angular_velocity_radps[:2])) > 0.25
         )
         result_state = replace(
             state,
-            x_m=float(ego.position_m[0]),
-            y_m=float(ego.position_m[1]),
-            z_m=ego_height_m,
+            x_m=float(rig_position[0]),
+            y_m=float(rig_position[1]),
+            z_m=float(rig_position[2]),
+            pitch_rad=math.atan2(
+                -float(rotation[2, 0]),
+                math.hypot(float(rotation[0, 0]), float(rotation[1, 0])),
+            ),
+            roll_rad=math.atan2(float(rotation[2, 1]), float(rotation[2, 2])),
             yaw_rad=yaw,
             speed_mps=float(np.dot(ego.linear_velocity_mps[:2], forward)),
             velocity_x_mps=float(ego.linear_velocity_mps[0]),
             velocity_y_mps=float(ego.linear_velocity_mps[1]),
+            velocity_z_mps=float(ego.linear_velocity_mps[2]),
+            angular_velocity_x_radps=float(ego.angular_velocity_radps[0]),
+            angular_velocity_y_radps=float(ego.angular_velocity_radps[1]),
             yaw_rate_radps=yaw_rate_radps,
             ragdoll_active=physics_step.impact or remains_unsettled,
         )

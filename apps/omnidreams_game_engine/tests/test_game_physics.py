@@ -6,15 +6,25 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 from ludus_renderer import BodyState, InvisibleBarrier, RigidBodyModel
+from ludus_renderer.physx import PhysXStepTimings
+from omnidreams_game_engine.config import VehicleConfig
+from omnidreams_game_engine.math3d import quaternion_to_matrix_xyzw
+from omnidreams_game_engine.simulation import game_physics
 from omnidreams_game_engine.simulation.game_physics import (
     _BARRIER_CONTACT_SLOP_M,
     _BarrierReboundIndex,
+    _body_state_from_vehicle,
     _reinforce_static_barrier_rebound,
 )
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
+from omnidreams_game_engine.types import SceneDefinition, VehicleState
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -184,3 +194,140 @@ def test_empty_barrier_index_preserves_resolved_velocity() -> None:
     assert not contacted
     np.testing.assert_array_equal(actual, resolved)
     assert actual is not resolved
+
+
+@pytest.mark.parametrize(
+    ("height", "lift", "normal_speed", "airborne"),
+    [
+        (8.0, 0.0, 0.0, False),
+        (-4.0, 0.0, 0.0, False),
+        (8.0, 0.4, 0.0, True),
+        (8.0, 0.0, 1.0, True),
+    ],
+)
+def test_bridge_uses_scene_ground_for_pose_and_airborne_detection(
+    monkeypatch: pytest.MonkeyPatch,
+    height: float,
+    lift: float,
+    normal_speed: float,
+    airborne: bool,
+) -> None:
+    slope = 0.12
+    vertices = np.asarray(
+        [
+            [-20, -20, height - 20 * slope],
+            [20, -20, height + 20 * slope],
+            [20, 20, height + 20 * slope],
+            [-20, 20, height - 20 * slope],
+        ],
+        dtype=np.float32,
+    )
+    faces = np.asarray([[0, 1, 2], [0, 2, 3]], dtype=np.int32)
+    scene = SimpleNamespace(
+        ground_mesh_vertices=vertices,
+        ground_mesh_faces=faces,
+        game_map=None,
+        line_layers=(),
+        initial_rig_to_world=np.eye(4),
+    )
+    native = MagicMock()
+    native.collider_state_arrays.return_value = (
+        (),
+        np.empty((0, 3)),
+        np.empty((0, 4)),
+        np.empty((0, 3)),
+    )
+    monkeypatch.setattr(game_physics, "GameplayPhysXWorld", lambda *a, **kw: native)
+    sampler = GroundSnapper(vertices, faces)
+    world = game_physics.GamePhysicsWorld(
+        cast(SceneDefinition, scene),
+        VehicleConfig(static_collision_enabled=False),
+        ground_snapper=sampler,
+    )
+    native.set_ground_mesh.assert_called_once_with(vertices, faces)
+    state = VehicleState(0, 0, height + lift, 0, 10, 0, pitch_rad=-math.atan(slope))
+    body = _body_state_from_vehicle(state, world._ego_model.half_extents_m[2])
+    surface = sampler.ground_surface_at(0, 0, height)
+    assert surface is not None
+    normal = surface[1]
+    assert float(body.linear_velocity_mps @ normal) == pytest.approx(0, abs=1e-6)
+    body.linear_velocity_mps[:] += normal_speed * normal
+    native.step_compact.return_value = SimpleNamespace(
+        ego=body,
+        impact=False,
+        struck_object_ids=frozenset(),
+        actor_samples=(),
+        timings=PhysXStepTimings(0, 0, 0, 0, 0, 0, 0),
+    )
+    resolved, samples = world.step(state, 0, 1 / 30)
+    assert samples == ()
+    assert resolved.ragdoll_active is airborne
+    assert resolved.z_m == pytest.approx(height + lift, abs=1e-6)
+    assert resolved.pitch_rad == pytest.approx(state.pitch_rad, abs=1e-6)
+    republished = _body_state_from_vehicle(resolved, world._ego_model.half_extents_m[2])
+    np.testing.assert_allclose(
+        republished.linear_velocity_mps, body.linear_velocity_mps
+    )
+    debug = world.debug_frame(resolved)
+    np.testing.assert_allclose(debug.ego_position_m, body.position_m, atol=1e-6)
+    np.testing.assert_allclose(
+        debug.ego_orientation_xyzw, body.orientation_xyzw, atol=1e-6
+    )
+
+
+def test_body_pose_retains_pitch_roll_and_rotated_anchor() -> None:
+    state = VehicleState(2, 3, 8, 0.7, 10, 0, pitch_rad=-0.12, roll_rad=0.08)
+    body = _body_state_from_vehicle(state, 0.5)
+    rotation = quaternion_to_matrix_xyzw(body.orientation_xyzw.tolist())
+    anchor = body.position_m - rotation[:, 2] * 0.5
+    np.testing.assert_allclose(anchor, [2, 3, 8], atol=1e-6)
+    assert float(body.linear_velocity_mps @ rotation[:, 2]) == pytest.approx(
+        0, abs=1e-6
+    )
+    assert math.atan2(rotation[2, 1], rotation[2, 2]) == pytest.approx(0.08, abs=1e-6)
+    state.velocity_z_mps = 0.8
+    state.angular_velocity_x_radps = 0.1
+    state.angular_velocity_y_radps = -0.2
+    body = _body_state_from_vehicle(state, 0.5)
+    assert body.linear_velocity_mps[2] == pytest.approx(0.8)
+    np.testing.assert_allclose(body.angular_velocity_radps, [0.1, -0.2, 0])
+
+
+def test_rebound_ignores_wall_on_another_elevation() -> None:
+    segments = np.asarray([[[-5, 0], [5, 0]]], dtype=np.float32)
+    index = _BarrierReboundIndex.from_arrays(
+        segments, np.asarray([0.3]), np.asarray([[8, 11]])
+    )
+    requested = _body_state(position_xy=(0, 0.2), velocity_xy=(0, -6), yaw_rad=0)
+    resolved = np.asarray([0, -6, 0], dtype=np.float32)
+    model = RigidBodyModel(mass_kg=1500, half_extents_m=(1.4, 0.7, 0.5))
+    velocity, contact = _reinforce_static_barrier_rebound(
+        index, requested, resolved, model, 0.5
+    )
+    assert not contact
+    np.testing.assert_array_equal(velocity, resolved)
+    requested.position_m[2] = 8.5
+    velocity, contact = _reinforce_static_barrier_rebound(
+        index, requested, resolved, model, 0.5
+    )
+    assert contact
+    assert velocity[1] > 0
+
+
+def test_ground_surface_selects_the_nearest_stacked_triangle() -> None:
+    vertices = np.asarray(
+        [[0, 0, 0], [10, 0, 1], [0, 10, 2], [0, 0, 8], [10, 0, 8], [0, 10, 8]],
+        dtype=np.float32,
+    )
+    sampler = GroundSnapper(
+        vertices, np.asarray([[0, 1, 2], [3, 4, 5]], dtype=np.int32)
+    )
+    lower = sampler.ground_surface_at(1, 1, 0)
+    upper = sampler.ground_surface_at(1, 1, 8)
+    assert lower is not None and upper is not None
+    assert lower[0] == pytest.approx(0.3)
+    normal = np.asarray([-0.1, -0.2, 1])
+    np.testing.assert_allclose(lower[1], normal / np.linalg.norm(normal))
+    assert upper[0] == pytest.approx(8)
+    np.testing.assert_allclose(upper[1], [0, 0, 1])
+    assert sampler.ground_surface_at(100, 100, 0) is None

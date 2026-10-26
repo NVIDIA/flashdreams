@@ -66,6 +66,7 @@ def test_observation_preserves_native_pose_before_game_policy() -> None:
     world._debug_barrier_segments = np.empty((0, 2, 2), dtype=np.float32)
     world._debug_barrier_thicknesses = np.empty(0, dtype=np.float32)
     world._debug_barrier_heights = np.empty(0, dtype=np.float32)
+    world._debug_barrier_bases = np.empty(0, dtype=np.float32)
     world._debug_barrier_ids = ()
     world.last_step_actor_collision = False
     world.last_step_static_barrier_collision = True
@@ -102,6 +103,12 @@ def test_ground_measurement_is_read_only_and_selects_nearest_surface() -> None:
     assert ground.ground_height_at(0.5, 0.5, 0) == pytest.approx(0.5)
     assert ground.ground_height_at(0.5, 0.5, 10) == pytest.approx(10.5)
     assert ground.ground_height_at(-1, -1, 0) is None
+    surface = ground.ground_surface_at(0.5, 0.5, 0)
+    assert surface is not None
+    height, normal = surface
+    assert height == pytest.approx(0.5)
+    np.testing.assert_allclose(normal, np.asarray([-1, 0, 1]) / np.sqrt(2))
+    assert ground.ground_surface_at(-1, -1, 0) is None
     assert ground._anchor_offset_m is None
 
 
