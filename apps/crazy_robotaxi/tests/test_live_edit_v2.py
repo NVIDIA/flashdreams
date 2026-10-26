@@ -164,6 +164,30 @@ def test_style_and_weather_items_request_named_effects() -> None:
     assert requests == [("style", "comic"), ("weather", "rain")]
 
 
+def test_hud_status_snapshots_live_gameplay_values() -> None:
+    gameplay = LiveEditGameplay.__new__(LiveEditGameplay)
+    gameplay.config = LiveEditConfig(
+        weather=LiveEditWeatherConfig(enabled=True),
+    )
+    gameplay.style = SimpleNamespace(active_weather_name="rain")
+    gameplay.coins = SimpleNamespace(enabled=True, collected_count=3)
+    gameplay.nitro = NitroAbility(LiveEditItemsConfig(nitro_duration_s=2.0))
+    gameplay.items = None
+    gameplay.obstacles = None
+    gameplay.nitro.activate()
+
+    first = gameplay.hud_status()
+    gameplay.coins.collected_count += 1
+    gameplay.style.active_weather_name = "snow"
+    gameplay.nitro.vehicle_for_tick(VehicleConfig(), 0.5)
+    second = gameplay.hud_status()
+
+    assert (first.coins_collected, first.weather_name) == (3, "rain")
+    assert first.nitro_seconds_remaining == pytest.approx(2.0)
+    assert (second.coins_collected, second.weather_name) == (4, "snow")
+    assert second.nitro_seconds_remaining == pytest.approx(1.5)
+
+
 def test_manual_actions_dispatch_to_the_requested_ability() -> None:
     requests: list[str] = []
     gameplay = LiveEditGameplay.__new__(LiveEditGameplay)
