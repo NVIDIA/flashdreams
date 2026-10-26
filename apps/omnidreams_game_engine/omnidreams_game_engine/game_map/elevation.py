@@ -4,6 +4,7 @@
 """Elevation of node-graph road geometry and its continuous ground mesh."""
 
 from dataclasses import replace
+from collections.abc import Iterator
 
 import numpy as np
 import shapely
@@ -17,6 +18,26 @@ from omnidreams_game_engine.game_map.types import (
     GameMapTopology,
 )
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
+
+
+def _pavement_samples(region: Polygon, spacing: float) -> Iterator[np.ndarray]:
+    """Yield covered points on a shared XY lattice in bounded tiles."""
+    x0, y0, x1, y1 = region.bounds
+    left, bottom = int(np.floor(x0 / spacing)), int(np.floor(y0 / spacing))
+    right, top = int(np.ceil(x1 / spacing)) + 1, int(np.ceil(y1 / spacing)) + 1
+    for row in range(bottom, top, 256):
+        for column in range(left, right, 256):
+            xs = np.arange(column, min(column + 256, right)) * spacing
+            ys = np.arange(row, min(row + 256, top)) * spacing
+            if not region.intersects(
+                shapely.box(xs[0], ys[0], xs[-1] + spacing, ys[-1] + spacing)
+            ):
+                continue
+            x, y = np.meshgrid(xs, ys)
+            xy = np.column_stack((x.ravel(), y.ravel()))
+            inside = shapely.intersects_xy(region, xy[:, 0], xy[:, 1])
+            if inside.any():
+                yield xy[inside]
 
 
 def elevate_geometry(
@@ -112,16 +133,9 @@ def elevate_geometry(
             )
         )
         region = polygons[key].buffer(3 * spacing)
-        x0, y0, x1, y1 = region.bounds
-        x, y = np.meshgrid(
-            np.arange(np.floor(x0 / spacing), np.ceil(x1 / spacing) + 1) * spacing,
-            np.arange(np.floor(y0 / spacing), np.ceil(y1 / spacing) + 1) * spacing,
-        )
-        xy = np.column_stack((x.ravel(), y.ravel()))
-        inside = shapely.intersects_xy(region, xy[:, 0], xy[:, 1])
-        xy = xy[inside]
-        clouds.append(lift(key, xy))
-        distances.append(shapely.distance(shapely.points(xy), polygons[key]))
+        for xy in _pavement_samples(region, spacing):
+            clouds.append(lift(key, xy))
+            distances.append(shapely.distance(shapely.points(xy), polygons[key]))
     lane_by_id = {lane.lane_id: lane for lane in lanes}
     for lane in lanes:
         for name in ("centerline", "left_edge", "right_edge", "roadside_edge"):
