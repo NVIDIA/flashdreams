@@ -9,12 +9,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-<<<<<<< HEAD
-from dataclasses import dataclass, field, replace
-=======
-from concurrent.futures import Future
 from dataclasses import asdict, dataclass, field, replace
->>>>>>> 5d107aa4 ([Demo - Crazy Robotaxi] Add scripted headless debug captures)
 from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any
 
@@ -32,12 +27,8 @@ from crazy_robotaxi.controls import (
     keyboard_driver_command,
     wheel_driver_command,
 )
-<<<<<<< HEAD
-from crazy_robotaxi.factory import build_taxi_engine
-=======
 from crazy_robotaxi.debug import RobotaxiDebugUILoop
-from crazy_robotaxi.factory import build_taxi_engine, build_world_renderer
->>>>>>> 5d107aa4 ([Demo - Crazy Robotaxi] Add scripted headless debug captures)
+from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
 from crazy_robotaxi.headless_ui import CrazyRobotaxiHeadlessUILoop

@@ -902,6 +902,19 @@ def _settings_diff(
 _READ_ONLY = object()
 
 
+def settings_to_dict(value: object, path: SettingPath = ()) -> dict[str, object]:
+    """Serialize resolved configurable values for loading through ``--config``."""
+    result = {}
+    for item, _ in iter_setting_fields(value, path):
+        current = getattr(value, item.name)
+        result[item.name] = (
+            settings_to_dict(current, (*path, item.name))
+            if is_dataclass(current) and not isinstance(current, type)
+            else _serialize_value(current)
+        )
+    return result
+
+
 def _serialize_value(value: object) -> object:
     if isinstance(value, Path):
         return str(value)
@@ -1122,6 +1135,7 @@ __all__ = [
     "LiveEditMappingLocation",
     "SettingsDocument",
     "SettingsError",
+    "settings_to_dict",
     "clone_settings",
     "default_config_path",
     "format_editor_value",
