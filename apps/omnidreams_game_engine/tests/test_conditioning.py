@@ -8,6 +8,7 @@ from typing import cast
 
 import numpy as np
 import pytest
+import shapely
 import torch
 from ludus_renderer import PRIM_BEV_ROAD_SURFACE
 from omnidreams_game_engine.conditioning import (
@@ -15,6 +16,7 @@ from omnidreams_game_engine.conditioning import (
     _build_bev_road_surface_pool,
 )
 from omnidreams_game_engine.game_map.types import GameMapElement
+from shapely.geometry import LineString, Polygon
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -77,3 +79,48 @@ def test_bev_road_surface_pool_triangulates_concave_pavement() -> None:
         * (triangle_points[:, 2, 0] - triangle_points[:, 0, 0])
     )
     assert torch.isclose(doubled_areas.sum() / 2.0, torch.tensor(7.0))
+
+
+@pytest.mark.parametrize(
+    "surfaces",
+    [
+        [Polygon([(1, 1), (9, 8), (8.5, 9), (0.5, 2)])],
+        [LineString([(1, 2), (4, 6), (8, 8)]).buffer(0.4)],
+        [
+            Polygon([(1, 1), (8, 1), (8, 2), (2, 2), (2, 8), (1, 8)]),
+            Polygon([(3, 3), (8, 3), (8, 8), (3, 8)]),
+        ],
+    ],
+)
+def test_elevated_bev_clips_to_pavement_and_preserves_ground_height(
+    surfaces: list[Polygon],
+) -> None:
+    ground = np.asarray([[0, 0, 0], [10, 0, 2], [10, 10, 7], [0, 10, 3]], np.float32)
+    elements = tuple(
+        cast(
+            GameMapElement,
+            SimpleNamespace(
+                surface_world=np.column_stack(
+                    (
+                        np.asarray(surface.exterior.coords),
+                        np.zeros(len(surface.exterior.coords)),
+                    )
+                ).astype(np.float32)
+            ),
+        )
+        for surface in surfaces
+    )
+    pool = _build_bev_road_surface_pool(
+        elements,
+        torch.device("cpu"),
+        ground_vertices=ground,
+        ground_faces=np.asarray([[0, 1, 2], [0, 2, 3]], np.int32),
+    )
+    assert pool is not None
+    xyz = pool.vertices.numpy()
+    rendered = shapely.union_all(shapely.polygons(xyz[pool.triangles.numpy(), :2]))
+    expected = shapely.union_all(surfaces)
+    assert rendered.symmetric_difference(expected).area < 1e-5
+    x, y = xyz[:, :2].T
+    height = np.where(x >= y, 0.2 * x + 0.5 * y, 0.4 * x + 0.3 * y)
+    np.testing.assert_allclose(xyz[:, 2], height - 0.01, atol=1e-6)
