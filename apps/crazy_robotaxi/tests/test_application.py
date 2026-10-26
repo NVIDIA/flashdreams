@@ -1395,6 +1395,38 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     assert captured_script.segments == load_driving_script(script).segments
 
 
+def test_live_debug_uses_interactive_ui_and_runtime_input(tmp_path: Path) -> None:
+    from crazy_robotaxi.debug import DEBUG_METADATA_KEY, RobotaxiLiveDebugUILoop
+
+    app = _application()
+    app.resolve_client_window_mode("robotaxi-debug")
+    app.init(
+        [
+            "--device",
+            "cpu",
+            "--game-mode",
+            "free-roam",
+            "--map",
+            str(_RACE_MAP),
+            "--config",
+            str(tmp_path / "settings.yaml"),
+            "--prewarm-blocks",
+            "2",
+        ]
+    )
+    session = app.create_session(app.session_desc())
+    session.init()
+    ui_loop, model_loop = session._take_loops()
+    assert isinstance(ui_loop, RobotaxiLiveDebugUILoop)
+    assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
+    assert isinstance(model_loop, CrazyRobotaxiModelLoop)
+    assert model_loop.state.config.driving_script is None
+    assert model_loop.state.config.prewarm_blocks == 2
+    assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
+    metadata = session.session_desc.metadata[DEBUG_METADATA_KEY]
+    assert metadata["input_mode"] == "runtime" and metadata["frame_count"] is None
+
+
 @pytest.mark.parametrize("missing", ["--map", "--game-mode", "--race-course"])
 def test_scripted_headless_startup_requires_complete_cli_selection(
     tmp_path: Path,

@@ -32,7 +32,7 @@ from crazy_robotaxi.controls import (
     keyboard_driver_command,
     wheel_driver_command,
 )
-from crazy_robotaxi.debug import RobotaxiDebugUILoop
+from crazy_robotaxi.debug import RobotaxiDebugUILoop, RobotaxiLiveDebugUILoop
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
@@ -810,6 +810,13 @@ class CrazyRobotaxiSession(ISession):
         )
         if self._config.driving_script is not None:
             ui_loop = self.register_ui_loop(RobotaxiDebugUILoop, state=hud_state)
+        elif self._config.debug_capture:
+            ui_loop = self.register_ui_loop(
+                RobotaxiLiveDebugUILoop,
+                state=hud_state,
+                width=self._session_desc.video_width,
+                height=self._session_desc.video_height,
+            )
         elif self._config.no_ui:
             if (
                 self._config.initial_game_mode is None
