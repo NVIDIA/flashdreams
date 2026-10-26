@@ -41,6 +41,7 @@ class MetricsOutputSink(OutputSink):
         self._samples: list[dict[str, Any]] = []
         self._written = False
         self._step_result_index = 0
+        self._client_window_type: str | None = None
 
     def open(self, session_desc: SessionDesc) -> None:
         """Start a new benchmark record."""
@@ -49,6 +50,11 @@ class MetricsOutputSink(OutputSink):
         self._samples = []
         self._written = False
         self._step_result_index = 0
+        self._client_window_type = None
+
+    def set_client_window_type(self, name: str) -> None:
+        """Identify the window whose host write boundary the session measures."""
+        self._client_window_type = name
 
     def set_step_result_index(self, index: int) -> None:
         """Set the position of the next result in its model-step result list."""
@@ -109,8 +115,12 @@ class MetricsOutputSink(OutputSink):
             "schema_version": _SCHEMA_VERSION,
             "artifact_type": _ARTIFACT_TYPE,
             "session": {
+                "client_window_type": self._client_window_type,
                 "output_layout": session_desc.output_layout.value,
+                "frames_per_second_for_ui": session_desc.frames_per_second_for_ui,
                 "frames_per_second_for_step": session_desc.frames_per_second_for_step,
+                "presentation_mode": session_desc.presentation_mode.value,
+                "backpressure_mode": session_desc.backpressure_mode.value,
                 "video_width": session_desc.video_width,
                 "video_height": session_desc.video_height,
             },

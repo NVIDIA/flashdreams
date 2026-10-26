@@ -745,6 +745,50 @@ def test_a_profiler_that_counts_nothing_reports_no_rates() -> None:
     assert NullProfiler().collect_input_latency_ms() == {}
 
 
+def test_ui_input_latency_survives_collection_and_retires_reset_inputs() -> None:
+    profiler = CompositeProfiler((NullProfiler(), InputLatencyProfiler()))
+    events = UserInputEvents([_key_press()])
+    origin_ns = 1 << 60
+    profiler.ui_input_claimed(
+        events,
+        generation=0,
+        input_timestamp_origin_ns=origin_ns,
+        claimed_ns=origin_ns + 1_000_000,
+    )
+    profiler.collect_input_latency_ms()
+    # Empty ticks retain the pending input until a write actually returns.
+    profiler.ui_input_claimed(
+        UserInputEvents([]),
+        generation=0,
+        input_timestamp_origin_ns=origin_ns,
+        claimed_ns=origin_ns + 2_000_000,
+    )
+    profiler.window_write_completed(0, origin_ns + 3_000_000)
+    measured = profiler.collect_input_latency_ms()
+    if measured.get("input.window_write_ms") != 3.0:
+        pytest.fail(f"Collection or an empty tick discarded pending input: {measured}")
+    profiler.ui_input_claimed(
+        events,
+        generation=0,
+        input_timestamp_origin_ns=origin_ns,
+        claimed_ns=origin_ns + 4_000_000,
+    )
+    profiler.ui_input_claimed(
+        UserInputEvents([]),
+        generation=1,
+        input_timestamp_origin_ns=origin_ns,
+        claimed_ns=origin_ns + 5_000_000,
+    )
+    profiler.window_write_completed(1, origin_ns + 6_000_000)
+    measured = profiler.collect_input_latency_ms()
+    if measured.get("input.window_write_session_count") != 1:
+        pytest.fail(f"A reset input was credited to a later write: {measured}")
+    profiler.reset_counts()
+    profiler.window_write_completed(0, origin_ns + 7_000_000)
+    if profiler.collect_input_latency_ms():
+        pytest.fail("A replacement session inherited the preceding session's latency")
+
+
 def test_pipeline_times_the_decode_stage_without_a_decoder() -> None:
     """A stage absent from a config is still a stage the metrics must name.
 
