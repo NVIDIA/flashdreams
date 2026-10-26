@@ -22,6 +22,7 @@ from crazy_robotaxi.application import (
 )
 from crazy_robotaxi.controls import BoundActionState, ControlsConfig
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
+from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import GameSelection
 from crazy_robotaxi.headless_ui import CrazyRobotaxiHeadlessUILoop
 from crazy_robotaxi.live_edit.config import (
@@ -1158,7 +1159,7 @@ def test_headless_loop_presents_video_channel_and_finishes() -> None:
     assert loop.step(1, UserInputEvents([])) == []
 
 
-@pytest.mark.parametrize("game_mode", ["taxi", "race"])
+@pytest.mark.parametrize("game_mode", ["taxi", "race", "free-roam"])
 @pytest.mark.parametrize("terminal_frame", [None, 0, 2, 4, 5, 6, 7])
 def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry(
     tmp_path: Path,
@@ -1178,7 +1179,7 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     script.write_text(
         "steps:\n  - {frames: 3, throttle: 0.5}\n  - {frames: 4, steer: -0.5}\n"
     )
-    snapshot: TaxiGameSnapshot | RaceGameSnapshot = TaxiGameSnapshot(
+    snapshot: TaxiGameSnapshot | RaceGameSnapshot | FreeRoamSnapshot = TaxiGameSnapshot(
         phase="seeking_pickup",
         target_xyz_m=(25, 0, 0),
         distance_m=25,
@@ -1187,7 +1188,9 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         remaining_time_s=None,
         score=0,
     )
-    if game_mode == "race":
+    if game_mode == "free-roam":
+        snapshot = FreeRoamSnapshot()
+    elif game_mode == "race":
         snapshot = RaceGameSnapshot(
             map_id="test",
             course_id="grand-prix",
