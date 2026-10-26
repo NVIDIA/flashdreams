@@ -57,10 +57,11 @@ class InputWindow:
 
 
 class RealtimeInputTimeline:
-    """Advance fixed-rate input windows on a session-relative clock.
+    """Advance input windows on a session-relative clock.
 
     The owning model loop supplies timestamps only for newly accepted input.
-    When those timestamps are newer than the nominal next window, the clock
+    Windows use the target sampling rate unless a duration is supplied.
+    When input timestamps are newer than the next window, the clock
     skips stale time while retaining up to one window of the new input batch.
     Input modalities remain responsible for deciding which events they accept.
 
@@ -103,6 +104,7 @@ class RealtimeInputTimeline:
         sample_count: int,
         *,
         input_times_s: Iterable[float] = (),
+        duration_s: float | None = None,
     ) -> InputWindow:
         """Advance and return one sampling window.
 
@@ -110,13 +112,14 @@ class RealtimeInputTimeline:
             sample_count: Number of evenly spaced samples in the window.
             input_times_s: Timestamps for newly accepted input. These may move
                 the window forward, but never backward.
+            duration_s: Window duration; ``None`` uses the target sampling rate.
 
         Returns:
             The selected window and its sample locations.
 
         Raises:
             TypeError: ``sample_count`` is not an integer.
-            ValueError: A count or timestamp is invalid.
+            ValueError: A count, timestamp, or duration is invalid.
         """
         if isinstance(sample_count, bool) or not isinstance(sample_count, int):
             raise TypeError("sample_count must be an integer.")
@@ -126,7 +129,14 @@ class RealtimeInputTimeline:
         input_times = tuple(
             _finite_time(value, name="input_times_s") for value in input_times_s
         )
-        duration_s = sample_count * self._sample_interval_s
+        sample_interval_s = self._sample_interval_s
+        if duration_s is None:
+            duration_s = sample_count * sample_interval_s
+        else:
+            duration_s = float(duration_s)
+            if not math.isfinite(duration_s) or duration_s <= 0.0:
+                raise ValueError("duration_s must be finite and > 0.")
+            sample_interval_s = duration_s / sample_count
         if not math.isfinite(duration_s):
             raise ValueError("sample_count produces a non-finite window duration.")
         start_s = self._next_window_start_s
@@ -147,7 +157,9 @@ class RealtimeInputTimeline:
         if not math.isfinite(end_s):
             raise ValueError("input_times_s produce a non-finite window end.")
         sample_times_s = tuple(
-            start_s + (index + 1) * self._sample_interval_s
+            end_s
+            if index == sample_count - 1
+            else start_s + (index + 1) * sample_interval_s
             for index in range(sample_count)
         )
         self._next_window_start_s = end_s
