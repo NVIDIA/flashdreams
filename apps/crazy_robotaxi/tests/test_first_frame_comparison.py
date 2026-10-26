@@ -24,12 +24,9 @@ pytestmark = pytest.mark.ci_cpu
 
 @pytest.mark.parametrize("name", MAP_NAMES)
 def test_pair_preserves_geometry_prompts_and_spawn(name: str, tmp_path: Path) -> None:
-    maps = Path(__file__).parents[1] / "crazy_robotaxi/maps"
-    source = maps / f"{name}.robotaxi.yaml"
-    reference = (
-        Path(__file__).parents[2]
-        / "omnidreams_game_engine/omnidreams_game_engine/screenshot.jpg"
-    )
+    maps = Path(__file__).parent / "maps/first_frame"
+    source = maps / f"debug_{name}.robotaxi.yaml"
+    reference = maps / "images/reference.jpg"
     before = source.read_bytes()
     paths = prepare_pair(source, reference, tmp_path / "inputs")
     yaml = YAML(typ="safe")
@@ -72,6 +69,28 @@ def test_commands_use_isolated_settings_and_only_neutral_or_forward_controls(
     assert script == {
         "steps": [{"frames": 15}, {"frames": 90, "throttle": 1, "steer": 0}]
     }
+
+
+def test_capture_discovers_only_debug_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from crazy_robotaxi.application import _discover_game_maps
+
+    fixtures = Path(__file__).parent / "maps/first_frame"
+    paths = prepare_pair(
+        fixtures / "debug_flashdreams_raceway.robotaxi.yaml",
+        fixtures / "images/reference.jpg",
+        tmp_path / "inputs",
+    )
+    discovered = []
+
+    def inspect_maps() -> None:
+        discovered.extend(_discover_game_maps(paths["reference"]))
+
+    monkeypatch.setattr("flashdreams.runtime_v2.cli.entrypoint", inspect_maps)
+    command = capture_command("test-model", paths["reference"], tmp_path, 42, 600)
+    exec(command[2], {})
+    assert {option.path for option in discovered} == set(paths.values())
 
 
 def _records() -> list[dict]:
