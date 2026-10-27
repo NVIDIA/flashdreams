@@ -14,7 +14,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from crazy_robotaxi.driving_script import load_driving_script
 from crazy_robotaxi.dynamics import TaxiVehicleConfig, integrate_taxi_vehicle
 from crazy_robotaxi.factory import _build_ground_snapper, _integrate_taxi_vehicle
 from crazy_robotaxi.physics import TaxiPhysicsWorld, step_taxi_physics_world
@@ -400,7 +399,7 @@ def test_taxi_heading_is_unaffected_by_a_curb_above_it(
     np.testing.assert_allclose(trajectories[1], trajectories[0], atol=1e-5)
 
 
-def test_headless_curb_script_does_not_roll_the_taxi_over(tmp_path: Path) -> None:
+def test_curb_impact_does_not_roll_the_taxi_over(tmp_path: Path) -> None:
     tests = Path(__file__).parent
     compiled = compile_game_map(
         tests / "maps/debug_flat.robotaxi.yaml", cache_root=tmp_path
@@ -434,8 +433,18 @@ def test_headless_curb_script_does_not_roll_the_taxi_over(tmp_path: Path) -> Non
         physics_step_fn=step_taxi_physics_world,
         include_initial_state_in_first_chunk=True,
     )
-    script = load_driving_script(tests / "scenarios/curb_impact.yaml")
-    commands, _ = script.batch(0, script.frame_count)
+    # Fixed simulation inputs isolate curb physics from runtime input scheduling.
+    commands = (
+        (DriverCommand(throttle=1, manual_control=True),) * 60
+        + (
+            DriverCommand(
+                throttle=1, steer=-0.7, steer_is_direct=True, manual_control=True
+            ),
+        )
+        * 18
+        + (DriverCommand(throttle=1, manual_control=True),) * 42
+        + (DriverCommand(manual_control=True),) * 60
+    )
     hit_curb = recovered = False
     try:
         for tick, command in enumerate(commands):

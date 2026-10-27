@@ -1,4 +1,4 @@
-# Accelerate along the debug hill for twelve seconds after gameplay is ready.
+# Accelerate along the debug hill for 24 seconds after gameplay is ready.
 events:
   - {id: accelerate, timestamp_us: 0, type: keyboard, key: w, pressed: true}
-  - {id: end, timestamp_us: 12000000, type: close}
+  - {id: end, timestamp_us: 24000000, type: close}
