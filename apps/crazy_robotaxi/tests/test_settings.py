@@ -374,6 +374,18 @@ def test_load_can_append_style_skin(tmp_path: Path) -> None:
     assert document.settings.live_edit.style.skins[-1].prompt == "prompt-4"
 
 
+def test_retired_generation_rate_does_not_prevent_loading_saved_settings(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("runtime:\n  generation_max_rate: 1.0\n  prewarm_blocks: 3\n")
+    document = _load(path)
+    assert document.settings.runtime.prewarm_blocks == 3
+    document.save(document.settings)
+    assert "generation_max_rate" not in path.read_text()
+    assert _load(path).settings.runtime.prewarm_blocks == 3
+
+
 def test_deprecated_map_context_setting_is_ignored(
     tmp_path: Path,
 ) -> None:
