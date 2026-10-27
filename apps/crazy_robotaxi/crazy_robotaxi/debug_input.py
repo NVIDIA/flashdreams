@@ -10,7 +10,7 @@ import threading
 import time
 from collections.abc import Callable
 from queue import SimpleQueue
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -22,6 +22,9 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
+if TYPE_CHECKING:
+    from crazy_robotaxi.debug_capture import CaptureRecorder
 
 DEBUG_CONTROL_KEY = "robotaxi_debug_control"
 
@@ -70,6 +73,9 @@ class HeadlessInput:
     """
 
     def __init__(self, clock_ns: Callable[[], int] = time.monotonic_ns) -> None:
+        self.presentation_source: dict[str, Any] | None = None
+        self.capture: CaptureRecorder | None = None
+        self.termination_reason: str | None = None
         self.clock_ns = clock_ns
         self.ready_ns: int | None = None
         self.model_ident: int | None = None
@@ -151,6 +157,8 @@ class HeadlessInput:
             events = []
             while now is not None and self._pending and self._pending[0][0] <= now:
                 _, _, event, response, peer = heapq.heappop(self._pending)
+                if isinstance(event, CloseUserInputEvent):
+                    self.termination_reason = "close_command"
                 if not isinstance(event, CloseUserInputEvent):
                     self._dispatched[id(event)] = (response, peer)
                 self.messages.put(

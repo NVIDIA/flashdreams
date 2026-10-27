@@ -138,6 +138,9 @@ class WorldModelRollout:
         engine_wall_ms = (time.perf_counter() - engine_wall_started) * 1000.0
         engine_cpu_ms = (time.thread_time() - engine_cpu_started) * 1000.0
 
+        if observe_engine_step is not None:
+            observe_engine_step(engine_step)
+
         pipeline_wall_started = time.perf_counter()
         pipeline_cpu_started = time.thread_time()
         live_edit = getattr(self.engine, "live_edit", None)
