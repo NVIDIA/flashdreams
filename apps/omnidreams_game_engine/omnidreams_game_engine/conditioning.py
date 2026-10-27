@@ -238,33 +238,30 @@ def _build_bev_road_surface_pool(
         ground = ground_vertices[ground_faces].astype(np.float64)
         ground_polygons = shapely.polygons(ground[:, :, :2])
         ground_index = shapely.STRtree(ground_polygons)
-        clipped_triangles = []
         for element in elements:
-            pavement = triangulate_polygon_xy(element.surface_world)
-            pavement_polygons = shapely.polygons(pavement[:, :, :2])
-            road_ids, ground_ids = ground_index.query(
-                pavement_polygons, predicate="intersects"
-            )
-            pieces = shapely.intersection(
-                pavement_polygons[road_ids], ground_polygons[ground_ids]
-            )
+            pavement = Polygon(element.surface_world[:, :2])
+            ground_ids = ground_index.query(pavement, predicate="intersects")
+            pieces = shapely.intersection(pavement, ground_polygons[ground_ids])
             for piece, ground_id in zip(pieces, ground_ids, strict=True):
-                if piece.is_empty or piece.area == 0:
-                    continue
-                xy = np.asarray(piece.exterior.coords[:-1])
                 face = ground[ground_id]
                 normal = np.cross(face[1] - face[0], face[2] - face[0])
-                z = face[0, 2] - (xy - face[0, :2]) @ normal[:2] / normal[2]
-                xyz = np.column_stack((xy, z + _BEV_ROAD_DEPTH_OFFSET_M))
-                clipped_triangles.extend(
-                    xyz[[0, i, i + 1]] for i in range(1, len(xyz) - 1)
-                )
-        if clipped_triangles:
-            xyz = np.asarray(clipped_triangles, dtype=np.float32).reshape(-1, 3)
-            vertices.append(torch.from_numpy(xyz))
-            triangles.append(torch.arange(len(xyz), dtype=torch.int32).reshape(-1, 3))
-            vertex_counts.append(len(xyz))
-            triangle_counts.append(len(clipped_triangles))
+                for part in shapely.get_parts(piece):
+                    if part.geom_type != "Polygon" or part.area == 0:
+                        continue
+                    xy = np.asarray(part.exterior.coords[:-1])
+                    z = face[0, 2] - (xy - face[0, :2]) @ normal[:2] / normal[2]
+                    xyz = np.column_stack((xy, z + _BEV_ROAD_DEPTH_OFFSET_M))
+                    clipped = triangulate_polygon_xy(xyz).reshape(-1, 3)
+                    if not len(clipped):
+                        continue
+                    # Each ground piece gets its own bounds and CUDA work block.
+                    # A map-wide polygon disables culling and serializes the mesh.
+                    vertices.append(torch.from_numpy(clipped))
+                    triangles.append(
+                        torch.arange(len(clipped), dtype=torch.int32).reshape(-1, 3)
+                    )
+                    vertex_counts.append(len(clipped))
+                    triangle_counts.append(len(clipped) // 3)
     for element in () if elevated else elements:
         surface = np.asarray(element.surface_world, dtype=np.float32)
         polygon = Polygon(surface[:, :2]).simplify(

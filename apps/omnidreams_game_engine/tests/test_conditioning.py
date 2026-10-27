@@ -118,9 +118,36 @@ def test_elevated_bev_clips_to_pavement_and_preserves_ground_height(
     )
     assert pool is not None
     xyz = pool.vertices.numpy()
-    rendered = shapely.union_all(shapely.polygons(xyz[pool.triangles.numpy(), :2]))
+    vertex_starts = np.r_[0, pool.varrays_prefix_sum.numpy()[:-1]]
+    triangle_counts = np.diff(np.r_[0, pool.triangle_prefix_sum.numpy()])
+    indices = (
+        pool.triangles.numpy() + np.repeat(vertex_starts, triangle_counts)[:, None]
+    )
+    rendered = shapely.union_all(shapely.polygons(xyz[indices, :2]))
     expected = shapely.union_all(surfaces)
     assert rendered.symmetric_difference(expected).area < 1e-5
     x, y = xyz[:, :2].T
     height = np.where(x >= y, 0.2 * x + 0.5 * y, 0.4 * x + 0.3 * y)
     np.testing.assert_allclose(xyz[:, 2], height - 0.01, atol=1e-6)
+
+
+def test_elevated_bev_keeps_pavement_in_local_culling_bounds() -> None:
+    x, y = np.meshgrid(np.arange(9), np.arange(9))
+    ground = np.column_stack((x.ravel(), y.ravel(), x.ravel() * 0.1)).astype(np.float32)
+    cells = np.asarray([j * 9 + i for j in range(8) for i in range(8)])
+    faces = np.concatenate(
+        (cells[:, None] + [0, 1, 10], cells[:, None] + [0, 10, 9])
+    ).astype(np.int32)
+    surface = LineString([(0, 1), (4, 4), (8, 7)]).buffer(0.4)
+    xy = np.asarray(surface.exterior.coords)
+    element = cast(
+        GameMapElement,
+        SimpleNamespace(surface_world=np.column_stack((xy, np.zeros(len(xy))))),
+    )
+    pool = _build_bev_road_surface_pool(
+        (element,), torch.device("cpu"), ground_vertices=ground, ground_faces=faces
+    )
+    assert pool is not None
+    pieces = np.split(pool.vertices.numpy(), pool.varrays_prefix_sum.numpy()[:-1])
+    # Distant pavement must be independently culled before CUDA tessellation.
+    assert all(np.all(np.ptp(piece[:, :2], axis=0) <= 1.00001) for piece in pieces)
