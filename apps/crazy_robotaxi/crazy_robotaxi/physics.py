@@ -165,6 +165,10 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         self._entities_by_id = {entity.entity_id: entity for entity in self._entities}
         self._detached_entity_ids.intersection_update(self._entities_by_id)
         self._physics_graph = physics_graph
+        self._synchronized_controller_ids = self._controller_active_ids()
+        self._active_objects_by_id = {
+            scene_object.object_id: scene_object for scene_object in objects
+        }
         return True
 
     def step_with_command(
