@@ -338,9 +338,6 @@ class RuntimeSettings:
     total_blocks: int | None = None
     """Optional limit on generated model blocks; blank leaves the run unbounded."""
 
-    generation_max_rate: float = 1.25
-    """Bound generation time compression; 1.0 preserves delayed playback."""
-
     prewarm_blocks: int = 8
     """Blocks generated before play to warm the pipeline; must be nonnegative."""
 
@@ -528,10 +525,13 @@ class SettingsDocument:
 
 def _drop_deprecated_settings(document: CommentedMap) -> None:
     """Discard settings keys retired within schema version 1."""
-    live_edit = document.get("live_edit")
-    if not isinstance(live_edit, CommentedMap) or "map_context" not in live_edit:
-        return
-    del live_edit["map_context"]
+    for section, key in (
+        ("live_edit", "map_context"),
+        ("runtime", "generation_max_rate"),
+    ):
+        values = document.get(section)
+        if isinstance(values, CommentedMap):
+            values.pop(key, None)
 
 
 def normalize_settings(
@@ -564,8 +564,6 @@ def _validate_settings(settings: CrazyRobotaxiUserSettings) -> None:
     presentation_resolution_wh(settings.presentation)
     if settings.runtime.total_blocks is not None and settings.runtime.total_blocks <= 0:
         raise SettingsError("runtime.total_blocks must be positive")
-    if not 1.0 <= settings.runtime.generation_max_rate <= 1.25:
-        raise SettingsError("runtime.generation_max_rate must be between 1 and 1.25")
     if settings.runtime.prewarm_blocks < 0:
         raise SettingsError("runtime.prewarm_blocks must be non-negative")
     rules = settings.game.taxi.rules

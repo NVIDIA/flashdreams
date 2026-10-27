@@ -450,7 +450,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             window = gameplay.timeline.prepare(
                 frame_count,
                 self._shutdown_event,
-                max_rate=state.config.generation_max_rate,
             )
             if window is None:
                 state.finished = True

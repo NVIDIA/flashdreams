@@ -81,22 +81,36 @@ def test_recorded_turn_and_intermediate_collision_survive_generation_sampling():
     assert [next_window.samples[i].presentation for i in next_window.indices] == [
         20,
         24,
-        28,
-        32,
+        29,
+        33,
     ]
 
 
-def test_catchup_is_bounded_and_never_extrapolates():
+def test_sustained_slow_generation_does_not_accumulate_input_latency():
     timeline = WorldTimeline()
-    for tick in range(60):
+    for tick in range(17):
         timeline.append(sample(tick))
-    first = timeline.prepare(5, threading.Event(), max_rate=1.25)
+    first = timeline.prepare(5, threading.Event())
     assert first is not None and first.end_tick == 16
     timeline.commit(first)
-    catchup = timeline.prepare(8, threading.Event(), max_rate=1.25)
-    assert catchup is not None and catchup.end_tick == 56
-    assert [catchup.start_tick + i for i in catchup.indices] == list(range(21, 57, 5))
-    timeline.commit(catchup)
+    # Model throughput varies below 24 fps for a full minute. The next chunk
+    # must reach the most recent recorded input, not replay an increasing backlog.
+    for duration_ticks in (48, 72) * 60:
+        start = timeline.gameplay_tick + 1
+        latest = timeline.gameplay_tick + duration_ticks
+        for tick in range(start, latest + 1):
+            entry = sample(tick)
+            if tick == latest:
+                entry = replace(entry, transition_timestamp_us=tick * 1_000_000 // 120)
+            timeline.append(entry)
+        window = timeline.prepare(8, threading.Event())
+        assert window is not None and window.end_tick == latest
+        assert len(window.samples) == duration_ticks
+        assert window.transition_timestamps_us()[-1] == latest * 1_000_000 // 120
+        assert all(b > a for a, b in zip(window.indices, window.indices[1:]))
+        assert window.recorded_step().game_frames[-1] == f"tick:{latest}"
+        timeline.commit(window)
+        assert timeline.generation_tick == timeline.gameplay_tick
     stop = threading.Event()
     stop.set()
     assert timeline.prepare(8, stop) is None

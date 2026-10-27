@@ -194,9 +194,6 @@ class ApplicationConfig:
     debug_engine_only: bool = False
     """Present semantic rendering without loading a world model in robotaxi-debug."""
 
-    generation_max_rate: float = 1.25
-    """Maximum generation catch-up along recorded gameplay; 1 disables catch-up."""
-
     debug_capture: bool = False
     """Capture the ordinary interactive UI offscreen through robotaxi-debug."""
 
@@ -420,7 +417,6 @@ class CrazyRobotaxiApplication(IApplication):
             model_preset_name=model_preset_name,
             pipeline_profiling=settings.diagnostics.profile_pipeline,
             prewarm_blocks=settings.runtime.prewarm_blocks,
-            generation_max_rate=settings.runtime.generation_max_rate,
             profile_input_latency=settings.diagnostics.profile_input_latency,
             input_trace_path=(
                 _DEFAULT_INPUT_TRACE_PATH

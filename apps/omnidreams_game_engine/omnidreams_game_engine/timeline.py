@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import math
 import threading
 from collections import deque
 from dataclasses import dataclass, fields, replace
@@ -165,16 +164,16 @@ class WorldTimeline:
             self.gameplay_tick += 1
             self._condition.notify_all()
 
-    def prepare(
-        self, count: int, stop: threading.Event, *, max_rate: float = 1.0
-    ) -> GenerationWindow | None:
-        """Wait for a fixed chunk, optionally shortening lag by following more ticks.
+    def prepare(self, count: int, stop: threading.Event) -> GenerationWindow | None:
+        """Sample the recorded path through the latest available gameplay tick.
 
-        ``max_rate`` bounds the represented elapsed time per output frame. No
-        endpoint extrapolation, physics replay, or pose interpolation is used.
+        Wait for a nominal chunk when generation is faster than gameplay. When
+        slower, represent all elapsed gameplay in the next chunk: a fixed speed
+        limit would accumulate unbounded input-to-video delay. The seed keeps
+        its original cadence and initial pose.
         """
-        if count < 1 or not math.isfinite(max_rate) or not 1 <= max_rate <= 2:
-            raise ValueError("Invalid generation sample count or catch-up rate")
+        if count < 1:
+            raise ValueError("Invalid generation sample count")
         with self._condition:
             if self._pending is not None:
                 raise RuntimeError("Commit the pending generation window first")
@@ -194,14 +193,13 @@ class WorldTimeline:
                 raise RuntimeError("Gameplay simulation failed") from self._failure
             if stop.is_set() or not self._samples:
                 return None
-            # Keep the seed chunk faithful. Catch up only to already-recorded
-            # states and only at chunk boundaries.
+            # Resample the entire intervening path, including collisions, rather
+            # than jumping straight to the latest pose. No future state is used.
+            # ponytail: slow generation increases distance between model frames;
+            # preserving both nominal motion and low latency needs faster output.
             span = intervals * self.ticks_per_frame
             if not first:
-                span = min(
-                    math.floor(span * max_rate),
-                    self.gameplay_tick - self.generation_tick,
-                )
+                span = self.gameplay_tick - self.generation_tick
             ticks = (
                 tuple(
                     (0 if first else self.generation_tick)
