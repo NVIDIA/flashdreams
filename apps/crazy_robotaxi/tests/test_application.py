@@ -2052,7 +2052,10 @@ def test_debug_view_rejects_conflicting_or_non_debug_use(tmp_path, mode, extra, 
         )
 
 
-def test_live_debug_uses_interactive_ui_and_runtime_input(tmp_path: Path) -> None:
+@pytest.mark.parametrize("no_ui", [False, True])
+def test_live_debug_respects_ui_selection_and_runtime_input(
+    tmp_path: Path, no_ui: bool
+) -> None:
     from crazy_robotaxi.debug import DEBUG_METADATA_KEY, RobotaxiLiveDebugUILoop
 
     app = _application()
@@ -2069,13 +2072,17 @@ def test_live_debug_uses_interactive_ui_and_runtime_input(tmp_path: Path) -> Non
             str(tmp_path / "settings.yaml"),
             "--prewarm-blocks",
             "2",
+            "--total-blocks",
+            "2",
+            *(["--no-ui"] if no_ui else []),
         ]
     )
     session = app.create_session(app.session_desc())
     session.init()
     ui_loop, model_loop = session._take_loops()
-    assert isinstance(ui_loop, RobotaxiLiveDebugUILoop)
-    assert isinstance(ui_loop, CrazyRobotaxiImGuiUILoop)
+    assert isinstance(
+        ui_loop, CrazyRobotaxiHeadlessUILoop if no_ui else RobotaxiLiveDebugUILoop
+    )
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert model_loop.state.config.driving_script is None
     assert model_loop.state.config.prewarm_blocks == 2
