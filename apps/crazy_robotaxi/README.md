@@ -115,15 +115,42 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
   --game-mode free-roam
 ```
 
-Each capture needs a fresh output directory and `ffmpeg` on `PATH`. The output
-contains `presentation.mp4`, sampled screenshots, and an atomically updated
-`latest.png`. With `--no-ui`, it instead contains `generated.mp4`, `hdmap.mp4`,
-`physics.mp4`, and synchronized screenshots for those views. `telemetry.jsonl`
-records presentation time; paired views also include simulation timestamps,
-applied commands, collider snapshots, and the physical car pose before ground
-alignment. `manifest.json` describes the capture, and `inputs/` preserves its
-map and settings. A finalized capture does not imply that every input ran:
-check the acknowledgments for rejected or cancelled commands.
+Each capture needs a fresh output directory. Both presentation modes record
+`telemetry.jsonl` for every simulation frame, including applied commands, native
+physics states before gameplay adjustments, camera poses, ground errors, collider
+snapshots, and game state. Observations are queued before model generation, so a
+generation failure retains the physics evidence. Hidden warmup is excluded.
+
+By default, both modes save `generated.mp4`, `hdmap.mp4`, `physics.mp4`, and
+sampled/contact/final screenshots. Normal UI mode additionally saves
+`presentation.mp4` and an atomically updated `latest.png`; `--no-ui` selects the
+paired diagnostic presentation. Pass `--no-debug-capture-images` before `--` to
+keep telemetry without videos or PNGs; this also removes the `ffmpeg` requirement.
+
+`presentation.jsonl` records UI ticks, actual presentation timestamps, and source
+frame identifiers. Join its `source.capture_frame` to `telemetry.jsonl` to find
+repeated or skipped presentations. `capture_frame` stays unique across restarts;
+`rollout_epoch`, `frame`, `model_step`, `autoregressive_index`, and `chunk_frame`
+retain simulation/chunk identity. `media.jsonl` maps encoded video indices to
+capture or presentation frame IDs, including when images are missing. Videos
+use nominal frame rates; use presentation timestamps to reconstruct wall time.
+
+A background writer performs disk writes, encoding, and physics drawing. Its
+queue holds at most 256 observation/media jobs, four model-image chunks, and 60
+UI images; images are copied into owned RGB byte storage before enqueueing.
+Producers never wait for disk. Capture still costs observation collection and
+image conversion/copy work. Overflow preserves gameplay timing and records
+missing inclusive frame ranges in `manifest.json`. `--debug-strict-capture`
+fails the run on capture gaps or writer errors. Normal shutdown drains accepted
+work before closing the files.
+
+The manifest separates file finalization, capture coverage, and scripted-run
+completion. It includes produced/saved counts, missing ranges, generated frame
+count, writer errors, pending input IDs, and termination reason. `complete`
+requires complete capture and consumed inputs; scripted runs must also reach
+their close event or a configured block/game endpoint. `inputs/` preserves the
+map, settings, and input file. Rejected live commands remain visible in the input
+log and do not themselves invalidate an otherwise complete capture.
 
 ### Timestamped inputs
 

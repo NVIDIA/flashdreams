@@ -41,10 +41,8 @@ from omnidreams_game_engine.game_map import compile_game_map
 from omnidreams_game_engine.scene import load_scene_bundle
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import PhysicsDebugFrame, VehicleState
-from PIL import Image
 
 from flashdreams.runtime_v2.session_desc import (
-    PresentationMode,
     SessionDesc,
 )
 from flashdreams.runtime_v2.step_result import StepResult
@@ -61,7 +59,7 @@ pytestmark = pytest.mark.ci_cpu
 def test_live_headless_input_queues_rejects_late_and_acknowledges_consumption(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("crazy_robotaxi.debug.Mp4Encoder", RecordingEncoder)
+    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", RecordingEncoder)
     now = [10_000_000_000]
     control = HeadlessInput(lambda: now[0])
     window = RobotaxiDebugWindow(
@@ -175,10 +173,11 @@ def test_live_headless_input_queues_rejects_late_and_acknowledges_consumption(
         frame["function"].startswith("test_live_headless")
         for frame in samples[0]["stack"]
     )
-    record = json.loads((window.directory / "telemetry.jsonl").read_text())
+    record = json.loads((window.directory / "presentation.jsonl").read_text())
     assert record["ui_step"] == 7 and record["elapsed_us"] == 525_000
     manifest = json.loads((window.directory / "manifest.json").read_text())
-    assert manifest["views"] == ["presentation"] and manifest["frames_written"] == 1
+    assert manifest["views"] == ["presentation"]
+    assert manifest["coverage"]["presentations"]["saved"] == 1
 
 
 @pytest.mark.parametrize(
@@ -297,6 +296,11 @@ def _debug_record(frame: int, *, contact: bool = False) -> dict:
     )
     return {
         "frame": frame,
+        "rollout_epoch": 0,
+        "model_step": frame // 8,
+        "autoregressive_index": frame // 8,
+        "chunk_frame": frame % 8,
+        "simulation_timestamp_us": frame * 33333,
         "rig_pose_world": np.eye(4, dtype=np.float32),
         "physics_vehicle": asdict(vehicle),
         "actor_collision": False,
@@ -352,142 +356,83 @@ class RecordingEncoder:
         self.closed = True
 
 
-def test_sink_preserves_both_views_and_rejects_repeated_simulation_frames(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("crazy_robotaxi.debug.Mp4Encoder", RecordingEncoder)
-    desc = SessionDesc(
-        video_width=6,
-        video_height=4,
-        presentation_mode=PresentationMode.ON_DEMAND,
-        metadata={DEBUG_METADATA_KEY: {"paired_views": True}},
-    )
-    window = RobotaxiDebugWindow(tmp_path / "capture", snapshot_every=30)
-    window.open(desc)
-    output = torch.cat((torch.ones(1, 3, 4, 6), -torch.ones(1, 3, 4, 6)), dim=-1)
-    result = DebugFrameResult(
-        step_index=0,
-        output=output,
-        frame_count=1,
-        output_layout=VideoTensorLayout.tchw,
-        record=_debug_record(0),
-    )
-    window.write(result)
-    assert np.all(
-        cast(RecordingEncoder, window._encoders["generated"]).frames[0] == 255
-    )
-    assert np.all(cast(RecordingEncoder, window._encoders["hdmap"]).frames[0] == 0)
-    with Image.open(window.directory / "frames/generated/000000.png") as image:
-        assert image.size == (6, 4)
-        assert np.all(np.asarray(image, dtype=np.float32) == 255)
-    with pytest.raises(ValueError, match="once, in simulation order"):
-        window.write(result)
-    window.close()
-    assert all(
-        cast(RecordingEncoder, encoder).closed for encoder in window._encoders.values()
-    )
-    manifest = json.loads((window.directory / "manifest.json").read_text())
-    assert manifest["frames_written"] == 1 and manifest["finalized"]
-    records = [
-        json.loads(line)
-        for line in (window.directory / "telemetry.jsonl").read_text().splitlines()
-    ]
-    assert len(records) == 1 and records[0]["rig_pose_world"] == np.eye(4).tolist()
-    with pytest.raises(FileExistsError):
-        RobotaxiDebugWindow(window.directory).open(desc)
-
-
-@pytest.mark.parametrize("written,requested", [(0, 3), (1, 3), (2, 3), (2, 2)])
-def test_close_saves_last_written_views_without_rewriting_snapshots(
+@pytest.mark.parametrize("paired", [False, True])
+def test_capture_keeps_model_frames_when_presentation_skips_or_repeats(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    written: int,
-    requested: int,
+    paired: bool,
 ) -> None:
-    monkeypatch.setattr("crazy_robotaxi.debug.Mp4Encoder", RecordingEncoder)
-    saved = []
-    original_save = Image.Image.save
-
-    def save(image, path, *args, **kwargs):
-        saved.append(Path(path))
-        return original_save(image, path, *args, **kwargs)
-
-    monkeypatch.setattr(Image.Image, "save", save)
+    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", RecordingEncoder)
     window = RobotaxiDebugWindow(tmp_path / "capture", snapshot_every=30)
     window.open(
         SessionDesc(
             video_width=6,
             video_height=4,
-            presentation_mode=PresentationMode.ON_DEMAND,
+            metadata={DEBUG_METADATA_KEY: {"paired_views": paired}},
+        )
+    )
+    assert window.recorder is not None
+    records = tuple(_debug_record(i, contact=i == 1) for i in range(3))
+    output = torch.ones(3, 3, 4, 6)
+    window.recorder.observe(records)
+    window.recorder.submit(records, output, -output)
+    # Reusing the producer buffer cannot change the queued capture.
+    output.zero_()
+    for index in [0, 2, 2]:
+        window.write(
+            DebugFrameResult(
+                step_index=index,
+                output=output[:1],
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+                record=records[index],
+            )
+        )
+    window.close()
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert manifest["complete"] and manifest["frames_written"] == 3
+    telemetry = [
+        json.loads(line)
+        for line in (window.directory / "telemetry.jsonl").read_text().splitlines()
+    ]
+    assert [r["capture_frame"] for r in telemetry] == [0, 1, 2]
+    presentations = [
+        json.loads(line)
+        for line in (window.directory / "presentation.jsonl").read_text().splitlines()
+    ]
+    assert [r["source"]["capture_frame"] for r in presentations] == [0, 2, 2]
+    encoders = window.recorder._encoders
+    assert np.all(cast(RecordingEncoder, encoders["generated"]).frames[0] == 255)
+    assert np.all(cast(RecordingEncoder, encoders["hdmap"]).frames[0] == 0)
+    assert manifest["contact_frames"] == [1]
+    for view in ("generated", "hdmap", "physics"):
+        for index in range(3):  # initial, contact, and final snapshots
+            assert (window.directory / "frames" / view / f"{index:06d}.png").exists()
+    assert all(cast(RecordingEncoder, encoder).closed for encoder in encoders.values())
+
+
+def test_physics_video_shows_bounds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", RecordingEncoder)
+    window = RobotaxiDebugWindow(tmp_path / "capture")
+    window.open(
+        SessionDesc(
+            video_width=320,
+            video_height=320,
             metadata={DEBUG_METADATA_KEY: {"paired_views": True}},
         )
     )
-    for frame in range(written):
-        window.write(
-            DebugFrameResult(
-                step_index=frame,
-                output=torch.full((1, 3, 4, 12), (frame + 1) / 5),
-                frame_count=1,
-                output_layout=VideoTensorLayout.tchw,
-                record=_debug_record(frame),
-            )
-        )
-    before_close = set(saved)
-    if written == 2 and requested == 3:
-        assert len(before_close) == 3  # Only frame zero was sampled.
+    assert window.recorder is not None
+    output = torch.zeros(1, 3, 320, 320)
+    records = (_debug_record(1, contact=True),)
+    window.recorder.observe(records)
+    window.recorder.submit(records, output, output)
     window.close()
-    window.close()
-    assert len(saved) == len(set(saved))
-    expected = before_close.copy()
-    for view, encoder in window._encoders.items():
-        if written:
-            path = window.directory / "frames" / view / f"{written - 1:06d}.png"
-            expected.add(path)
-            with Image.open(path) as image:
-                np.testing.assert_array_equal(
-                    np.asarray(image), cast(RecordingEncoder, encoder).frames[-1]
-                )
-    assert set(saved) == expected
-    manifest = json.loads((window.directory / "manifest.json").read_text())
-    assert manifest["finalized"]
-    assert manifest["frames_written"] == written
-
-
-def test_physics_video_shows_bounds_and_saves_contact_between_snapshots(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("crazy_robotaxi.debug.Mp4Encoder", RecordingEncoder)
-    desc = SessionDesc(
-        video_width=320,
-        video_height=320,
-        presentation_mode=PresentationMode.ON_DEMAND,
-        metadata={DEBUG_METADATA_KEY: {"paired_views": True}},
-    )
-    window = RobotaxiDebugWindow(tmp_path / "capture", snapshot_every=30)
-    window.open(desc)
-    for frame in range(3):
-        window.write(
-            DebugFrameResult(
-                step_index=frame,
-                output=torch.zeros(1, 3, 320, 640),
-                frame_count=1,
-                output_layout=VideoTensorLayout.tchw,
-                record=_debug_record(frame, contact=frame == 1),
-            )
-        )
-    window.close()
-    pixels = cast(RecordingEncoder, window._encoders["physics"]).frames[1]
+    pixels = cast(RecordingEncoder, window.recorder._encoders["physics"]).frames[0]
     np.testing.assert_array_equal(pixels[172, 80], [0, 220, 235])
     np.testing.assert_array_equal(pixels[170, 160], [245, 245, 245])
     np.testing.assert_array_equal(pixels[167, 160], [70, 150, 255])
-    assert all(
-        len(cast(RecordingEncoder, encoder).frames) == 3
-        for encoder in window._encoders.values()
-    )
-    manifest = json.loads((window.directory / "manifest.json").read_text())
-    assert manifest["finalized"] and manifest["contact_frames"] == [1]
-    for view in manifest["views"]:
-        assert (window.directory / "frames" / view / "000001.png").is_file()
 
 
 def test_sink_requires_capture_metadata_and_tchw(tmp_path: Path) -> None:
@@ -550,3 +495,142 @@ def test_debug_map_compiles_with_a_race_spawn_and_ground_mesh(tmp_path: Path) ->
     assert scene.ground_mesh_vertices.shape[1] == 3
     assert scene.ground_mesh_faces.shape[1] == 3
     assert scene.initial_rig_to_world[2, 3] == pytest.approx(0)
+
+
+def test_capture_overflow_reports_ranges_without_blocking_producer(
+    tmp_path, monkeypatch
+):
+    import threading
+
+    from crazy_robotaxi.debug_capture import CaptureRecorder
+
+    entered, release = threading.Event(), threading.Event()
+    original = CaptureRecorder._write
+
+    def blocked(self, *args):
+        entered.set()
+        assert release.wait(5)
+        original(self, *args)
+
+    monkeypatch.setattr(CaptureRecorder, "_write", blocked)
+    recorder = CaptureRecorder(
+        tmp_path, SessionDesc(), images=False, snapshot_every=30, queue_size=1
+    )
+    try:
+        recorder.observe((_debug_record(0),))
+        assert entered.wait(2)
+        recorder.observe((_debug_record(1),))
+        recorder.observe((_debug_record(2),))  # Full queue must return immediately.
+    finally:
+        release.set()
+        recorder.close()
+    summary = recorder.summary()
+    assert summary["coverage"]["observations"] == {
+        "produced": 3,
+        "saved": 2,
+        "missing_ranges": [[2, 2]],
+    }
+    assert summary["finalized"] and not summary["capture_complete"]
+
+
+def test_image_overflow_keeps_telemetry_and_reset_identity(tmp_path, monkeypatch):
+    import threading
+
+    from crazy_robotaxi.debug_capture import CaptureRecorder
+
+    entered, release = threading.Event(), threading.Event()
+    original = CaptureRecorder._write
+
+    def blocked(self, kind, *args):
+        if kind == "model":
+            entered.set()
+            assert release.wait(5)
+        original(self, kind, *args)
+
+    monkeypatch.setattr(CaptureRecorder, "_write", blocked)
+    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", RecordingEncoder)
+    recorder = CaptureRecorder(
+        tmp_path,
+        SessionDesc(video_width=6, video_height=4),
+        images=True,
+        snapshot_every=30,
+        image_slots=1,
+    )
+    output = torch.zeros(1, 3, 4, 6)
+    try:
+        records = (_debug_record(0),)
+        recorder.observe(records)
+        recorder.submit(records, output, output)
+        assert entered.wait(2)
+        records = ({**_debug_record(0), "rollout_epoch": 1},)
+        recorder.observe(records)
+        recorder.submit(records, output, output)
+    finally:
+        release.set()
+        recorder.close()
+    summary = recorder.summary()
+    assert summary["coverage"]["observations"]["saved"] == 2
+    assert summary["coverage"]["model_images"]["missing_ranges"] == [[1, 1]]
+    assert not summary["capture_complete"]
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "telemetry.jsonl").read_text().splitlines()
+    ]
+    assert [(r["capture_frame"], r["rollout_epoch"], r["frame"]) for r in records] == [
+        (0, 0, 0),
+        (1, 1, 0),
+    ]
+
+
+def test_encoder_failure_finalizes_manifest_and_fails_strict_capture(
+    tmp_path, monkeypatch
+):
+    class BrokenEncoder(RecordingEncoder):
+        def write(self, frames):
+            raise OSError("test disk failure")
+
+    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", BrokenEncoder)
+    window = RobotaxiDebugWindow(tmp_path / "capture", strict=True)
+    window.open(
+        SessionDesc(video_width=6, video_height=4, metadata={DEBUG_METADATA_KEY: {}})
+    )
+    assert window.recorder is not None
+    records = (_debug_record(0),)
+    window.recorder.observe(records)
+    output = torch.zeros(1, 3, 4, 6)
+    window.recorder.submit(records, output, output)
+    with pytest.raises(RuntimeError, match="Incomplete debug capture"):
+        window.close()
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert not manifest["complete"] and not manifest["finalized"]
+    assert manifest["coverage"]["observations"]["saved"] == 1
+    assert manifest["capture_errors"] == ["OSError: test disk failure"]
+
+
+def test_script_completion_requires_consumption_and_endpoint(tmp_path):
+    now = [0]
+    script = [
+        {
+            "id": "press",
+            "timestamp_us": 0,
+            "type": "keyboard",
+            "key": "w",
+            "pressed": True,
+        },
+        {"id": "end", "timestamp_us": 10, "type": "close"},
+    ]
+    window = RobotaxiDebugWindow(
+        tmp_path / "capture", capture_images=False, clock_ns=lambda: now[0]
+    )
+    window.open(SessionDesc(metadata={DEBUG_METADATA_KEY: {"script_events": script}}))
+    window.control.start()
+    window.get_user_input_events()  # Dispatched but never read by the model.
+    now[0] = 10_000
+    window.get_user_input_events()
+    window.close()
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert manifest["capture_complete"]  # Files are complete, scenario isn't.
+    assert not manifest["complete"] and not manifest["script_complete"]
+    assert manifest["pending_input_ids"] == ["press"]
+    assert manifest["termination_reason"] == "close_command"
+    assert not list(window.directory.glob("*.mp4"))

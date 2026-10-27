@@ -26,6 +26,7 @@ from omnidreams_game_engine.types import CameraCalibration
 from PIL import Image
 from torch import Tensor
 
+from crazy_robotaxi.debug_input import HeadlessInput
 from crazy_robotaxi.controls import (
     BoundActionState,
     ControlDevice,
@@ -234,7 +235,7 @@ class TaxiHudFrame:
     """Chunk-lifecycle correlation fields for input diagnosis."""
 
     debug_record: dict[str, Any] | None = None
-    """Scripted-run observation aligned with this generated frame."""
+    """Capture observation aligned with this generated frame."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,6 +268,9 @@ class TaxiHudState:
 
     bev: BevConfig = BevConfig()
     """BEV camera geometry used to place navigation markers on the map."""
+
+    debug_control: HeadlessInput | None = None
+    """Shared capture correlation for offscreen presentation."""
 
     profile_input_latency: bool = False
     """Whether input arrival and model-frame latency diagnostics are visible."""
