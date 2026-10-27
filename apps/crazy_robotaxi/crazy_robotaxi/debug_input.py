@@ -101,7 +101,10 @@ class HeadlessInput:
             now = self.elapsed_us()
             identifier = payload.get("id") if isinstance(payload, dict) else None
             valid_id = isinstance(identifier, str) and 0 < len(identifier) <= 128
-            response = {"id": identifier if valid_id else None, "received_us": now}
+            response: dict[str, Any] = {
+                "id": identifier if valid_id else None,
+                "received_us": now,
+            }
             if (
                 valid_id
                 and isinstance(payload, dict)
