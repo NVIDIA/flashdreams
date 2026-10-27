@@ -18,6 +18,7 @@ from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.profiler import NullProfiler
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
 class ISession(ABC):
@@ -61,6 +62,14 @@ class ISession(ABC):
     The application runner assigns the system profiler when it creates the
     session. Assign in :meth:`init` before registering a loop to use a different one.
     """
+
+    def receive_input(self, events: UserInputEvents) -> None:
+        """Observe a client batch immediately on the UI thread.
+
+        Applications with independent simulation may enqueue events here. This
+        callback must not block. The usual UI/model readers still receive the
+        same batch; an application must choose one consumer for each action.
+        """
 
     @abstractmethod
     def init(self) -> None:

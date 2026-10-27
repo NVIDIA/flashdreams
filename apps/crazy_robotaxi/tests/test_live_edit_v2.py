@@ -670,3 +670,38 @@ def test_dynamic_prompts_need_enabled_and_an_included_fragment() -> None:
     assert not inclusions_disabled.active
     assert not config.any_enabled
     assert not config.requires_python_dit
+
+
+def test_generation_composites_recorded_pickups_without_reading_live_world():
+    from crazy_robotaxi.live_edit.runtime_v2 import LiveEditFrame, LiveEditHudStatus
+
+    gameplay = LiveEditGameplay(LiveEditConfig(), _scene(), (), vehicle=VehicleConfig())
+    gameplay._presentation_enabled = True
+    sprites = (object(), object())
+    frames = tuple(
+        LiveEditFrame(LiveEditHudStatus(coins_collected=i), (sprite,), (), None)
+        for i, sprite in enumerate(sprites)
+    )
+    state = VehicleState(0, 0, 0, 0, 0, 0)
+    trajectory = TrajectoryChunk(
+        np.asarray([0, 33_333]),
+        np.repeat(np.eye(4)[None], 2, axis=0),
+        (state, state),
+        state,
+    )
+    gameplay.use_recorded_frames(frames, trajectory)
+    seen = []
+
+    def composite(frame, *, sprites, **kwargs):
+        seen.extend(sprites)
+        return frame
+
+    gameplay._compositor = SimpleNamespace(composite=composite)
+    gameplay.coins = SimpleNamespace(
+        visible_sprites=lambda *args, **kwargs: pytest.fail("Read live pickups")
+    )
+    video = torch.zeros(1, 1, 2, 3, 4, 8)
+    result = gameplay.postprocess_video(video, SimpleNamespace(trajectory=trajectory))
+    assert result.shape == video.shape
+    assert seen == list(sprites)
+    assert [frame.coins_collected for frame in gameplay._frame_statuses] == [0, 1]

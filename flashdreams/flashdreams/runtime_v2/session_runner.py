@@ -179,6 +179,7 @@ def run_session(
             # input the profiler has not seen arrive.
             if count := len(events.get_events()):
                 profiler.input_received(received_ns, count)
+            session.receive_input(events)
             event_buffer.append(events, received_ns)
 
         def run_ui_once(*, step_requested: bool = True) -> None:
