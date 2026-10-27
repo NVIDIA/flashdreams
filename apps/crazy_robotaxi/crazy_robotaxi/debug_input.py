@@ -114,7 +114,25 @@ class HeadlessInput:
         self._lock = threading.RLock()
         self._seen: set[str] = set()
         self._pending: list[tuple[int, int, UserInputEvent, dict, str | None]] = []
-        self._dispatched: dict[int, tuple[dict, str | None]] = {}
+        self._unconsumed: dict[int, tuple[UserInputEvent, dict, str | None]] = {}
+        self._gameplay_receiver: Callable[[UserInputEvents], None] | None = None
+
+    def attach_gameplay(
+        self, receiver: Callable[[UserInputEvents], None] | None
+    ) -> None:
+        """Send accepted commands ahead to the simulation's timestamp queue.
+
+        The UI still receives due events through the normal runtime path. Driving
+        has one consumer: the independent simulation, never the model loop.
+        """
+        with self._lock:
+            self._gameplay_receiver = receiver
+            if receiver is not None:
+                receiver(
+                    UserInputEvents(
+                        [event for event, _, _ in self._unconsumed.values()]
+                    )
+                )
 
     def elapsed_us(self) -> int | None:
         """Return elapsed gameplay wall time, or ``None`` during loading."""
@@ -152,8 +170,9 @@ class HeadlessInput:
         with self._lock:
             if self.ready_ns is None:
                 self.ready_ns = self.clock_ns()
-                self.model_ident = threading.get_ident()
-                self.native_thread_id = threading.get_native_id()
+                if self.model_ident is None:
+                    self.model_ident = threading.get_ident()
+                    self.native_thread_id = threading.get_native_id()
                 self.messages.put((None, {"status": "ready", "elapsed_us": 0}))
 
     def accept(self, payload: Any, peer: str | None = None) -> None:
@@ -204,6 +223,10 @@ class HeadlessInput:
                 (int(event.timestamp), len(self._seen), event, response, peer),
             )
             self.messages.put((peer, {**response, "status": "accepted"}))
+            if not isinstance(event, CloseUserInputEvent):
+                self._unconsumed[id(event)] = (event, response, peer)
+                if self._gameplay_receiver is not None:
+                    self._gameplay_receiver(UserInputEvents([event]))
 
     def due(self) -> list[UserInputEvent]:
         """Dispatch due events in timestamp order, retaining their original time."""
@@ -214,21 +237,35 @@ class HeadlessInput:
                 _, _, event, response, peer = heapq.heappop(self._pending)
                 if isinstance(event, CloseUserInputEvent):
                     self.termination_reason = "close_command"
-                if not isinstance(event, CloseUserInputEvent):
-                    self._dispatched[id(event)] = (response, peer)
                 self.messages.put(
-                    (peer, {**response, "status": "dispatched", "dispatched_us": now})
+                    (
+                        peer,
+                        {
+                            **response,
+                            "status": "dispatched"
+                            if id(event) in self._unconsumed
+                            or isinstance(event, CloseUserInputEvent)
+                            else "ui_dispatched",
+                            "dispatched_us": now,
+                        },
+                    )
                 )
                 events.append(event)
             return events
 
-    def consumed(self, events: UserInputEvents, *, step: int) -> None:
-        """Acknowledge events read by the normal model-thread input consumer."""
+    def consumed(
+        self,
+        events: UserInputEvents,
+        *,
+        step: int | None = None,
+        gameplay_tick: int | None = None,
+    ) -> None:
+        """Acknowledge the actual owner that consumed an input batch."""
         with self._lock:
             for event in events.get_events():
-                entry = self._dispatched.pop(id(event), None)
+                entry = self._unconsumed.pop(id(event), None)
                 if entry is not None:
-                    response, peer = entry
+                    _, response, peer = entry
                     self.messages.put(
                         (
                             peer,
@@ -236,7 +273,11 @@ class HeadlessInput:
                                 **response,
                                 "status": "consumed",
                                 "consumed_us": self.elapsed_us(),
-                                "model_step": step,
+                                **(
+                                    {"model_step": step}
+                                    if step is not None
+                                    else {"gameplay_tick": gameplay_tick}
+                                ),
                             },
                         )
                     )
@@ -244,10 +285,17 @@ class HeadlessInput:
     def close(self) -> None:
         """Report commands not consumed before capture shutdown."""
         with self._lock:
-            pending = [(response, peer) for _, _, _, response, peer in self._pending]
-            pending.extend(self._dispatched.values())
+            pending = [
+                (response, peer)
+                for _, _, event, response, peer in self._pending
+                if isinstance(event, CloseUserInputEvent)
+            ]
+            pending.extend(
+                (response, peer) for _, response, peer in self._unconsumed.values()
+            )
             self._pending.clear()
-            self._dispatched.clear()
+            self._unconsumed.clear()
+            self._gameplay_receiver = None
             for response, peer in pending:
                 self.messages.put(
                     (

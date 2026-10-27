@@ -985,3 +985,40 @@ def test_contact_bursts_keep_endpoints_periodic_images_and_every_video_frame(
                 Image.open(tmp_path / "frames" / view / f"{identifier:06d}.png")
             )
             np.testing.assert_array_equal(saved, encoder.frames[identifier])
+
+
+def test_gameplay_receives_future_commands_without_waiting_for_ui_dispatch():
+    from crazy_robotaxi.debug_input import HeadlessInput
+    from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
+    now = [0]
+    control = HeadlessInput(clock_ns=lambda: now[0])
+    control.accept(
+        {
+            "id": "press",
+            "timestamp_us": 50_000,
+            "type": "keyboard",
+            "key": "w",
+            "pressed": True,
+        }
+    )
+    received = []
+    control.attach_gameplay(lambda events: received.extend(events.get_events()))
+    assert len(received) == 1
+    control.start()
+    assert control.due() == []
+    now[0] = 51_000_000
+    control.consumed(UserInputEvents(received), gameplay_tick=7)
+    # The UI can receive its copy later without a second gameplay application
+    # or a cancellation of the already-consumed command on shutdown.
+    assert control.due() == received
+    control.close()
+    messages = []
+    while not control.messages.empty():
+        messages.append(control.messages.get_nowait()[1])
+    assert [m["status"] for m in messages] == [
+        "accepted",
+        "ready",
+        "consumed",
+        "ui_dispatched",
+    ]

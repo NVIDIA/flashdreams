@@ -334,10 +334,8 @@ def test_physics_timestamps_exclude_seed_and_measure_each_advance(monkeypatch) -
         (3000, 4000),
     ]
 
-@pytest.mark.parametrize("durations", [(8 / 30,), (0.4,), (0.401, 0.273, 0.529)])
-def test_compensation_advances_fixed_physics_and_rules_before_sampling(
-    durations,
-) -> None:
+
+def test_fixed_physics_and_rules_are_sampled_at_model_frame_rate() -> None:
     steps = []
 
     def integrate(state, command, dt_s, config):
@@ -371,13 +369,13 @@ def test_compensation_advances_fixed_physics_and_rules_before_sampling(
     )
     timestamps = []
     commands = (DriverCommand(throttle=0.5, steer=-0.25),) * 8
-    for duration in durations:
-        result = engine.step(commands, simulation_duration_s=duration)
+    for _ in range(3):
+        result = engine.step(commands)
         assert result.condition.hdmap_bvtchw.shape[2] == len(result.game_frames) == 8
         assert result.trajectory.applied_commands == commands
         assert result.game_frames[-1] == (simulation.current_state.x_m, rules.elapsed)
         timestamps.extend(result.trajectory.timestamps_us)
-    expected_ticks = int(sum(durations) * 120 + 1e-9)
+    expected_ticks = 3 * 8 * 4
     assert len(steps) == expected_ticks
     assert all(command == commands[0] and dt == 1 / 120 for command, dt in steps)
     assert rules.elapsed == pytest.approx(expected_ticks / 120)
@@ -414,18 +412,5 @@ def test_substeps_preserve_spawn_and_retain_collisions_between_output_frames() -
     assert result.trajectory.actor_collision_detected
     assert result.trajectory.actor_collision_frame_index == 1
     assert result.trajectory.static_collision_frame_index == 2
-    following = engine.step((DriverCommand(),) * 8, simulation_duration_s=0.4)
-    assert following.simulation_frame_indices == tuple(range(5, 48, 6))
-
-
-@pytest.mark.parametrize("duration", [float("nan"), float("inf"), -1, 0.1])
-def test_compensation_rejects_invalid_duration_before_advancing(duration) -> None:
-    engine = GameEngine(
-        simulation=_Simulation(),
-        rules=_Rules(),
-        condition_renderer=_Renderer(),
-        frame_interval_s=1 / 30,
-        physics_frame_interval_s=1 / 120,
-    )
-    with pytest.raises(ValueError, match="duration"):
-        engine.step((DriverCommand(),) * 8, simulation_duration_s=duration)
+    following = engine.step((DriverCommand(),) * 8)
+    assert following.simulation_frame_indices == tuple(range(3, 32, 4))

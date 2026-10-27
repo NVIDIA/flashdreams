@@ -14,7 +14,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from omnidreams_game_engine.engine import EngineStep
+from omnidreams_game_engine.engine import EngineStep, SimulationStep
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 
 
@@ -36,9 +36,9 @@ class RolloutEngine(Protocol):
     def step(
         self,
         commands: tuple[DriverCommand, ...],
-        *,
-        simulation_duration_s: float | None = None,
     ) -> EngineStep: ...
+
+    def render(self, recorded: SimulationStep) -> EngineStep: ...
 
     def submit_text(self, value: str) -> object: ...
 
@@ -110,12 +110,14 @@ class WorldModelRollout:
         autoregressive_index: int,
         commands: tuple[DriverCommand, ...],
         observe_engine_step: Callable[[EngineStep], None] | None = None,
-        simulation_duration_s: float | None = None,
+        recorded_step: SimulationStep | None = None,
     ) -> WorldModelStep:
         """Simulate, condition, generate, and finalize one block directly.
 
         ``observe_engine_step`` receives completed simulation observations before
-        generation begins, including when generation subsequently fails.
+        generation begins, including when generation subsequently fails. Pass
+        ``recorded_step`` to generate from a frozen world observation without
+        advancing simulation; the caller commits its generation cursor only on success.
         """
         if self._closed:
             raise RuntimeError("WorldModelRollout is closed")
@@ -132,14 +134,16 @@ class WorldModelRollout:
         engine_cpu_started = time.thread_time()
         engine_step = (
             self.engine.step(commands)
-            if simulation_duration_s is None
-            else self.engine.step(commands, simulation_duration_s=simulation_duration_s)
+            if recorded_step is None
+            else self.engine.render(recorded_step)
         )
         engine_step_returned_ns = (
             time.monotonic_ns() if self._trace_chunk_lifecycle else None
         )
         engine_wall_ms = (time.perf_counter() - engine_wall_started) * 1000.0
         engine_cpu_ms = (time.thread_time() - engine_cpu_started) * 1000.0
+        if len(engine_step.game_frames) != expected:
+            raise ValueError("Recorded game frames do not align with generation")
 
         if observe_engine_step is not None:
             observe_engine_step(engine_step)
