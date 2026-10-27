@@ -810,7 +810,7 @@ class CrazyRobotaxiSession(ISession):
         )
         if self._config.driving_script is not None:
             ui_loop = self.register_ui_loop(RobotaxiDebugUILoop, state=hud_state)
-        elif self._config.debug_capture:
+        elif self._config.debug_capture and not self._config.no_ui:
             ui_loop = self.register_ui_loop(
                 RobotaxiLiveDebugUILoop,
                 state=hud_state,
