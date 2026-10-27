@@ -25,6 +25,8 @@ jobs:
       UV_LINK_MODE: copy
       # Exercise the dependency branch used by current Python releases.
       UV_PYTHON: "3.12"
+      LUDUS_PHYSX_CACHE: /tmp/flashdreams-physx
+      FLASHDREAMS_TEST_NATIVE_PHYSX: "1"
     steps:
       - name: Get PR info
         if: startsWith(github.ref_name, 'pull-request/')
@@ -77,6 +79,16 @@ jobs:
 
       - name: Build flashdreams wheel
         run: uv build --wheel --package flashdreams
+
+      - name: Cache native physics SDK and build
+        uses: actions/cache@v4
+        with:
+          path: /tmp/flashdreams-physx
+          key: ${{ runner.os }}-physx-cpu-py312-${{ hashFiles('integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_physx_native.py', 'integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/physx/**') }}
+          restore-keys: ${{ runner.os }}-physx-cpu-py312-
+
+      - name: Prepare native physics tests
+        run: uv run --no-sync python -c "from ludus_renderer import prepare_physx; prepare_physx()"
 
       - name: Run CPU unit tests
         run: uv run --no-sync pytest -m ci_cpu -v
