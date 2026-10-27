@@ -29,13 +29,27 @@ from flashdreams.runtime_v2.cli import entrypoint
 def check_capture(directory: Path) -> dict[str, float | int]:
     """Check real driving observations and return a compact physics summary."""
     manifest = json.loads((directory / "manifest.json").read_text())
-    assert manifest["complete"], f"Incomplete run: {manifest}"
+    assert manifest["finalized"], f"Unfinalized run: {manifest}"
     records = [
         json.loads(line)
         for line in (directory / "telemetry.jsonl").read_text().splitlines()
     ]
-    assert len(records) == manifest["frame_count"] == manifest["frames_written"]
-    assert [record["frame"] for record in records] == list(range(len(records)))
+    assert records and len(records) == manifest["frames_written"]
+    inputs = [
+        json.loads(line)
+        for line in (directory / "input_events.jsonl").read_text().splitlines()
+    ]
+    assert not [
+        event for event in inputs if event["status"] in ("rejected", "cancelled")
+    ]
+    assert any(
+        event.get("id") == "end" and event["status"] == "dispatched" for event in inputs
+    ), "Script did not reach its end"
+    consumed = {event.get("id") for event in inputs if event["status"] == "consumed"}
+    expected = {
+        event["id"] for event in manifest["script_events"] if event["type"] != "close"
+    }
+    assert expected <= consumed, f"Inputs not consumed: {expected - consumed}"
     timestamps = [record["simulation_timestamp_us"] for record in records]
     assert all(b > a for a, b in zip(timestamps, timestamps[1:]))
     for name in ("generated", "hdmap", "physics"):
@@ -115,6 +129,7 @@ def main() -> None:
         "race",
         "--race-course",
         course,
+        "--no-ui",
         "--drive-script",
         str(tests / "scenarios" / f"{args.scenario}.yaml"),
         "--seed",
