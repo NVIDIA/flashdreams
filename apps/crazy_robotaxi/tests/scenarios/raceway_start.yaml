@@ -1,3 +1,4 @@
-# Three seconds on FlashDreams Raceway's flat starting straight.
-steps:
-  - {frames: 90, throttle: 1}
+# Hold forward for 3 seconds after gameplay is ready.
+events:
+  - {id: accelerate, timestamp_us: 0, type: keyboard, key: w, pressed: true}
+  - {id: end, timestamp_us: 3000000, type: close}
