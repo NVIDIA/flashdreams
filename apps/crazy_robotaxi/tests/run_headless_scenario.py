@@ -29,7 +29,7 @@ from flashdreams.runtime_v2.cli import entrypoint
 def check_capture(directory: Path) -> dict[str, float | int]:
     """Check real driving observations and return a compact physics summary."""
     manifest = json.loads((directory / "manifest.json").read_text())
-    assert manifest["finalized"], f"Unfinalized run: {manifest}"
+    assert manifest["complete"], f"Incomplete capture or scenario: {manifest}"
     records = [
         json.loads(line)
         for line in (directory / "telemetry.jsonl").read_text().splitlines()
@@ -118,6 +118,7 @@ def main() -> None:
         "robotaxi-debug",
         "--debug-output-dir",
         str(args.output_dir),
+        "--debug-strict-capture",
         "--debug-snapshot-every",
         str(args.snapshot_every),
         "--timeout",
