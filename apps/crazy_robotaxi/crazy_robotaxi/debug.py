@@ -22,12 +22,14 @@ import json
 import math
 import shutil
 import socket
+import sys
 import time
 from collections import deque
 from collections.abc import Callable
 from contextlib import ExitStack
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
+from queue import Empty
 from typing import Any, TextIO, cast
 
 import numpy as np
@@ -35,23 +37,14 @@ import torch
 from omnidreams_game_engine.math3d import quaternion_to_matrix_xyzw
 from PIL import Image, ImageDraw, ImageFont
 
+from crazy_robotaxi.debug_input import DEBUG_CONTROL_KEY, HeadlessInput
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IUILoop, ModelInferenceState
 from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
-from flashdreams.runtime_v2.session_desc import (
-    BackpressureMode,
-    PresentationMode,
-    SessionDesc,
-)
+from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import (
-    CloseUserInputEvent,
-    FocusUserInputEvent,
-    KeyboardInputState,
-    KeyboardUserInputEvent,
-)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_encoder import Mp4Encoder, result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -193,7 +186,7 @@ class RobotaxiDebugUILoop(IUILoop[TaxiHudState]):
         if hud_frame is None or hud_frame.frame_key != int(frames[0].data_ptr()):
             raise RuntimeError("Debug frame has no aligned game telemetry")
         if hud_frame.debug_record is None:
-            raise RuntimeError("Debug capture requires --drive-script")
+            raise RuntimeError("Paired capture requires physics observations")
         # The public UI protocol carries one result. Preserve both channels in
         # that result; the app-owned sink separates them before writing files.
         return [
@@ -237,6 +230,7 @@ class RobotaxiDebugWindow(IClientWindow):
         directory: Path,
         *,
         snapshot_every: int = 30,
+        cpu_sample_ms: float = 0,
         clock_ns: Callable[[], int] = time.monotonic_ns,
     ) -> None:
         self.directory = directory
@@ -252,7 +246,13 @@ class RobotaxiDebugWindow(IClientWindow):
         self._input_events: list[UserInputEvent] = []
         self._clock_ns = clock_ns
         self._started_ns = 0
-        self._runtime_input = False
+        self._paired_views = False
+        self.control = HeadlessInput(clock_ns)
+        self._model_steps: TextIO | None = None
+        self._cpu_samples: TextIO | None = None
+        self._cpu_sample_ns = int(cpu_sample_ms * 1_000_000)
+        self._last_sample_ns = 0
+        self._last_simulation_frame = (-1, -1)
         self._control_socket: socket.socket | None = None
         self._input_log: TextIO | None = None
         self._presentation_size: tuple[int, int] | None = None
@@ -264,17 +264,10 @@ class RobotaxiDebugWindow(IClientWindow):
                 "--mode robotaxi-debug requires Crazy Robotaxi capture metadata"
             )
         metadata = session_desc.metadata[DEBUG_METADATA_KEY]
-        self._runtime_input = metadata.get("input_mode") == "runtime"
-        if (
-            not self._runtime_input
-            and (
-                session_desc.presentation_mode is not PresentationMode.ON_DEMAND
-                or session_desc.backpressure_mode is not BackpressureMode.BLOCK
-            )
-        ) or session_desc.output_layout is not VideoTensorLayout.tchw:
-            raise ValueError(
-                "Debug capture requires on-demand tchw output with blocking backpressure"
-            )
+        self._paired_views = metadata.get("paired_views", False)
+        self.control = session_desc.metadata.get(DEBUG_CONTROL_KEY, self.control)
+        if session_desc.output_layout is not VideoTensorLayout.tchw:
+            raise ValueError("Debug capture requires tchw output")
         if session_desc.video_width % 2 or session_desc.video_height % 2:
             raise ValueError("Debug videos require even pixel dimensions")
         self.directory.mkdir(parents=True, exist_ok=False)
@@ -286,9 +279,9 @@ class RobotaxiDebugWindow(IClientWindow):
             (inputs / Path(metadata["map"]).name).write_text(
                 metadata["map_source"], encoding="utf-8"
             )
-            if not self._runtime_input:
+            if metadata.get("script_events"):
                 (inputs / "drive.yaml").write_text(
-                    json.dumps({"steps": metadata["script_steps"]}, indent=2) + "\n",
+                    json.dumps({"events": metadata["script_events"]}, indent=2) + "\n",
                     encoding="utf-8",
                 )
             (inputs / "settings.yaml").write_text(
@@ -299,15 +292,25 @@ class RobotaxiDebugWindow(IClientWindow):
             "x", encoding="utf-8"
         )
         self._started_ns = self._clock_ns()
-        if self._runtime_input:
-            self._input_log = (self.directory / "input_events.jsonl").open(
+        self._input_log = (self.directory / "input_events.jsonl").open(
+            "x", encoding="utf-8"
+        )
+        self._model_steps = (self.directory / "model_steps.jsonl").open(
+            "x", encoding="utf-8"
+        )
+        if self._cpu_sample_ns:
+            self._cpu_samples = (self.directory / "cpu_samples.jsonl").open(
                 "x", encoding="utf-8"
             )
-            self._control_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-            self._control_socket.setblocking(False)
-            self._control_socket.bind(str(self.directory / "control.sock"))
+        self._control_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self._control_socket.setblocking(False)
+        self._control_socket.bind(str(self.directory / "control.sock"))
+        for command in metadata.get("script_events", []):
+            self.control.accept(command)
+        self._flush_control()
+        if not self._paired_views:
             (self.directory / "frames" / "presentation").mkdir(parents=True)
-        for name in () if self._runtime_input else ("generated", "hdmap", "physics"):
+        for name in ("generated", "hdmap", "physics") if self._paired_views else ():
             (self.directory / "frames" / name).mkdir(parents=True)
             self._encoders[name] = Mp4Encoder(
                 self.directory / f"{name}.mp4",
@@ -318,57 +321,101 @@ class RobotaxiDebugWindow(IClientWindow):
         self._write_manifest()
 
     def get_user_input_events(self) -> UserInputEvents:
-        """Poll headless controls and return the same events used by native input."""
+        """Deliver due agent/file commands through the ordinary runtime buffer."""
         if self._control_socket is not None:
-            # Bound one poll so a producer cannot starve the UI or presentation.
+            # Bound each poll so a producer cannot starve presentation.
             for _ in range(64):
                 try:
-                    packet = self._control_socket.recv(4096)
+                    packet, peer = self._control_socket.recvfrom(4096)
                 except BlockingIOError:
                     break
-                payload = json.loads(packet)
-                event = _control_event(payload)
-                self.put_user_input_event(event)
+                try:
+                    payload = json.loads(packet)
+                except (ValueError, UnicodeError, RecursionError):
+                    self.control.messages.put(
+                        (peer or None, {"status": "rejected", "reason": "invalid_json"})
+                    )
+                else:
+                    self.control.accept(payload, peer or None)
         events, self._input_events = self._input_events, []
+        events.extend(self.control.due())
+        self._sample_model_thread()
+        self._flush_control()
         return UserInputEvents(events)
 
     def put_user_input_event(self, event: UserInputEvent) -> None:
-        """Queue one runtime event for delivery on the UI thread."""
-        if self._runtime_input:
-            now_ns = self._clock_ns()
-            event = replace(
-                event, timestamp=np.uint64(max(0, now_ns - self._started_ns) // 1000)
-            )
-            assert self._input_log is not None
-            self._input_log.write(
-                json.dumps(
-                    {
-                        "received_ns": now_ns,
-                        "timestamp_us": int(event.get_timestamp()),
-                        "type": event.get_type_name(),
-                        "key": getattr(event, "key", None),
-                        "state": event.state.value
-                        if isinstance(event, KeyboardUserInputEvent)
-                        else None,
-                        "presentation_frame": self.frame_count,
-                    }
-                )
-                + "\n"
-            )
-            self._input_log.flush()
+        """Retain framework lifecycle events without changing their timestamps."""
         self._input_events.append(event)
 
+    def _flush_control(self) -> None:
+        while True:
+            try:
+                peer, message = self.control.messages.get_nowait()
+            except Empty:
+                break
+            encoded = json.dumps(message, default=_json_value, allow_nan=False)
+            log = (
+                self._model_steps
+                if message["status"] == "model_step"
+                else self._input_log
+            )
+            if log is not None:
+                log.write(encoded + "\n")
+                log.flush()
+            if peer and self._control_socket is not None:
+                try:
+                    self._control_socket.sendto(encoded.encode(), peer)
+                except OSError:
+                    # A disconnected/full agent socket must not stall gameplay.
+                    # The durable JSONL log retains every acknowledgment.
+                    pass
+
+    def _sample_model_thread(self) -> None:
+        if self._cpu_samples is None or self.control.model_ident is None:
+            return
+        now = self._clock_ns()
+        if now - self._last_sample_ns < self._cpu_sample_ns:
+            return
+        self._last_sample_ns = now
+        frame = sys._current_frames().get(self.control.model_ident)
+        stack = []
+        while frame is not None:
+            stack.append(
+                {
+                    "file": frame.f_code.co_filename,
+                    "line": frame.f_lineno,
+                    "function": frame.f_code.co_name,
+                }
+            )
+            frame = frame.f_back
+        self._cpu_samples.write(
+            json.dumps(
+                {
+                    "elapsed_us": self.control.elapsed_us(),
+                    "sampled_ns": now,
+                    "native_thread_id": self.control.native_thread_id,
+                    "stack": stack,
+                }
+            )
+            + "\n"
+        )
+        self._cpu_samples.flush()
+
     def write(self, result: StepResult) -> None:
-        """Write exactly one aligned pair without dropping or repeating frames."""
+        """Write each presented frame with its aligned simulation observation."""
         desc = self._desc
         if desc is None or self._telemetry is None:
             raise RuntimeError("Debug capture is not open")
-        if self._runtime_input:
+        if not self._paired_views:
             self._write_presentation(result)
             return
         if not isinstance(result, DebugFrameResult) or result.record is None:
             raise TypeError("Debug capture requires a DebugFrameResult")
-        if result.record["frame"] != self.frame_count:
+        simulation_frame = (
+            result.record.get("rollout_epoch", 0),
+            result.record["frame"],
+        )
+        if simulation_frame <= self._last_simulation_frame:
             raise ValueError("Debug frames must arrive once, in simulation order")
         expected_shape = (1, 3, desc.video_height, 2 * desc.video_width)
         if (
@@ -383,7 +430,7 @@ class RobotaxiDebugWindow(IClientWindow):
             .cpu()
             .numpy()
         )
-        last = self.frame_count + 1 == desc.metadata[DEBUG_METADATA_KEY]["frame_count"]
+        self._last_simulation_frame = simulation_frame
         physical = result.record["physics_vehicle"]
         self._physics_trail.append((physical["x_m"], physical["y_m"]))
         contact = (
@@ -407,12 +454,21 @@ class RobotaxiDebugWindow(IClientWindow):
                 )
             encoder.write(frame)
             latest_frames[name] = frame[0].copy()
-            if self.frame_count % self.snapshot_every == 0 or last or contact:
+            if self.frame_count % self.snapshot_every == 0 or contact:
                 Image.fromarray(frame[0]).save(
                     self.directory / "frames" / name / f"{self.frame_count:06d}.png"
                 )
         self._telemetry.write(
-            json.dumps(result.record, default=_json_value, allow_nan=False) + "\n"
+            json.dumps(
+                {
+                    **result.record,
+                    "capture_frame": self.frame_count,
+                    "elapsed_us": self.control.elapsed_us(),
+                },
+                default=_json_value,
+                allow_nan=False,
+            )
+            + "\n"
         )
         self._telemetry.flush()
         self._last_frames = latest_frames
@@ -455,6 +511,7 @@ class RobotaxiDebugWindow(IClientWindow):
                     "ui_step": result.step_index,
                     "presented_ns": now_ns,
                     "session_time_s": (now_ns - self._started_ns) / 1e9,
+                    "elapsed_us": self.control.elapsed_us(),
                 }
             )
             + "\n"
@@ -463,7 +520,7 @@ class RobotaxiDebugWindow(IClientWindow):
         self.frame_count += int(rgb.shape[0])
 
     def close(self) -> None:
-        """Finalize every video and record whether every scripted frame arrived."""
+        """Finalize videos and report any unconsumed commands."""
         try:
             with ExitStack() as cleanup:
                 for encoder in self._encoders.values():
@@ -479,6 +536,11 @@ class RobotaxiDebugWindow(IClientWindow):
                         Image.fromarray(frame).save(path)
             self._finalized = True
         finally:
+            self.control.close()
+            self._flush_control()
+            for log in (self._model_steps, self._cpu_samples):
+                if log is not None and not log.closed:
+                    log.close()
             if self._control_socket is not None:
                 self._control_socket.close()
                 self._control_socket = None
@@ -496,12 +558,9 @@ class RobotaxiDebugWindow(IClientWindow):
         assert self._desc is not None
         metadata = self._desc.metadata[DEBUG_METADATA_KEY]
         manifest = {
-            "format_version": 2,
+            "format_version": 3,
             **{name: value for name, value in metadata.items() if name != "map_source"},
             "frames_written": self.frame_count,
-            "complete": None
-            if self._runtime_input
-            else self._finalized and self.frame_count == metadata["frame_count"],
             "finalized": self._finalized,
             "presentation_mode": self._desc.presentation_mode.value,
             "backpressure_mode": self._desc.backpressure_mode.value,
@@ -514,45 +573,21 @@ class RobotaxiDebugWindow(IClientWindow):
                 or (self._desc.video_width, self._desc.video_height)
             )[1],
             "fps": self._desc.frames_per_second_for_ui
-            if self._runtime_input
+            if not self._paired_views
             else self._desc.frames_per_second_for_step,
             "snapshot_every": self.snapshot_every,
             "views": ["presentation"]
-            if self._runtime_input
+            if not self._paired_views
             else ["generated", "hdmap", "physics"],
             "contact_frames": self._contact_frames,
+            "clock": "microseconds since gameplay ready (monotonic wall time)",
+            "cpu_sample_ms": self._cpu_sample_ns / 1_000_000,
+            "model_native_thread_id": self.control.native_thread_id,
         }
         (self.directory / "manifest.json").write_text(
             json.dumps(manifest, indent=2, default=_json_value, allow_nan=False) + "\n",
             encoding="utf-8",
         )
-
-
-def _control_event(payload: Any) -> UserInputEvent:
-    """Validate one local control packet using the browser keyboard format."""
-    if not isinstance(payload, dict):
-        raise ValueError("Headless input must be a JSON object")
-    timestamp = np.uint64(0)
-    kind = payload.get("type")
-    if kind == "keyboard" and set(payload) == {"type", "key", "pressed"}:
-        if (
-            isinstance(payload["key"], str)
-            and payload["key"]
-            and isinstance(payload["pressed"], bool)
-        ):
-            return KeyboardUserInputEvent(
-                timestamp=timestamp,
-                key=payload["key"],
-                state=KeyboardInputState.PRESSED
-                if payload["pressed"]
-                else KeyboardInputState.RELEASED,
-            )
-    elif kind == "focus" and set(payload) == {"type", "focused"}:
-        if isinstance(payload["focused"], bool):
-            return FocusUserInputEvent(timestamp=timestamp, focused=payload["focused"])
-    elif kind == "close" and set(payload) == {"type"}:
-        return CloseUserInputEvent(timestamp=timestamp)
-    raise ValueError("Expected a keyboard, focus, or close input event")
 
 
 class RobotaxiDebugMode(ClientWindowMode):
@@ -573,6 +608,13 @@ class RobotaxiDebugMode(ClientWindowMode):
             help="Save all PNG views every N simulation frames (default: 30).",
         )
 
+        parser.add_argument(
+            "--debug-cpu-sample-ms",
+            type=float,
+            default=0,
+            help="Sample model-thread Python stacks from the UI every N ms (0 disables).",
+        )
+
     def check_arguments(self, parsed_args: argparse.Namespace) -> None:
         if parsed_args.debug_output_dir is None:
             raise ValueError("--debug-output-dir is required for robotaxi-debug")
@@ -582,6 +624,11 @@ class RobotaxiDebugMode(ClientWindowMode):
             )
         if parsed_args.debug_snapshot_every <= 0:
             raise ValueError("--debug-snapshot-every must be positive")
+        if (
+            not math.isfinite(parsed_args.debug_cpu_sample_ms)
+            or parsed_args.debug_cpu_sample_ms < 0
+        ):
+            raise ValueError("--debug-cpu-sample-ms must be finite and nonnegative")
         if shutil.which("ffmpeg") is None:
             raise ValueError("robotaxi-debug requires ffmpeg on PATH")
 
@@ -590,6 +637,7 @@ class RobotaxiDebugMode(ClientWindowMode):
         return RobotaxiDebugWindow(
             parsed_args.debug_output_dir.expanduser().resolve(),
             snapshot_every=parsed_args.debug_snapshot_every,
+            cpu_sample_ms=parsed_args.debug_cpu_sample_ms,
         )
 
     def finished(self, client_window: IClientWindow) -> str:
