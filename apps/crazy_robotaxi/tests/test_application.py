@@ -81,7 +81,7 @@ from flashdreams.infra.diffusion.transformer.base import TransformerConfig
 from flashdreams.infra.encoder.base import EncoderConfig
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.runtime_v2 import cli as runtime_cli
-from flashdreams.runtime_v2.session_desc import PresentationMode
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -630,6 +630,7 @@ def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
         gameplay = SimpleNamespace(
             check=lambda: None, timeline=SimpleNamespace(latest=None)
         )
+        session_desc = SessionDesc()
 
         def __init__(self) -> None:
             self.driver_input = DriverInput()
@@ -662,6 +663,7 @@ def test_model_loop_does_not_apply_driving_input() -> None:
     class ProbeState:
         game_selected = True
         config = SimpleNamespace(profile_input_latency=False)
+        session_desc = SessionDesc()
 
         def __init__(self) -> None:
             self.driver_input = DriverInput()
@@ -764,6 +766,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
             Any,
             SimpleNamespace(
                 frames_per_second_for_step=30,
+                metadata={},
                 video_height=4,
                 video_width=4,
             ),
@@ -1989,7 +1992,11 @@ def test_debug_view_rejects_conflicting_or_non_debug_use(tmp_path, mode, extra, 
 def test_live_debug_respects_ui_selection_and_runtime_input(
     tmp_path: Path, no_ui: bool
 ) -> None:
-    from crazy_robotaxi.debug import DEBUG_METADATA_KEY, RobotaxiLiveDebugUILoop
+    from crazy_robotaxi.debug import (
+        DEBUG_METADATA_KEY,
+        RobotaxiLiveDebugUILoop,
+        RobotaxiDebugUILoop,
+    )
 
     app = _application()
     app.resolve_client_window_mode("robotaxi-debug")
@@ -2014,14 +2021,14 @@ def test_live_debug_respects_ui_selection_and_runtime_input(
     session.init()
     ui_loop, model_loop = session._take_loops()
     assert isinstance(
-        ui_loop, CrazyRobotaxiHeadlessUILoop if no_ui else RobotaxiLiveDebugUILoop
+        ui_loop, RobotaxiDebugUILoop if no_ui else RobotaxiLiveDebugUILoop
     )
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert model_loop.state.config.driving_script is None
     assert model_loop.state.config.prewarm_blocks == 2
     assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
     metadata = session.session_desc.metadata[DEBUG_METADATA_KEY]
-    assert metadata["input_mode"] == "runtime" and metadata["frame_count"] is None
+    assert metadata["input_mode"] == "runtime" and metadata["paired_views"] == no_ui
 
 
 @pytest.mark.parametrize("missing", ["--map", "--game-mode", "--race-course"])
