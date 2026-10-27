@@ -104,8 +104,13 @@ class WorldModelRollout:
         *,
         autoregressive_index: int,
         commands: tuple[DriverCommand, ...],
+        observe_engine_step: Callable[[EngineStep], None] | None = None,
     ) -> WorldModelStep:
-        """Simulate, condition, generate, and finalize one block directly."""
+        """Simulate, condition, generate, and finalize one block directly.
+
+        ``observe_engine_step`` receives completed simulation observations before
+        generation begins, including when generation subsequently fails.
+        """
         if self._closed:
             raise RuntimeError("WorldModelRollout is closed")
         expected = self.frame_count(autoregressive_index)
@@ -125,6 +130,9 @@ class WorldModelRollout:
         )
         engine_wall_ms = (time.perf_counter() - engine_wall_started) * 1000.0
         engine_cpu_ms = (time.thread_time() - engine_cpu_started) * 1000.0
+
+        if observe_engine_step is not None:
+            observe_engine_step(engine_step)
 
         pipeline_wall_started = time.perf_counter()
         pipeline_cpu_started = time.thread_time()

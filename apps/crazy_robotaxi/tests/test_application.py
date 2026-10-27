@@ -1591,7 +1591,7 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         def close(self):
             pass
 
-    monkeypatch.setattr("crazy_robotaxi.debug.Mp4Encoder", Encoder)
+    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", Encoder)
 
     def generate(**kwargs):
         # Deliberately slower than a chunk: inputs must still arrive while busy.
@@ -1650,7 +1650,7 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         json.loads(line)
         for line in (window.directory / "telemetry.jsonl").read_text().splitlines()
     ]
-    assert records
+    assert len(records) == len(applied)
     frame_ids = [record["frame"] for record in records]
     assert all(b > a for a, b in zip(frame_ids, frame_ids[1:]))
     assert [record["physics_vehicle"]["x_m"] for record in records] == frame_ids
