@@ -17,7 +17,6 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import polygonize, substring, unary_union
 
 from omnidreams_game_engine.game_map._schema import (
-    _SCHEMA_VERSION,
     GameMapError,
     _bezier,
     _finite_float,
@@ -340,6 +339,8 @@ def _parse_nodes(
         if not {"id", "type", "pose"} <= set(raw):
             raise GameMapError(f"nodes[{index}] requires id, type, and pose")
         pose = _mapping(raw["pose"], f"node {node_id!r}.pose")
+        if "z_m" in pose and doc["schema_version"] < 2:
+            raise GameMapError(f"Node {node_id!r}.pose.z_m requires schema_version: 2")
         if not {"x_m", "y_m"} <= set(pose) or set(pose) - {"x_m", "y_m", "z_m"}:
             raise GameMapError(
                 f"Node {node_id!r}.pose requires x_m, y_m, and optional z_m"
@@ -3184,7 +3185,7 @@ def load_game_map(path: Path) -> ResolvedGameMap:
         dtype=np.float32,
     )
     return ResolvedGameMap(
-        schema_version=_SCHEMA_VERSION,
+        schema_version=doc["schema_version"],
         map_id=map_id,
         name=map_name,
         source_path=source_path,

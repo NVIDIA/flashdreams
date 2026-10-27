@@ -1,13 +1,14 @@
 # Node-Graph Map Format
 
-Schema version 1 is the authoring format for standalone OmniDreams games. It
+Schema version 2 is the current authoring format for standalone OmniDreams games. It
 models structural places as nodes, public roads as graph edges, and parking
-access through driveway relationships.
+access through driveway relationships. Schema version 1 remains supported for
+flat maps; node `pose.z_m` requires version 2.
 
 ## Document shape
 
 ```yaml
-schema_version: 1
+schema_version: 2
 id: example-map
 name: Example Map
 menu_thumbnail: menu.png
@@ -136,8 +137,8 @@ attributes may be supplied directly or by profile.
 - {id: crest, type: road_joint, pose: {x_m: 250, y_m: 0, z_m: 32}}
 ```
 
-The existing schema-v1 compiler connects these heights directly. No intermediate
-map format is required. Each node remains a level surface, and a road follows a
+The schema-v2 compiler connects these heights directly. Each node remains a
+level surface, and a road follows a
 smooth quintic height transition along its trimmed reference line, meeting each
 node with zero grade and curvature. Path and Bézier control points remain XY
 coordinates.

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU checks for elevation in the original node-graph YAML compiler."""
+"""CPU checks for schema-v2 elevation and schema-v1 map compatibility."""
 
 import zipfile
 from pathlib import Path
@@ -14,6 +14,7 @@ from omnidreams_game_engine.game_map import (
     GameMapError,
     compile_game_map,
     load_game_map,
+    load_game_map_header,
 )
 from omnidreams_game_engine.game_map.compiler import _boundary_chunks
 from omnidreams_game_engine.game_map.types import game_map_from_dict, game_map_to_dict
@@ -31,9 +32,9 @@ def hill():
     return game_map, GroundSnapper(game_map.ground_vertices, game_map.ground_faces)
 
 
-def test_legacy_road_height_matches_ground_paint_and_lane_seams(hill) -> None:
+def test_v2_road_height_matches_ground_paint_and_lane_seams(hill) -> None:
     game_map, ground = hill
-    assert game_map.schema_version == 1
+    assert game_map.schema_version == 2
     assert "source_format" not in game_map.compiler_settings
     assert max(node.z_m for node in game_map.topology.nodes) == 32
     lane = next(lane for lane in game_map.lanes if lane.lane_id == "climb:lane:2")
@@ -70,6 +71,7 @@ def test_elevated_metadata_round_trips_and_flat_defaults_remain_flat(hill) -> No
     data = game_map_to_dict(game_map)
     assert game_map_to_dict(game_map_from_dict(data)) == data
     flat = load_game_map(_MAPS / "debug_flat.robotaxi.yaml")
+    assert flat.schema_version == 1
     assert all(node.z_m == 0 for node in flat.topology.nodes)
     assert flat.ground_vertices.shape == (4, 3)
     assert flat.ground_faces.shape == (2, 3)
@@ -77,11 +79,51 @@ def test_elevated_metadata_round_trips_and_flat_defaults_remain_flat(hill) -> No
     assert all(np.all(lane.centerline_world[:, 2] == 0) for lane in flat.lanes)
 
 
+def test_flat_map_upgrade_preserves_geometry(tmp_path: Path) -> None:
+    document = yaml.safe_load((_MAPS / "debug_flat.robotaxi.yaml").read_text())
+    source = tmp_path / "flat.robotaxi.yaml"
+    resolved = []
+    for version in (1, 2):
+        document["schema_version"] = version
+        source.write_text(yaml.safe_dump(document))
+        assert load_game_map_header(source).map_id == document["id"]
+        game_map = load_game_map(source)
+        data = game_map_to_dict(game_map)
+        assert game_map_to_dict(game_map_from_dict(data)) == data
+        assert data.pop("schema_version") == version
+        resolved.append(data)
+    assert resolved[0] == resolved[1]
+
+
+@pytest.mark.parametrize("height", [0, 20])
+def test_v1_rejects_node_height_with_upgrade_hint(tmp_path: Path, height: int) -> None:
+    document = yaml.safe_load((_MAPS / "debug_flat.robotaxi.yaml").read_text())
+    document["nodes"][0]["pose"]["z_m"] = height
+    source = tmp_path / "invalid.robotaxi.yaml"
+    source.write_text(yaml.safe_dump(document))
+    with pytest.raises(GameMapError, match="pose.z_m requires schema_version: 2"):
+        load_game_map(source)
+
+
+@pytest.mark.parametrize("version", [0, 3, True, 1.0, "2", None])
+def test_invalid_schema_versions_fail_header_and_map_loading(
+    tmp_path: Path, version: object
+) -> None:
+    document = yaml.safe_load((_MAPS / "debug_flat.robotaxi.yaml").read_text())
+    document["schema_version"] = version
+    source = tmp_path / "invalid.robotaxi.yaml"
+    source.write_text(yaml.safe_dump(document))
+    for load in (load_game_map_header, load_game_map):
+        with pytest.raises(GameMapError, match="Unsupported schema_version"):
+            load(source)
+
+
 @pytest.mark.parametrize("filename", ["parking_driveway", "intersection_geometry"])
 def test_level_elevated_nodes_keep_connectors_and_parking_at_authored_height(
     tmp_path: Path, filename: str
 ) -> None:
     document = yaml.safe_load((_MAPS / f"{filename}.robotaxi.yaml").read_text())
+    document["schema_version"] = 2
     for node in document["nodes"]:
         if "pose" in node:
             node["pose"]["z_m"] = 20
@@ -116,6 +158,7 @@ def test_grade_spawn_compiles_directly_to_clipgt_without_opendrive(
         RasterConfig(width=64, height=32),
     )
     assert scene.game_map is not None
+    assert scene.game_map.schema_version == 2
     assert scene.ground_mesh_vertices is not None
     assert scene.ground_mesh_faces is not None
     spawn = scene.game_map.default_spawn
@@ -161,6 +204,7 @@ def test_grade_spawn_compiles_directly_to_clipgt_without_opendrive(
 @pytest.mark.parametrize("value", [True, float("nan"), float("inf"), "uphill"])
 def test_invalid_node_heights_fail_validation(tmp_path: Path, value) -> None:
     document = yaml.safe_load((_MAPS / "debug_flat.robotaxi.yaml").read_text())
+    document["schema_version"] = 2
     document["nodes"][0]["pose"]["z_m"] = value
     source = tmp_path / "invalid.robotaxi.yaml"
     source.write_text(yaml.safe_dump(document))

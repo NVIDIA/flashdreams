@@ -19,7 +19,7 @@ from omnidreams_game_engine.game_map.types import GameMapLinearAttributes
 GAME_MAP_SUFFIX = ".robotaxi.yaml"
 """Filename suffix for authored node-graph game maps."""
 
-_SCHEMA_VERSION = 1
+_SUPPORTED_SCHEMA_VERSIONS = (1, 2)
 _REQUIRED_ROOT_FIELDS = frozenset(
     {
         "schema_version",
@@ -185,10 +185,8 @@ def _read_document(path: Path) -> dict[str, Any]:
 
 def _parse_map_identity(doc: dict[str, Any]) -> tuple[str, str]:
     version = doc.get("schema_version")
-    if version != _SCHEMA_VERSION:
-        raise GameMapError(
-            f"Unsupported schema_version {version!r}; expected {_SCHEMA_VERSION}"
-        )
+    if type(version) is not int or version not in _SUPPORTED_SCHEMA_VERSIONS:
+        raise GameMapError(f"Unsupported schema_version {version!r}; expected 1 or 2")
     fields = set(doc)
     missing = _REQUIRED_ROOT_FIELDS - fields
     if missing:
