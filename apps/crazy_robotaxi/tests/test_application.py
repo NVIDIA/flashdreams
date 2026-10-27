@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -53,15 +53,23 @@ from crazy_robotaxi.settings import (
     setting_value,
 )
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
+from ludus_renderer.physx import PhysXStepTimings, _CompactPhysicsStep
 from omnidreams_game_engine.config import BevConfig, RasterConfig
+from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
+from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.renderer_settings import RendererSettings
-from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
+from omnidreams_game_engine.simulation.game_physics import (
+    GamePhysicsWorld,
+    _body_state_from_vehicle,
+)
+from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import (
     CameraCalibration,
     DriverCommand,
     PhysicsDebugFrame,
     SceneDefinition,
+    VehicleState,
 )
 from torch import Tensor
 
@@ -1178,6 +1186,50 @@ def test_taxi_physics_forwards_forced_controller_refresh() -> None:
         2_000_000,
         force_controller_refresh=True,
     )
+
+
+def test_traffic_window_refresh_is_not_repeated_by_next_physics_step() -> None:
+    native = MagicMock()
+    vehicle = TaxiVehicleConfig()
+    with patch(
+        "omnidreams_game_engine.simulation.game_physics.GameplayPhysXWorld",
+        return_value=native,
+    ):
+        world = TaxiPhysicsWorld(_scene(), vehicle)
+    traffic = GameMapTrafficVehicle(
+        vehicle_id="test-car",
+        node_ids=("a", "b"),
+        end_behavior="wrap",
+        vehicle_type="car",
+        dimensions_lwh_m=(4.5, 1.8, 1.5),
+        speed_mps=None,
+        start_distance_m=10.0,
+        centerline_world=np.asarray([[0, 0, 0], [100, 0, 0], [0, 0, 0]]),
+        speed_limits_mps=np.full(3, 10.0),
+        route_element_ids=("road", "road"),
+    )
+    controller = MapTrafficController((traffic,), vehicle)
+    world._map_traffic = controller
+    world._actor_controllers = (controller,)
+    resolver = MagicMock()
+    world._vicinity_resolver = resolver
+    state = VehicleState(0, 0, 0, 0, 0, 0)
+    native.step_compact.return_value = _CompactPhysicsStep(
+        ego=_body_state_from_vehicle(state, world._ego_model.half_extents_m[2]),
+        impact=False,
+        struck_object_ids=frozenset(),
+        actor_samples=(),
+        track_samples=(),
+        timings=PhysXStepTimings(0, 0, 0, 0, 0, 0, 0),
+    )
+    for visible in (frozenset({"road"}), frozenset()):
+        resolver.resolve.return_value = GameMapVicinity("road", visible, visible)
+        native.synchronize.reset_mock()
+        assert world.synchronize_window(np.zeros(2), timestamp_us=0)
+        expected = {obj.object_id: obj for obj in controller.active_objects}
+        assert world._active_objects_by_id == expected
+        GamePhysicsWorld.step(world, state, 0, 1 / 30)
+        native.synchronize.assert_called_once()
 
 
 def test_application_rejects_geometry_the_model_does_not_produce() -> None:
