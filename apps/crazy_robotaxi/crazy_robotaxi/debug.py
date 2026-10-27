@@ -24,19 +24,15 @@ import shutil
 import socket
 import sys
 import time
-from collections import deque
 from collections.abc import Callable
-from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty
 from typing import Any, TextIO, cast
 
-import numpy as np
 import torch
-from omnidreams_game_engine.math3d import quaternion_to_matrix_xyzw
-from PIL import Image, ImageDraw, ImageFont
 
+from crazy_robotaxi.debug_capture import CaptureRecorder, _json_value
 from crazy_robotaxi.debug_input import DEBUG_CONTROL_KEY, HeadlessInput
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
 from flashdreams.api_v2.client_window import IClientWindow
@@ -46,116 +42,10 @@ from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_encoder import Mp4Encoder, result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 DEBUG_METADATA_KEY = "robotaxi_debug"
 """Session metadata describing the selected map and driving script."""
-
-
-def render_physics_view(
-    record: dict[str, Any],
-    width: int,
-    height: int,
-    trail_xy: list[tuple[float, float]],
-) -> np.ndarray:
-    """Draw a world-aligned overhead view of measured bounds and curb response.
-
-    Use the pre-policy physics pose rather than the ground-aligned camera pose.
-    White outlines show the game's contact bounds; blue outlines show the native
-    inset chassis. The curb-response flag includes the game's proximity rebound.
-    """
-    colliders = record["physics_colliders"]
-    position = np.asarray(colliders["ego_position_m"], dtype=float)
-    scale = min(width, height) / 32.0
-    image = Image.new("RGB", (width, height), (18, 22, 30))
-    draw = ImageDraw.Draw(image)
-    font = ImageFont.load_default(size=max(12, min(width, height) / 32))
-
-    def pixels(points: Any) -> list[tuple[float, float]]:
-        xy = np.asarray(points)[..., :2] - position[:2]
-        return list(
-            zip(width / 2 + xy[..., 0] * scale, height / 2 - xy[..., 1] * scale)
-        )
-
-    for axis in range(2):
-        extent = (width if axis == 0 else height) / scale / 2
-        for coordinate in np.arange(
-            math.floor((position[axis] - extent) / 2) * 2,
-            position[axis] + extent,
-            2,
-        ):
-            endpoints = np.repeat(position[None, :], 2, axis=0)
-            endpoints[:, axis] = coordinate
-            endpoints[:, 1 - axis] += [-1000, 1000]
-            draw.line(pixels(endpoints), fill=(32, 38, 48))
-    segments = np.asarray(colliders["barrier_segments_xy_m"])
-    for segment, thickness in zip(
-        segments, colliders["barrier_thicknesses_m"], strict=True
-    ):
-        draw.line(
-            pixels(segment), fill=(0, 220, 235), width=max(2, round(thickness * scale))
-        )
-    if len(trail_xy) > 1:
-        draw.line(pixels(trail_xy), fill=(130, 130, 145), width=2)
-
-    def box(
-        center: Any, quaternion: Any, dimensions: Any, color: tuple[int, int, int]
-    ) -> None:
-        rotation = quaternion_to_matrix_xyzw(np.asarray(quaternion).tolist())
-        signs = np.asarray(
-            [[x, y, z] for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]
-        )
-        corners = signs * np.asarray(dimensions) / 2 @ rotation.T + center
-        projected = pixels(corners)
-        for i in range(8):
-            for bit in (1, 2, 4):
-                if not i & bit:
-                    draw.line([projected[i], projected[i | bit]], fill=color, width=2)
-
-    for center, quaternion, dimensions in zip(
-        colliders["actor_positions_m"],
-        colliders["actor_orientations_xyzw"],
-        colliders["actor_dimensions_lwh"],
-        strict=True,
-    ):
-        box(center, quaternion, dimensions, (255, 185, 70))
-    orientation = np.asarray(colliders["ego_orientation_xyzw"])
-    rotation = quaternion_to_matrix_xyzw(orientation.tolist())
-    box(position, orientation, colliders["ego_dimensions_lwh"], (245, 245, 245))
-    if colliders["ego_chassis_dimensions_lwh"] is not None:
-        center = position + rotation @ np.asarray(colliders["ego_chassis_offset_m"])
-        box(
-            center, orientation, colliders["ego_chassis_dimensions_lwh"], (70, 150, 255)
-        )
-    draw.line(
-        pixels([position, position + rotation[:, 0] * 4]), fill=(110, 240, 110), width=3
-    )
-    physical = record["physics_vehicle"]
-    contact = record["static_barrier_collision"]
-    color = (255, 90, 70) if contact else (245, 245, 245)
-    draw.rectangle((0, 0, width, min(height, 66)), fill=(18, 22, 30))
-    draw.text(
-        (8, 8),
-        f"PHYSICS  frame {record['frame']}  {record['frame'] / 30:.2f}s"
-        f"  {physical['speed_mps']:.1f} m/s  CURB RESPONSE: {'YES' if contact else 'no'}",
-        fill=color,
-        font=font,
-    )
-    draw.text(
-        (8, 26),
-        f"z {physical['z_m']:.3f} m  roll {math.degrees(physical['roll_rad']):.1f} deg"
-        f"  pitch {math.degrees(physical['pitch_rad']):.1f} deg",
-        fill=(245, 245, 245),
-        font=font,
-    )
-    draw.text(
-        (8, 44),
-        "Cyan: curbs | White: contact bounds | Blue: chassis | Green: heading",
-        fill=(245, 245, 245),
-        font=font,
-    )
-    return np.asarray(image)
 
 
 @dataclass(frozen=True, slots=True, match_args=False)
@@ -215,6 +105,19 @@ class RobotaxiDebugUILoop(IUILoop[TaxiHudState]):
 class RobotaxiLiveDebugUILoop(CrazyRobotaxiImGuiUILoop):
     """Run the ordinary interactive UI offscreen until the capture ends."""
 
+    def step_ui(
+        self, imgui: Any, step_index: int, events: UserInputEvents
+    ) -> torch.Tensor | None:
+        """Retain the source identity of the ordinary offscreen UI output."""
+        output = super().step_ui(imgui, step_index, events)
+        control = self.state.debug_control
+        if control is not None:
+            frame = self.state._current
+            control.presentation_source = (
+                None if output is None or frame is None else frame.debug_record
+            )
+        return output
+
     def is_finished(self) -> bool:
         return super().is_finished() or (
             self.model_inference_state is ModelInferenceState.FINISHED
@@ -232,17 +135,17 @@ class RobotaxiDebugWindow(IClientWindow):
         snapshot_every: int = 30,
         cpu_sample_ms: float = 0,
         clock_ns: Callable[[], int] = time.monotonic_ns,
+        capture_images: bool = True,
+        strict: bool = False,
     ) -> None:
+        self.capture_images = capture_images
+        self.strict = strict
+        self.recorder: CaptureRecorder | None = None
+        self._input_status: dict[str, str] = {}
         self.directory = directory
         self.snapshot_every = snapshot_every
         self.frame_count = 0
         self._desc: SessionDesc | None = None
-        self._encoders: dict[str, Mp4Encoder] = {}
-        self._telemetry: TextIO | None = None
-        self._finalized = False
-        self._physics_trail: deque[tuple[float, float]] = deque(maxlen=90)
-        self._contact_frames: list[int] = []
-        self._last_frames: dict[str, np.ndarray] = {}
         self._input_events: list[UserInputEvent] = []
         self._clock_ns = clock_ns
         self._started_ns = 0
@@ -252,7 +155,6 @@ class RobotaxiDebugWindow(IClientWindow):
         self._cpu_samples: TextIO | None = None
         self._cpu_sample_ns = int(cpu_sample_ms * 1_000_000)
         self._last_sample_ns = 0
-        self._last_simulation_frame = (-1, -1)
         self._control_socket: socket.socket | None = None
         self._input_log: TextIO | None = None
         self._presentation_size: tuple[int, int] | None = None
@@ -288,9 +190,13 @@ class RobotaxiDebugWindow(IClientWindow):
                 json.dumps(metadata["settings"], indent=2) + "\n",
                 encoding="utf-8",
             )
-        self._telemetry = (self.directory / "telemetry.jsonl").open(
-            "x", encoding="utf-8"
+        self.recorder = CaptureRecorder(
+            self.directory,
+            session_desc,
+            images=self.capture_images,
+            snapshot_every=self.snapshot_every,
         )
+        self.control.capture = self.recorder
         self._started_ns = self._clock_ns()
         self._input_log = (self.directory / "input_events.jsonl").open(
             "x", encoding="utf-8"
@@ -308,16 +214,6 @@ class RobotaxiDebugWindow(IClientWindow):
         for command in metadata.get("script_events", []):
             self.control.accept(command)
         self._flush_control()
-        if not self._paired_views:
-            (self.directory / "frames" / "presentation").mkdir(parents=True)
-        for name in ("generated", "hdmap", "physics") if self._paired_views else ():
-            (self.directory / "frames" / name).mkdir(parents=True)
-            self._encoders[name] = Mp4Encoder(
-                self.directory / f"{name}.mp4",
-                width=session_desc.video_width,
-                height=session_desc.video_height,
-                frames_per_second=session_desc.frames_per_second_for_step,
-            )
         self._write_manifest()
 
     def get_user_input_events(self) -> UserInputEvents:
@@ -353,6 +249,8 @@ class RobotaxiDebugWindow(IClientWindow):
                 peer, message = self.control.messages.get_nowait()
             except Empty:
                 break
+            if message.get("id") and message["status"] != "rejected":
+                self._input_status[message["id"]] = message["status"]
             encoded = json.dumps(message, default=_json_value, allow_nan=False)
             log = (
                 self._model_steps
@@ -402,188 +300,122 @@ class RobotaxiDebugWindow(IClientWindow):
         self._cpu_samples.flush()
 
     def write(self, result: StepResult) -> None:
-        """Write each presented frame with its aligned simulation observation."""
-        desc = self._desc
-        if desc is None or self._telemetry is None:
+        """Record presentation timing and its source independently of model capture."""
+        if self.recorder is None:
             raise RuntimeError("Debug capture is not open")
-        if not self._paired_views:
-            self._write_presentation(result)
-            return
-        if not isinstance(result, DebugFrameResult) or result.record is None:
-            raise TypeError("Debug capture requires a DebugFrameResult")
-        simulation_frame = (
-            result.record.get("rollout_epoch", 0),
-            result.record["frame"],
-        )
-        if simulation_frame <= self._last_simulation_frame:
-            raise ValueError("Debug frames must arrive once, in simulation order")
-        expected_shape = (1, 3, desc.video_height, 2 * desc.video_width)
-        if (
-            tuple(result.read_output().shape) != expected_shape
-            or result.frame_count != 1
-        ):
-            raise ValueError(f"Debug frame pair must have shape {expected_shape}")
-        rgb = (
-            result_to_rgb24_tensor(
-                result, desc, (2 * desc.video_width, desc.video_height)
-            )
-            .cpu()
-            .numpy()
-        )
-        self._last_simulation_frame = simulation_frame
-        physical = result.record["physics_vehicle"]
-        self._physics_trail.append((physical["x_m"], physical["y_m"]))
-        contact = (
-            result.record["static_barrier_collision"]
-            or result.record["actor_collision"]
-        )
-        if contact:
-            self._contact_frames.append(self.frame_count)
-        latest_frames = {}
-        for index, (name, encoder) in enumerate(self._encoders.items()):
-            if name == "physics":
-                frame = render_physics_view(
-                    result.record,
-                    desc.video_width,
-                    desc.video_height,
-                    list(self._physics_trail),
-                )[None]
-            else:
-                frame = np.ascontiguousarray(
-                    rgb[:, :, index * desc.video_width : (index + 1) * desc.video_width]
-                )
-            encoder.write(frame)
-            latest_frames[name] = frame[0].copy()
-            if self.frame_count % self.snapshot_every == 0 or contact:
-                Image.fromarray(frame[0]).save(
-                    self.directory / "frames" / name / f"{self.frame_count:06d}.png"
-                )
-        self._telemetry.write(
-            json.dumps(
-                {
-                    **result.record,
-                    "capture_frame": self.frame_count,
-                    "elapsed_us": self.control.elapsed_us(),
-                },
-                default=_json_value,
-                allow_nan=False,
-            )
-            + "\n"
-        )
-        self._telemetry.flush()
-        self._last_frames = latest_frames
-        self.frame_count += 1
-
-    def _write_presentation(self, result: StepResult) -> None:
-        """Capture the ordinary HUD output and its actual presentation time."""
-        assert self._desc is not None and self._telemetry is not None
-        output = result.read_output()
-        size = int(output.shape[-1]), int(output.shape[-2])
-        if self._presentation_size is None:
-            self._presentation_size = size
-            self._encoders["presentation"] = Mp4Encoder(
-                self.directory / "presentation.mp4",
-                width=size[0],
-                height=size[1],
-                frames_per_second=self._desc.frames_per_second_for_ui,
-            )
-        if size != self._presentation_size:
-            raise ValueError("Live capture presentation dimensions changed")
-        rgb = result_to_rgb24_tensor(result, self._desc, size).cpu().numpy()
-        self._encoders["presentation"].write(rgb)
-        self._last_frames["presentation"] = rgb[-1].copy()
         now_ns = self._clock_ns()
-        if self.frame_count % self.snapshot_every == 0:
-            image = Image.fromarray(rgb[-1])
-            image.save(
-                self.directory
-                / "frames"
-                / "presentation"
-                / f"{self.frame_count:06d}.png"
-            )
-            temporary = self.directory / "latest.tmp.png"
-            image.save(temporary)
-            temporary.replace(self.directory / "latest.png")
-        self._telemetry.write(
-            json.dumps(
-                {
-                    "frame": self.frame_count,
-                    "ui_step": result.step_index,
-                    "presented_ns": now_ns,
-                    "session_time_s": (now_ns - self._started_ns) / 1e9,
-                    "elapsed_us": self.control.elapsed_us(),
-                }
-            )
-            + "\n"
+        source = (
+            result.record
+            if isinstance(result, DebugFrameResult)
+            else self.control.presentation_source
         )
-        self._telemetry.flush()
-        self.frame_count += int(rgb.shape[0])
+        identity = (
+            None
+            if source is None
+            else {
+                key: source[key]
+                for key in (
+                    "capture_frame",
+                    "rollout_epoch",
+                    "frame",
+                    "model_step",
+                    "autoregressive_index",
+                    "chunk_frame",
+                    "simulation_timestamp_us",
+                )
+            }
+        )
+        output = None if self._paired_views else result.read_output()
+        if output is not None:
+            self._presentation_size = int(output.shape[-1]), int(output.shape[-2])
+        self.recorder.present(
+            {
+                "ui_step": result.step_index,
+                "presented_ns": now_ns,
+                "session_time_s": (now_ns - self._started_ns) / 1e9,
+                "elapsed_us": self.control.elapsed_us(),
+                "source": identity,
+            },
+            output,
+        )
+        self.frame_count += result.frame_count
 
     def close(self) -> None:
-        """Finalize videos and report any unconsumed commands."""
-        try:
-            with ExitStack() as cleanup:
-                for encoder in self._encoders.values():
-                    cleanup.callback(encoder.close)
-                for name, frame in self._last_frames.items():
-                    path = (
-                        self.directory
-                        / "frames"
-                        / name
-                        / f"{self.frame_count - 1:06d}.png"
-                    )
-                    if not path.exists():
-                        Image.fromarray(frame).save(path)
-            self._finalized = True
-        finally:
-            self.control.close()
-            self._flush_control()
-            for log in (self._model_steps, self._cpu_samples):
-                if log is not None and not log.closed:
-                    log.close()
-            if self._control_socket is not None:
-                self._control_socket.close()
-                self._control_socket = None
-                (self.directory / "control.sock").unlink(missing_ok=True)
-            if self._input_log is not None:
-                self._input_log.close()
-                self._input_log = None
-            if self._telemetry is not None:
-                self._telemetry.close()
-                self._telemetry = None
-            if self._desc is not None:
-                self._write_manifest()
+        """Drain the writer and report pending inputs and incomplete captures."""
+        self.control.close()
+        self._flush_control()
+        if self.recorder is not None:
+            self.recorder.close()
+        for log in (self._model_steps, self._cpu_samples, self._input_log):
+            if log is not None and not log.closed:
+                log.close()
+        if self._control_socket is not None:
+            self._control_socket.close()
+            self._control_socket = None
+            (self.directory / "control.sock").unlink(missing_ok=True)
+        if self._desc is not None:
+            self._write_manifest()
+        if (
+            self.strict
+            and self.recorder is not None
+            and not self.recorder.summary()["capture_complete"]
+        ):
+            raise RuntimeError("Incomplete debug capture; see manifest.json")
 
     def _write_manifest(self) -> None:
         assert self._desc is not None
         metadata = self._desc.metadata[DEBUG_METADATA_KEY]
         manifest = {
-            "format_version": 3,
+            "format_version": 4,
             **{name: value for name, value in metadata.items() if name != "map_source"},
-            "frames_written": self.frame_count,
-            "finalized": self._finalized,
             "presentation_mode": self._desc.presentation_mode.value,
             "backpressure_mode": self._desc.backpressure_mode.value,
-            "width": (
-                self._presentation_size
-                or (self._desc.video_width, self._desc.video_height)
-            )[0],
-            "height": (
-                self._presentation_size
-                or (self._desc.video_width, self._desc.video_height)
-            )[1],
-            "fps": self._desc.frames_per_second_for_ui
-            if not self._paired_views
-            else self._desc.frames_per_second_for_step,
+            "width": self._desc.video_width,
+            "height": self._desc.video_height,
+            "fps": self._desc.frames_per_second_for_step,
+            "presentation_size": self._presentation_size,
+            "presentation_fps": self._desc.frames_per_second_for_ui,
             "snapshot_every": self.snapshot_every,
             "views": ["presentation"]
             if not self._paired_views
             else ["generated", "hdmap", "physics"],
-            "contact_frames": self._contact_frames,
             "clock": "microseconds since gameplay ready (monotonic wall time)",
             "cpu_sample_ms": self._cpu_sample_ns / 1_000_000,
             "model_native_thread_id": self.control.native_thread_id,
         }
+        if self.recorder is not None:
+            manifest.update(self.recorder.summary())
+            pending = [
+                identifier
+                for identifier, status in self._input_status.items()
+                if status not in {"consumed", "dispatched"}
+            ]
+            script = metadata.get("script_events", [])
+            endpoints = [event for event in script if event["type"] == "close"]
+            script_complete = (
+                None
+                if not script
+                else (
+                    bool(endpoints)
+                    or self.recorder.termination_reason in {"block_limit", "game_ended"}
+                )
+                and all(
+                    self._input_status.get(event["id"])
+                    == ("dispatched" if event["type"] == "close" else "consumed")
+                    for event in script
+                )
+            )
+            manifest.update(
+                pending_input_ids=pending,
+                script_complete=script_complete,
+                termination_reason=self.control.termination_reason
+                or self.recorder.termination_reason
+                or "runtime_stopped",
+                complete=manifest["capture_complete"]
+                and not pending
+                and script_complete is not False
+                and self.recorder.termination_reason != "model_error",
+            )
         (self.directory / "manifest.json").write_text(
             json.dumps(manifest, indent=2, default=_json_value, allow_nan=False) + "\n",
             encoding="utf-8",
@@ -609,6 +441,17 @@ class RobotaxiDebugMode(ClientWindowMode):
         )
 
         parser.add_argument(
+            "--debug-capture-images",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Save model/conditioning/physics images and UI video (default: enabled).",
+        )
+        parser.add_argument(
+            "--debug-strict-capture",
+            action="store_true",
+            help="Fail the run if any capture data is missing or could not be written.",
+        )
+        parser.add_argument(
             "--debug-cpu-sample-ms",
             type=float,
             default=0,
@@ -629,7 +472,7 @@ class RobotaxiDebugMode(ClientWindowMode):
             or parsed_args.debug_cpu_sample_ms < 0
         ):
             raise ValueError("--debug-cpu-sample-ms must be finite and nonnegative")
-        if shutil.which("ffmpeg") is None:
+        if parsed_args.debug_capture_images and shutil.which("ffmpeg") is None:
             raise ValueError("robotaxi-debug requires ffmpeg on PATH")
 
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
@@ -638,17 +481,9 @@ class RobotaxiDebugMode(ClientWindowMode):
             parsed_args.debug_output_dir.expanduser().resolve(),
             snapshot_every=parsed_args.debug_snapshot_every,
             cpu_sample_ms=parsed_args.debug_cpu_sample_ms,
+            capture_images=parsed_args.debug_capture_images,
+            strict=parsed_args.debug_strict_capture,
         )
 
     def finished(self, client_window: IClientWindow) -> str:
         return str(cast(RobotaxiDebugWindow, client_window).directory / "manifest.json")
-
-
-def _json_value(value: Any) -> Any:
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, Path):
-        return str(value)
-    raise TypeError(f"Cannot serialize debug value {type(value).__name__}")
