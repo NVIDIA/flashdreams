@@ -1569,7 +1569,8 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     closed = []
     debug_enabled = []
 
-    def engine_step(commands):
+    def engine_step(commands, *, simulation_duration_s):
+        assert simulation_duration_s >= len(commands) / 30
         start = len(applied)
         applied.extend(commands)
         count = len(commands)
