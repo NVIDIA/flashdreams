@@ -72,7 +72,7 @@ from flashdreams.infra.diffusion.transformer.base import TransformerConfig
 from flashdreams.infra.encoder.base import EncoderConfig
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.runtime_v2 import cli as runtime_cli
-from flashdreams.runtime_v2.session_desc import PresentationMode
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -593,6 +593,7 @@ def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
     class ProbeState:
         game_selected = True
         config = SimpleNamespace(profile_input_latency=False)
+        session_desc = SessionDesc()
 
         def __init__(self) -> None:
             self.driver_input = DriverInput()
@@ -625,6 +626,7 @@ def test_model_input_is_applied_before_rollout_work() -> None:
     class ProbeState:
         game_selected = True
         config = SimpleNamespace(profile_input_latency=False)
+        session_desc = SessionDesc()
 
         def __init__(self) -> None:
             self.driver_input = DriverInput()
@@ -766,6 +768,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
             Any,
             SimpleNamespace(
                 frames_per_second_for_step=30,
+                metadata={},
                 video_height=4,
                 video_width=4,
             ),
@@ -1435,14 +1438,16 @@ def test_headless_loop_presents_video_channel_and_finishes() -> None:
 
 
 @pytest.mark.parametrize("game_mode", ["taxi", "race", "free-roam"])
-@pytest.mark.parametrize("terminal_frame", [None, 0, 2, 4, 5, 6, 7])
+@pytest.mark.parametrize("source", ["file", "socket"])
 def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     game_mode: str,
-    terminal_frame: int | None,
+    source: str,
 ) -> None:
     import json
+    import socket
+    import time
 
     from crazy_robotaxi.debug import RobotaxiDebugWindow
     from crazy_robotaxi.settings import SettingsDocument
@@ -1452,9 +1457,24 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     from flashdreams.runtime_v2.application_runner import ApplicationRunner
 
     script = tmp_path / "drive.yaml"
-    script.write_text(
-        "steps:\n  - {frames: 3, throttle: 0.5}\n  - {frames: 4, steer: -0.5}\n"
-    )
+    commands = [
+        {
+            "id": "press",
+            "timestamp_us": 100_000,
+            "type": "keyboard",
+            "key": "w",
+            "pressed": True,
+        },
+        {
+            "id": "release",
+            "timestamp_us": 400_000,
+            "type": "keyboard",
+            "key": "w",
+            "pressed": False,
+        },
+        {"id": "end", "timestamp_us": 1_000_000, "type": "close"},
+    ]
+    script.write_text(json.dumps({"events": commands}))
     (tmp_path / "settings.yaml").write_text(
         "game:\n  taxi:\n    vehicle: {max_speed_mps: 17}\n"
         "    rules: {global_time_s: 180}\n"
@@ -1505,12 +1525,7 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
             hdmap[:, :, index] = (start + index) / 10 - 1
         return SimpleNamespace(
             metrics={},
-            game_frames=tuple(
-                replace(snapshot, session_state="awaiting_name")
-                if terminal_frame is not None and start + i >= terminal_frame
-                else snapshot
-                for i in range(count)
-            ),
+            game_frames=tuple(snapshot for i in range(count)),
             trajectory=SimpleNamespace(
                 timestamps_us=np.arange(start, start + count) * 33333,
                 rig_poses_world=np.repeat(
@@ -1551,13 +1566,18 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     monkeypatch.setattr(
         "crazy_robotaxi.session.build_taxi_engine", lambda **kwargs: engine
     )
-    # Scripted driving must never sample a keyboard or wall-clock input window.
-    monkeypatch.setattr(
-        DriverInput, "apply", lambda *args: pytest.fail("keyboard path used")
-    )
-    monkeypatch.setattr(
-        DriverInput, "sample", lambda *args: pytest.fail("keyboard sampling used")
-    )
+    original_apply = DriverInput.apply
+    read_keys = []
+
+    def apply(driver, events):
+        read_keys.extend(
+            event
+            for event in events.get_events()
+            if isinstance(event, KeyboardUserInputEvent)
+        )
+        return original_apply(driver, events)
+
+    monkeypatch.setattr(DriverInput, "apply", apply)
     encoded = {}
 
     class Encoder:
@@ -1572,11 +1592,17 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
             pass
 
     monkeypatch.setattr("crazy_robotaxi.debug.Mp4Encoder", Encoder)
+
+    def generate(**kwargs):
+        # Deliberately slower than a chunk: inputs must still arrive while busy.
+        time.sleep(0.18)
+        return -kwargs["input"]
+
     pipeline = SimpleNamespace(
         device="cpu",
         initialize_cache=lambda **kwargs: None,
         get_num_output_frames=lambda index: 4,
-        generate=lambda **kwargs: -kwargs["input"],
+        generate=generate,
         finalize=lambda **kwargs: None,
     )
     defaults = replace(_STUB_DEFAULTS, width=8, height=4)
@@ -1585,7 +1611,20 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         pipeline_factory=lambda config, device: pipeline,
         scene_factory=lambda request, raster: _scene(width=8, height=4),
     )
-    window = RobotaxiDebugWindow(tmp_path / "capture", snapshot_every=2)
+    app.resolve_client_window_mode("robotaxi-debug")
+
+    class Window(RobotaxiDebugWindow):
+        def open(self, desc):
+            super().open(desc)
+            if source == "socket":
+                with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as client:
+                    for command in commands:
+                        client.sendto(
+                            json.dumps(command).encode(),
+                            str(self.directory / "control.sock"),
+                        )
+
+    window = Window(tmp_path / "capture", snapshot_every=2, cpu_sample_ms=10)
     ApplicationRunner(app, window).run(
         app.session_desc(),
         [
@@ -1598,8 +1637,10 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
             "--map",
             str(_RACE_MAP),
             *(["--race-course", "test-loop"] if game_mode == "race" else []),
-            "--drive-script",
-            str(script),
+            *(["--drive-script", str(script)] if source == "file" else []),
+            "--no-ui",
+            "--prewarm-blocks",
+            "0",
             "--config",
             str(tmp_path / "settings.yaml"),
         ],
@@ -1609,44 +1650,59 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         json.loads(line)
         for line in (window.directory / "telemetry.jsonl").read_text().splitlines()
     ]
-    expected_frames = 7 if terminal_frame is None else min(7, terminal_frame + 1)
-    assert [record["frame"] for record in records] == list(range(expected_frames))
-    assert [record["physics_vehicle"]["x_m"] for record in records] == list(
-        range(expected_frames)
-    )
-    assert [record["command"]["throttle"] for record in records] == (
-        [0.5] * 3 + [0] * 4
-    )[:expected_frames]
+    assert records
+    frame_ids = [record["frame"] for record in records]
+    assert all(b > a for a, b in zip(frame_ids, frame_ids[1:]))
+    assert [record["physics_vehicle"]["x_m"] for record in records] == frame_ids
     assert [record["simulation_timestamp_us"] for record in records] == [
-        i * 33333 for i in range(expected_frames)
+        i * 33333 for i in frame_ids
     ]
-    assert len(applied) == ((expected_frames + 3) // 4) * 4
-    if expected_frames == 7:
-        assert applied[-1] == DriverCommand(manual_control=True)
+    assert any(command.throttle > 0 for command in applied)
+    assert applied[-1].throttle == 0
+    assert [int(event.timestamp) for event in read_keys] == [100_000, 400_000]
     assert debug_enabled and all(debug_enabled) and closed == [True]
     assert (
         len(encoded["generated"])
         == len(encoded["hdmap"])
         == len(encoded["physics"])
-        == expected_frames
+        == len(records)
     )
-    assert [
-        record["physics_colliders"]["ego_position_m"][0] for record in records
-    ] == list(range(expected_frames))
-    for index in range(expected_frames):
-        assert np.all(encoded["generated"][index] >= encoded["hdmap"][index])
+    for index, frame_id in enumerate(frame_ids):
         assert int(encoded["hdmap"][index][0, 0, 0]) == pytest.approx(
-            index * 12.75, abs=1
+            np.clip(frame_id * 12.75, 0, 255), abs=1
         )
     with Image.open(
-        window.directory / "frames/generated" / f"{expected_frames - 1:06d}.png"
+        window.directory / "frames/generated" / f"{len(records) - 1:06d}.png"
     ) as image:
         assert image.size == (8, 4)
+    acknowledgments = [
+        json.loads(line)
+        for line in (window.directory / "input_events.jsonl").read_text().splitlines()
+    ]
+    assert [
+        event["id"] for event in acknowledgments if event["status"] == "consumed"
+    ] == ["press", "release"]
+    assert not [event for event in acknowledgments if event["status"] == "rejected"]
+    steps = [
+        json.loads(line)
+        for line in (window.directory / "model_steps.jsonl").read_text().splitlines()
+    ]
+    assert steps and all("model_step_cpu_ms" in step["metrics"] for step in steps)
+    assert all(step["metrics"]["generate_wall_ms"] >= 150 for step in steps)
+    assert all(
+        step["metrics"]["generate_cpu_ms"] < step["metrics"]["generate_wall_ms"]
+        for step in steps
+    )
+    samples = [
+        json.loads(line)
+        for line in (window.directory / "cpu_samples.jsonl").read_text().splitlines()
+    ]
+    assert any(
+        any(frame["function"] == "generate" for frame in sample["stack"])
+        for sample in samples
+    )
     manifest = json.loads((window.directory / "manifest.json").read_text())
-    assert manifest["complete"] == (expected_frames == 7)
-    assert manifest["frames_written"] == expected_frames
-    if terminal_frame is not None and terminal_frame < 7:
-        assert records[-1]["game"]["session_state"] == "awaiting_name"
+    assert manifest["finalized"] and manifest["frames_written"] == len(records)
     assert manifest["model_preset"] == _STUB_PIPELINE_CONFIG.name
     captured_settings = window.directory / "inputs/settings.yaml"
     assert json.loads(captured_settings.read_text()) == manifest["settings"]
@@ -1666,15 +1722,20 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     ).read_text() == _RACE_MAP.read_text()
     from crazy_robotaxi.driving_script import load_driving_script
 
-    captured_script = load_driving_script(window.directory / "inputs/drive.yaml")
-    assert captured_script.segments == load_driving_script(script).segments
+    if source == "file":
+        captured_script = load_driving_script(window.directory / "inputs/drive.yaml")
+        assert captured_script.events == load_driving_script(script).events
 
 
 @pytest.mark.parametrize("no_ui", [False, True])
 def test_live_debug_respects_ui_selection_and_runtime_input(
     tmp_path: Path, no_ui: bool
 ) -> None:
-    from crazy_robotaxi.debug import DEBUG_METADATA_KEY, RobotaxiLiveDebugUILoop
+    from crazy_robotaxi.debug import (
+        DEBUG_METADATA_KEY,
+        RobotaxiLiveDebugUILoop,
+        RobotaxiDebugUILoop,
+    )
 
     app = _application()
     app.resolve_client_window_mode("robotaxi-debug")
@@ -1699,14 +1760,14 @@ def test_live_debug_respects_ui_selection_and_runtime_input(
     session.init()
     ui_loop, model_loop = session._take_loops()
     assert isinstance(
-        ui_loop, CrazyRobotaxiHeadlessUILoop if no_ui else RobotaxiLiveDebugUILoop
+        ui_loop, RobotaxiDebugUILoop if no_ui else RobotaxiLiveDebugUILoop
     )
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert model_loop.state.config.driving_script is None
     assert model_loop.state.config.prewarm_blocks == 2
     assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
     metadata = session.session_desc.metadata[DEBUG_METADATA_KEY]
-    assert metadata["input_mode"] == "runtime" and metadata["frame_count"] is None
+    assert metadata["input_mode"] == "runtime" and metadata["paired_views"] == no_ui
 
 
 @pytest.mark.parametrize("missing", ["--map", "--game-mode", "--race-course"])
@@ -1715,7 +1776,7 @@ def test_scripted_headless_startup_requires_complete_cli_selection(
     missing: str,
 ) -> None:
     script = tmp_path / "drive.yaml"
-    script.write_text("steps: [{frames: 1}]")
+    script.write_text("events: [{id: end, timestamp_us: 0, type: close}]")
     arguments = [
         "--device",
         "cpu",

@@ -32,6 +32,7 @@ from crazy_robotaxi.debug import (
     RobotaxiDebugMode,
     RobotaxiDebugWindow,
 )
+from crazy_robotaxi.debug_input import DEBUG_CONTROL_KEY, HeadlessInput, control_event
 from crazy_robotaxi.driving_script import load_driving_script
 from crazy_robotaxi.physics import TaxiPhysicsWorld
 from ludus_renderer import BodyState, RigidBodyModel
@@ -43,7 +44,6 @@ from omnidreams_game_engine.types import PhysicsDebugFrame, VehicleState
 from PIL import Image
 
 from flashdreams.runtime_v2.session_desc import (
-    BackpressureMode,
     PresentationMode,
     SessionDesc,
 )
@@ -58,45 +58,94 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_live_headless_input_uses_runtime_timestamps_and_captures_ui(
+def test_live_headless_input_queues_rejects_late_and_acknowledges_consumption(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("crazy_robotaxi.debug.Mp4Encoder", RecordingEncoder)
     now = [10_000_000_000]
+    control = HeadlessInput(lambda: now[0])
     window = RobotaxiDebugWindow(
-        tmp_path / "live", snapshot_every=1, clock_ns=lambda: now[0]
+        tmp_path / "live", snapshot_every=1, cpu_sample_ms=1, clock_ns=lambda: now[0]
     )
     window.open(
         SessionDesc(
             video_width=6,
             video_height=4,
-            presentation_mode=PresentationMode.CONTINUOUS,
             metadata={
-                DEBUG_METADATA_KEY: {"input_mode": "runtime", "frame_count": None}
+                DEBUG_METADATA_KEY: {},
+                DEBUG_CONTROL_KEY: control,
             },
         )
     )
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as controller:
-            now[0] += 125_000_000
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as controller:
+        controller.bind(str(tmp_path / "agent.sock"))
+        controller.settimeout(1)
+
+        def send(command):
             controller.sendto(
-                b'{"type":"keyboard","key":"w","pressed":true}',
-                str(window.directory / "control.sock"),
+                json.dumps(command).encode(), str(window.directory / "control.sock")
             )
-            (pressed,) = window.get_user_input_events().get_events()
-            assert isinstance(pressed, KeyboardUserInputEvent)
-            assert pressed.key == "w" and pressed.state is KeyboardInputState.PRESSED
-            assert int(pressed.timestamp) == 125_000
-            assert window.get_user_input_events().get_events() == []
-            now[0] += 400_000_000
-            controller.sendto(
-                b'{"type":"keyboard","key":"w","pressed":false}',
-                str(window.directory / "control.sock"),
-            )
-            (released,) = window.get_user_input_events().get_events()
-            assert isinstance(released, KeyboardUserInputEvent)
-            assert released.state is KeyboardInputState.RELEASED
-            assert int(released.timestamp) == 525_000
+
+        def reply():
+            return json.loads(controller.recv(4096))
+
+        send({"id": "clock", "type": "status"})
+        assert window.get_user_input_events().get_events() == []
+        assert reply()["status"] == "loading"
+        # Accept out of order while loading; dispatch strictly by deadline.
+        send(
+            {
+                "id": "release",
+                "timestamp_us": 200_000,
+                "type": "keyboard",
+                "key": "w",
+                "pressed": False,
+            }
+        )
+        send(
+            {
+                "id": "press",
+                "timestamp_us": 100_000,
+                "type": "keyboard",
+                "key": "w",
+                "pressed": True,
+            }
+        )
+        assert window.get_user_input_events().get_events() == []
+        assert reply()["status"] == reply()["status"] == "accepted"
+        control.start()
+        now[0] += 50_000_000
+        assert window.get_user_input_events().get_events() == []
+        now[0] += 75_000_000
+        events = window.get_user_input_events()
+        (pressed,) = events.get_events()
+        assert isinstance(pressed, KeyboardUserInputEvent)
+        assert (
+            pressed.state is KeyboardInputState.PRESSED
+            and int(pressed.timestamp) == 100_000
+        )
+        assert reply()["status"] == "dispatched"
+        control.consumed(events, step=7)
+        window.get_user_input_events()
+        consumed = reply()
+        assert consumed["status"] == "consumed" and consumed["consumed_us"] == 125_000
+        send({"id": "late", "timestamp_us": 124_999, "type": "close"})
+        assert window.get_user_input_events().get_events() == []
+        assert reply()["reason"] == "late"
+        send({"id": "press", "timestamp_us": 300_000, "type": "close"})
+        window.get_user_input_events()
+        assert reply()["reason"] == "duplicate_id"
+        # UI stall must not invalidate a command that arrived on time.
+        now[0] += 400_000_000
+        events = window.get_user_input_events()
+        (released,) = events.get_events()
+        assert isinstance(released, KeyboardUserInputEvent)
+        assert (
+            released.state is KeyboardInputState.RELEASED
+            and int(released.timestamp) == 200_000
+        )
+        assert reply()["status"] == "dispatched"
+        control.consumed(events, step=8)
         window.write(
             StepResult(
                 step_index=7,
@@ -105,18 +154,29 @@ def test_live_headless_input_uses_runtime_timestamps_and_captures_ui(
                 output_layout=VideoTensorLayout.tchw,
             )
         )
-        assert (window.directory / "latest.png").is_file()
-    finally:
         window.close()
-    assert not (window.directory / "control.sock").exists()
+        assert reply()["status"] == "consumed"
     inputs = [
         json.loads(line)
         for line in (window.directory / "input_events.jsonl").read_text().splitlines()
     ]
-    assert [event["state"] for event in inputs] == ["Pressed", "Released"]
-    assert [event["timestamp_us"] for event in inputs] == [125_000, 525_000]
+    assert [event["id"] for event in inputs if event["status"] == "consumed"] == [
+        "press",
+        "release",
+    ]
+    assert not (window.directory / "control.sock").exists()
+    assert (window.directory / "latest.png").is_file()
+    samples = [
+        json.loads(line)
+        for line in (window.directory / "cpu_samples.jsonl").read_text().splitlines()
+    ]
+    assert samples and samples[0]["native_thread_id"] == control.native_thread_id
+    assert any(
+        frame["function"].startswith("test_live_headless")
+        for frame in samples[0]["stack"]
+    )
     record = json.loads((window.directory / "telemetry.jsonl").read_text())
-    assert record["ui_step"] == 7 and record["session_time_s"] == 0.525
+    assert record["ui_step"] == 7 and record["elapsed_us"] == 525_000
     manifest = json.loads((window.directory / "manifest.json").read_text())
     assert manifest["views"] == ["presentation"] and manifest["frames_written"] == 1
 
@@ -131,10 +191,38 @@ def test_live_headless_input_uses_runtime_timestamps_and_captures_ui(
     ],
 )
 def test_live_headless_input_rejects_malformed_packets(payload: object) -> None:
-    from crazy_robotaxi.debug import _control_event
-
     with pytest.raises(ValueError):
-        _control_event(payload)
+        control_event(payload)
+
+
+def test_input_deadline_boundary_order_and_shutdown() -> None:
+    now = [0]
+    control = HeadlessInput(lambda: now[0])
+    control.start()
+    for identifier in ("first", "second"):
+        control.accept(
+            {"id": identifier, "timestamp_us": 0, "type": "focus", "focused": False}
+        )
+    control.accept({"id": "later", "timestamp_us": 10, "type": "close"})
+    assert len(control.due()) == 2
+    control.close()
+    messages = []
+    while not control.messages.empty():
+        messages.append(control.messages.get_nowait()[1])
+    assert [m["id"] for m in messages if m["status"] == "dispatched"] == [
+        "first",
+        "second",
+    ]
+    assert {m["id"] for m in messages if m["status"] == "cancelled"} == {
+        "first",
+        "second",
+        "later",
+    }
+    # Invalid identifiers must not break JSON acknowledgments (including NaN).
+    control.accept({"id": float("nan"), "type": "status"})
+    rejected = control.messages.get_nowait()[1]
+    assert rejected["status"] == "rejected" and rejected["id"] is None
+    json.dumps(rejected, allow_nan=False)
 
 
 def test_observation_preserves_native_pose_before_game_policy() -> None:
@@ -217,37 +305,30 @@ def _debug_record(frame: int, *, contact: bool = False) -> dict:
     }
 
 
-def test_script_spans_chunks_and_pads_only_the_unexported_tail(tmp_path: Path) -> None:
+def test_script_uses_the_live_command_schema_and_rejects_duplicates(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "drive.yaml"
-    source.write_text(
-        "steps:\n  - {frames: 3, throttle: 1}\n  - {frames: 2, steer: -0.5}\n"
-    )
+    source.write_text("events: [{id: end, timestamp_us: 1000000, type: close}]")
     script = load_driving_script(source)
-    first, valid = script.batch(0, 4)
-    assert valid == 4
-    assert [command.throttle for command in first] == [1, 1, 1, 0]
-    assert [command.steer for command in first] == [0, 0, 0, -0.5]
-    last, valid = script.batch(4, 4)
-    assert valid == 1
-    assert [command.steer for command in last] == [-0.5, 0, 0, 0]
-    assert all(command.manual_control for command in (*first, *last))
+    assert script.events == ({"id": "end", "timestamp_us": 1000000, "type": "close"},)
+    source.write_text(json.dumps({"events": list(script.events) * 2}))
+    with pytest.raises(ValueError, match="duplicate"):
+        load_driving_script(source)
 
 
 @pytest.mark.parametrize(
     "text",
     [
-        "steps: []",
-        "steps: null",
-        "steps: [{frames: 0}]",
-        "steps: [{frames: true}]",
-        "steps: [{frames: 1.5}]",
-        "steps: [{frames: 1, throtle: 1}]",
-        "steps: [{frames: 1, throttle: 2}]",
-        "steps: [{frames: 1, steer: .nan}]",
-        "steps: [{frames: 1, brake: true}]",
-        "steps: [{frames: 1, stop: 1}]",
-        "steps: [{frames: 1, manual_control: false}]",
-        "steps: [{frames: 1}]\nextra: yes",
+        "steps: [{frames: 1}]",
+        "events: []",
+        "events: null",
+        "events: [{id: a, timestamp_us: -1, type: close}]",
+        "events: [{id: a, timestamp_us: true, type: close}]",
+        "events: [{id: a, timestamp_us: 1.5, type: close}]",
+        "events: [{id: a, timestamp_us: 0, type: keyboard, key: w, pressed: 1}]",
+        "events: [{id: a, timestamp_us: 0, type: close, extra: 1}]",
+        "events: [{id: a, timestamp_us: 0, type: close}]\nextra: yes",
     ],
 )
 def test_invalid_scripts_fail_before_game_setup(tmp_path: Path, text: str) -> None:
@@ -271,7 +352,7 @@ class RecordingEncoder:
         self.closed = True
 
 
-def test_sink_preserves_both_views_and_reports_incomplete_runs(
+def test_sink_preserves_both_views_and_rejects_repeated_simulation_frames(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("crazy_robotaxi.debug.Mp4Encoder", RecordingEncoder)
@@ -279,7 +360,7 @@ def test_sink_preserves_both_views_and_reports_incomplete_runs(
         video_width=6,
         video_height=4,
         presentation_mode=PresentationMode.ON_DEMAND,
-        metadata={DEBUG_METADATA_KEY: {"frame_count": 2}},
+        metadata={DEBUG_METADATA_KEY: {"paired_views": True}},
     )
     window = RobotaxiDebugWindow(tmp_path / "capture", snapshot_every=30)
     window.open(desc)
@@ -306,7 +387,7 @@ def test_sink_preserves_both_views_and_reports_incomplete_runs(
         cast(RecordingEncoder, encoder).closed for encoder in window._encoders.values()
     )
     manifest = json.loads((window.directory / "manifest.json").read_text())
-    assert manifest["frames_written"] == 1 and not manifest["complete"]
+    assert manifest["frames_written"] == 1 and manifest["finalized"]
     records = [
         json.loads(line)
         for line in (window.directory / "telemetry.jsonl").read_text().splitlines()
@@ -338,7 +419,7 @@ def test_close_saves_last_written_views_without_rewriting_snapshots(
             video_width=6,
             video_height=4,
             presentation_mode=PresentationMode.ON_DEMAND,
-            metadata={DEBUG_METADATA_KEY: {"frame_count": requested}},
+            metadata={DEBUG_METADATA_KEY: {"paired_views": True}},
         )
     )
     for frame in range(written):
@@ -368,7 +449,7 @@ def test_close_saves_last_written_views_without_rewriting_snapshots(
                 )
     assert set(saved) == expected
     manifest = json.loads((window.directory / "manifest.json").read_text())
-    assert manifest["complete"] == (written == requested)
+    assert manifest["finalized"]
     assert manifest["frames_written"] == written
 
 
@@ -380,7 +461,7 @@ def test_physics_video_shows_bounds_and_saves_contact_between_snapshots(
         video_width=320,
         video_height=320,
         presentation_mode=PresentationMode.ON_DEMAND,
-        metadata={DEBUG_METADATA_KEY: {"frame_count": 3}},
+        metadata={DEBUG_METADATA_KEY: {"paired_views": True}},
     )
     window = RobotaxiDebugWindow(tmp_path / "capture", snapshot_every=30)
     window.open(desc)
@@ -404,24 +485,18 @@ def test_physics_video_shows_bounds_and_saves_contact_between_snapshots(
         for encoder in window._encoders.values()
     )
     manifest = json.loads((window.directory / "manifest.json").read_text())
-    assert manifest["complete"] and manifest["contact_frames"] == [1]
+    assert manifest["finalized"] and manifest["contact_frames"] == [1]
     for view in manifest["views"]:
         assert (window.directory / "frames" / view / "000001.png").is_file()
 
 
-def test_sink_requires_a_lossless_scripted_session(tmp_path: Path) -> None:
+def test_sink_requires_capture_metadata_and_tchw(tmp_path: Path) -> None:
     window = RobotaxiDebugWindow(tmp_path / "out")
-    desc = SessionDesc(metadata={DEBUG_METADATA_KEY: {"frame_count": 1}})
-    with pytest.raises(ValueError, match="on-demand"):
+    desc = SessionDesc(
+        metadata={DEBUG_METADATA_KEY: {}}, output_layout=VideoTensorLayout.btchw
+    )
+    with pytest.raises(ValueError, match="tchw"):
         window.open(desc)
-    with pytest.raises(ValueError, match="on-demand"):
-        window.open(
-            replace(
-                desc,
-                presentation_mode=PresentationMode.ON_DEMAND,
-                backpressure_mode=BackpressureMode.DROP_OLDEST,
-            )
-        )
     with pytest.raises(ValueError, match="requires Crazy Robotaxi"):
         window.open(replace(desc, metadata={}))
 

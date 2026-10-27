@@ -9,7 +9,7 @@ import argparse
 import logging
 import tempfile
 from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -35,6 +35,7 @@ from crazy_robotaxi.controls import (
     load_controls_documents,
 )
 from crazy_robotaxi.debug import DEBUG_METADATA_KEY
+from crazy_robotaxi.debug_input import DEBUG_CONTROL_KEY, HeadlessInput
 from crazy_robotaxi.driving_script import DrivingScript, load_driving_script
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameRaceCourseOption
 from crazy_robotaxi.high_scores import default_high_scores_path, default_race_times_path
@@ -62,7 +63,6 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.infra.config import derive_config
 from flashdreams.runtime_v2.session_desc import (
-    BackpressureMode,
     PresentationMode,
     SessionDesc,
 )
@@ -189,7 +189,7 @@ class ApplicationConfig:
     """Present raw model frames without the ImGui HUD (no graphics device)."""
 
     driving_script: DrivingScript | None = None
-    """Frame-counted controls and paired headless observations, when requested."""
+    """Timestamped events preloaded into the live headless input queue."""
 
     debug_capture: bool = False
     """Capture the ordinary interactive UI offscreen through robotaxi-debug."""
@@ -326,14 +326,8 @@ class CrazyRobotaxiApplication(IApplication):
                 )
             if initial_game_mode == "race" and initial_race_course_id is None:
                 raise ValueError("--drive-script in race mode requires --race-course")
-            if settings.runtime.total_blocks is not None:
-                raise ValueError(
-                    "--drive-script sets its own duration; omit --total-blocks"
-                )
-            # A script starts at the authored spawn, with no hidden gameplay.
-            settings = replace(
-                settings, runtime=replace(settings.runtime, prewarm_blocks=0)
-            )
+            if not self._debug_capture:
+                raise ValueError("--drive-script requires --mode robotaxi-debug")
         if (
             settings.runtime.total_blocks is not None
             and settings.runtime.total_blocks <= 0
@@ -440,7 +434,7 @@ class CrazyRobotaxiApplication(IApplication):
             live_edit=live_edit,
             native_dit_disabled_for_live_edit=native_dit_disabled_for_live_edit,
             visual_flare_enabled=settings.game.effects.visual_flare,
-            no_ui=not args.ui or driving_script is not None,
+            no_ui=not args.ui,
             driving_script=driving_script,
             debug_capture=self._debug_capture,
         )
@@ -670,33 +664,22 @@ class CrazyRobotaxiApplication(IApplication):
             config=config,
             session_desc=replace(
                 session_desc,
-                presentation_mode=(
-                    PresentationMode.ON_DEMAND
-                    if config.driving_script is not None
-                    else PresentationMode.CONTINUOUS
-                ),
-                backpressure_mode=(
-                    BackpressureMode.BLOCK
-                    if config.driving_script is not None
-                    else session_desc.backpressure_mode
-                ),
+                presentation_mode=PresentationMode.CONTINUOUS,
+                backpressure_mode=session_desc.backpressure_mode,
                 metadata={
                     **session_desc.metadata,
                     **(
                         {
+                            DEBUG_CONTROL_KEY: HeadlessInput(),
                             DEBUG_METADATA_KEY: {
                                 "map": str(config.initial_map_path),
                                 "game_mode": config.initial_game_mode,
                                 "race_course": config.initial_race_course_id,
-                                "input_mode": "runtime"
-                                if config.driving_script is None
-                                else "scripted",
+                                "input_mode": "runtime",
+                                "paired_views": config.no_ui,
                                 "script": None
                                 if config.driving_script is None
                                 else str(config.driving_script.path),
-                                "frame_count": None
-                                if config.driving_script is None
-                                else config.driving_script.frame_count,
                                 "model_preset": config.model_preset_name,
                                 "model_seed": pipeline_config.diffusion_model.seed,
                                 "game_seed": config.game.seed,
@@ -704,24 +687,12 @@ class CrazyRobotaxiApplication(IApplication):
                                 "map_source": cast(
                                     Path, config.initial_map_path
                                 ).read_text(encoding="utf-8"),
-                                "script_steps": [
-                                    {
-                                        "frames": count,
-                                        **{
-                                            name: value
-                                            for name, value in asdict(command).items()
-                                            if name != "manual_control"
-                                        },
-                                    }
-                                    for count, command in (
-                                        ()
-                                        if config.driving_script is None
-                                        else config.driving_script.segments
-                                    )
-                                ],
-                            }
+                                "script_events": []
+                                if config.driving_script is None
+                                else list(config.driving_script.events),
+                            },
                         }
-                        if config.driving_script is not None or config.debug_capture
+                        if config.debug_capture
                         else {}
                     ),
                     **(
@@ -849,7 +820,7 @@ def _parser(
     parser.add_argument(
         "--drive-script",
         type=Path,
-        help="YAML simulation-frame controls for robotaxi-debug; requires --game-mode and --map, and --race-course in race mode.",
+        help="YAML timestamped events for robotaxi-debug; requires --game-mode and --map, and --race-course in race mode.",
     )
     parser.add_argument(
         "--ui",
