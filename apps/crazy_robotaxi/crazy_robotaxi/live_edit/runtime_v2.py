@@ -60,6 +60,16 @@ class LiveEditHudStatus:
     """Active obstacle count, or ``None`` when the ability is unavailable."""
 
 
+@dataclass(frozen=True, slots=True)
+class LiveEditFrame:
+    """Presentation data frozen at one authoritative gameplay tick."""
+
+    status: LiveEditHudStatus
+    sprites: tuple[Any, ...]
+    obstacles: tuple[tuple[np.ndarray, np.ndarray, np.ndarray], ...]
+    style_selection: tuple[int | None, int | None] | None
+
+
 def _procedural_coin_sprite() -> Image.Image:
     image = Image.new("RGBA", (96, 96), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
@@ -179,6 +189,9 @@ class LiveEditGameplay:
             output_width=scene.initial_rgb.shape[1],
             output_height=scene.initial_rgb.shape[0],
         )
+        self._recorded_frames: tuple[LiveEditFrame, ...] | None = None
+        self._image_width = scene.initial_rgb.shape[1]
+        self._image_height = scene.initial_rgb.shape[0]
         self._frame_index = 0
         self._frame_statuses: list[LiveEditHudStatus] = []
         self._nitro_seconds_by_frame: tuple[float, ...] = ()
@@ -225,6 +238,42 @@ class LiveEditGameplay:
         if self.guidance is not None and previous.guidance is not None:
             self.guidance = previous.guidance
             self.guidance.reset_v2(pipeline)
+
+    def capture_frame(self, trajectory: TrajectoryChunk) -> LiveEditFrame:
+        """Snapshot sprites, HUD, and prompt selection without touching the model."""
+        sprites = []
+        for ability in (self.coins, self.items):
+            if ability is not None:
+                sprites.extend(
+                    ability.visible_sprites(
+                        trajectory.rig_poses_world[-1],
+                        self._camera,
+                        image_width=self._image_width,
+                        image_height=self._image_height,
+                    )
+                )
+        return LiveEditFrame(
+            self.hud_statuses()[-1],
+            tuple(sprites),
+            self._obstacle_boxes(int(trajectory.timestamps_us[-1]))
+            if self.config.obstacle.annotate
+            else (),
+            None if self.style is None else self.style.selection(),
+        )
+
+    def use_recorded_frames(
+        self,
+        frames: tuple[LiveEditFrame, ...],
+        trajectory: TrajectoryChunk,
+    ) -> None:
+        """Bind the generation world's presentation to its recorded path."""
+        self._recorded_frames = frames
+        self._frame_statuses = [frame.status for frame in frames]
+        if self.style is not None:
+            selection = frames[-1].style_selection
+            if selection is not None:
+                self.style.request_selection(selection)
+            self.style.update_map_context(trajectory.boundary_state_after_chunk)
 
     def prepare_model_step(
         self, pipeline: Any, engine: Any, step: Any, autoregressive_index: int
@@ -376,25 +425,29 @@ class LiveEditGameplay:
         _, _, frame_count = result.shape[:3]
         for index in range(frame_count):
             pose = step.trajectory.rig_poses_world[index]
-            sprites = []
-            if self.coins is not None:
-                sprites.extend(
-                    self.coins.visible_sprites(
-                        pose,
-                        self._camera,
-                        image_width=int(result.shape[-1]),
-                        image_height=int(result.shape[-2]),
+            recorded = (
+                None if self._recorded_frames is None else self._recorded_frames[index]
+            )
+            sprites = [] if recorded is None else list(recorded.sprites)
+            if recorded is None:
+                if self.coins is not None:
+                    sprites.extend(
+                        self.coins.visible_sprites(
+                            pose,
+                            self._camera,
+                            image_width=int(result.shape[-1]),
+                            image_height=int(result.shape[-2]),
+                        )
                     )
-                )
-            if self.items is not None:
-                sprites.extend(
-                    self.items.visible_sprites(
-                        pose,
-                        self._camera,
-                        image_width=int(result.shape[-1]),
-                        image_height=int(result.shape[-2]),
+                if self.items is not None:
+                    sprites.extend(
+                        self.items.visible_sprites(
+                            pose,
+                            self._camera,
+                            image_width=int(result.shape[-1]),
+                            image_height=int(result.shape[-2]),
+                        )
                     )
-                )
             frame = ((result[0, 0, index] + 1.0) * 127.5).round().clamp(0, 255)
             frame = frame.to(torch.uint8).permute(1, 2, 0).contiguous()
             frame = self._compositor.composite(
@@ -413,6 +466,7 @@ class LiveEditGameplay:
                     frame,
                     pose,
                     int(step.trajectory.timestamps_us[index]),
+                    boxes=None if recorded is None else recorded.obstacles,
                 )
             result[0, 0, index] = (
                 frame.permute(2, 0, 1).to(dtype=result.dtype) / 127.5 - 1.0
@@ -420,11 +474,36 @@ class LiveEditGameplay:
             self._frame_index += 1
         return result
 
+    def _obstacle_boxes(
+        self, timestamp_us: int
+    ) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray], ...]:
+        """Copy only the geometry needed by an optional annotation frame."""
+        boxes = []
+        for event in () if self.obstacles is None else self.obstacles.events:
+            center = event.center_at(timestamp_us)
+            orientation = event.orientation_at(timestamp_us)
+            if center is not None and orientation is not None:
+                boxes.append(
+                    (
+                        center.copy(),
+                        orientation.copy(),
+                        np.asarray(event.dimensions_lwh).copy(),
+                    )
+                )
+        return tuple(boxes)
+
     def _annotate_obstacles(
-        self, frame: Tensor, pose: Any, timestamp_us: int
+        self,
+        frame: Tensor,
+        pose: Any,
+        timestamp_us: int,
+        *,
+        boxes: tuple[tuple[np.ndarray, np.ndarray, np.ndarray], ...] | None = None,
     ) -> Tensor:
         """Draw the optional obstacle 3D-box evidence overlay."""
-        if self.obstacles is None or not self.obstacles.events:
+        if boxes is None:
+            boxes = self._obstacle_boxes(timestamp_us)
+        if not boxes:
             return frame
         device = frame.device
         canvas = Image.fromarray(frame.cpu().numpy(), mode="RGB")
@@ -447,11 +526,7 @@ class LiveEditGameplay:
             (2, 6),
             (3, 7),
         )
-        for event in self.obstacles.events:
-            center = event.center_at(timestamp_us)
-            orientation = event.orientation_at(timestamp_us)
-            if center is None or orientation is None:
-                continue
+        for center, orientation, dimensions in boxes:
             x, y, z, w = (float(value) for value in orientation)
             rotation = np.asarray(
                 [
@@ -461,7 +536,7 @@ class LiveEditGameplay:
                 ],
                 dtype=np.float32,
             )
-            half = np.asarray(event.dimensions_lwh, dtype=np.float32) / 2.0
+            half = np.asarray(dimensions, dtype=np.float32) / 2.0
             corners = center[None, :] + (signs * half[None, :]) @ rotation.T
             uv, _depth, forward = self._camera.project_world(corners, pose)
             if not forward.all():
