@@ -206,8 +206,8 @@ def elevate_geometry(
     faces = np.asarray(faces, dtype=np.int32)
     ground = GroundSnapper(vertices, faces)
 
-    def drape(points: np.ndarray) -> np.ndarray:
-        result = subdivide_polyline(points, spacing)
+    def drape(points: np.ndarray, *, subdivide: bool = True) -> np.ndarray:
+        result = subdivide_polyline(points, spacing) if subdivide else points.copy()
         result[:, 2] = ground._raycast(result)
         return result
 
@@ -218,7 +218,9 @@ def elevate_geometry(
     lifted = [
         replace(
             element,
-            surface_world=drape(element.surface_world),
+            # Preserve shared XY edges exactly for pavement polygon unions.
+            # Independently rounding added vertices can open cracks at joins.
+            surface_world=drape(element.surface_world, subdivide=False),
             road_boundaries=tuple(
                 replace(item, polyline_world=drape(item.polyline_world))
                 for item in element.road_boundaries

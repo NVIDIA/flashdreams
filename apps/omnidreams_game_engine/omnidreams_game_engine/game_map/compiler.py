@@ -36,6 +36,7 @@ from omnidreams_game_engine.game_map.types import (
     game_map_to_dict,
 )
 from omnidreams_game_engine.math3d import rig_pose_from_state
+from omnidreams_game_engine.patterns import subdivide_polyline
 from omnidreams_game_engine.ply_io import save_mesh_vf
 from omnidreams_game_engine.scene_fixture import _calibration_row
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
@@ -263,6 +264,9 @@ def _boundary_chunks(game_map: ResolvedGameMap) -> tuple[np.ndarray, ...]:
 
     def xyz(points_xy: np.ndarray) -> np.ndarray:
         points = np.column_stack((points_xy, np.zeros(len(points_xy))))
+        if ground is not None:
+            # Sample elevation after the union has removed internal road joins.
+            points = subdivide_polyline(points, 1.0)
         points[:, 2] = (
             ground._raycast(points)
             if ground is not None
