@@ -11,6 +11,7 @@ from dataclasses import replace
 import numpy as np
 from loguru import logger
 from ludus_renderer import PhysicsObjectGraph, RigidBodyModel
+from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.simulation.actor_controller import (
     PhysicsActorController,
 )
@@ -44,6 +45,53 @@ def inset_vehicle_chassis(model: RigidBodyModel) -> RigidBodyModel:
         ),
     )
     return replace(model, vehicle=vehicle)
+
+
+def constrain_grounded_roll(
+    state: VehicleState,
+    vehicle: TaxiVehicleConfig,
+    surface: tuple[float, np.ndarray] | None,
+) -> VehicleState:
+    """Limit chassis roll relative to nearby road support before publishing to PhysX."""
+    if surface is None or abs(state.z_m - surface[0]) > vehicle.suspension_travel_m:
+        return state
+    normal = surface[1]
+    cy, sy = math.cos(state.yaw_rad), math.sin(state.yaw_rad)
+    road_roll = -math.asin(float(np.clip(-sy * normal[0] + cy * normal[1], -1, 1)))
+    relative_roll = math.atan2(
+        math.sin(state.roll_rad - road_roll), math.cos(state.roll_rad - road_roll)
+    )
+    limited = float(
+        np.clip(relative_roll, -vehicle.max_body_roll_rad, vehicle.max_body_roll_rad)
+    )
+    if limited == relative_roll:
+        return state
+    roll = road_roll + limited
+    # Rotate about the physical body center, rather than moving that center
+    # when the bottom-of-body rig origin changes orientation.
+    pose_options = dict(
+        x_m=state.x_m,
+        y_m=state.y_m,
+        z_m=state.z_m,
+        yaw_rad=state.yaw_rad,
+        pitch_rad=state.pitch_rad,
+    )
+    old_up = rig_pose_from_state(**pose_options, roll_rad=state.roll_rad)[:3, 2]
+    new_up = rig_pose_from_state(**pose_options, roll_rad=roll)[:3, 2]
+    offset = (old_up - new_up) * (vehicle.aabb_height_m / 2)
+    roll_rate = (
+        state.angular_velocity_x_radps * cy + state.angular_velocity_y_radps * sy
+    )
+    outward_rate = roll_rate if roll_rate * relative_roll > 0 else 0.0
+    return replace(
+        state,
+        x_m=state.x_m + float(offset[0]),
+        y_m=state.y_m + float(offset[1]),
+        z_m=state.z_m + float(offset[2]),
+        roll_rad=roll,
+        angular_velocity_x_radps=state.angular_velocity_x_radps - cy * outward_rate,
+        angular_velocity_y_radps=state.angular_velocity_y_radps - sy * outward_rate,
+    )
 
 
 class TaxiPhysicsWorld(GamePhysicsWorld):
@@ -221,6 +269,9 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
             speed_mps=forward_speed_mps,
             velocity_x_mps=float(velocity[0]),
             velocity_y_mps=float(velocity[1]),
+        )
+        resolved = constrain_grounded_roll(
+            resolved, self._taxi_vehicle, self.last_step_ground_surface
         )
         self.synchronize_ego_state(resolved)
         return resolved, samples
