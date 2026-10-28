@@ -408,9 +408,6 @@ def build_obstacle_event(
 class ObstacleAbility:
     """Own track-backed obstacle lifecycle, rendering, and PhysX control."""
 
-    advance_chunk_fraction: float = 1.0
-    """Fraction of a nominal 8/30-second chunk advanced per rules update."""
-
     def __init__(
         self,
         config: LiveEditObstacleConfig,
@@ -741,7 +738,7 @@ class ObstacleAbility:
         actors: list[DynamicActorTrajectory] = []
         last_timestamp_us = int(trajectory.timestamps_us[-1])
         for event in self.events:
-            event.chunks += self.advance_chunk_fraction
+            event.chunks += 1
             if not self._config.physics:
                 self._check_visual_collision(event, trajectory)
                 actors.append(event.actor())
@@ -759,7 +756,7 @@ class ObstacleAbility:
                 logger.info(
                     "[live-edit] obstacle despawned {} ({})", event.entity_id, reason
                 )
-        self._chunk_index += self.advance_chunk_fraction
+        self._chunk_index += 1
         return tuple(actors)
 
 

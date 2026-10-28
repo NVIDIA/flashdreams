@@ -159,8 +159,6 @@ class RobotaxiDebugWindow(IClientWindow):
         self._started_ns = 0
         self._paired_views = False
         self.control = HeadlessInput(clock_ns)
-        self._gameplay_ticks: TextIO | None = None
-        self._gameplay_tick_count = 0
         self._model_steps: TextIO | None = None
         self._cpu_samples: TextIO | None = None
         self._cpu_sample_ns = int(cpu_sample_ms * 1_000_000)
@@ -213,9 +211,6 @@ class RobotaxiDebugWindow(IClientWindow):
         self._input_log = (self.directory / "input_events.jsonl").open(
             "x", encoding="utf-8"
         )
-        self._gameplay_ticks = (self.directory / "gameplay_ticks.jsonl").open(
-            "w", encoding="utf-8"
-        )
         self._model_steps = (self.directory / "model_steps.jsonl").open(
             "x", encoding="utf-8"
         )
@@ -264,18 +259,11 @@ class RobotaxiDebugWindow(IClientWindow):
                 peer, message = self.control.messages.get_nowait()
             except Empty:
                 break
-            if message.get("id") and message["status"] not in {
-                "rejected",
-                "ui_dispatched",
-            }:
+            if message.get("id") and message["status"] != "rejected":
                 self._input_status[message["id"]] = message["status"]
-            if message["status"] == "gameplay_tick":
-                self._gameplay_tick_count += 1
             encoded = json.dumps(message, default=_json_value, allow_nan=False)
             log = (
-                self._gameplay_ticks
-                if message["status"] == "gameplay_tick"
-                else self._model_steps
+                self._model_steps
                 if message["status"] == "model_step"
                 else self._input_log
             )
@@ -373,12 +361,7 @@ class RobotaxiDebugWindow(IClientWindow):
         self._flush_control()
         if self.recorder is not None:
             self.recorder.close()
-        for log in (
-            self._gameplay_ticks,
-            self._model_steps,
-            self._cpu_samples,
-            self._input_log,
-        ):
+        for log in (self._model_steps, self._cpu_samples, self._input_log):
             if log is not None and not log.closed:
                 log.close()
         if self._control_socket is not None:
@@ -421,8 +404,6 @@ class RobotaxiDebugWindow(IClientWindow):
             "generation_delays_ms": self.generation_delays_ms,
             "ready_ns": self.control.ready_ns,
             "model_native_thread_id": self.control.native_thread_id,
-            "gameplay_ticks_written": self._gameplay_tick_count,
-            "gameplay_tick_rate_hz": 120,
         }
         if self.recorder is not None:
             manifest.update(self.recorder.summary())

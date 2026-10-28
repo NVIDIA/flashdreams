@@ -525,13 +525,10 @@ class SettingsDocument:
 
 def _drop_deprecated_settings(document: CommentedMap) -> None:
     """Discard settings keys retired within schema version 1."""
-    for section, key in (
-        ("live_edit", "map_context"),
-        ("runtime", "generation_max_rate"),
-    ):
-        values = document.get(section)
-        if isinstance(values, CommentedMap):
-            values.pop(key, None)
+    live_edit = document.get("live_edit")
+    if not isinstance(live_edit, CommentedMap) or "map_context" not in live_edit:
+        return
+    del live_edit["map_context"]
 
 
 def normalize_settings(

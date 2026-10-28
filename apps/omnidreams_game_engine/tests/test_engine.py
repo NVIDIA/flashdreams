@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import cast
 
@@ -17,7 +17,6 @@ from omnidreams_game_engine.contracts import GameUpdate
 from omnidreams_game_engine.engine import GameEngine
 from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
 from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
-    EgoVehicleKinematics,
     sample_chunk_trajectory,
     state_from_initial_pose,
 )
@@ -333,84 +332,3 @@ def test_physics_timestamps_exclude_seed_and_measure_each_advance(monkeypatch) -
         (1000, 2000),
         (3000, 4000),
     ]
-
-
-def test_fixed_physics_and_rules_are_sampled_at_model_frame_rate() -> None:
-    steps = []
-
-    def integrate(state, command, dt_s, config):
-        steps.append((command, dt_s))
-        return replace(state, x_m=state.x_m + command.throttle * dt_s)
-
-    class TimedRules(_Rules):
-        elapsed = 0.0
-
-        def advance_frames(self, trajectory, frame_interval_s):
-            frames = []
-            for state in trajectory.vehicle_states:
-                self.elapsed += frame_interval_s
-                frames.append((state.x_m, self.elapsed))
-            return GameUpdate(tuple(frames))
-
-    rules = TimedRules()
-    simulation = EgoVehicleKinematics(
-        initial_state=_state(),
-        vehicle_config=VehicleConfig(),
-        ground_snapper=None,
-        initial_timestamp_us=1_700_000_000_000_000,
-        integrate_fn=integrate,
-    )
-    engine = GameEngine(
-        simulation=simulation,
-        rules=rules,
-        condition_renderer=_Renderer(),
-        frame_interval_s=1 / 30,
-        physics_frame_interval_s=1 / 120,
-    )
-    timestamps = []
-    commands = (DriverCommand(throttle=0.5, steer=-0.25),) * 8
-    for _ in range(3):
-        result = engine.step(commands)
-        assert result.condition.hdmap_bvtchw.shape[2] == len(result.game_frames) == 8
-        assert result.trajectory.applied_commands == commands
-        assert result.game_frames[-1] == (simulation.current_state.x_m, rules.elapsed)
-        timestamps.extend(result.trajectory.timestamps_us)
-    expected_ticks = 3 * 8 * 4
-    assert len(steps) == expected_ticks
-    assert all(command == commands[0] and dt == 1 / 120 for command, dt in steps)
-    assert rules.elapsed == pytest.approx(expected_ticks / 120)
-    assert simulation.current_state.x_m == pytest.approx(0.5 * expected_ticks / 120)
-    assert timestamps[-1] - 1_700_000_000_000_000 == round(
-        (expected_ticks - 1) / 120 * 1_000_000
-    )
-    assert np.all(np.diff(timestamps) > 0)
-
-
-def test_substeps_preserve_spawn_and_retain_collisions_between_output_frames() -> None:
-    class CollisionSimulation(_Simulation):
-        def pose_chunk(self, **kwargs):
-            trajectory = super().pose_chunk(**kwargs)
-            return replace(
-                trajectory,
-                actor_collision_detected=True,
-                actor_collision_frame_index=2,
-                static_collision_detected=True,
-                static_collision_frame_index=6,
-            )
-
-    engine = GameEngine(
-        simulation=CollisionSimulation(),
-        rules=_Rules(),
-        condition_renderer=_Renderer(),
-        frame_interval_s=1 / 30,
-        physics_frame_interval_s=1 / 120,
-        preserve_initial_frame=True,
-    )
-    result = engine.step((DriverCommand(),) * 5)
-    assert result.simulation_frame_indices == (0, 4, 8, 12, 16)
-    assert result.trajectory.vehicle_states[0].x_m == 0
-    assert result.trajectory.actor_collision_detected
-    assert result.trajectory.actor_collision_frame_index == 1
-    assert result.trajectory.static_collision_frame_index == 2
-    following = engine.step((DriverCommand(),) * 8)
-    assert following.simulation_frame_indices == tuple(range(3, 32, 4))

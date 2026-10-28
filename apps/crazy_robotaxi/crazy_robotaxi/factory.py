@@ -47,9 +47,8 @@ def build_taxi_engine(
     race_times_path: Path | None = None,
     actor_controllers: tuple[PhysicsActorController, ...] = (),
     live_edit: LiveEditConfig = LiveEditConfig(),
-    render_conditioning: bool = True,
 ) -> GameEngine:
-    """Construct mutable Taxi subsystems on their owning thread."""
+    """Construct every mutable Taxi subsystem on the calling model thread."""
     if scene.game_map is None:
         raise ValueError("Crazy Robotaxi requires a compiled semantic game map")
     scene_data = load_scene_data(scene)
@@ -140,17 +139,13 @@ def build_taxi_engine(
         rules = TaxiGameRules(controller)
     if live_edit_gameplay is not None:
         rules = LiveEditGameRules(rules, live_edit_gameplay)
-    renderer = None
-    if render_conditioning:
-        renderer = LudusConditionRenderer(raster, bev, device=device)
-        renderer.load_scene(scene)
+    renderer = LudusConditionRenderer(raster, bev, device=device)
+    renderer.load_scene(scene)
     engine = GameEngine(
         simulation=simulation,
         rules=rules,
         condition_renderer=renderer,
         frame_interval_s=frame_interval_s,
-        physics_frame_interval_s=1.0 / 120.0,
-        preserve_initial_frame=True,
     )
     setattr(engine, "live_edit", live_edit_gameplay)
     return engine

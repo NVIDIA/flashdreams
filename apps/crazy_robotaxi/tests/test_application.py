@@ -22,11 +22,7 @@ from crazy_robotaxi.application import (
     _fit_bev_renderer_to_ui,
     _parser,
 )
-from crazy_robotaxi.controls import (
-    BoundActionState,
-    ControlsConfig,
-    taxi_driver_command,
-)
+from crazy_robotaxi.controls import BoundActionState, ControlsConfig
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
 from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import GameSelection
@@ -48,6 +44,8 @@ from crazy_robotaxi.session import (
     CrazyRobotaxiModelLoop,
     CrazyRobotaxiSession,
     ModelState,
+    _pace_realtime_chunk,
+    _taxi_driver_command,
 )
 from crazy_robotaxi.settings import (
     SETTING_CLI_FLAGS,
@@ -608,8 +606,6 @@ def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
         session_desc = SessionDesc()
 
         def __init__(self) -> None:
-            self.gameplay = None
-            self.generation_snapshot = snapshot
             self.driver_input = DriverInput()
             self.control_actions = BoundActionState(ControlsConfig())
 
@@ -633,7 +629,7 @@ def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
         loop.step(0, UserInputEvents([pressed]))
 
 
-def test_model_does_not_consume_gameplay_input_again() -> None:
+def test_model_input_is_applied_before_rollout_work() -> None:
     class InputOrderVerified(Exception):
         pass
 
@@ -647,7 +643,7 @@ def test_model_does_not_consume_gameplay_input_again() -> None:
             self.control_actions = BoundActionState(ControlsConfig())
 
         def ensure_rollout(self) -> None:
-            assert self.driver_input.command().throttle == 0.0
+            assert self.driver_input.command().throttle == 1.0
             raise InputOrderVerified
 
     pressed = KeyboardUserInputEvent(
@@ -660,6 +656,45 @@ def test_model_does_not_consume_gameplay_input_again() -> None:
 
     with pytest.raises(InputOrderVerified):
         loop.step(0, UserInputEvents([pressed]))
+
+
+@pytest.mark.parametrize(
+    ("frame_count", "model_step_wall_ms", "expected_duration_ms", "expected_wait_s"),
+    [
+        (8, 100.0, 800.0 / 3.0, 1.0 / 6.0),
+        (4, 100.0, 400.0 / 3.0, 1.0 / 30.0),
+        (8, 300.0, 800.0 / 3.0, None),
+    ],
+)
+def test_pace_realtime_chunk_waits_for_remaining_frame_budget(
+    frame_count: int,
+    model_step_wall_ms: float,
+    expected_duration_ms: float,
+    expected_wait_s: float | None,
+) -> None:
+    class RecordingEvent:
+        def __init__(self) -> None:
+            self.waits: list[float] = []
+
+        def wait(self, timeout: float) -> None:
+            self.waits.append(timeout)
+
+    event = RecordingEvent()
+
+    chunk_duration_ms, realtime_margin_ms = _pace_realtime_chunk(
+        cast(threading.Event, event),
+        frame_count=frame_count,
+        frames_per_second=30,
+        model_step_wall_ms=model_step_wall_ms,
+    )
+
+    assert chunk_duration_ms == pytest.approx(expected_duration_ms)
+    assert realtime_margin_ms == pytest.approx(
+        expected_duration_ms - model_step_wall_ms
+    )
+    assert event.waits == (
+        [] if expected_wait_s is None else [pytest.approx(expected_wait_s)]
+    )
 
 
 def test_taxi_space_key_restores_handbrake_over_shared_input_mapping() -> None:
@@ -676,7 +711,7 @@ def test_taxi_space_key_restores_handbrake_over_shared_input_mapping() -> None:
         ),
     )
 
-    command = taxi_driver_command(driver_input.command())
+    command = _taxi_driver_command(driver_input.command())
 
     assert command.handbrake
     assert not command.stop
@@ -686,7 +721,7 @@ def test_taxi_keyboard_restores_arcade_brake_reverse() -> None:
     driver_input = DriverInput(pressed_keys={"a", "s"})
     vehicle = TaxiVehicleConfig()
 
-    command = taxi_driver_command(driver_input.command())
+    command = _taxi_driver_command(driver_input.command())
 
     assert vehicle.steer_rate_rad_per_s == pytest.approx(3.5 * vehicle.max_steer_rad)
     assert vehicle.steer_return_rate_rad_per_s == pytest.approx(
@@ -756,11 +791,6 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
         last_pose=np.eye(4, dtype=np.float32),
         prewarm_complete=True,
         game_selected=True,
-        generation_snapshot=snapshot,
-        gameplay=cast(
-            Any,
-            SimpleNamespace(close=lambda: None, timeline=SimpleNamespace(latest=None)),
-        ),
     )
     loop = CrazyRobotaxiModelLoop()
     loop.state = state
@@ -861,7 +891,6 @@ def test_adapter_dimensions_configure_renderer_geometry(
     monkeypatch.setattr(
         "crazy_robotaxi.session.WorldModelRollout", lambda **_: SimpleNamespace()
     )
-    monkeypatch.setattr(ModelState, "start_gameplay", lambda self: None)
     configured: list[object] = []
     raster_sizes: list[tuple[int, int]] = []
 
@@ -1081,7 +1110,6 @@ def test_model_state_prewarms_neutral_blocks_once_then_resets(monkeypatch) -> No
             return
 
     monkeypatch.setattr("crazy_robotaxi.session.WorldModelRollout", FakeRollout)
-    monkeypatch.setattr(ModelState, "start_gameplay", lambda self: None)
     app = _application(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
@@ -1359,7 +1387,6 @@ def test_cli_selection_starts_game_with_or_without_ui(
     monkeypatch.setattr(
         "crazy_robotaxi.session.WorldModelRollout", lambda **_: SimpleNamespace()
     )
-    monkeypatch.setattr(ModelState, "start_gameplay", lambda self: None)
     app = _application(
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: _scene(),
@@ -1549,9 +1576,6 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     closed = []
     debug_enabled = []
 
-    from omnidreams_game_engine.engine import EngineStep, SimulationStep
-    from omnidreams_game_engine.types import ConditionBatch, TrajectoryChunk
-
     def engine_step(commands):
         start = len(applied)
         applied.extend(commands)
@@ -1560,15 +1584,11 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         hdmap = torch.zeros(1, 1, count, 3, 4, 8)
         for index in range(count):
             hdmap[:, :, index] = (start + index) / 10 - 1
-        return SimulationStep(
+        return SimpleNamespace(
             metrics={},
             game_frames=tuple(snapshot for i in range(count)),
-            trajectory=TrajectoryChunk(
-                timestamps_us=np.rint(
-                    np.arange(start, start + count) * 1e6 / 120
-                ).astype(np.int64),
-                boundary_state_after_chunk=vehicles[-1],
-                applied_commands=tuple(commands),
+            trajectory=SimpleNamespace(
+                timestamps_us=np.arange(start, start + count) * 33333,
                 rig_poses_world=np.repeat(
                     np.eye(4, dtype=np.float32)[None], count, axis=0
                 ),
@@ -1596,41 +1616,29 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
                     for v in vehicles
                 ),
             ),
+            condition=SimpleNamespace(hdmap_bvtchw=hdmap, bev_tchw=None),
         )
 
-    def render(recorded):
-        count = len(recorded.game_frames)
-        hdmap = torch.zeros(1, 1, count, 3, 4, 8)
-        for i, vehicle in enumerate(recorded.trajectory.vehicle_states):
-            hdmap[:, :, i] = vehicle.x_m / 10 - 1
-        return EngineStep(
-            recorded.trajectory, recorded.game_frames, ConditionBatch(hdmap)
-        )
-
-    def factory(**kwargs):
-        return SimpleNamespace(
-            current_game_frame=snapshot,
-            advance=engine_step,
-            render=render,
-            is_running=True,
-            physics_frame_interval_s=1 / 120,
-            simulation=SimpleNamespace(
-                set_physx_debug_enabled=debug_enabled.append, close=lambda: None
-            ),
-            close=lambda: closed.append(True),
-        )
-
-    monkeypatch.setattr("crazy_robotaxi.session.build_taxi_engine", factory)
+    engine = SimpleNamespace(
+        current_game_frame=snapshot,
+        step=engine_step,
+        is_running=True,
+        simulation=SimpleNamespace(set_physx_debug_enabled=debug_enabled.append),
+        close=lambda: closed.append(True),
+    )
+    monkeypatch.setattr(
+        "crazy_robotaxi.session.build_taxi_engine", lambda **kwargs: engine
+    )
     original_apply = DriverInput.apply
     read_keys = []
 
-    def apply(driver, events, **kwargs):
+    def apply(driver, events):
         read_keys.extend(
             event
             for event in events.get_events()
             if isinstance(event, KeyboardUserInputEvent)
         )
-        return original_apply(driver, events, **kwargs)
+        return original_apply(driver, events)
 
     monkeypatch.setattr(DriverInput, "apply", apply)
     encoded = {}
@@ -1710,24 +1718,24 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         json.loads(line)
         for line in (window.directory / "telemetry.jsonl").read_text().splitlines()
     ]
-    assert 0 < len(records) < len(applied)
+    assert len(records) == len(applied)
     frame_ids = [record["frame"] for record in records]
     assert all(b > a for a, b in zip(frame_ids, frame_ids[1:]))
-    physics_ticks = [record["physics_vehicle"]["x_m"] for record in records]
+    assert [record["physics_vehicle"]["x_m"] for record in records] == frame_ids
     assert [record["simulation_timestamp_us"] for record in records] == [
-        round(i * 1e6 / 120) for i in physics_ticks
+        i * 33333 for i in frame_ids
     ]
     assert any(command.throttle > 0 for command in applied)
     assert applied[-1].throttle == 0
     assert [int(event.timestamp) for event in read_keys] == [100_000, 400_000]
-    assert debug_enabled and all(debug_enabled) and closed == [True, True]
+    assert debug_enabled and all(debug_enabled) and closed == [True]
     assert (
         len(encoded["generated"])
         == len(encoded["hdmap"])
         == len(encoded["physics"])
         == len(records)
     )
-    for index, frame_id in enumerate(physics_ticks):
+    for index, frame_id in enumerate(frame_ids):
         assert int(encoded["hdmap"][index][0, 0, 0]) == pytest.approx(
             np.clip(frame_id * 12.75, 0, 255), abs=1
         )
