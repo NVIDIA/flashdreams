@@ -145,7 +145,9 @@ config classes only. CrazyRobotaxiApplication reads ``.name`` and logs
 several transformer/encoder fields unconditionally, so app-level tests
 need a real, structured pipeline config, not a real *model*."""
 
-_STUB_DEFAULTS = CrazyRobotaxiApplicationDefaults(pipeline_config=_STUB_PIPELINE_CONFIG)
+_STUB_DEFAULTS = CrazyRobotaxiApplicationDefaults(
+    pipeline_config=_STUB_PIPELINE_CONFIG, realtime_gameplay=False
+)
 
 
 def _application(
@@ -1469,7 +1471,9 @@ def test_headless_loop_presents_video_channel_and_finishes() -> None:
         has_pending_frames=lambda: False,
     )
     resets: list[str] = []
-    state = SimpleNamespace(reset=lambda: resets.append("hud"))
+    state = SimpleNamespace(
+        reset=lambda: resets.append("hud"), consume_input_events=lambda events: None
+    )
     loop = CrazyRobotaxiHeadlessUILoop()
     loop.register_session_loop_objects(
         state=cast(TaxiHudState, state),

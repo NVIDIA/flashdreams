@@ -124,8 +124,8 @@ def rig_pose_from_vehicle_state(
         y_m=state.y_m,
         z_m=state.z_m,
         yaw_rad=state.yaw_rad,
-        pitch_rad=state.pitch_rad + state.suspension_pitch_rad,
-        roll_rad=state.roll_rad + state.suspension_roll_rad,
+        pitch_rad=state.pitch_rad,
+        roll_rad=state.roll_rad,
     )
 
 

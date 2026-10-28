@@ -152,6 +152,51 @@ def write_timing_report(directory: Path) -> dict[str, Any]:
                 )
                 previous_race_event = event_key
 
+    gameplay_progress = []
+    gameplay_matches: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for path in sorted(directory.glob("gameplay-*.jsonl")):
+        rows = list(_records(path))
+        advances = [row for row in rows if row["tick"] > 0]
+        if advances:
+            sim_us = (
+                advances[-1]["simulation_timestamp_us"]
+                - advances[0]["simulation_timestamp_us"]
+            )
+            wall_us = (advances[-1]["started_ns"] - advances[0]["started_ns"]) / 1000
+            gameplay_progress.append(
+                {
+                    "source": path.name,
+                    "physics_samples": len(advances),
+                    "simulation_elapsed_s": sim_us / 1e6,
+                    "wall_elapsed_s": wall_us / 1e6,
+                    "simulation_to_wall_ratio": sim_us / wall_us
+                    if wall_us > 0
+                    else None,
+                    "physics_gap_ms": _milliseconds(
+                        [
+                            (b["started_ns"] - a["started_ns"]) / 1000
+                            for a, b in zip(advances, advances[1:])
+                        ]
+                    ),
+                    "scheduling_lag_ms": _milliseconds(
+                        [
+                            (row["started_ns"] - row["scheduled_ns"]) / 1000
+                            for row in advances
+                        ]
+                    ),
+                }
+            )
+        for row in advances:
+            transition = row.get("transition_timestamp_us")
+            if transition is not None and ready_ns is not None:
+                gameplay_matches[transition].append(
+                    {
+                        "gameplay_tick": row["tick"],
+                        "physics_started_us": (row["started_ns"] - ready_ns) / 1000,
+                        "physics_completed_us": (row["completed_ns"] - ready_ns) / 1000,
+                    }
+                )
+
     input_results = []
     for row in inputs.values():
         timestamp = row.get("timestamp_us")
@@ -160,13 +205,25 @@ def write_timing_report(directory: Path) -> dict[str, Any]:
         matches = matched.get(timestamp, [])
         ambiguous = len(timestamp_ids[timestamp]) != 1 or len(matches) > 1
         observation = matches[0] if matches and not ambiguous else {}
+        physics_matches = gameplay_matches.get(timestamp, [])
+        if gameplay_progress:
+            ambiguous = len(timestamp_ids[timestamp]) != 1 or len(physics_matches) > 1
+            physics = physics_matches[0] if physics_matches and not ambiguous else {}
+            observation = {
+                **observation,
+                "physics_started_us": None,
+                "physics_completed_us": None,
+                **physics,
+            }
+        else:
+            physics = observation
         result = {
             **row,
             **observation,
             "physics_association": "ambiguous"
             if ambiguous
             else "observed"
-            if observation
+            if physics
             else "unobserved",
         }
         for key in (
@@ -206,6 +263,7 @@ def write_timing_report(directory: Path) -> dict[str, Any]:
         "generation_adherence": "not_evaluated",
         "presentation_measurement": "selected frame metadata; not a measurement of visual response",
         "physics_progress": progress,
+        "gameplay_progress": gameplay_progress,
         "inputs": input_results,
         "rejected_inputs": rejected,
         "physics_to_first_presentation_ms": _milliseconds(presentation_age),

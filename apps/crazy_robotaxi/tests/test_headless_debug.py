@@ -986,3 +986,51 @@ def test_contact_bursts_keep_endpoints_periodic_images_and_every_video_frame(
             )
             np.testing.assert_array_equal(saved, encoder.frames[identifier])
 
+
+def test_timing_report_uses_physics_process_clock_not_generation_samples(tmp_path):
+    from crazy_robotaxi.debug_report import write_timing_report
+
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"ready_ns": 1_000_000, "complete": True, "capture_complete": True})
+    )
+    (tmp_path / "input_events.jsonl").write_text(
+        json.dumps(
+            {
+                "status": "accepted",
+                "id": "press",
+                "timestamp_us": 1000,
+                "command": {"type": "keyboard"},
+            }
+        )
+        + "\n"
+    )
+    rows: list[dict[str, int | None]] = [
+        dict(
+            tick=0,
+            simulation_timestamp_us=0,
+            started_ns=1_000_000,
+            scheduled_ns=1_000_000,
+            completed_ns=1_000_000,
+        )
+    ]
+    for tick in (1, 2):
+        rows.append(
+            dict(
+                tick=tick,
+                simulation_timestamp_us=tick * 8333,
+                started_ns=12_000_000 + (tick - 1) * 8_333_000,
+                completed_ns=13_000_000 + (tick - 1) * 8_333_000,
+                scheduled_ns=12_000_000 + (tick - 1) * 8_333_000,
+                transition_timestamp_us=1000 if tick == 1 else None,
+            )
+        )
+    (tmp_path / "gameplay-1.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows)
+    )
+    report = write_timing_report(tmp_path)
+    assert report["gameplay_progress"][0]["simulation_to_wall_ratio"] == pytest.approx(
+        1
+    )
+    assert report["inputs"][0]["scheduled_to_physics_started_ms"] == 10
+    assert report["inputs"][0]["scheduled_to_first_presentation_ms"] is None
+    assert report["inputs"][0]["physics_association"] == "observed"

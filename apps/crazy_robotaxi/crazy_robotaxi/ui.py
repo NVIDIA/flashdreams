@@ -490,6 +490,9 @@ class TaxiHudState:
     _latest_input_latency_ms: float | None = None
     """Latest UI-ingress-to-model-frame-selection latency measurement."""
 
+    gameplay: Any | None = None
+    """Process bridge supplying current gameplay independently of video."""
+
     _latest_committed_frame: TaxiHudFrame | None = None
     """Newest generated frame metadata received from the model thread."""
 
@@ -573,6 +576,8 @@ class TaxiHudState:
 
     def consume_input_events(self, events: UserInputEvents) -> None:
         """Track responsive drive state and receipt times on the UI thread."""
+        if self.gameplay is not None:
+            self.gameplay.submit_input(events)
         received = events.get_events()
         for event in received:
             if isinstance(event, FocusUserInputEvent) and not event.focused:
@@ -1342,6 +1347,18 @@ class TaxiHudState:
                 lines=(f"{self._loading_status}{dots}", f"ELAPSED  {elapsed_s}s"),
             )
             return
+        if self.gameplay is not None:
+            self.gameplay.check()
+            latest = self.gameplay.timeline.latest
+            if latest is not None:
+                hud_frame = replace(
+                    hud_frame,
+                    snapshot=latest.step.game_frames[-1],
+                    speed_mps=latest.step.trajectory.vehicle_states[-1].speed_mps,
+                    live_edit_status=latest.presentation.status
+                    if latest.presentation is not None
+                    else hud_frame.live_edit_status,
+                )
         snapshot = hud_frame.snapshot
         active = snapshot.session_state in {"playing", "awaiting_start", "racing"}
         prompt_offset = (
