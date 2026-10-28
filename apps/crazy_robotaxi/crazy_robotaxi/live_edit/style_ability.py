@@ -363,18 +363,6 @@ class StyleAbility:
         with torch.no_grad():
             self._prompt_embeddings[prompt] = text_encoder([prompt]).unsqueeze(0)
 
-    def selection(self) -> tuple[int | None, int | None]:
-        """Return desired gameplay style independently of model-cache progress."""
-        return self._skin_state(), self._weather_state()
-
-    def request_selection(self, selection: tuple[int | None, int | None]) -> None:
-        """Reconcile the model prompt with a recorded gameplay selection."""
-        skin, weather = selection
-        if skin != self._skin_state():
-            self._pending_index = skin
-        if weather != self._weather_state():
-            self._pending_weather = weather
-
     def request_cycle(self) -> None:
         """Queue base -> skin[0] -> skin[1] -> ... -> base for the next chunk.
 

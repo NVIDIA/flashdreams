@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from omnidreams_game_engine.engine import EngineStep, SimulationStep
+from omnidreams_game_engine.engine import EngineStep
 from omnidreams_game_engine.model import WorldModelRollout, _initial_image_tensor
 from omnidreams_game_engine.types import (
     CameraCalibration,
@@ -104,13 +104,6 @@ class _Engine:
             trajectory=trajectory,
             game_frames=tuple(range(count)),
             condition=ConditionBatch(torch.zeros(1, 1, count, 3, 4, 8)),
-        )
-
-    def render(self, recorded):
-        return EngineStep(
-            recorded.trajectory,
-            recorded.game_frames,
-            ConditionBatch(torch.zeros(1, 1, len(recorded.game_frames), 3, 4, 8)),
         )
 
     def close(self):
@@ -231,22 +224,3 @@ def test_observer_receives_simulation_before_failed_generation(monkeypatch):
         assert len(observed[0].trajectory.vehicle_states) == 2
     finally:
         rollout.close()
-
-
-def test_recorded_world_generation_does_not_advance_live_physics():
-    engine = _Engine()
-    commands = (DriverCommand(throttle=1),) * 2
-    simulated = engine.step(commands)
-    recorded = SimulationStep(simulated.trajectory, simulated.game_frames)
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Generation advanced live physics")
-
-    engine.step = forbidden
-    rollout = WorldModelRollout(
-        pipeline=_Pipeline(), scene=_scene(), engine_factory=lambda: engine
-    )
-    generated = rollout.step(
-        autoregressive_index=0, commands=commands, recorded_step=recorded
-    )
-    assert generated.engine.trajectory is recorded.trajectory
