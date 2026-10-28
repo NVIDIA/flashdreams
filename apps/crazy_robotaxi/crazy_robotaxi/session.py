@@ -503,6 +503,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                             if isinstance(control, HeadlessInput)
                             else None,
                             "transition_timestamp_us": transition_timestamps_us[index],
+                            "physics_started_ns": physics.physics_started_ns,
+                            "physics_completed_ns": physics.physics_completed_ns,
                             "rollout_epoch": state.rollout_epoch,
                             "simulation_timestamp_us": int(
                                 trajectory.timestamps_us[index]
@@ -536,12 +538,26 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 if isinstance(control, HeadlessInput) and control.capture is not None:
                     control.capture.observe(debug_records)
                 state.debug_frames += valid_count
+                if isinstance(control, HeadlessInput):
+                    control.delay_generation(autoregressive_index, self._shutdown_event)
 
             generated = rollout.step(
                 autoregressive_index=autoregressive_index,
                 commands=commands,
                 **({"observe_engine_step": observe} if capture else {}),
             )
+            if capture and isinstance(control, HeadlessInput):
+                control.messages.put(
+                    (
+                        None,
+                        {
+                            "status": "generation_returned",
+                            "model_step": step_index,
+                            "rollout_epoch": state.rollout_epoch,
+                            "elapsed_us": control.elapsed_us(),
+                        },
+                    )
+                )
             if trace_enabled and generated._trace is not None:
                 trace = generated._trace
                 cache_finalize_returned_ns = trace.cache_finalize_returned_ns

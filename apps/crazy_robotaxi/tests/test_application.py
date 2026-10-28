@@ -1549,6 +1549,8 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
                         vehicle_state=v,
                         actor_collision=False,
                         static_barrier_collision=False,
+                        physics_started_ns=time.monotonic_ns(),
+                        physics_completed_ns=time.monotonic_ns(),
                     )
                     for v in vehicles
                 ),
@@ -1624,7 +1626,12 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
                             str(self.directory / "control.sock"),
                         )
 
-    window = Window(tmp_path / "capture", snapshot_every=2, cpu_sample_ms=10)
+    window = Window(
+        tmp_path / "capture",
+        snapshot_every=2,
+        cpu_sample_ms=10,
+        generation_delays_ms=(120, 0),
+    )
     ApplicationRunner(app, window).run(
         app.session_desc(),
         [
@@ -1704,6 +1711,20 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     manifest = json.loads((window.directory / "manifest.json").read_text())
     assert manifest["finalized"] and manifest["frames_written"] == len(records)
     assert manifest["model_preset"] == _STUB_PIPELINE_CONFIG.name
+    report = json.loads((window.directory / "timing_summary.json").read_text())
+    assert report["generation_adherence"] == "not_evaluated"
+    assert report["generation_delays"]
+    assert report["generation_delays"][0]["requested_ms"] == 120
+    progress = report["physics_progress"][0]
+    assert progress["simulation_to_wall_ratio"] < 0.9
+    assert progress["physics_gap_ms"]["max"] >= 150
+    by_id = {row["id"]: row for row in report["inputs"]}
+    press = by_id["press"]
+    assert press["physics_association"] == "observed"
+    assert press["dispatched_us"] < press["consumed_us"] <= press["physics_started_us"]
+    assert press["scheduled_to_physics_started_ms"] > 100
+    assert press["generation_returned_us"] >= press["physics_completed_us"]
+    assert press["first_presentation_us"] >= press["generation_returned_us"]
     captured_settings = window.directory / "inputs/settings.yaml"
     assert json.loads(captured_settings.read_text()) == manifest["settings"]
     restored = SettingsDocument.load(
@@ -1753,7 +1774,8 @@ def test_live_debug_respects_ui_selection_and_runtime_input(
             "2",
             "--total-blocks",
             "2",
-            *(["--no-ui"] if no_ui else []),
+            "--debug-view",
+            "paired" if no_ui else "gameplay",
         ]
     )
     session = app.create_session(app.session_desc())
@@ -1768,6 +1790,28 @@ def test_live_debug_respects_ui_selection_and_runtime_input(
     assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
     metadata = session.session_desc.metadata[DEBUG_METADATA_KEY]
     assert metadata["input_mode"] == "runtime" and metadata["paired_views"] == no_ui
+
+
+@pytest.mark.parametrize(
+    "mode, extra, error",
+    [
+        ("robotaxi-debug", ["--ui"], "conflicts"),
+        ("native", [], "requires --mode"),
+    ],
+)
+def test_debug_view_rejects_conflicting_or_non_debug_use(tmp_path, mode, extra, error):
+    app = _application()
+    app.resolve_client_window_mode(mode)
+    with pytest.raises(ValueError, match=error):
+        app.init(
+            [
+                "--config",
+                str(tmp_path / "settings.yaml"),
+                "--debug-view",
+                "paired",
+                *extra,
+            ]
+        )
 
 
 @pytest.mark.parametrize("missing", ["--map", "--game-mode", "--race-course"])

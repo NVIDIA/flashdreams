@@ -312,6 +312,13 @@ class CrazyRobotaxiApplication(IApplication):
             if args.drive_script is None
             else load_driving_script(args.drive_script)
         )
+        if args.debug_view is not None:
+            if not self._debug_capture:
+                raise ValueError("--debug-view requires --mode robotaxi-debug")
+            debug_ui = args.debug_view == "gameplay"
+            if arg_was_explicit(args, "ui") and args.ui != debug_ui:
+                raise ValueError("--debug-view conflicts with --ui/--no-ui")
+            args.ui = debug_ui
         if self._debug_capture and driving_script is None:
             if initial_game_mode is None or initial_map_path is None:
                 raise ValueError(
@@ -821,6 +828,11 @@ def _parser(
         "--drive-script",
         type=Path,
         help="YAML timestamped events for robotaxi-debug; requires --game-mode and --map, and --race-course in race mode.",
+    )
+    parser.add_argument(
+        "--debug-view",
+        choices=("gameplay", "paired"),
+        help="robotaxi-debug view: ordinary game UI offscreen, or raw generated/conditioning pairs. Defaults to gameplay; --no-ui also selects paired.",
     )
     parser.add_argument(
         "--ui",

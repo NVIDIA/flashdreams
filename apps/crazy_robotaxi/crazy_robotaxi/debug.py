@@ -109,8 +109,10 @@ class RobotaxiLiveDebugUILoop(CrazyRobotaxiImGuiUILoop):
         self, imgui: Any, step_index: int, events: UserInputEvents
     ) -> torch.Tensor | None:
         """Retain the source identity of the ordinary offscreen UI output."""
-        output = super().step_ui(imgui, step_index, events)
         control = self.state.debug_control
+        if control is not None:
+            control.presentation_feedback = None
+        output = super().step_ui(imgui, step_index, events)
         if control is not None:
             frame = self.state._current
             control.presentation_source = (
@@ -137,9 +139,11 @@ class RobotaxiDebugWindow(IClientWindow):
         clock_ns: Callable[[], int] = time.monotonic_ns,
         capture_images: bool = True,
         strict: bool = False,
+        generation_delays_ms: tuple[float, ...] = (0.0,),
     ) -> None:
         self.capture_images = capture_images
         self.strict = strict
+        self.generation_delays_ms = generation_delays_ms
         self.recorder: CaptureRecorder | None = None
         self._input_status: dict[str, str] = {}
         self.directory = directory
@@ -168,6 +172,7 @@ class RobotaxiDebugWindow(IClientWindow):
         metadata = session_desc.metadata[DEBUG_METADATA_KEY]
         self._paired_views = metadata.get("paired_views", False)
         self.control = session_desc.metadata.get(DEBUG_CONTROL_KEY, self.control)
+        self.control.generation_delays_ms = self.generation_delays_ms
         if session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("Debug capture requires tchw output")
         if session_desc.video_width % 2 or session_desc.video_height % 2:
@@ -325,7 +330,11 @@ class RobotaxiDebugWindow(IClientWindow):
                 )
             }
         )
-        output = None if self._paired_views else result.read_output()
+        output = (
+            None
+            if self._paired_views or not self.capture_images
+            else result.read_output()
+        )
         if output is not None:
             self._presentation_size = int(output.shape[-1]), int(output.shape[-2])
         self.recorder.present(
@@ -335,6 +344,7 @@ class RobotaxiDebugWindow(IClientWindow):
                 "session_time_s": (now_ns - self._started_ns) / 1e9,
                 "elapsed_us": self.control.elapsed_us(),
                 "source": identity,
+                "hud_feedback": self.control.presentation_feedback,
             },
             output,
         )
@@ -355,6 +365,9 @@ class RobotaxiDebugWindow(IClientWindow):
             (self.directory / "control.sock").unlink(missing_ok=True)
         if self._desc is not None:
             self._write_manifest()
+            from crazy_robotaxi.debug_report import write_timing_report
+
+            write_timing_report(self.directory)
         if (
             self.strict
             and self.recorder is not None
@@ -366,7 +379,7 @@ class RobotaxiDebugWindow(IClientWindow):
         assert self._desc is not None
         metadata = self._desc.metadata[DEBUG_METADATA_KEY]
         manifest = {
-            "format_version": 4,
+            "format_version": 5,
             **{name: value for name, value in metadata.items() if name != "map_source"},
             "presentation_mode": self._desc.presentation_mode.value,
             "backpressure_mode": self._desc.backpressure_mode.value,
@@ -381,6 +394,9 @@ class RobotaxiDebugWindow(IClientWindow):
             else ["generated", "hdmap", "physics"],
             "clock": "microseconds since gameplay ready (monotonic wall time)",
             "cpu_sample_ms": self._cpu_sample_ns / 1_000_000,
+            "debug_view": "paired" if self._paired_views else "gameplay",
+            "generation_delays_ms": self.generation_delays_ms,
+            "ready_ns": self.control.ready_ns,
             "model_native_thread_id": self.control.native_thread_id,
         }
         if self.recorder is not None:
@@ -457,6 +473,13 @@ class RobotaxiDebugMode(ClientWindowMode):
             default=0,
             help="Sample model-thread Python stacks from the UI every N ms (0 disables).",
         )
+        parser.add_argument(
+            "--debug-generation-delay-ms",
+            type=float,
+            nargs="+",
+            default=[0.0],
+            help="Additional wait before generation, in ms. One value is constant; multiple values repeat per chunk after warmup. Does not simulate CPU/GPU contention.",
+        )
 
     def check_arguments(self, parsed_args: argparse.Namespace) -> None:
         if parsed_args.debug_output_dir is None:
@@ -474,6 +497,13 @@ class RobotaxiDebugMode(ClientWindowMode):
             raise ValueError("--debug-cpu-sample-ms must be finite and nonnegative")
         if parsed_args.debug_capture_images and shutil.which("ffmpeg") is None:
             raise ValueError("robotaxi-debug requires ffmpeg on PATH")
+        if any(
+            not math.isfinite(value) or value < 0
+            for value in parsed_args.debug_generation_delay_ms
+        ):
+            raise ValueError(
+                "--debug-generation-delay-ms must be finite and nonnegative"
+            )
 
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
         self.check_arguments(parsed_args)
@@ -483,6 +513,7 @@ class RobotaxiDebugMode(ClientWindowMode):
             cpu_sample_ms=parsed_args.debug_cpu_sample_ms,
             capture_images=parsed_args.debug_capture_images,
             strict=parsed_args.debug_strict_capture,
+            generation_delays_ms=tuple(parsed_args.debug_generation_delay_ms),
         )
 
     def finished(self, client_window: IClientWindow) -> str:

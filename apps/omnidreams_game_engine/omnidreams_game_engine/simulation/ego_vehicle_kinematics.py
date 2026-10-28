@@ -366,6 +366,11 @@ def sample_chunk_trajectory(
     for frame_idx in range(chunk_size):
         command = commands[frame_idx]
         use_start_state = include_start_state and frame_idx == 0
+        physics_started_ns = (
+            time.monotonic_ns()
+            if capture_physics_debug and not use_start_state
+            else None
+        )
         if not use_start_state:
             state = integrate_fn(
                 state, command, chunk_config.frame_interval_s, vehicle_config
@@ -429,6 +434,12 @@ def sample_chunk_trajectory(
                 physics_debug_frames.append(physics_world.debug_frame(state))
         if ground_snapper is not None:
             state = ground_snapper.snap(state, vehicle_config)
+        if physics_world is not None and capture_physics_debug and not use_start_state:
+            physics_debug_frames[-1] = replace(
+                physics_debug_frames[-1],
+                physics_started_ns=physics_started_ns,
+                physics_completed_ns=time.monotonic_ns(),
+            )
         vehicle_states.append(state)
         poses[frame_idx] = rig_pose_from_vehicle_state(state)
 

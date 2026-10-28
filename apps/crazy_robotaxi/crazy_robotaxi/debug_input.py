@@ -74,12 +74,16 @@ class HeadlessInput:
 
     def __init__(self, clock_ns: Callable[[], int] = time.monotonic_ns) -> None:
         self.presentation_source: dict[str, Any] | None = None
+        self.presentation_feedback: dict[str, Any] | None = None
+        """Values submitted to the ordinary HUD draw calls on this UI tick."""
         self.capture: CaptureRecorder | None = None
         self.termination_reason: str | None = None
         self.clock_ns = clock_ns
         self.ready_ns: int | None = None
         self.model_ident: int | None = None
         self.native_thread_id: int | None = None
+        self.generation_delays_ms: tuple[float, ...] = (0.0,)
+        """Repeating additional generation waits; configured before the session starts."""
         self.messages: SimpleQueue[tuple[str | None, dict[str, Any]]] = SimpleQueue()
         self._lock = threading.RLock()
         self._seen: set[str] = set()
@@ -90,6 +94,31 @@ class HeadlessInput:
         """Return elapsed gameplay wall time, or ``None`` during loading."""
         return (
             None if self.ready_ns is None else (self.clock_ns() - self.ready_ns) // 1000
+        )
+
+    def delay_generation(self, chunk: int, stop: threading.Event) -> None:
+        """Delay a captured chunk after conditioning, without delaying UI dispatch.
+
+        This simulates slow output availability, not CPU/GPU contention. Warmup
+        does not call this hook. Shutdown interrupts the additional wait.
+        """
+        delay_ms = self.generation_delays_ms[chunk % len(self.generation_delays_ms)]
+        if delay_ms == 0:
+            return
+        started = self.elapsed_us()
+        interrupted = stop.wait(delay_ms / 1000)
+        self.messages.put(
+            (
+                None,
+                {
+                    "status": "generation_delay",
+                    "autoregressive_index": chunk,
+                    "requested_ms": delay_ms,
+                    "started_us": started,
+                    "completed_us": self.elapsed_us(),
+                    "interrupted": interrupted,
+                },
+            )
         )
 
     def start(self) -> None:
