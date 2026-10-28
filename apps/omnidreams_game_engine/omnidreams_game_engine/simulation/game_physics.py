@@ -361,6 +361,7 @@ class GamePhysicsWorld:
         started_at = time.perf_counter()
         self._vehicle = vehicle
         self._ground_sampler = ground_snapper
+        self.last_step_ground_surface: tuple[float, np.ndarray] | None = None
         if (
             scene.ground_mesh_vertices is not None
             and scene.ground_mesh_faces is not None
@@ -1144,6 +1145,7 @@ class GamePhysicsWorld:
                 float(rig_position[0]), float(rig_position[1]), float(rig_position[2])
             )
         )
+        self.last_step_ground_surface = ground
         ground_height, normal = (
             ground if ground is not None else (0.0, np.asarray([0.0, 0.0, 1.0]))
         )
