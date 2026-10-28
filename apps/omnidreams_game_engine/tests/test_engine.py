@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 from typing import cast
 
@@ -24,6 +24,7 @@ from omnidreams_game_engine.simulation.game_physics import (
     GamePhysicsWorld,
     PhysicsBridgeTimings,
 )
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import (
     ConditionBatch,
     DriverCommand,
@@ -179,6 +180,56 @@ def test_trajectory_sampling_copies_slotted_start_state() -> None:
     assert trajectory.vehicle_states[0] == start_state
     assert trajectory.vehicle_states[0] is not start_state
     assert trajectory.boundary_state_after_chunk is trajectory.vehicle_states[0]
+
+
+@pytest.mark.parametrize("physical", [False, True])
+@pytest.mark.parametrize("include_start", [False, True])
+@pytest.mark.parametrize("grade", [-0.24, -0.12, 0.12, 0.24])
+def test_camera_preserves_physical_hill_pose(physical, include_start, grade) -> None:
+    vertices = np.asarray(
+        [
+            [-20, -20, -20 * grade],
+            [20, -20, 20 * grade],
+            [20, 20, 20 * grade],
+            [-20, 20, -20 * grade],
+        ],
+        dtype=np.float32,
+    )
+    ground = GroundSnapper(
+        vertices,
+        np.asarray([[0, 1, 2], [0, 2, 3]], dtype=np.int32),
+        max_absolute_rotation_deg=10,
+        invalid_sample_handler=lambda state: replace(state, pitch_rad=0),
+    )
+    state = replace(_state(), pitch_rad=-float(np.arctan(grade)) + 0.02)
+    physics = SimpleNamespace(
+        entities=(),
+        synchronize_window=lambda *args, **kwargs: None,
+        build_trajectories=lambda *args: (),
+    )
+    trajectory = sample_chunk_trajectory(
+        start_state=state,
+        start_timestamp_us=0,
+        commands=(DriverCommand(),) * 2,
+        chunk_size=2,
+        chunk_config=ChunkConfig(),
+        vehicle_config=VehicleConfig(),
+        ground_snapper=ground,
+        physics_world=cast(GamePhysicsWorld, physics) if physical else None,
+        physics_step_fn=lambda *args: (state, ()),
+        include_start_state=include_start,
+    )
+    expected = state if physical else ground.snap(state, VehicleConfig())
+    if not physical:
+        assert expected.pitch_rad != state.pitch_rad
+    for actual, pose in zip(
+        trajectory.vehicle_states, trajectory.rig_poses_world, strict=True
+    ):
+        assert actual.pitch_rad == pytest.approx(expected.pitch_rad)
+        assert actual.z_m == pytest.approx(expected.z_m)
+        np.testing.assert_allclose(
+            pose, rig_pose_from_vehicle_state(expected), atol=1e-6
+        )
 
 
 def test_trajectory_sampling_aggregates_physics_bridge_timings() -> None:
