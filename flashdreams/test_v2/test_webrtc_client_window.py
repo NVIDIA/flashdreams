@@ -7,6 +7,7 @@
 
 import asyncio
 import concurrent.futures
+import gzip
 import json
 import threading
 import time
@@ -176,7 +177,10 @@ async def test_token_stream_asset_route_serves_published_keys_with_types(
     onnx = tmp_path / "taehv_decoder.fp32.onnx"
     onnx.write_bytes(b"onnx-bytes")
     wasm = tmp_path / "rt.wasm"
-    wasm.write_bytes(b"\x00asm\x01\x00\x00\x00")
+    wasm_body = b"\x00asm\x01\x00\x00\x00" * 64
+    wasm.write_bytes(wasm_body)
+    # A pre-gzipped sibling, as ensure_ort_runtime writes alongside each file.
+    (tmp_path / "rt.wasm.gz").write_bytes(gzip.compress(wasm_body))
     mjs = tmp_path / "rt.mjs"
     mjs.write_bytes(b"export const ok = 1\n")
     assets = {
@@ -184,6 +188,7 @@ async def test_token_stream_asset_route_serves_published_keys_with_types(
         "ort/1.20.1/ort-wasm-simd-threaded.jsep.wasm": str(wasm),
         "ort/1.20.1/ort-wasm-simd-threaded.jsep.mjs": str(mjs),
     }
+    wasm_path = "api/token-stream/assets/ort/1.20.1/ort-wasm-simd-threaded.jsep.wasm"
     window = WebRTCClientWindow()
     window.open(replace(_session_desc(), metadata={"token_stream_assets": assets}))
     try:
@@ -194,12 +199,26 @@ async def test_token_stream_asset_route_serves_published_keys_with_types(
             ) as ok:
                 assert ok.status == 200
                 assert await ok.read() == b"onnx-bytes"
+                # Versioned URLs are immutable, so they carry a long cache header.
+                assert "immutable" in ok.headers["Cache-Control"]
+            # WASM with a .gz sibling is served gzip-compressed, typed app/wasm.
             async with client.get(
-                f"{base}api/token-stream/assets/"
-                "ort/1.20.1/ort-wasm-simd-threaded.jsep.wasm"
+                f"{base}{wasm_path}",
+                headers={"Accept-Encoding": "gzip"},
+                auto_decompress=False,
             ) as served_wasm:
                 assert served_wasm.status == 200
+                assert served_wasm.headers["Content-Encoding"] == "gzip"
                 assert served_wasm.headers["Content-Type"] == "application/wasm"
+                assert gzip.decompress(await served_wasm.read()) == wasm_body
+            # A client that does not accept gzip gets the raw bytes.
+            async with client.get(
+                f"{base}{wasm_path}", headers={"Accept-Encoding": "identity"}
+            ) as raw_wasm:
+                assert raw_wasm.status == 200
+                assert "Content-Encoding" not in raw_wasm.headers
+                assert await raw_wasm.read() == wasm_body
+            # MJS has no .gz sibling: served raw, typed text/javascript.
             async with client.get(
                 f"{base}api/token-stream/assets/"
                 "ort/1.20.1/ort-wasm-simd-threaded.jsep.mjs"
@@ -831,6 +850,7 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                     "client_connected": False,
                     "hide_cursor": False,
                     "lock_cursor_to_window": False,
+                    "token_stream": False,
                 }
             async with client.get(window.server.url) as response:
                 browser_page = await response.text()

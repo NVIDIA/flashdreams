@@ -32,9 +32,20 @@ EXTRA_HEADER_METADATA_KEY = "token_stream_extra_header"
 #: Content types the asset route sets explicitly by extension. A ``.wasm`` served
 #: as octet-stream breaks ``WebAssembly.instantiateStreaming`` and a ``.mjs``
 #: without a JavaScript type breaks module loading, and the stdlib ``mimetypes``
-#: table that ``FileResponse`` consults does not reliably carry either; anything
-#: not listed here keeps ``FileResponse``'s own guess.
-ASSET_CONTENT_TYPES = {".wasm": "application/wasm", ".mjs": "text/javascript"}
+#: table that ``FileResponse`` consults does not reliably carry either; the type
+#: is also required to label a pre-gzipped ``*.gz`` sibling (whose extension is
+#: ``.gz``, not the real type). Anything not listed keeps ``FileResponse``'s guess.
+ASSET_CONTENT_TYPES = {
+    ".wasm": "application/wasm",
+    ".mjs": "text/javascript",
+    ".js": "text/javascript",
+}
+
+#: Cache header for the versioned token-stream assets. Their URLs carry the
+#: artifact / runtime version, so a given URL's bytes never change -- the browser
+#: may cache them indefinitely, matching the immutable copy the onnxruntime-web
+#: CDN served before these were hosted same-origin.
+ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 
 @dataclass
