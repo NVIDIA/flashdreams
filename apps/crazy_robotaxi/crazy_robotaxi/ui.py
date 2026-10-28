@@ -1643,6 +1643,8 @@ class TaxiHudState:
         font = self._gameplay_overlay_font(imgui)
         font_size = max(28.0, min(76.0, float(self.height) * 0.12))
         speed = str(round(abs(float(speed_mps)) * _MPS_TO_MPH))
+        if self.debug_control is not None:
+            self.debug_control.presentation_feedback = {"speed_mph": int(speed)}
         speed_width, speed_height = _overlay_text_size(
             imgui, speed, font_size, font=font
         )
