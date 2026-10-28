@@ -18,7 +18,9 @@ pinned version, upstream URL, and redistribution belong in THIRD-PARTY-NOTICES
 
 from __future__ import annotations
 
+import gzip
 import hashlib
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -78,6 +80,20 @@ def _sha256_validator(expected: str) -> Callable[[Path], None]:
     return _validate
 
 
+def _ensure_gzip(path: Path) -> None:
+    """Write a gzip sibling ``<name>.gz`` the asset route can serve compressed.
+
+    The runtime is served same-origin, so (unlike the CDN) nothing compresses the
+    ~22 MB wasm on the wire; a pre-gzipped copy recovers most of that. Idempotent:
+    skips when an up-to-date ``.gz`` already exists.
+    """
+    gzipped = path.with_name(path.name + ".gz")
+    if gzipped.exists() and gzipped.stat().st_mtime >= path.stat().st_mtime:
+        return
+    with open(path, "rb") as source, gzip.open(gzipped, "wb", compresslevel=6) as dest:
+        shutil.copyfileobj(source, dest)
+
+
 def ensure_ort_runtime() -> tuple[dict[str, Any], dict[str, str]]:
     """Prefetch the pinned onnxruntime-web dist and describe it for the client.
 
@@ -104,6 +120,7 @@ def ensure_ort_runtime() -> tuple[dict[str, Any], dict[str, str]]:
             validator=_sha256_validator(expected_sha),
             timeout=120.0,
         )
+        _ensure_gzip(local)
         routes[_served_path(filename)] = str(local)
 
     descriptor = {

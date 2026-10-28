@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import os
 import secrets
 import socket
 import threading
@@ -42,6 +43,7 @@ from flashdreams.runtime_v2.serving.token_stream import (
     TokenFrameEmitter,
 )
 from flashdreams.runtime_v2.serving.token_stream.config import (
+    ASSET_CACHE_CONTROL,
     ASSET_CONTENT_TYPES,
     ASSET_METADATA_KEY,
     ASSET_URL_PREFIX,
@@ -1076,9 +1078,7 @@ class WebRTCServer:
         app = web.Application()
         app.router.add_get("/", self._serve_browser)
         app.router.add_get("/app.js", self._serve_browser_script)
-        app.router.add_get(
-            "/token_stream/{path:.+}", self._serve_token_stream_module
-        )
+        app.router.add_get("/token_stream/{path:.+}", self._serve_token_stream_module)
         app.router.add_get("/healthz", self._health)
         app.router.add_post("/api/webrtc/offer", self._offer)
         app.router.add_get("/api/token-stream", self._token_stream_ws)
@@ -1147,11 +1147,22 @@ class WebRTCServer:
         local = assets.get(request.match_info["path"])
         if local is None:
             raise web.HTTPNotFound()
+        # The URL is version-stamped, so its bytes never change: cache forever.
+        headers = {"Cache-Control": ASSET_CACHE_CONTROL}
         # Set a correct type for assets the stdlib mimetypes table serves wrong
-        # (.wasm/.mjs); FileResponse keeps its own guess for everything else.
+        # (.wasm/.mjs/.js); also required to label a pre-gzipped .gz sibling.
         suffix = local[local.rfind(".") :] if "." in local else ""
         content_type = ASSET_CONTENT_TYPES.get(suffix)
-        headers = {"Content-Type": content_type} if content_type else None
+        if content_type:
+            headers["Content-Type"] = content_type
+        # Serve the pre-gzipped sibling when the client accepts it: a same-origin
+        # host has no CDN compression, and the ORT wasm is ~22 MB raw.
+        gzipped = f"{local}.gz"
+        if "gzip" in request.headers.get("Accept-Encoding", "") and os.path.exists(
+            gzipped
+        ):
+            headers["Content-Encoding"] = "gzip"
+            return web.FileResponse(gzipped, headers=headers)
         return web.FileResponse(local, headers=headers)
 
     async def _health(self, _: web.Request) -> web.Response:
@@ -1163,8 +1174,7 @@ class WebRTCServer:
                 "hide_cursor": self._hide_cursor,
                 "lock_cursor_to_window": self._lock_cursor_to_window,
                 "token_stream": (
-                    self._session_desc is not None
-                    and self._session_desc.token_stream
+                    self._session_desc is not None and self._session_desc.token_stream
                 ),
             }
         )
