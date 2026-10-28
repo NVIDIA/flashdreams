@@ -1606,6 +1606,15 @@ __global__ void polylineGeometryKernel(
 // single-threaded geometry generation (same as polylineGeometryKernel).
 //------------------------------------------------------------------------
 
+// Plane metadata is optional: non-surface geometry retains its two-sided view.
+static __device__ float surface_side(
+    const float* planes, uint32_t offset, int vertex, float3 camera)
+{
+    if (!offset) return 1.0f;
+    const float* plane = planes + offset - 1 + vertex * 4;
+    return plane[0]*camera.x + plane[1]*camera.y + plane[2]*camera.z + plane[3];
+}
+
 __global__ void polylinePoolKernel(
     const TsPolylinePoolHeader* __restrict__ poolHeaders, int numPools,
     const int64_t* __restrict__ allTimestamps,
@@ -1661,6 +1670,8 @@ __global__ void polylinePoolKernel(
     if (numPts < 1) return;
 
     uint32_t packedColor = get_prim_color_packed(pool.prim_type_id, params);
+    uint32_t planes = params.cameraTypeId == CAMERA_TYPE_BEV ? 0 : pool.surface_planes_offset;
+    float3 camera = cube_cam_world(poseData);
 
     // Dot primitives: render each vertex as a hexagon
     if (is_dot_primitive(pool.prim_type_id)) {
@@ -1673,6 +1684,8 @@ __global__ void polylinePoolKernel(
             // hexagon drawn where the projection puts it instead is the one
             // thing on screen that was never on the road.
             if (params.cullBehindCamera && camera_depth(wp, poseData) <= NEAR_DEPTH)
+                continue;
+            if (surface_side(allFloats, planes, vStart + di, camera) < 0.0f)
                 continue;
             float4 clip = ftheta_project(wp, poseData, camData);
             float w = fmaxf(fabsf(clip.w), 1e-6f);
@@ -1760,6 +1773,7 @@ __global__ void polylinePoolKernel(
     float prev_sx = 0.0f, prev_sy = 0.0f;
     float4 capClip[2];
     float capDx[2], capDy[2], capHW[2];
+    bool capVisible[2], previousVisible = true;
 
     for (int seg = 0; seg < numSegs; seg++) {
         const Vertex& va = allVertices[pool.vertices_offset + vStart + seg];
@@ -1770,6 +1784,8 @@ __global__ void polylinePoolKernel(
         int level = compute_subdiv_level(error, params.tessellationThreshold, maxTessLvl);
         int N = 1 << level;
 
+        float side0 = surface_side(allFloats, planes, vStart + seg, camera);
+        float side1 = surface_side(allFloats, planes, vStart + seg + 1, camera);
         int sub_start = (seg == 0) ? 0 : 1;
         for (int j = sub_start; j <= N; j++) {
             float t = (float)j / (float)N;
@@ -1786,6 +1802,7 @@ __global__ void polylinePoolKernel(
                 else wp = pulled_to_near(anchor, wp, poseData);
             }
 
+            bool visible = side0 + t * (side1 - side0) >= 0.0f;
             float4 clip = ftheta_project(wp, poseData, camData);
             float w = fmaxf(fabsf(clip.w), 0.001f);
             float curr_sx = (clip.x / w * 0.5f + 0.5f) * img_w;
@@ -1850,10 +1867,10 @@ __global__ void polylinePoolKernel(
             // Only where the line ends and which way it was going: the cap
             // builds its own perpendicular, in the convention it is drawn in.
             if (ept == 0) {
-                capClip[0]=clip; capDx[0]=dx; capDy[0]=dy; capHW[0]=scaled_hw;
+                capClip[0]=clip; capDx[0]=dx; capDy[0]=dy; capHW[0]=scaled_hw; capVisible[0]=visible;
             }
             if (ept == totalEffPts - 1) {
-                capClip[1]=clip; capDx[1]=dx; capDy[1]=dy; capHW[1]=scaled_hw;
+                capClip[1]=clip; capDx[1]=dx; capDy[1]=dy; capHW[1]=scaled_hw; capVisible[1]=visible;
             }
             float ox, oy;
             get_line_offset(dx, dy, scaled_hw, miter_scale,
@@ -1862,24 +1879,34 @@ __global__ void polylinePoolKernel(
             outVerts[vbase + ept*2 + 1] = make_float4(clip.x + ox, clip.y + oy, clip.z, clip.w);
             outVertColors[vbase + ept*2]     = packedColor;
             outVertColors[vbase + ept*2 + 1] = packedColor;
+            if (ept > 0) {
+                int b = vbase + (ept - 1) * 2;
+                int tOut = triBase + (ept - 1) * 2;
+                bool keep = previousVisible && visible;
+                outIndices[tOut*3 + 0] = b;
+                outIndices[tOut*3 + 1] = keep ? b+1 : b;
+                outIndices[tOut*3 + 2] = keep ? b+2 : b;
+                outIndices[(tOut+1)*3 + 0] = b+1;
+                outIndices[(tOut+1)*3 + 1] = keep ? b+3 : b+1;
+                outIndices[(tOut+1)*3 + 2] = keep ? b+2 : b+1;
+            }
+            previousVisible = visible;
             prev_sx = curr_sx;
             prev_sy = curr_sy;
             ept++;
         }
     }
 
-    // Quad strip indices
-    for (int i = 0; i < totalEffPts - 1; i++) {
-        int b = vbase + i * 2;
-        int tOut = triBase + i * 2;
-        outIndices[tOut*3 + 0] = b;     outIndices[tOut*3 + 1] = b + 1; outIndices[tOut*3 + 2] = b + 2;
-        outIndices[(tOut+1)*3 + 0] = b + 1; outIndices[(tOut+1)*3 + 1] = b + 3; outIndices[(tOut+1)*3 + 2] = b + 2;
-    }
-
     // Round caps: semicircular triangle fans at both endpoints
     int capV = vbase + totalEffPts * 2;
     int capT = triBase + (totalEffPts - 1) * 2;
     for (int cap = 0; cap < 2; cap++) {
+        if (!capVisible[cap]) {
+            for (int i = 0; i < CAP_SEGS * 3; i++) outIndices[capT * 3 + i] = vbase;
+            capV += CAP_SEGS;
+            capT += CAP_SEGS;
+            continue;
+        }
         float4 c = capClip[cap];
         float hw = capHW[cap];
         float fwd_sign = (cap == 0) ? -1.0f : 1.0f;
@@ -2016,6 +2043,18 @@ __global__ void polygonPoolKernel(
             uint32_t li = tri.indices[vi];
             const Vertex& vtx = allVertices[pool.vertices_offset + vStartLocal + li];
             wp[vi] = make_float3(vtx.position[0], vtx.position[1], vtx.position[2]);
+        }
+
+        if (pool.surface_planes_offset && params.cameraTypeId != CAMERA_TYPE_BEV) {
+            float3 camera = cube_cam_world(poseData);
+            // ponytail: drop a whole triangle at a surface-side transition;
+            // clip by interpolated plane distance if finer silhouettes are needed.
+            bool below = false;
+            for (int vi = 0; vi < 3; vi++) {
+                below |= surface_side(allFloats, pool.surface_planes_offset,
+                                      vStartLocal + tri.indices[vi], camera) < 0.0f;
+            }
+            if (below) continue;
         }
 
         float3 kept[2][3];
