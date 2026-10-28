@@ -4028,16 +4028,12 @@ def _composite_bev_ego_car(panel: Tensor) -> None:
     bottom = top + car_height
     right = left + car_width
 
-    white, yellow, glass = panel.new_tensor(
-        (
-            (1.0, 1.0, 1.0),
-            (1.0, 0.6, -1.0),
-            (-0.8, -0.2, 0.15),
-        )
-    ).view(3, 3, 1, 1)
-    panel[:, top + 1 : bottom - 1, left:right] = white
-    panel[:, top:bottom, left + 1 : right - 1] = white
-    panel[:, top + 1 : bottom - 1, left + 1 : right - 1] = yellow
+    # Scalar fills stay on the presentation stream. Uploading a new color
+    # tensor here waits for queued GPU work and blocks the UI's input polling.
+    panel[:, top + 1 : bottom - 1, left:right].fill_(1.0)
+    panel[:, top:bottom, left + 1 : right - 1].fill_(1.0)
+    for channel, value in enumerate((1.0, 0.6, -1.0)):
+        panel[channel, top + 1 : bottom - 1, left + 1 : right - 1].fill_(value)
 
     window_left = left + max(2, car_width // 3)
     window_right = right - max(2, car_width // 3)
@@ -4045,16 +4041,17 @@ def _composite_bev_ego_car(panel: Tensor) -> None:
         return
     window_height = max(1, car_height // 5)
     window_offset = max(2, car_height // 5)
-    panel[
-        :,
-        top + window_offset : top + window_offset + window_height,
-        window_left:window_right,
-    ] = glass
-    panel[
-        :,
-        bottom - window_offset - window_height : bottom - window_offset,
-        window_left:window_right,
-    ] = glass
+    for channel, value in enumerate((-0.8, -0.2, 0.15)):
+        panel[
+            channel,
+            top + window_offset : top + window_offset + window_height,
+            window_left:window_right,
+        ].fill_(value)
+        panel[
+            channel,
+            bottom - window_offset - window_height : bottom - window_offset,
+            window_left:window_right,
+        ].fill_(value)
 
 
 class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
