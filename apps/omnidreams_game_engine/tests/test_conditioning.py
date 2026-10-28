@@ -9,10 +9,17 @@ from typing import cast
 import numpy as np
 import pytest
 import torch
-from ludus_renderer import PRIM_BEV_ROAD_SURFACE
+from ludus_renderer import (
+    PRIM_BEV_ROAD_SURFACE,
+    PRIM_POLE,
+    PRIM_LANE_LINE_WHITE_SOLID,
+    TimestampedPolylinePool,
+    TimestampedScene,
+)
 from omnidreams_game_engine.conditioning import (
     _bev_presentation_frames,
     _build_bev_road_surface_pool,
+    _with_road_surface_sides,
 )
 from omnidreams_game_engine.game_map.types import GameMapElement
 
@@ -92,3 +99,34 @@ def test_conditioning_does_not_extrapolate_past_recorded_actor_lifetimes(monkeyp
     )
     conditioning.LudusConditionRenderer(RasterConfig())
     context.set_max_extrapolation_us.assert_called_once_with(0)
+
+
+def test_road_surface_planes_preserve_ungrounded_and_non_road_geometry() -> None:
+    road = TimestampedPolylinePool(
+        timestamps_us=torch.tensor([0]),
+        timestamped_varrays_prefix_sum=torch.tensor([1]),
+        varrays_prefix_sum=torch.tensor([2]),
+        vertices=torch.tensor([[0.0, 0.0, 0.03], [100.0, 0.0, 0.03]]),
+        prim_type_id=PRIM_LANE_LINE_WHITE_SOLID,
+    )
+    pole = TimestampedPolylinePool(
+        timestamps_us=road.timestamps_us,
+        timestamped_varrays_prefix_sum=road.timestamped_varrays_prefix_sum,
+        varrays_prefix_sum=road.varrays_prefix_sum,
+        vertices=road.vertices,
+        prim_type_id=PRIM_POLE,
+    )
+    scene = TimestampedScene([road, pole], [])
+    assert _with_road_surface_sides(scene, None, None) is scene
+    sided = _with_road_surface_sides(
+        scene,
+        np.asarray([[-2, -2, 0], [2, -2, 0], [0, 2, 0]], np.float32),
+        np.asarray([[0, 1, 2]], np.int32),
+    )
+    planes = sided.polyline_pools[0].surface_planes
+    assert planes is not None
+    torch.testing.assert_close(
+        planes, torch.tensor([[0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
+    )
+    assert sided.polyline_pools[1] is pole
+    assert road.surface_planes is None
