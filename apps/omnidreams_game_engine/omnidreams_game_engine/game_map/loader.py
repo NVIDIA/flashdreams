@@ -2328,16 +2328,21 @@ def _build_linear_lanes(
             len(attributes.directions) - 1
         ) * attributes.lane_width_m * 0.5 - index * attributes.lane_width_m
         center = _offset_polyline(points, offset)
+        side = 1 if direction == "forward" else -1
+        # Share the road's reference normals across all lane rails. Offsetting
+        # an already-offset lane can reverse its normals at short curved joints.
+        left = _offset_polyline(points, offset + side * attributes.lane_width_m * 0.5)
+        right = _offset_polyline(points, offset - side * attributes.lane_width_m * 0.5)
+        roadside = _offset_polyline(
+            points,
+            offset - side * (attributes.lane_width_m * 0.5 + attributes.curb_offset_m),
+        )
         start_endpoint, end_endpoint = "from", "to"
         if direction == "backward":
-            center = center[::-1]
+            center, left, right, roadside = (
+                rail[::-1] for rail in (center, left, right, roadside)
+            )
             start_endpoint, end_endpoint = end_endpoint, start_endpoint
-        left = _offset_polyline(center, attributes.lane_width_m * 0.5)
-        right = _offset_polyline(center, -attributes.lane_width_m * 0.5)
-        roadside = _offset_polyline(
-            center,
-            -(attributes.lane_width_m * 0.5 + attributes.curb_offset_m),
-        )
         lanes.append(
             _LaneBuild(
                 lane_id=f"{element_id}:lane:{index}",
