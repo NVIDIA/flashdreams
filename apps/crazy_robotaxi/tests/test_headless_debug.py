@@ -497,6 +497,126 @@ def test_debug_map_compiles_with_a_race_spawn_and_ground_mesh(tmp_path: Path) ->
     assert scene.initial_rig_to_world[2, 3] == pytest.approx(0)
 
 
+def test_generation_delay_cycles_and_shutdown_interrupts() -> None:
+    import threading
+
+    now = [0]
+    control = HeadlessInput(lambda: now[0])
+    control.generation_delays_ms = (0, 25, 100)
+    control.start()
+    waits = []
+
+    def wait(seconds):
+        waits.append(seconds)
+        now[0] += int(seconds * 1e9)
+        return False
+
+    stop = SimpleNamespace(wait=wait)
+    for chunk in range(5):
+        control.delay_generation(chunk, cast(threading.Event, stop))
+    assert waits == [0.025, 0.1, 0.025]
+    shutdown = threading.Event()
+    shutdown.set()
+    control.delay_generation(5, shutdown)
+    messages = []
+    while not control.messages.empty():
+        messages.append(control.messages.get()[1])
+    assert messages[-1]["interrupted"]
+    assert messages[-1]["completed_us"] == messages[-1]["started_us"]
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-1"])
+def test_generation_delay_rejects_invalid_values(tmp_path, value) -> None:
+    mode = RobotaxiDebugMode()
+    parser = argparse.ArgumentParser()
+    mode.add_arguments(parser)
+    args = parser.parse_args(
+        [
+            "--debug-output-dir",
+            str(tmp_path / "new"),
+            "--no-debug-capture-images",
+            "--debug-generation-delay-ms",
+            value,
+        ]
+    )
+    with pytest.raises(ValueError, match="finite and nonnegative"):
+        mode.check_arguments(args)
+
+
+def test_timing_report_preserves_missing_and_ambiguous_observations(tmp_path) -> None:
+    from crazy_robotaxi.debug_report import write_timing_report
+
+    def write(name, rows):
+        (tmp_path / name).write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    write("manifest.json", [{"ready_ns": 1_000_000_000, "capture_complete": False}])
+    write(
+        "input_events.jsonl",
+        [
+            {
+                "id": name,
+                "status": "consumed",
+                "timestamp_us": timestamp,
+                "dispatched_us": timestamp + 10_000,
+                "consumed_us": timestamp + 100_000,
+                "command": {"type": "keyboard"},
+            }
+            for name, timestamp in (
+                ("press", 100_000),
+                ("a", 200_000),
+                ("b", 200_000),
+                ("missing", 300_000),
+            )
+        ],
+    )
+    write(
+        "telemetry.jsonl",
+        [
+            {
+                "frame": index,
+                "rollout_epoch": 0,
+                "model_step": 0,
+                "simulation_timestamp_us": index * 33_333,
+                "transition_timestamp_us": 100_000 + index * 100_000,
+                "physics_started_ns": 1_300_000_000 + index * 500_000_000,
+                "physics_completed_ns": 1_301_000_000 + index * 500_000_000,
+                "game": {
+                    "event": "race_complete",
+                    "elapsed_time_us": 50_000,
+                    "final_time_us": 50_000,
+                    "session_state": "awaiting_name",
+                },
+            }
+            for index in range(2)
+        ],
+    )
+    write(
+        "presentation.jsonl",
+        [
+            {
+                "elapsed_us": 900_000,
+                "source": {"rollout_epoch": 0, "frame": 0},
+                "hud_feedback": {"speed_mph": 1},
+            }
+        ],
+    )
+    report = write_timing_report(tmp_path)
+    press, a, b, missing = report["inputs"]
+    assert press["scheduled_to_physics_started_ms"] == 200
+    assert press["scheduled_to_first_presentation_ms"] == 800
+    assert press["scheduled_to_generation_returned_ms"] is None
+    assert a["physics_association"] == b["physics_association"] == "ambiguous"
+    assert missing["physics_association"] == "unobserved"
+    assert missing["scheduled_to_physics_started_ms"] is None
+    assert report["physics_progress"][0]["simulation_to_wall_ratio"] < 0.1
+    assert report["physics_progress"][0]["physics_gap_ms"]["max"] == 500
+    assert not report["capture_complete"]
+    assert report["generation_adherence"] == "not_evaluated"
+    assert len(report["race_events"]) == 1
+    assert report["final_game"]["final_time_us"] == 50_000
+    assert report["hud_feedback_changes"][0]["feedback"] == {"speed_mph": 1}
+
+
 def test_capture_overflow_reports_ranges_without_blocking_producer(
     tmp_path, monkeypatch
 ):

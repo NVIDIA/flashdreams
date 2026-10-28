@@ -2062,7 +2062,8 @@ def test_live_debug_respects_ui_selection_and_runtime_input(
             "2",
             "--total-blocks",
             "2",
-            *(["--no-ui"] if no_ui else []),
+            "--debug-view",
+            "paired" if no_ui else "gameplay",
         ]
     )
     session = app.create_session(app.session_desc())
@@ -2077,6 +2078,28 @@ def test_live_debug_respects_ui_selection_and_runtime_input(
     assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
     metadata = session.session_desc.metadata[DEBUG_METADATA_KEY]
     assert metadata["input_mode"] == "runtime" and metadata["paired_views"] == no_ui
+
+
+@pytest.mark.parametrize(
+    "mode, extra, error",
+    [
+        ("robotaxi-debug", ["--ui"], "conflicts"),
+        ("native", [], "requires --mode"),
+    ],
+)
+def test_debug_view_rejects_conflicting_or_non_debug_use(tmp_path, mode, extra, error):
+    app = _application()
+    app.resolve_client_window_mode(mode)
+    with pytest.raises(ValueError, match=error):
+        app.init(
+            [
+                "--config",
+                str(tmp_path / "settings.yaml"),
+                "--debug-view",
+                "paired",
+                *extra,
+            ]
+        )
 
 
 @pytest.mark.parametrize("missing", ["--map", "--game-mode", "--race-course"])

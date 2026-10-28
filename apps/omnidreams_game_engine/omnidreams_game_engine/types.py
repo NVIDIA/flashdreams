@@ -186,6 +186,10 @@ class PhysicsDebugFrame:
     ego_angular_velocity_radps: FloatArray | None = None
     """Resolved native body velocities before gameplay policy."""
 
+    physics_started_ns: int | None = None
+    physics_completed_ns: int | None = None
+    """Monotonic host bounds of this physics advance; absent for the seed pose."""
+
 
 @dataclass(frozen=True, slots=True)
 class PhysXChunkTimings:

@@ -25,6 +25,7 @@ from omnidreams_game_engine.simulation.game_physics import (
 from omnidreams_game_engine.types import (
     ConditionBatch,
     DriverCommand,
+    PhysicsDebugFrame,
     TrajectoryChunk,
     VehicleState,
 )
