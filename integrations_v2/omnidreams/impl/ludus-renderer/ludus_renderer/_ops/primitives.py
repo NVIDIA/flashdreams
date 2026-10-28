@@ -142,6 +142,8 @@ class TimestampedPolylinePool:
     varrays_prefix_sum: torch.Tensor  # [n_varrays] int32, cumulative vertex count
     vertices: torch.Tensor  # [n_vertices, 3] float32, all vertices
     prim_type_id: int  # Index into PrimitiveStyle lookup table
+    surface_planes: torch.Tensor | None = None
+    """Optional upward world planes [N, 4] for top-side-only surface markings."""
 
 
 @dataclass
@@ -159,6 +161,8 @@ class TimestampedPolygonPool:
     vertices: torch.Tensor  # [n_vertices, 3] float32
     triangles: torch.Tensor  # [n_triangles, 3] int32, local indices
     prim_type_id: int  # Index into PrimitiveStyle lookup table
+    surface_planes: torch.Tensor | None = None
+    """Optional upward world planes [N, 4] for top-side-only surface markings."""
 
 
 @dataclass
