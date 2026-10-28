@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import shapely
 import yaml
 from omnidreams_game_engine.config import RasterConfig
 from omnidreams_game_engine.game_map import (
@@ -20,6 +21,7 @@ from omnidreams_game_engine.game_map.compiler import _boundary_chunks
 from omnidreams_game_engine.game_map.types import game_map_from_dict, game_map_to_dict
 from omnidreams_game_engine.scene import load_scene_bundle
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
+from shapely.geometry import LineString, Polygon
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -77,6 +79,41 @@ def test_elevated_metadata_round_trips_and_flat_defaults_remain_flat(hill) -> No
     assert flat.ground_faces.shape == (2, 3)
     assert np.all(flat.ground_vertices[:, 2] == 0)
     assert all(np.all(lane.centerline_world[:, 2] == 0) for lane in flat.lanes)
+
+
+@pytest.mark.parametrize("rotation", [0.0, 0.37])
+def test_elevation_preserves_shared_footprints_and_exterior_boundaries(
+    tmp_path: Path, rotation: float
+) -> None:
+    document = yaml.safe_load((_MAPS / "debug_hill.robotaxi.yaml").read_text())
+    cosine, sine = np.cos(rotation), np.sin(rotation)
+    for node in document["nodes"]:
+        pose = node["pose"]
+        x, y = pose["x_m"], pose["y_m"]
+        pose.update(x_m=float(cosine * x - sine * y), y_m=float(sine * x + cosine * y))
+    source = tmp_path / "joined-hills.robotaxi.yaml"
+    source.write_text(yaml.safe_dump(document))
+    elevated = load_game_map(source)
+    for node in document["nodes"]:
+        node["pose"]["z_m"] = 0
+    source.write_text(yaml.safe_dump(document))
+    flat = load_game_map(source)
+    for raised, level in zip(elevated.elements, flat.elements, strict=True):
+        np.testing.assert_array_equal(
+            raised.surface_world[:, :2], level.surface_world[:, :2]
+        )
+    perimeter = shapely.union_all(
+        [Polygon(element.surface_world[:, :2]) for element in flat.elements]
+    ).boundary
+    ground = GroundSnapper(elevated.ground_vertices, elevated.ground_faces)
+    for points in _boundary_chunks(elevated):
+        assert LineString(points[:, :2]).difference(perimeter.buffer(1e-4)).is_empty
+        np.testing.assert_allclose(ground._raycast(points), points[:, 2], atol=1e-4)
+        # Long straight edges must follow the hill between their original corners.
+        midpoints = (points[:-1] + points[1:]) * 0.5
+        np.testing.assert_allclose(
+            ground._raycast(midpoints), midpoints[:, 2], atol=0.003
+        )
 
 
 def test_flat_map_upgrade_preserves_geometry(tmp_path: Path) -> None:
