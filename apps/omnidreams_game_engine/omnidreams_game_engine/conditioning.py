@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import shapely
@@ -18,7 +19,7 @@ from ludus_renderer import (
     TimestampedScene,
 )
 from ludus_renderer import load_scene as load_ludus_scene
-from ludus_renderer._ops import _triangulate_polygon_ear_clipping
+from ludus_renderer._ops import _triangulate_polygon_ear_clipping, primitives
 from ludus_renderer.render_utils import SceneAdapter
 from ludus_renderer.torch.ops import CAMERA_TYPE_BEV, CAMERA_TYPE_REGULAR
 from shapely.geometry import Polygon
@@ -29,6 +30,7 @@ from omnidreams_game_engine.contracts import ConditionRenderer
 from omnidreams_game_engine.dynamic_scene import MutableObjectSceneBuffer
 from omnidreams_game_engine.game_map.types import GameMapElement
 from omnidreams_game_engine.patterns import triangulate_polygon_xy
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import (
     ConditionBatch,
     SceneDefinition,
@@ -38,6 +40,26 @@ from omnidreams_game_engine.types import (
 _BEV_CAMERA_NAME = "game_engine_bev"
 _BEV_ROAD_SIMPLIFY_M = 0.05
 _BEV_ROAD_DEPTH_OFFSET_M = -0.01
+_ROAD_SURFACE_TYPES = frozenset(
+    (
+        primitives.PRIM_ROAD_BOUNDARY,
+        primitives.PRIM_LANE_LINE,
+        primitives.PRIM_CROSSWALK,
+        primitives.PRIM_WAIT_LINE,
+        primitives.PRIM_ROAD_MARKING,
+        primitives.PRIM_LANE_BOUNDARY,
+        primitives.PRIM_INTERSECTION,
+        primitives.PRIM_ROAD_ISLAND,
+        primitives.PRIM_BUFFER_ZONE,
+        primitives.PRIM_LANE_LINE_WHITE_SOLID,
+        primitives.PRIM_LANE_LINE_WHITE_DASHED,
+        primitives.PRIM_LANE_LINE_YELLOW_SOLID,
+        primitives.PRIM_LANE_LINE_YELLOW_DASHED,
+        primitives.PRIM_DOT_YELLOW,
+        primitives.PRIM_DOT_WHITE,
+    )
+)
+"""Ludus road boundaries, paint, crosswalks, islands, and surface markings."""
 
 
 class LudusConditionRenderer(ConditionRenderer):
@@ -105,7 +127,11 @@ class LudusConditionRenderer(ConditionRenderer):
             )
             self._sensor_to_rig[_BEV_CAMERA_NAME] = self._bev_sensor_pose
         self._context.upload_cameras(cameras)
-        base_scene = loaded.timestamped_scene
+        base_scene = _with_road_surface_sides(
+            loaded.timestamped_scene,
+            scene.ground_mesh_vertices,
+            scene.ground_mesh_faces,
+        )
         if self._bev.enabled and scene.game_map is not None:
             road_surface_pool = _build_bev_road_surface_pool(
                 scene.game_map.elements,
@@ -218,6 +244,45 @@ def _bev_presentation_frames(frames: Tensor) -> Tensor:
     if frames.dtype != torch.uint8 or frames.ndim != 4 or frames.shape[-1] != 4:
         raise ValueError("BEV renderer output must be uint8 THWC RGBA")
     return frames.permute(0, 3, 1, 2).contiguous()
+
+
+def _with_road_surface_sides(
+    scene: TimestampedScene,
+    ground_vertices: np.ndarray | None,
+    ground_faces: np.ndarray | None,
+) -> TimestampedScene:
+    """Attach local upward road planes once, before uploading semantic geometry.
+
+    The renderer evaluates sidedness per camera without a CPU visibility pass.
+    Geometry outside the supplied ground mesh retains its existing visibility.
+    """
+    if ground_vertices is None or ground_faces is None or not len(ground_faces):
+        return scene
+    ground = GroundSnapper(ground_vertices, ground_faces)
+
+    def sided(
+        pool: primitives.TimestampedPolylinePool | TimestampedPolygonPool,
+    ):
+        if pool.prim_type_id not in _ROAD_SURFACE_TYPES:
+            return pool
+        points = pool.vertices.cpu().numpy()
+        planes = np.zeros((len(points), 4), dtype=np.float32)
+        planes[:, 3] = 1.0  # Ungrounded geometry remains visible.
+        for index, (x, y, z) in enumerate(points):
+            surface = ground.ground_surface_at(float(x), float(y), float(z))
+            if surface is not None:
+                height, normal = surface
+                planes[index, :3] = normal
+                planes[index, 3] = -np.dot(normal, (x, y, height))
+        return replace(
+            pool, surface_planes=torch.from_numpy(planes).to(pool.vertices.device)
+        )
+
+    return TimestampedScene(
+        polyline_pools=[sided(pool) for pool in scene.polyline_pools],
+        polygon_pools=[sided(pool) for pool in scene.polygon_pools],
+        cube_pools=scene.cube_pools,
+    )
 
 
 def _build_bev_road_surface_pool(
