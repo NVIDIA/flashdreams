@@ -433,7 +433,9 @@ def sample_chunk_trajectory(
             actor_samples.append(frame_actor_samples)
             if capture_physics_debug:
                 physics_debug_frames.append(physics_world.debug_frame(state))
-        if ground_snapper is not None:
+        # PhysX already resolves the chassis pose against the ground. Snapping
+        # again can flatten valid slopes and separate the camera from the body.
+        if ground_snapper is not None and physics_world is None:
             state = ground_snapper.snap(state, vehicle_config)
         if physics_world is not None and capture_physics_debug and not use_start_state:
             physics_debug_frames[-1] = replace(
