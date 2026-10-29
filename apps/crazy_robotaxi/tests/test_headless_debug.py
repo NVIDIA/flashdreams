@@ -26,6 +26,10 @@ from typing import cast
 import numpy as np
 import pytest
 import torch
+from crazy_robotaxi.controls import GamepadControls, gamepad_driver_command
+from omnidreams_game_engine.input import DriverInput
+from functools import partial
+
 from crazy_robotaxi.debug import (
     DEBUG_METADATA_KEY,
     DebugFrameResult,
@@ -48,6 +52,7 @@ from flashdreams.runtime_v2.session_desc import (
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
+    GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -192,6 +197,88 @@ def test_live_headless_input_queues_rejects_late_and_acknowledges_consumption(
 def test_live_headless_input_rejects_malformed_packets(payload: object) -> None:
     with pytest.raises(ValueError):
         control_event(payload)
+
+
+def test_timestamped_gamepad_file_and_socket_reach_driver(tmp_path, monkeypatch):
+    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", RecordingEncoder)
+    packet = {
+        "id": "gentle",
+        "timestamp_us": 100_000,
+        "type": "gamepad",
+        "axes": [-0.25, 0, 0, 0],
+        "buttons": [0] * 7 + [0.6],
+    }
+    source = tmp_path / "inputs.yaml"
+    source.write_text(json.dumps({"events": [packet]}))
+    assert load_driving_script(source).events == (packet,)
+    now = [0]
+    control = HeadlessInput(lambda: now[0])
+    window = RobotaxiDebugWindow(tmp_path / "capture", clock_ns=lambda: now[0])
+    window.open(
+        SessionDesc(
+            video_width=6,
+            video_height=4,
+            metadata={DEBUG_METADATA_KEY: {}, DEBUG_CONTROL_KEY: control},
+        )
+    )
+    driver = DriverInput(
+        gamepad_command=partial(gamepad_driver_command, GamepadControls())
+    )
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as peer:
+        peer.bind(str(tmp_path / "gamepad.sock"))
+        peer.settimeout(1)
+        peer.sendto(json.dumps(packet).encode(), str(window.directory / "control.sock"))
+        assert window.get_user_input_events().get_events() == []
+        assert json.loads(peer.recv(4096))["status"] == "accepted"
+        control.start()
+        now[0] = 99_000_000
+        assert window.get_user_input_events().get_events() == []
+        now[0] = 100_000_000
+        events = window.get_user_input_events()
+        assert isinstance(events.get_events()[0], GamepadUserInputEvent)
+        driver.apply(events)
+        command = driver.command()
+        assert 0 < command.steer < 0.25 and 0 < command.throttle < 0.6
+        assert command.brake == 0 and not command.handbrake
+        assert json.loads(peer.recv(4096))["status"] == "dispatched"
+        control.consumed(events, step=12)
+        window.get_user_input_events()
+        ack = json.loads(peer.recv(4096))
+        assert ack["status"] == "consumed" and ack["model_step"] == 12
+        assert ack["consumed_us"] == 100_000
+    window.close()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("axes", [float("nan")]),
+        ("axes", [float("inf")]),
+        ("axes", [-1.01]),
+        ("axes", [True]),
+        ("axes", [10**400]),
+        ("axes", "0"),
+        ("buttons", [-0.01]),
+        ("buttons", [1.01]),
+        ("buttons", [False]),
+        ("buttons", [float("nan")]),
+        ("buttons", [float("inf")]),
+        ("index", True),
+        ("index", -1),
+        ("action", "invalid"),
+    ],
+)
+def test_timestamped_gamepad_rejects_invalid_snapshots(field, value):
+    packet = {
+        "id": "invalid",
+        "timestamp_us": 0,
+        "type": "gamepad",
+        "axes": [],
+        "buttons": [],
+    }
+    packet[field] = value
+    with pytest.raises(ValueError):
+        control_event(packet)
 
 
 def test_input_deadline_boundary_order_and_shutdown() -> None:
