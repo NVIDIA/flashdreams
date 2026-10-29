@@ -322,6 +322,12 @@ class CrazyRobotaxiApplication(IApplication):
             if args.drive_script is None
             else load_driving_script(args.drive_script)
         )
+        if args.debug_engine_only and not self._debug_capture:
+            raise ValueError("--debug-engine-only requires --mode robotaxi-debug")
+        if args.debug_engine_only and settings.live_edit.any_enabled:
+            raise ValueError(
+                "--debug-engine-only requires live-edit abilities disabled"
+            )
         if args.debug_view is not None:
             if not self._debug_capture:
                 raise ValueError("--debug-view requires --mode robotaxi-debug")
@@ -481,7 +487,14 @@ class CrazyRobotaxiApplication(IApplication):
             for request in scene_requests
         }
         self._native_preparer()
-        self._pipeline = self._pipeline_factory(pipeline_config, settings.model.device)
+        if args.debug_engine_only:
+            from crazy_robotaxi.debug_engine import SemanticDebugPipeline
+
+            self._pipeline = SemanticDebugPipeline(settings.model.device)
+        else:
+            self._pipeline = self._pipeline_factory(
+                pipeline_config, settings.model.device
+            )
 
     def _apply_cli_settings(
         self,
@@ -692,6 +705,11 @@ class CrazyRobotaxiApplication(IApplication):
                                 "game_mode": config.initial_game_mode,
                                 "race_course": config.initial_race_course_id,
                                 "input_mode": "runtime",
+                                "engine_only": config.debug_engine_only,
+                                "world_model_loaded": not config.debug_engine_only,
+                                "video_source": "semantic"
+                                if config.debug_engine_only
+                                else "world_model",
                                 "paired_views": config.no_ui,
                                 "script": None
                                 if config.driving_script is None
@@ -843,6 +861,11 @@ def _parser(
         "--drive-script",
         type=Path,
         help="YAML timestamped events for robotaxi-debug; requires --game-mode and --map, and --race-course in race mode.",
+    )
+    parser.add_argument(
+        "--debug-engine-only",
+        action="store_true",
+        help="Run robotaxi-debug with semantic video and ordinary game/input logging, without loading a world model. Requires live-edit abilities disabled.",
     )
     parser.add_argument(
         "--debug-view",
