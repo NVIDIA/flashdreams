@@ -250,3 +250,102 @@ def test_stationary_world_retains_image_and_ar_cursor_until_motion(monkeypatch):
     assert not _stationary_world(
         replace(path, rig_poses_world=shifted), state.last_pose
     )
+
+
+def test_lagging_physics_applies_wall_clock_inputs_and_acknowledges_each_batch_part(
+    monkeypatch,
+):
+    """Slow simulation cannot defer due keys or acknowledge future batch members."""
+    from collections import deque
+    from queue import Queue
+    from unittest.mock import Mock
+
+    import crazy_robotaxi.gameplay as gameplay
+    from crazy_robotaxi.debug_input import control_event
+
+    clock = [0.0]
+    stopped = threading.Event()
+    monkeypatch.setattr(gameplay.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(gameplay.time, "monotonic_ns", lambda: round(clock[0] * 1e9))
+
+    def key(identifier, timestamp, name, pressed):
+        return control_event(
+            dict(
+                id=identifier,
+                timestamp_us=timestamp,
+                type="keyboard",
+                key=name,
+                pressed=pressed,
+            )
+        )
+
+    first = UserInputEvents(
+        [key("press", 50_000, "w", True), key("release", 350_000, "w", False)]
+    )
+    second = UserInputEvents(
+        [key("turn", 350_000, "a", True), key("straight", 650_000, "a", False)]
+    )
+    incoming = deque(
+        [("start", 0.0, 0.0), ("input", 4, first, 0.0), ("input", 5, second, 0.0)]
+    )
+    inputs = SimpleNamespace(poll=lambda *args: bool(incoming), recv=incoming.popleft)
+    outputs = Queue()
+    commands = []
+
+    class SlowEngine(_Engine):
+        def advance(self, batch):
+            commands.append(batch[0])
+            result = super().advance(batch)
+            clock[0] += 0.2  # Each fixed 8.3 ms physics step costs 200 ms wall time.
+            if self.tick == 5:
+                stopped.set()
+            return result
+
+    gameplay._run_gameplay(
+        {"frame_interval_s": 1 / 120},
+        _driver(),
+        inputs,
+        outputs,
+        stopped,
+        None,
+        engine_factory=SlowEngine,
+    )
+    messages = list(outputs.queue)
+    assert not any(message[0] == "error" for message in messages)
+    assert [command.throttle for command in commands] == [0, 1, 0, 0, 0]
+    assert [command.steer for command in commands] == [0, 0, 1, 1, 0]
+    acknowledgments = [message for message in messages if message[0] == "consumed"]
+    assert acknowledgments == [
+        ("consumed", 4, [0], 200_000_000, 1),
+        ("consumed", 4, [1], 400_000_000, 2),
+        ("consumed", 5, [0], 400_000_000, 2),
+        ("consumed", 5, [1], 800_000_000, 4),
+    ]
+    # The bridge acknowledges original parent-side event objects, not deserialized
+    # worker copies, and retains future members of a partially consumed batch.
+    bridge = object.__new__(GameplayProcess)
+    bridge._outputs = Queue()
+    bridge._input_lock = threading.Lock()
+    bridge._pending_inputs = {
+        4: dict(enumerate(first.get_events())),
+        5: dict(enumerate(second.get_events())),
+    }
+    bridge._debug = Mock()
+    for message in acknowledgments:
+        bridge._outputs.put(message)
+    bridge._outputs.put(("closed",))
+    bridge._receive()
+    assert bridge._pending_inputs == {}
+    calls = bridge._debug.consumed.call_args_list
+    assert all(
+        call.args[0].get_events()[0] is original
+        for call, original in zip(
+            calls, [*first.get_events(), *second.get_events()], strict=True
+        )
+    )
+    assert [call.kwargs["consumed_ns"] for call in calls] == [
+        200_000_000,
+        400_000_000,
+        400_000_000,
+        800_000_000,
+    ]

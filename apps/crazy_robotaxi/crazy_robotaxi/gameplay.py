@@ -26,6 +26,7 @@ from crazy_robotaxi.controls import (
 )
 from crazy_robotaxi.debug_input import HeadlessInput
 from crazy_robotaxi.factory import build_taxi_engine
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
@@ -106,9 +107,8 @@ def _run_gameplay(
                             - max(int(e.get_timestamp()) for e in events.get_events())
                             / 1e6
                         )
-                    # The normal UI path already dispatches events when due.
-                    # Keep their original spacing if several arrive in one tick.
-                    for event in events.get_events():
+                    # Retain timestamp order, including future events in a batch.
+                    for event_index, event in enumerate(events.get_events()):
                         heapq.heappush(
                             pending,
                             (
@@ -117,10 +117,11 @@ def _run_gameplay(
                                 else input_origin + int(event.get_timestamp()) / 1e6,
                                 sequence,
                                 event,
+                                serial,
+                                event_index,
                             ),
                         )
                         sequence += 1
-                    outputs.put_nowait(("consumed", serial, time.monotonic_ns(), tick))
                 elif kind == "action" and live_edit is not None:
                     live_edit.request_action(message[1])
                 elif kind == "text":
@@ -134,13 +135,24 @@ def _run_gameplay(
                         )
                         outputs.put_nowait(("latest", previous))
             due = []
-            while pending and pending[0][0] <= deadline:
-                due.append(heapq.heappop(pending)[2])
+            applied_batches: dict[int, list[int]] = {}
+            # Input timestamps use the gameplay-ready wall clock. A slow physics
+            # tick must not add its accumulated simulation deficit to input lag.
+            input_now = time.monotonic()
+            while pending and pending[0][0] <= input_now:
+                _, _, event, serial, event_index = heapq.heappop(pending)
+                due.append(event)
+                applied_batches.setdefault(serial, []).append(event_index)
             if live_edit is not None:
                 for action in actions.apply(UserInputEvents(due)):
                     if action in {"style", "weather", "coins", "obstacle"}:
                         live_edit.request_action(action)
             transitions = driver.apply(UserInputEvents(due), record_transitions=False)
+            consumed_ns = time.monotonic_ns()
+            for serial, event_indices in applied_batches.items():
+                outputs.put_nowait(
+                    ("consumed", serial, event_indices, consumed_ns, tick)
+                )
             if engine.is_running or previous is None:
                 started = time.monotonic_ns()
                 cpu_started = time.thread_time_ns()
@@ -209,7 +221,7 @@ class GameplayProcess:
         self._stop = context.Event()
         self._ready = threading.Event()
         self._failure: str | None = None
-        self._pending_inputs: dict[int, UserInputEvents] = {}
+        self._pending_inputs: dict[int, dict[int, UserInputEvent]] = {}
         self._input_lock = threading.Lock()
         self._serial = 0
         log_path = None
@@ -282,7 +294,7 @@ class GameplayProcess:
         with self._input_lock:
             serial = self._serial
             self._serial += 1
-            self._pending_inputs[serial] = events
+            self._pending_inputs[serial] = dict(enumerate(events.get_events()))
         self._send(("input", serial, events, time.monotonic()))
 
     def request_action(self, value: str) -> None:
@@ -332,12 +344,17 @@ class GameplayProcess:
                 self.timeline.latest = message[1]
             elif kind == "consumed":
                 with self._input_lock:
-                    events = self._pending_inputs.pop(message[1])
+                    pending = self._pending_inputs[message[1]]
+                    events = UserInputEvents(
+                        [pending.pop(index) for index in message[2]]
+                    )
+                    if not pending:
+                        del self._pending_inputs[message[1]]
                 if self._debug is not None:
                     self._debug.consumed(
                         events,
-                        step=message[3],
-                        consumed_ns=message[2],
+                        step=message[4],
+                        consumed_ns=message[3],
                         consumer="gameplay",
                     )
 
