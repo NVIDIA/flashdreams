@@ -459,7 +459,7 @@ class RobotaxiDebugMode(ClientWindowMode):
             "--debug-snapshot-every",
             type=int,
             default=30,
-            help="Save all PNG views every N simulation frames (default: 30).",
+            help="Save PNGs every N captured frames in each view (default: 30).",
         )
 
         parser.add_argument(
