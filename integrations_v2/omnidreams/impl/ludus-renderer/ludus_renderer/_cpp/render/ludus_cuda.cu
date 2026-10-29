@@ -1439,9 +1439,7 @@ __global__ void polylineGeometryKernel(
     float half_width = pl.width * 0.5f;
     uint32_t packedColor = pack_rgba8(pl.color[0], pl.color[1], pl.color[2]);
 
-    const int MAX_PTS = 256;
-    int safePts = numPts < MAX_PTS ? numPts : MAX_PTS;
-    int numSegs = safePts - 1;
+    int numSegs = numPts - 1;
 
     // Where the line first comes in front of the camera, which is the point
     // the ones behind are pulled back towards. A line with no such point has
@@ -1450,7 +1448,7 @@ __global__ void polylineGeometryKernel(
     float3 anchor = make_float3(0.0f, 0.0f, 0.0f);
     if (cullBehind) {
         bool infront = false;
-        for (int i = 0; i < safePts && !infront; i++) {
+        for (int i = 0; i < numPts && !infront; i++) {
             const Vertex& vi = vertices[pl.vertex_start + i];
             float3 wi = make_float3(vi.position[0], vi.position[1], vi.position[2]);
             if (camera_depth(wi, poseData) > NEAR_DEPTH) {
@@ -1730,16 +1728,14 @@ __global__ void polylinePoolKernel(
     float half_width = get_prim_width(pool.prim_type_id, params) * 0.5f;
     int maxTessLvl = (params.maxTessPolyline >= 0) ? params.maxTessPolyline : 4;
 
-    const int MAX_PTS = 256;
-    int safePts = numPts < MAX_PTS ? numPts : MAX_PTS;
-    int numSegs = safePts - 1;
+    int numSegs = numPts - 1;
 
     // The point behind the camera are pulled back towards; a line that never
     // comes in front of it is dropped, before any of the buffer is spoken for.
     float3 anchor = make_float3(0.0f, 0.0f, 0.0f);
     if (params.cullBehindCamera) {
         bool infront = false;
-        for (int i = 0; i < safePts && !infront; i++) {
+        for (int i = 0; i < numPts && !infront; i++) {
             const Vertex& vi = allVertices[pool.vertices_offset + vStart + i];
             float3 wi = make_float3(vi.position[0], vi.position[1], vi.position[2]);
             if (camera_depth(wi, poseData) > NEAR_DEPTH) {
