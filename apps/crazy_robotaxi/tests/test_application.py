@@ -1839,7 +1839,8 @@ def test_scripted_headless_startup_requires_complete_cli_selection(
         _application().init(arguments)
 
 
-def test_engine_only_debug_skips_model_loading_and_labels_capture(tmp_path):
+@pytest.mark.parametrize("game_mode", ["taxi", "free-roam", "race"])
+def test_engine_only_debug_skips_model_loading_and_labels_capture(tmp_path, game_mode):
     from crazy_robotaxi.debug import DEBUG_METADATA_KEY
     from crazy_robotaxi.debug_engine import SemanticDebugPipeline
 
@@ -1860,10 +1861,11 @@ def test_engine_only_debug_skips_model_loading_and_labels_capture(tmp_path):
             "--map",
             str(_RACE_MAP),
             "--game-mode",
-            "free-roam",
+            game_mode,
             "--device",
             "cpu",
             "--debug-engine-only",
+            *(["--race-course", "test-loop"] if game_mode == "race" else []),
         ]
     )
     pipeline = app._pipeline
@@ -1875,6 +1877,7 @@ def test_engine_only_debug_skips_model_loading_and_labels_capture(tmp_path):
     assert metadata["world_model_loaded"] is False
     assert metadata["video_source"] == "semantic"
     assert metadata["input_mode"] == "runtime"
+    assert metadata["game_mode"] == game_mode
     app.close()
     with pytest.raises(RuntimeError, match="closed"):
         pipeline.initialize_cache()
