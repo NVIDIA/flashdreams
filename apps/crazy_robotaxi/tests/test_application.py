@@ -2233,4 +2233,3 @@ def test_no_traffic_flag_rejects_native_mode_before_preparation(tmp_path):
         ValueError, match="--debug-no-traffic requires --mode robotaxi-debug"
     ):
         app.init(["--config", str(tmp_path / "settings.yaml"), "--debug-no-traffic"])
-
