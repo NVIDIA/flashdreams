@@ -315,6 +315,8 @@ class CrazyRobotaxiApplication(IApplication):
             if args.drive_script is None
             else load_driving_script(args.drive_script)
         )
+        if args.debug_no_traffic and not self._debug_capture:
+            raise ValueError("--debug-no-traffic requires --mode robotaxi-debug")
         if args.debug_engine_only and not self._debug_capture:
             raise ValueError("--debug-engine-only requires --mode robotaxi-debug")
         if args.debug_engine_only and settings.live_edit.any_enabled:
@@ -406,6 +408,7 @@ class CrazyRobotaxiApplication(IApplication):
                 camera_name=DEFAULT_FRONT_CAMERA_LOGICAL_NAME,
                 use_prompt_context=settings.live_edit.dynamic_prompts.active,
                 force_recompile=bool(args.force_map_recompile),
+                traffic_enabled=not args.debug_no_traffic,
             ),
             renderer=renderer,
             game=game,
@@ -701,6 +704,7 @@ class CrazyRobotaxiApplication(IApplication):
                                 "race_course": config.initial_race_course_id,
                                 "input_mode": "runtime",
                                 "engine_only": config.debug_engine_only,
+                                "traffic_enabled": config.scene_request.traffic_enabled,
                                 "world_model_loaded": not config.debug_engine_only,
                                 "video_source": "semantic"
                                 if config.debug_engine_only
@@ -850,6 +854,11 @@ def _parser(
         "--drive-script",
         type=Path,
         help="YAML timestamped events for robotaxi-debug; requires --game-mode and --map, and --race-course in race mode.",
+    )
+    parser.add_argument(
+        "--debug-no-traffic",
+        action="store_true",
+        help="Disable NPC traffic in robotaxi-debug simulation and semantic rendering, with or without world-model generation.",
     )
     parser.add_argument(
         "--debug-engine-only",

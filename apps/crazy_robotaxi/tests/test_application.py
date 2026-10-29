@@ -1917,3 +1917,56 @@ def test_engine_only_rejects_live_edit_before_resolving_model_assets(
                 "--live-edit-style",
             ]
         )
+
+
+@pytest.mark.parametrize("game_mode", ["taxi", "free-roam", "race"])
+@pytest.mark.parametrize("engine_only", [False, True])
+@pytest.mark.parametrize("disable_traffic", [False, True])
+def test_debug_traffic_selection_reaches_scene_requests_and_capture(
+    tmp_path, game_mode, engine_only, disable_traffic
+):
+    from crazy_robotaxi.debug import DEBUG_METADATA_KEY
+
+    requests = []
+    app = _application(
+        scene_factory=lambda request, raster: requests.append(request) or _scene()
+    )
+    app.resolve_client_window_mode("robotaxi-debug")
+    app.init(
+        [
+            "--config",
+            str(tmp_path / "settings.yaml"),
+            "--map",
+            str(_RACE_MAP),
+            "--game-mode",
+            game_mode,
+            "--device",
+            "cpu",
+            *(["--debug-engine-only"] if engine_only else []),
+            *(["--debug-no-traffic"] if disable_traffic else []),
+            *(["--race-course", "test-loop"] if game_mode == "race" else []),
+        ]
+    )
+    assert requests
+    assert all(request.traffic_enabled is not disable_traffic for request in requests)
+    session = app.create_session(app.session_desc())
+    metadata = session.session_desc.metadata[DEBUG_METADATA_KEY]
+    assert metadata["traffic_enabled"] is not disable_traffic
+    assert metadata["engine_only"] is engine_only
+    app.close()
+
+
+def test_no_traffic_flag_rejects_native_mode_before_preparation(tmp_path):
+    def unexpected(*_args):
+        pytest.fail("Invalid traffic debug mode attempted preparation")
+
+    app = _application(
+        pipeline_factory=unexpected,
+        scene_factory=unexpected,
+        native_preparer=unexpected,
+    )
+    app.resolve_client_window_mode("native")
+    with pytest.raises(
+        ValueError, match="--debug-no-traffic requires --mode robotaxi-debug"
+    ):
+        app.init(["--config", str(tmp_path / "settings.yaml"), "--debug-no-traffic"])
