@@ -18,6 +18,7 @@ from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     FocusUserInputEvent,
+    GamepadUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -54,6 +55,31 @@ def control_event(payload: Any) -> UserInputEvent:
                 if payload["pressed"]
                 else KeyboardInputState.RELEASED,
             )
+    elif kind == "gamepad" and common | {"axes", "buttons"} <= set(
+        payload
+    ) <= common | {"axes", "buttons", "action", "index"}:
+        axes, buttons = payload["axes"], payload["buttons"]
+        action, index = payload.get("action", "state"), payload.get("index", 0)
+        if (
+            action in ("connected", "disconnected", "state")
+            and type(index) is int
+            and 0 <= index < 2**31
+            and isinstance(axes, list)
+            and len(axes) <= 32
+            and isinstance(buttons, list)
+            and len(buttons) <= 64
+            and all(type(v) in (int, float) and -1 <= v <= 1 for v in axes)
+            and all(type(v) in (int, float) and 0 <= v <= 1 for v in buttons)
+        ):
+            return GamepadUserInputEvent(
+                timestamp=np.uint64(timestamp),
+                action=action,
+                index=index,
+                mapping="standard",
+                axes=tuple(float(v) for v in axes),
+                buttons=tuple(float(v) for v in buttons),
+                pressed=tuple(v > 0.5 for v in buttons),
+            )
     elif kind == "focus" and set(payload) == common | {"focused"}:
         if isinstance(payload["focused"], bool):
             return FocusUserInputEvent(
@@ -61,7 +87,7 @@ def control_event(payload: Any) -> UserInputEvent:
             )
     elif kind == "close" and set(payload) == common:
         return CloseUserInputEvent(timestamp=np.uint64(timestamp))
-    raise ValueError("Expected a keyboard, focus, or close input event")
+    raise ValueError("Expected a keyboard, gamepad, focus, or close input event")
 
 
 class HeadlessInput:
