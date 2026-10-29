@@ -55,6 +55,11 @@ from crazy_robotaxi.settings import (
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
 from ludus_renderer.physx import PhysXStepTimings, _CompactPhysicsStep
 from omnidreams_game_engine.config import BevConfig, RasterConfig
+from omnidreams_game_engine.engine import GameEngine
+from omnidreams_game_engine.model import WorldModelRollout
+from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
+    EgoVehicleKinematics,
+)
 from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
 from omnidreams_game_engine.input import DriverInput
@@ -66,6 +71,7 @@ from omnidreams_game_engine.simulation.game_physics import (
 from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import (
     CameraCalibration,
+    ConditionBatch,
     DriverCommand,
     PhysicsDebugFrame,
     SceneDefinition,
@@ -1149,6 +1155,198 @@ def test_model_state_prewarms_neutral_blocks_once_then_resets(monkeypatch) -> No
     assert rollout.reset_count == 2
     assert ui_loop.state._name_input == ""
     assert len(rollout.steps) == 4
+
+
+@pytest.mark.parametrize("prewarm_blocks", [0, 4])
+@pytest.mark.parametrize("mode", ["free-roam", "race", "taxi"])
+def test_realtime_prewarm_preserves_frozen_world_cache_and_restart(
+    monkeypatch, tmp_path: Path, prewarm_blocks: int, mode: str
+) -> None:
+    from crazy_robotaxi.free_roam import FreeRoamGameRules
+    from crazy_robotaxi.high_scores import RaceTimeStore
+    from crazy_robotaxi.race import RaceController, RaceGameRules
+    from crazy_robotaxi.rules import TaxiGameConfig, TaxiGameController, TaxiGameRules
+    from omnidreams_game_engine.game_map import load_game_map
+
+    engines = []
+    trajectories = []
+    generated = []
+
+    class Pipeline:
+        device = "cpu"
+
+        def initialize_cache(self, **kwargs):
+            return []
+
+        def get_num_output_frames(self, index):
+            return 5 if index == 0 else 8
+
+        def generate(self, *, autoregressive_index, cache, input):
+            assert autoregressive_index == len(cache)
+            cache.append(autoregressive_index)
+            generated.append((cache, autoregressive_index))
+            return input
+
+        def finalize(self, **kwargs):
+            return {}
+
+    class Renderer:
+        def load_scene(self, scene):
+            pass
+
+        def render(self, trajectory):
+            trajectories.append(trajectory)
+            return ConditionBatch(
+                torch.zeros(1, 1, len(trajectory.vehicle_states), 3, 4, 4)
+            )
+
+        def close(self):
+            pass
+
+    def build_engine():
+        rules = FreeRoamGameRules()
+        if mode == "race":
+            game_map = load_game_map(_RACE_MAP)
+            rules = RaceGameRules(
+                RaceController(
+                    game_map,
+                    game_map.race_courses[0],
+                    VehicleState(4, 2, 1, 0, 0, 0),
+                    RaceTimeStore(tmp_path / "race-times.csv"),
+                )
+            )
+        elif mode == "taxi":
+            rules = TaxiGameRules(
+                TaxiGameController(
+                    scene_id="warmup-test",
+                    reference_route_world=np.array(
+                        [[0, 0, 0], [1000, 0, 0]], dtype=np.float32
+                    ),
+                    initial_state=VehicleState(4, 2, 1, 0, 0, 0),
+                    config=TaxiGameConfig(
+                        seed=42, high_scores_path=tmp_path / "scores.csv"
+                    ),
+                )
+            )
+        monkeypatch.setattr(
+            rules, "advance_frames", MagicMock(wraps=rules.advance_frames)
+        )
+        simulation = EgoVehicleKinematics(
+            initial_state=VehicleState(4, 2, 1, 0, 0, 0),
+            vehicle_config=TaxiVehicleConfig(),
+            ground_snapper=None,
+            initial_timestamp_us=123_000,
+            include_initial_state_in_first_chunk=True,
+        )
+        simulation._integrate_fn = MagicMock(wraps=simulation._integrate_fn)
+        engine = GameEngine(
+            simulation=simulation,
+            rules=rules,
+            condition_renderer=Renderer(),
+            frame_interval_s=1 / 30,
+        )
+        monkeypatch.setattr(
+            engine,
+            "live_edit",
+            SimpleNamespace(
+                style=SimpleNamespace(
+                    attach_v2=lambda *args: None,
+                    update_map_context=MagicMock(),
+                    after_v2_chunk=lambda: None,
+                    active_prompt="",
+                ),
+                hud_statuses=lambda: None,
+            ),
+            raising=False,
+        )
+        engines.append(engine)
+        return engine
+
+    rollout = WorldModelRollout(
+        pipeline=Pipeline(),
+        scene=_scene(width=4, height=4),
+        engine_factory=build_engine,
+    )
+    app = _application()
+    app.init(["--device", "cpu", "--prewarm-blocks", str(prewarm_blocks)])
+    session = app.create_session(app.session_desc())
+    session.init()
+    ui_loop, loop = session._take_loops()
+    state = loop.state
+    state.config = replace(state.config, realtime_gameplay=True, total_blocks=1)
+    state.session_desc = replace(state.session_desc, video_width=4, video_height=4)
+    state.rollout = rollout
+    state.game_selected = True
+    # The model-side engine may render recorded observations, but no gameplay
+    # process is needed to exercise cache lifetime and AR numbering on CPU.
+    monkeypatch.setattr(ModelState, "ensure_rollout", lambda self: self.rollout)
+    for epoch in range(2):
+        initial_game_frame = rollout.engine.current_game_frame
+        state._prewarm_rollout()
+        cache = rollout.cache
+        assert cache == list(range(prewarm_blocks))
+        assert state.blocks_generated == 0
+        assert state.prewarmed_blocks == prewarm_blocks
+        assert state.prewarm_complete
+        assert len(engines) == epoch + 1
+        engine = engines[-1]
+        engine.rules.advance_frames.assert_not_called()
+        engine.simulation._integrate_fn.assert_not_called()
+        if prewarm_blocks:
+            engine.live_edit.style.update_map_context.assert_called_once_with(
+                engine.simulation.current_state
+            )
+        else:
+            engine.live_edit.style.update_map_context.assert_not_called()
+        assert engine.current_game_frame == initial_game_frame
+        if mode == "race":
+            assert engine.current_game_frame.session_state == "awaiting_start"
+            assert engine.current_game_frame.elapsed_time_us == 0
+        for trajectory in trajectories:
+            assert set(trajectory.timestamps_us) == {123_000}
+            assert all(
+                v == VehicleState(4, 2, 1, 0, 0, 0) for v in trajectory.vehicle_states
+            )
+            np.testing.assert_array_equal(
+                trajectory.rig_poses_world,
+                np.repeat(
+                    trajectory.rig_poses_world[:1],
+                    len(trajectory.vehicle_states),
+                    axis=0,
+                ),
+            )
+            if mode == "taxi":
+                assert isinstance(initial_game_frame, TaxiGameSnapshot)
+                passengers = trajectory.dynamic_actors
+                assert passengers
+                expected = (
+                    initial_game_frame.pickup_passengers_xyz_m
+                    or initial_game_frame.pickup_targets_xyz_m
+                )
+                assert len(passengers) == len(expected)
+                ordered = sorted(
+                    passengers, key=lambda a: tuple(a.translations_world[0])
+                )
+                for actor, point in zip(ordered, sorted(expected), strict=True):
+                    assert actor.entity_id.startswith("taxi-passenger-")
+                    assert actor.timestamps_us.tolist() == [123_000]
+                    np.testing.assert_allclose(
+                        actor.translations_world[0, :2], point[:2]
+                    )
+        trajectories.clear()
+        results = loop.step(0, UserInputEvents([]))
+        assert generated[-1][0] is cache
+        assert generated[-1][1] == prewarm_blocks
+        assert state.blocks_generated == 1
+        assert state.finished
+        assert results[0].frame_count == (8 if prewarm_blocks else 5)
+        trajectories.clear()
+        state.restart_game()
+        assert rollout.cache is not cache
+        assert state.prewarmed_blocks == 0
+        assert not state.prewarm_complete
+        assert state.prewarm_wall_ms == 0
+    state.close()
 
 
 def test_taxi_physics_uses_spatial_and_traffic_topology_refreshes_only() -> None:

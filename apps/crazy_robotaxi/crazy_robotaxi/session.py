@@ -15,7 +15,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import torch
-from omnidreams_game_engine.engine import EngineStep, GameEngine
+from omnidreams_game_engine.engine import (
+    EngineStep,
+    GameEngine,
+    SimulationStep,
+    _sample_trajectory,
+)
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.model import WorldModelRollout, WorldModelStep
 from omnidreams_game_engine.scene import SceneRequest
@@ -46,6 +51,7 @@ from crazy_robotaxi.gameplay import GameplayProcess
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
 from crazy_robotaxi.headless_ui import CrazyRobotaxiHeadlessUILoop
 from crazy_robotaxi.live_edit.runtime_v2 import LiveEditAction, LiveEditHudStatus
+from crazy_robotaxi.passengers import build_pickup_passenger_trajectories
 from crazy_robotaxi.race import RaceGameSnapshot
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.ui import (
@@ -113,6 +119,8 @@ class ModelState:
     """Speed aligned with the retained terminal presentation frame."""
 
     blocks_generated: int = 0
+    prewarmed_blocks: int = 0
+    """Retained stationary AR history preceding the visible generated blocks."""
     last_debug_record: dict[str, Any] | None = None
     """Source identity retained when a terminal UI repeats the last model frame."""
 
@@ -312,28 +320,72 @@ class ModelState:
             "[crazy-robotaxi] prewarming %d hidden AR blocks before presentation",
             block_count,
         )
+        initial_trajectory = None
+        initial_game_frame = None
+        if self.config.realtime_gameplay:
+            engine = cast(GameEngine, rollout.engine)
+            # Taxi simulations include the initial state as their first sample:
+            # sampling one frame does not tick physics, traffic, or game rules.
+            # The live gameplay process starts its own fresh engine afterward.
+            initial_trajectory = engine.simulation.pose_chunk(
+                commands=(DriverCommand(),),
+                chunk_size=1,
+                frame_interval_s=engine.frame_interval_s,
+                extrapolation_offset_s=0.0,
+            )
+            initial_game_frame = engine.current_game_frame
+            live_edit = getattr(engine, "live_edit", None)
+            if live_edit is not None and live_edit.style is not None:
+                live_edit.style.update_map_context(
+                    initial_trajectory.boundary_state_after_chunk
+                )
+            if isinstance(initial_game_frame, TaxiGameSnapshot):
+                initial_trajectory = replace(
+                    initial_trajectory,
+                    dynamic_actors=(
+                        *initial_trajectory.dynamic_actors,
+                        *build_pickup_passenger_trajectories(
+                            (initial_game_frame,), initial_trajectory.timestamps_us
+                        ),
+                    ),
+                )
         for autoregressive_index in range(block_count):
             current_block = autoregressive_index + 1
             self._set_loading_status(
                 f"WARMING WORLD MODEL  {current_block}/{block_count}"
             )
             frame_count = rollout.frame_count(autoregressive_index)
+            step_options: dict[str, Any] = {}
+            if initial_trajectory is not None:
+                step_options["recorded_step"] = SimulationStep(
+                    trajectory=_sample_trajectory(
+                        initial_trajectory, (0,) * frame_count
+                    ),
+                    game_frames=(initial_game_frame,) * frame_count,
+                )
             generated = rollout.step(
                 autoregressive_index=autoregressive_index,
                 commands=tuple(DriverCommand() for _ in range(frame_count)),
+                **step_options,
             )
+            if initial_trajectory is not None and generated.video_bvtchw.is_cuda:
+                # Complete all startup work before starting the gameplay clock.
+                torch.cuda.synchronize(generated.video_bvtchw.device)
             del generated
 
-        # Retain process-lifetime compiled kernels and autotune results, but
-        # discard every gameplay, conditioning, and AR-cache mutation. Cache-
-        # bound CUDA graphs re-arm safely against the new storage.
-        rollout.reset()
+        if initial_trajectory is None:
+            rollout.reset()
+        else:
+            # These frames are genuine stationary world history. Preserve both
+            # that history and the CUDA graphs bound to its cache storage.
+            self.prewarmed_blocks = block_count
         self.prewarm_wall_ms = (time.perf_counter() - started) * 1000.0
         self.prewarm_complete = True
         self._set_loading_status("STARTING GAME")
         _LOGGER.info(
-            "[crazy-robotaxi] prewarm complete in %.1f s; rollout reset for gameplay",
+            "[crazy-robotaxi] prewarm complete in %.1f s; retained %d AR blocks",
             self.prewarm_wall_ms / 1000.0,
+            self.prewarmed_blocks,
         )
 
     def _set_loading_status(self, status: str) -> None:
@@ -352,6 +404,9 @@ class ModelState:
                 epoch=self.rollout_epoch,
             )
         self.blocks_generated = 0
+        self.prewarmed_blocks = 0
+        self.prewarm_complete = False
+        self.prewarm_wall_ms = 0.0
         self.debug_frames = 0
         self.finished = False
         self.realtime_miss_count = 0
@@ -506,7 +561,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 for action in ("style", "weather", "coins", "obstacle"):
                     if action in control_actions:
                         live_edit.request_action(action)
-            autoregressive_index = state.blocks_generated
+            autoregressive_index = state.prewarmed_blocks + state.blocks_generated
             frame_count = rollout.frame_count(autoregressive_index)
             valid_count = frame_count
             window = None
@@ -637,7 +692,9 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     control.capture.observe(debug_records)
                 state.debug_frames += valid_count
                 if isinstance(control, HeadlessInput) and not reuse_video:
-                    control.delay_generation(autoregressive_index, self._shutdown_event)
+                    control.delay_generation(
+                        state.blocks_generated, self._shutdown_event
+                    )
 
             step_options: dict[str, Any] = {}
             if capture:
