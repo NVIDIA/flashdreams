@@ -313,6 +313,7 @@ class CaptureRecorder:
                 self.directory / f"{name}.mp4",
                 width=frame.shape[1],
                 height=frame.shape[0],
+                preset="veryfast",
                 frames_per_second=(
                     self.desc.frames_per_second_for_ui
                     if name == "presentation"
