@@ -754,3 +754,59 @@ def test_script_completion_requires_consumption_and_endpoint(tmp_path):
     assert manifest["pending_input_ids"] == ["press"]
     assert manifest["termination_reason"] == "close_command"
     assert not list(window.directory.glob("*.mp4"))
+
+
+@pytest.mark.parametrize("chunks", [1, 32])
+def test_image_buffer_budget_reaches_recorder_and_manifest(
+    tmp_path, monkeypatch, chunks
+):
+    from crazy_robotaxi.debug_capture import CaptureRecorder
+
+    received = []
+
+    def record_budget(*args, **kwargs):
+        received.append(kwargs["image_slots"])
+        return CaptureRecorder(*args, **kwargs)
+
+    monkeypatch.setattr("crazy_robotaxi.debug.CaptureRecorder", record_budget)
+    monkeypatch.setattr(
+        "crazy_robotaxi.debug.shutil.which", lambda _name: "/bin/ffmpeg"
+    )
+    mode = RobotaxiDebugMode()
+    parser = argparse.ArgumentParser()
+    mode.add_arguments(parser)
+    args = parser.parse_args(
+        [
+            "--debug-output-dir",
+            str(tmp_path / "capture"),
+            "--debug-image-buffer-chunks",
+            str(chunks),
+        ]
+    )
+    window = mode.create(args)
+    window.open(
+        SessionDesc(video_width=6, video_height=4, metadata={DEBUG_METADATA_KEY: {}})
+    )
+    window.close()
+    assert received == [chunks]
+    manifest = json.loads((tmp_path / "capture" / "manifest.json").read_text())
+    assert manifest["image_buffer_chunks"] == chunks
+
+
+@pytest.mark.parametrize("chunks", [0, -1])
+def test_image_buffer_budget_rejects_nonpositive_values(tmp_path, chunks):
+    mode = RobotaxiDebugMode()
+    parser = argparse.ArgumentParser()
+    mode.add_arguments(parser)
+    args = parser.parse_args(
+        [
+            "--debug-output-dir",
+            str(tmp_path / "capture"),
+            "--debug-image-buffer-chunks",
+            str(chunks),
+        ]
+    )
+    with pytest.raises(
+        ValueError, match="--debug-image-buffer-chunks must be positive"
+    ):
+        mode.check_arguments(args)
