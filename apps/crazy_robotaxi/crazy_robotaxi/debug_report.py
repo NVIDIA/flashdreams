@@ -9,6 +9,7 @@ import json
 import math
 import statistics
 from collections import defaultdict
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -193,7 +194,7 @@ def write_timing_report(directory: Path) -> dict[str, Any]:
                 "wall_elapsed_s": wall_us / 1e6,
                 "simulation_to_wall_ratio": sim_us / wall_us if wall_us > 0 else None,
                 "physics_gap_ms": _milliseconds(
-                    [(b[1] - a[1]) / 1000 for a, b in zip(samples, samples[1:])]
+                    [(b[1] - a[1]) / 1000 for a, b in pairwise(samples)]
                 ),
             }
         )
@@ -217,4 +218,7 @@ def write_timing_report(directory: Path) -> dict[str, Any]:
     (directory / "timing_summary.json").write_text(
         json.dumps(report, indent=2, allow_nan=False) + "\n"
     )
+    from crazy_robotaxi.debug_overview import write_capture_overview
+
+    write_capture_overview(directory)
     return report
