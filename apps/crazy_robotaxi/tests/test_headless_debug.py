@@ -810,3 +810,53 @@ def test_image_buffer_budget_rejects_nonpositive_values(tmp_path, chunks):
         ValueError, match="--debug-image-buffer-chunks must be positive"
     ):
         mode.check_arguments(args)
+
+
+@pytest.mark.parametrize("reset_at", [None, 10])
+@pytest.mark.parametrize("finish_during_contact", [False, True])
+def test_contact_bursts_keep_endpoints_periodic_images_and_every_video_frame(
+    tmp_path, monkeypatch, reset_at, finish_during_contact
+):
+    from PIL import Image
+
+    from crazy_robotaxi.debug_capture import CaptureRecorder
+
+    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", RecordingEncoder)
+    count = 18 if finish_during_contact else 20
+    records = tuple(
+        {
+            **_debug_record(index, contact=2 <= index <= 17),
+            "rollout_epoch": int(reset_at is not None and index >= reset_at),
+        }
+        for index in range(count)
+    )
+    output = torch.linspace(-1, 1, count)[:, None, None, None].expand(-1, 3, 4, 6)
+    recorder = CaptureRecorder(
+        tmp_path,
+        SessionDesc(video_width=6, video_height=4),
+        images=True,
+        snapshot_every=5,
+    )
+    recorder.observe(records)
+    recorder.submit(records, output, output)
+    recorder.close()
+    summary = recorder.summary()
+    assert summary["capture_complete"]
+    assert summary["contact_frames"] == list(range(2, 18))
+    assert summary["contact_snapshot_policy"] == "onset_end_and_periodic"
+    assert summary["coverage"]["observations"]["saved"] == count
+    assert summary["coverage"]["model_images"]["saved"] == count
+    expected = {0, 2, 5, 10, 15, 17, count - 1}
+    if reset_at is not None:
+        expected.add(reset_at - 1)
+    for view in ("generated", "hdmap", "physics"):
+        assert {
+            int(path.stem) for path in (tmp_path / "frames" / view).glob("*.png")
+        } == expected
+        encoder = cast(RecordingEncoder, recorder._encoders[view])
+        assert len(encoder.frames) == count
+        for identifier in expected:
+            saved = np.asarray(
+                Image.open(tmp_path / "frames" / view / f"{identifier:06d}.png")
+            )
+            np.testing.assert_array_equal(saved, encoder.frames[identifier])
