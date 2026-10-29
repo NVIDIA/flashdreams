@@ -209,6 +209,8 @@ class CaptureRecorder:
         }
         self._encoders: dict[str, Mp4Encoder] = {}
         self._last_frames: dict[str, tuple[int, np.ndarray]] = {}
+        self._last_snapshot: dict[str, int] = {}
+        self._contact_active: dict[str, bool] = {}
         self._trail: deque[tuple[float, float]] = deque(maxlen=90)
         self._epoch: int | None = None
         self._logs = {
@@ -312,14 +314,30 @@ class CaptureRecorder:
                 ),
             )
         self._encoders[name].write(frame[None])
+        # A sustained contact needs endpoint snapshots, not three PNGs per tick.
+        # Videos and contact telemetry still retain every frame.
+        previous = self._last_frames.get(name)
+        was_contact = self._contact_active.get(name, False)
+        if was_contact and not contact and previous is not None:
+            self._save_png(name, *previous)
+        self._contact_active[name] = contact
         self._last_frames[name] = identifier, frame.copy()
-        if identifier % self.snapshot_every == 0 or contact:
-            image = Image.fromarray(frame)
-            image.save(self.directory / "frames" / name / f"{identifier:06d}.png")
-            if name == "presentation":
-                temporary = self.directory / "latest.tmp.png"
-                image.save(temporary)
-                temporary.replace(self.directory / "latest.png")
+        if identifier % self.snapshot_every == 0 or (contact and not was_contact):
+            self._save_png(name, identifier, frame)
+
+    def _save_png(self, name: str, identifier: int, frame: np.ndarray) -> None:
+        if self._last_snapshot.get(name) == identifier:
+            return
+        image = Image.fromarray(frame)
+        image.save(
+            self.directory / "frames" / name / f"{identifier:06d}.png",
+            compress_level=1,
+        )
+        self._last_snapshot[name] = identifier
+        if name == "presentation":
+            temporary = self.directory / "latest.tmp.png"
+            image.save(temporary, compress_level=1)
+            temporary.replace(self.directory / "latest.png")
 
     def _write(self, kind: str, records: tuple[dict, ...], outputs: tuple) -> None:
         if kind == "presentation":
@@ -358,6 +376,10 @@ class CaptureRecorder:
         ):
             identifier = record["capture_frame"]
             if record["rollout_epoch"] != self._epoch:
+                for name, active in self._contact_active.items():
+                    if active:
+                        self._save_png(name, *self._last_frames[name])
+                self._contact_active.clear()
                 self._trail.clear()
                 self._epoch = record["rollout_epoch"]
             physical = record["physics_vehicle"]
@@ -407,9 +429,7 @@ class CaptureRecorder:
                 self.errors.append(f"{type(error).__name__}: {error}")
         try:
             for name, (identifier, frame) in self._last_frames.items():
-                path = self.directory / "frames" / name / f"{identifier:06d}.png"
-                if not path.exists():
-                    Image.fromarray(frame).save(path)
+                self._save_png(name, identifier, frame)
         except Exception as error:
             self.errors.append(f"{type(error).__name__}: {error}")
         finally:
@@ -442,6 +462,7 @@ class CaptureRecorder:
             "capture_errors": self.errors,
             "capture_images": self.images,
             "contact_frames": self.contact_frames,
+            "contact_snapshot_policy": "onset_end_and_periodic",
             "views": list(self._encoders),
             "frames_written": self.observations.saved,
             "frames_generated": self.generated_frames,
