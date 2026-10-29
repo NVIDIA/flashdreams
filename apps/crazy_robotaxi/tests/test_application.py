@@ -1837,3 +1837,80 @@ def test_scripted_headless_startup_requires_complete_cli_selection(
     del arguments[index : index + 2]
     with pytest.raises(ValueError, match="--drive-script.*requires"):
         _application().init(arguments)
+
+
+def test_engine_only_debug_skips_model_loading_and_labels_capture(tmp_path):
+    from crazy_robotaxi.debug import DEBUG_METADATA_KEY
+    from crazy_robotaxi.debug_engine import SemanticDebugPipeline
+
+    prepared = []
+
+    def unexpected_model(*_args):
+        pytest.fail("Engine-only debug attempted to construct a world model")
+
+    app = _application(
+        pipeline_factory=unexpected_model,
+        native_preparer=lambda: prepared.append(True),
+    )
+    app.resolve_client_window_mode("robotaxi-debug")
+    app.init(
+        [
+            "--config",
+            str(tmp_path / "settings.yaml"),
+            "--map",
+            str(_RACE_MAP),
+            "--game-mode",
+            "free-roam",
+            "--device",
+            "cpu",
+            "--debug-engine-only",
+        ]
+    )
+    pipeline = app._pipeline
+    assert isinstance(pipeline, SemanticDebugPipeline)
+    assert prepared == [True]
+    session = app.create_session(app.session_desc())
+    metadata = session.session_desc.metadata[DEBUG_METADATA_KEY]
+    assert metadata["engine_only"] is True
+    assert metadata["world_model_loaded"] is False
+    assert metadata["video_source"] == "semantic"
+    assert metadata["input_mode"] == "runtime"
+    app.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        pipeline.initialize_cache()
+
+
+def test_engine_only_debug_requires_headless_debug_mode(tmp_path):
+    def unexpected(*_args):
+        pytest.fail("Invalid engine-only mode attempted preparation")
+
+    app = _application(
+        pipeline_factory=unexpected,
+        scene_factory=unexpected,
+        native_preparer=unexpected,
+    )
+    app.resolve_client_window_mode("native")
+    with pytest.raises(ValueError, match="requires --mode robotaxi-debug"):
+        app.init(["--config", str(tmp_path / "settings.yaml"), "--debug-engine-only"])
+
+
+def test_engine_only_rejects_live_edit_before_resolving_model_assets(
+    tmp_path, monkeypatch
+):
+    def unexpected(*_args):
+        pytest.fail("Engine-only debug attempted model-asset preparation")
+
+    monkeypatch.setattr(
+        "crazy_robotaxi.application.resolve_live_edit_assets", unexpected
+    )
+    app = _application(pipeline_factory=unexpected)
+    app.resolve_client_window_mode("robotaxi-debug")
+    with pytest.raises(ValueError, match="live-edit abilities disabled"):
+        app.init(
+            [
+                "--config",
+                str(tmp_path / "settings.yaml"),
+                "--debug-engine-only",
+                "--live-edit-style",
+            ]
+        )
