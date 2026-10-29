@@ -902,7 +902,10 @@ class WebRTCServer:
         emitter = TokenFrameEmitter(
             ws,
             codec=RawFloat16TokenCodecConfig().setup(),
-            fps=session_desc.frames_per_second_for_step,
+            # Per-frame display rate (the video-track cadence) -- the client paces
+            # decoded frames at this rate, so it is the display fps, not the model
+            # step/chunk rate frames_per_second_for_step.
+            fps=session_desc.frames_per_second_for_ui,
             flow_window_size=_TOKEN_FLOW_WINDOW,
             extra_header=session_desc.metadata.get(EXTRA_HEADER_METADATA_KEY),
         )

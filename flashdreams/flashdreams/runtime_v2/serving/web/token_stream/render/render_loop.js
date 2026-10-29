@@ -24,10 +24,19 @@ export class RenderLoop {
    * @param {(now: number) => void} [options.onFramePresented] optional per-frame
    *   hook, e.g. for FPS accounting
    */
-  constructor({ canvas, onChunkPresented, onFramePresented }) {
+  constructor({
+    canvas,
+    onChunkPresented,
+    onFramePresented,
+    onChunkBuffered = () => {},
+    paced = false,
+    fps = 30,
+    preRoll = 8,
+  }) {
     this._canvas = canvas
     this._onChunkPresented = onChunkPresented
     this._onFramePresented = onFramePresented
+    this._onChunkBuffered = onChunkBuffered
     this._queue = []
     this._running = false
     this._rafId = null
@@ -38,6 +47,17 @@ export class RenderLoop {
     this._current = null
     this._frameCursor = 0
     this._badge = null // persistent corner label drawn over each presented frame
+    // Paced playout (the default; session can disable it): present at a fixed
+    // cadence (the advertised fps) through a small jitter buffer, instead of one
+    // frame per rAF on arrival, to smooth the chunk-boundary gaps.
+    // See docs/token-frame-pacing-plan.md.
+    this._paced = paced
+    this._interval = 1000 / (fps || 30)
+    this._preRoll = Math.max(1, preRoll)
+    this._frameQueue = [] // flat {chunkId, frame, isLast} awaiting paced playout
+    this._paceStarted = false
+    this._nextAt = 0
+    this._starved = false
   }
 
   /** Set (or clear with null) a small corner badge drawn over every frame. */
@@ -120,6 +140,9 @@ export class RenderLoop {
     this._queue.length = 0
     this._current = null
     this._frameCursor = 0
+    this._frameQueue.length = 0
+    this._paceStarted = false
+    this._starved = false
   }
 
   /**
@@ -127,6 +150,21 @@ export class RenderLoop {
    * @param {DecodedChunk} decodedChunk
    */
   enqueue(decodedChunk) {
+    if (this._paced) {
+      const { chunkId, frames } = decodedChunk
+      for (let i = 0; i < frames.length; i += 1) {
+        this._frameQueue.push({
+          chunkId,
+          frame: frames[i],
+          isLast: i === frames.length - 1,
+        })
+      }
+      // Ack on buffer, not on present: paced presentation delays frames, and
+      // acking on present would throttle the server's flow-control window and
+      // starve the buffer (see docs/token-frame-pacing-plan.md §4).
+      this._onChunkBuffered(chunkId)
+      return
+    }
     this._queue.push(decodedChunk)
   }
 
@@ -134,11 +172,19 @@ export class RenderLoop {
     if (!this._running) {
       return
     }
+    if (this._paced) {
+      this._tickPaced(now)
+    } else {
+      this._tickOnArrival(now)
+    }
+    this._rafId = window.requestAnimationFrame(this._tick)
+  }
 
-    // Present one frame per animation frame so every decoded frame is shown
-    // (blitting a whole chunk in a single frame would leave only its last frame
-    // visible). The chunk is acked once its last frame is on screen, which
-    // paces the server's flow-control window to the display rate.
+  // Default: present one frame per animation frame, draining chunks as they
+  // arrive (blitting a whole chunk in one frame would leave only its last frame
+  // visible). The chunk is acked once its last frame is on screen, which paces
+  // the server's flow-control window to the display rate.
+  _tickOnArrival(now) {
     if (!this._current) {
       this._current = this._queue.shift() ?? null
       this._frameCursor = 0
@@ -154,8 +200,39 @@ export class RenderLoop {
         this._current = null
       }
     }
+  }
 
-    this._rafId = window.requestAnimationFrame(this._tick)
+  // Paced playout: hold a small pre-roll, then present one buffered frame per
+  // ``interval`` (the advertised fps) so the chunk-boundary bursts are smoothed.
+  // On starvation, hold the last frame and re-anchor on resume so playback
+  // continues at cadence rather than bursting through the backlog.
+  _tickPaced(now) {
+    if (!this._paceStarted) {
+      if (this._frameQueue.length < this._preRoll) {
+        return // building the pre-roll buffer
+      }
+      this._paceStarted = true
+      this._nextAt = now
+    }
+    if (this._frameQueue.length === 0) {
+      this._starved = true // hold the last frame; re-anchor when frames resume
+      return
+    }
+    if (now < this._nextAt) {
+      return // not yet time for the next frame
+    }
+    if (this._starved) {
+      this._nextAt = now // resume at cadence after a stall, no catch-up burst
+      this._starved = false
+    }
+    const item = this._frameQueue.shift()
+    this._blit(item.frame)
+    this._drawBadge()
+    this._onFramePresented?.(now)
+    if (item.isLast) {
+      this._onChunkPresented?.(item.chunkId)
+    }
+    this._nextAt += this._interval
   }
 
   _blit(frame) {
