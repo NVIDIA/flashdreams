@@ -138,9 +138,13 @@ class RobotaxiDebugWindow(IClientWindow):
         cpu_sample_ms: float = 0,
         clock_ns: Callable[[], int] = time.monotonic_ns,
         capture_images: bool = True,
+        image_buffer_chunks: int = 4,
         strict: bool = False,
         generation_delays_ms: tuple[float, ...] = (0.0,),
     ) -> None:
+        if image_buffer_chunks <= 0:
+            raise ValueError("image_buffer_chunks must be positive")
+        self.image_buffer_chunks = image_buffer_chunks
         self.capture_images = capture_images
         self.strict = strict
         self.generation_delays_ms = generation_delays_ms
@@ -200,6 +204,7 @@ class RobotaxiDebugWindow(IClientWindow):
             session_desc,
             images=self.capture_images,
             snapshot_every=self.snapshot_every,
+            image_slots=self.image_buffer_chunks,
         )
         self.control.capture = self.recorder
         self._started_ns = self._clock_ns()
@@ -389,6 +394,7 @@ class RobotaxiDebugWindow(IClientWindow):
             "presentation_size": self._presentation_size,
             "presentation_fps": self._desc.frames_per_second_for_ui,
             "snapshot_every": self.snapshot_every,
+            "image_buffer_chunks": self.image_buffer_chunks,
             "views": ["presentation"]
             if not self._paired_views
             else ["generated", "hdmap", "physics"],
@@ -463,6 +469,12 @@ class RobotaxiDebugMode(ClientWindowMode):
             help="Save model/conditioning/physics images and UI video (default: enabled).",
         )
         parser.add_argument(
+            "--debug-image-buffer-chunks",
+            type=int,
+            default=4,
+            help="Maximum image chunks queued for encoding (default: 4). Increase to absorb capture bursts at the cost of GPU memory; sustained encoder overload still drops frames.",
+        )
+        parser.add_argument(
             "--debug-strict-capture",
             action="store_true",
             help="Fail the run if any capture data is missing or could not be written.",
@@ -488,6 +500,8 @@ class RobotaxiDebugMode(ClientWindowMode):
             raise ValueError(
                 "--debug-output-dir must not already exist; use a fresh directory for each run"
             )
+        if parsed_args.debug_image_buffer_chunks <= 0:
+            raise ValueError("--debug-image-buffer-chunks must be positive")
         if parsed_args.debug_snapshot_every <= 0:
             raise ValueError("--debug-snapshot-every must be positive")
         if (
@@ -512,6 +526,7 @@ class RobotaxiDebugMode(ClientWindowMode):
             snapshot_every=parsed_args.debug_snapshot_every,
             cpu_sample_ms=parsed_args.debug_cpu_sample_ms,
             capture_images=parsed_args.debug_capture_images,
+            image_buffer_chunks=parsed_args.debug_image_buffer_chunks,
             strict=parsed_args.debug_strict_capture,
             generation_delays_ms=tuple(parsed_args.debug_generation_delay_ms),
         )
