@@ -290,3 +290,36 @@ def test_boulevard_traffic_turns_are_continuous_and_physically_limited() -> None
                     vehicle.vehicle_id,
                     index,
                 )
+
+
+def test_debug_traffic_selection_preserves_scene_and_compiler_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    monkeypatch.setenv("FLASHDREAMS_CACHE_DIR", str(tmp_path))
+    request = SceneRequest(map_path=_MAP_FIXTURES / "turning_traffic.robotaxi.yaml")
+    raster = RasterConfig(width=64, height=32)
+    original = load_scene(request, raster)
+    assert original.game_map is not None and original.game_map.traffic
+    archive_bytes = original.scene_path.read_bytes()
+
+    without = load_scene(replace(request, traffic_enabled=False), raster)
+    restored = load_scene(request, raster)
+    assert without.game_map is not None and without.game_map.traffic == ()
+    assert restored.game_map is not None
+    assert game_map_to_dict(restored.game_map) == game_map_to_dict(original.game_map)
+    expected_map = game_map_to_dict(original.game_map)
+    expected_map["traffic"] = []
+    assert game_map_to_dict(without.game_map) == expected_map
+    assert without.scene_path == original.scene_path == restored.scene_path
+    assert without.scene_path.read_bytes() == archive_bytes
+    assert without.metadata == original.metadata
+    assert without.prompt == original.prompt
+    for name in (
+        "initial_rgb",
+        "initial_rig_to_world",
+        "ground_mesh_vertices",
+        "ground_mesh_faces",
+    ):
+        np.testing.assert_array_equal(getattr(without, name), getattr(original, name))
