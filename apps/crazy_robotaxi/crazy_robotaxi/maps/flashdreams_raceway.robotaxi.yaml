@@ -225,7 +225,8 @@ spawns:
     distance_m: 220
     image: flashdreams_raceway_initial_frame.png
     prompt: >-
-      Onboard footage of a taxi driving through a motor-racing circuit. Covered
+      Onboard footage of a taxi driving through a motor-racing circuit. The circuit
+      has a broad four-lane asphalt roadway with dashed white lane dividers. Covered
       spectator grandstands, pit garages, trees and city buildings. Asphalt, concrete
       barriers and catch fences. Car hood visible. The view follows the steering
       and movement of the car.
