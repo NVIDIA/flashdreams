@@ -309,6 +309,32 @@ def _debug_record(frame: int, *, contact: bool = False) -> dict:
     }
 
 
+@pytest.mark.parametrize(
+    ("timestamp_fields", "expected_time"),
+    [
+        ({"simulation_timestamp_us": 12_345_678}, "12.35s"),
+        ({"simulation_timestamp_us": 0}, "0.00s"),
+        ({"simulation_timestamp_us": None}, "unknown"),
+        ({}, "unknown"),
+    ],
+)
+def test_physics_view_labels_recorded_simulation_time(
+    monkeypatch: pytest.MonkeyPatch, timestamp_fields: dict, expected_time: str
+) -> None:
+    from crazy_robotaxi.debug_capture import render_physics_view
+
+    record = _debug_record(300)
+    del record["simulation_timestamp_us"]
+    record.update(timestamp_fields)
+    captions = []
+    monkeypatch.setattr(
+        "PIL.ImageDraw.ImageDraw.text",
+        lambda self, xy, text, **kwargs: captions.append(text),
+    )
+    render_physics_view(record, width=640, height=320, trail_xy=[])
+    assert captions[0].startswith(f"PHYSICS  frame 300  sim {expected_time}  ")
+
+
 def test_script_uses_the_live_command_schema_and_rejects_duplicates(
     tmp_path: Path,
 ) -> None:

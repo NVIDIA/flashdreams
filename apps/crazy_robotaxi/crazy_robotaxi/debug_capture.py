@@ -106,9 +106,15 @@ def render_physics_view(
     contact = record["static_barrier_collision"]
     color = (255, 90, 70) if contact else (245, 245, 245)
     draw.rectangle((0, 0, width, min(height, 66)), fill=(18, 22, 30))
+    simulation_timestamp_us = record.get("simulation_timestamp_us")
+    simulation_time = (
+        "unknown"
+        if simulation_timestamp_us is None
+        else f"{simulation_timestamp_us / 1_000_000:.2f}s"
+    )
     draw.text(
         (8, 8),
-        f"PHYSICS  frame {record['frame']}  {record['frame'] / 30:.2f}s"
+        f"PHYSICS  frame {record['frame']}  sim {simulation_time}"
         f"  {physical['speed_mps']:.1f} m/s  CURB RESPONSE: {'YES' if contact else 'no'}",
         fill=color,
         font=font,
