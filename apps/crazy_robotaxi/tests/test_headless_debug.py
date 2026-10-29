@@ -374,6 +374,7 @@ class RecordingEncoder:
     def __init__(self, *args, **kwargs) -> None:
         self.frames = []
         self.closed = False
+        self.preset = kwargs.get("preset", "medium")
 
     def write(self, frames) -> None:
         self.frames.extend(frames.copy())
@@ -428,6 +429,10 @@ def test_capture_keeps_model_frames_when_presentation_skips_or_repeats(
     ]
     assert [r["source"]["capture_frame"] for r in presentations] == [0, 2, 2]
     encoders = window.recorder._encoders
+    assert all(
+        cast(RecordingEncoder, encoder).preset == "veryfast"
+        for encoder in encoders.values()
+    )
     assert np.all(cast(RecordingEncoder, encoders["generated"]).frames[0] == 255)
     assert np.all(cast(RecordingEncoder, encoders["hdmap"]).frames[0] == 0)
     assert manifest["contact_frames"] == [1]
