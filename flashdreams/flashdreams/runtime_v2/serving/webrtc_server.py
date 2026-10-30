@@ -1076,6 +1076,9 @@ class WebRTCServer:
         app = web.Application()
         app.router.add_get("/", self._serve_browser)
         app.router.add_get("/app.js", self._serve_browser_script)
+        app.router.add_get(
+            "/token_stream/{path:.+}", self._serve_token_stream_module
+        )
         app.router.add_get("/healthz", self._health)
         app.router.add_post("/api/webrtc/offer", self._offer)
         app.router.add_get("/api/token-stream", self._token_stream_ws)
@@ -1109,6 +1112,24 @@ class WebRTCServer:
         """Return the browser client's JavaScript."""
         return web.Response(text=_BROWSER_SCRIPT, content_type="text/javascript")
 
+    async def _serve_token_stream_module(self, request: web.Request) -> web.Response:
+        """Serve one token-stream client ES module from the packaged web dir.
+
+        The browser dynamically imports these when the server advertises token
+        mode. The matched path is split into plain segments and rejoined under
+        the web-resources root; empty / "." / ".." segments are refused, so the
+        route cannot read outside the token_stream module tree.
+        """
+        segments = request.match_info["path"].split("/")
+        if any(segment in ("", ".", "..") for segment in segments):
+            raise web.HTTPNotFound()
+        resource = _WEB_RESOURCES.joinpath("token_stream", *segments)
+        try:
+            source = resource.read_text(encoding="utf-8")
+        except (FileNotFoundError, IsADirectoryError, OSError):
+            raise web.HTTPNotFound() from None
+        return web.Response(text=source, content_type="text/javascript")
+
     async def _serve_token_stream_asset(
         self, request: web.Request
     ) -> web.StreamResponse:
@@ -1141,6 +1162,10 @@ class WebRTCServer:
                 "client_connected": self._client_connected,
                 "hide_cursor": self._hide_cursor,
                 "lock_cursor_to_window": self._lock_cursor_to_window,
+                "token_stream": (
+                    self._session_desc is not None
+                    and self._session_desc.token_stream
+                ),
             }
         )
 

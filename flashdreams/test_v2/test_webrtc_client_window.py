@@ -214,6 +214,30 @@ async def test_token_stream_asset_route_serves_published_keys_with_types(
         window.close()
 
 
+@pytest.mark.asyncio
+async def test_token_stream_modules_served_and_healthz_advertises_token_mode() -> None:
+    """The client ES modules are served as JavaScript and /healthz flags token mode."""
+    window = WebRTCClientWindow()
+    window.open(replace(_session_desc(), token_stream=True))
+    try:
+        base = window.server.url
+        async with ClientSession() as client:
+            async with client.get(f"{base}healthz") as health:
+                assert (await health.json())["token_stream"] is True
+            async with client.get(f"{base}token_stream/framing.js") as framing:
+                assert framing.status == 200
+                assert framing.headers["Content-Type"].startswith("text/javascript")
+                assert "parseHeader" in await framing.text()
+            # A nested module resolves through the same route.
+            async with client.get(f"{base}token_stream/codec/registry.js") as nested:
+                assert nested.status == 200
+            # An unknown module is a 404, not a server error.
+            async with client.get(f"{base}token_stream/does-not-exist.js") as missing:
+                assert missing.status == 404
+    finally:
+        window.close()
+
+
 def _session_desc(
     presentation_mode: PresentationMode = PresentationMode.ON_DEMAND,
 ) -> SessionDesc:
