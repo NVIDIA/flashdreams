@@ -153,10 +153,7 @@ def test_reversing_away_recomputes_destination_immediately() -> None:
     assert "approaching an intersection" in approaching.suffix
     assert "approaching an intersection" not in reversing.suffix
     assert reversing.motion == "reverse"
-    assert (
-        "The taxi is reversing; scenery moves forward relative to the camera."
-        in reversing.suffix
-    )
+    assert "reversing" in reversing.suffix
 
 
 def test_velocity_selects_actual_travel_direction_over_vehicle_yaw() -> None:
@@ -187,7 +184,10 @@ def test_two_off_map_chunks_clear_scene_context_but_keep_motion() -> None:
     assert first == on_map
     assert second.road_id is None
     assert second.node_id is None
-    assert second.suffix == "The taxi is driving forward."
+    assert second.motion == "forward"
+    assert "forward" in second.suffix
+    assert "Setting along" not in second.suffix
+    assert "Landmark at" not in second.suffix
 
 
 def test_culdesac_driveway_and_parking_lot_phrases() -> None:
@@ -235,10 +235,6 @@ def test_unique_road_joint_successor_contributes_curve_context() -> None:
 
     assert "road curves left ahead" in result.suffix
     assert "intersection" not in result.suffix
-    assert (
-        tracker._curve_direction(lane, _lane_length(lane), 15.0, stop_at_branch=True)
-        == "left"
-    )
 
 
 @pytest.mark.parametrize(

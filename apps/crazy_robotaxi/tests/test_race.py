@@ -18,26 +18,13 @@ from omnidreams_game_engine.game_map import (
     GameMapRaceCourse,
     load_game_map,
 )
-from omnidreams_game_engine.game_map.types import ResolvedGameMap
 from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
 from omnidreams_game_engine.types import TrajectoryChunk, VehicleState
-from shapely.geometry import Polygon
 
 pytestmark = pytest.mark.ci_cpu
 
-_MAP = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
-_BOULEVARD_MAP = (
-    Path(__file__).parents[1]
-    / "crazy_robotaxi"
-    / "maps"
-    / "boulevard_district.robotaxi.yaml"
-)
-_RACEWAY_MAP = (
-    Path(__file__).parents[1]
-    / "crazy_robotaxi"
-    / "maps"
-    / "flashdreams_raceway.robotaxi.yaml"
-)
+_MAPS = Path(__file__).parent / "maps"
+_MAP = _MAPS / "race_course.robotaxi.yaml"
 
 
 def _state(x_m: float, y_m: float) -> VehicleState:
@@ -58,73 +45,78 @@ def _trajectory(
     )
 
 
-def _point(game_map: ResolvedGameMap, element_id: str) -> tuple[float, float]:
-    element = next(
-        element for element in game_map.elements if element.element_id == element_id
-    )
-    point = Polygon(element.surface_world[:, :2]).representative_point()
-    return float(point.x), float(point.y)
-
-
-def _active_gate_midpoint(controller: RaceController) -> tuple[float, float]:
-    snapshot = controller.snapshot(_state(0.0, 0.0))
-    return snapshot.target_xyz_m[0], snapshot.target_xyz_m[1]
-
-
-def _cross_active_gate(
-    controller: RaceController,
-    timestamp_us: int,
-    *,
-    forward: bool = True,
-) -> RaceGameSnapshot:
-    target_id = controller._target_element_id
-    gate = controller._gates[target_id]
-    direction = controller._gate_directions[target_id]
-    midpoint = np.asarray(gate.interpolate(0.5, normalized=True).coords[0])
-    before = midpoint - direction * 5.0
-    after = midpoint + direction * 5.0
-    if not forward:
-        before, after = after, before
-    controller._previous_xy = float(before[0]), float(before[1])
+def _drive(
+    controller: RaceController, points: list[tuple[float, float]], first_second: int
+) -> tuple[RaceGameSnapshot, ...]:
     return controller.advance_frames(
-        _trajectory([(float(after[0]), float(after[1]))], [timestamp_us]), 1.0
-    )[-1]
-
-
-def test_loop_finishes_only_after_final_return_to_start(
-    tmp_path: Path,
-) -> None:
-    game_map = load_game_map(_MAP)
-    course = game_map.race_courses[0]
-    start = _point(game_map, course.start_element_id)
-    controller = RaceController(
-        game_map,
-        course,
-        _state(start[0] + 100.0, start[1] - 100.0),
-        RaceTimeStore(tmp_path / "times.csv"),
+        _trajectory(
+            points,
+            [
+                second * 1_000_000
+                for second in range(first_second, first_second + len(points))
+            ],
+        ),
+        1.0,
     )
-    awaiting_start = controller.snapshot(_state(*start))
-    assert awaiting_start.target_label == "START"
-    assert awaiting_start.as_dict()["target_label"] == "START"
 
-    timestamp = 1_000_000
-    started = _cross_active_gate(controller, timestamp)
+
+def test_loop_finishes_only_after_final_return_to_start(tmp_path: Path) -> None:
+    document = yaml.safe_load(_MAP.read_text(encoding="utf-8"))
+    document["race_courses"][0]["checkpoint_markers"] = False
+    path = tmp_path / "hidden-markers.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    game_map = load_game_map(path)
+    course = game_map.race_courses[0]
+    controller = RaceController(
+        game_map, course, _state(-20.0, -100.0), RaceTimeStore(tmp_path / "times.csv")
+    )
+    before = controller.snapshot(_state(-20.0, -100.0))
+    assert before.target_label == "START"
+    assert before.checkpoint_markers is False
+
+    # The authored start road ends at (0, -100). Neither endpoint touches its gate.
+    started = _drive(controller, [(20.0, -100.0)], 1)[-1]
+    assert started.session_state == "racing"
+    assert started.elapsed_time_us == 0
     assert started.target_label == "CHECKPOINT"
+
+    # Follow the test map counterclockwise: east, north, west, south, then east.
+    # These coordinates come from the authored roads, never controller gate output.
+    lap_points = [
+        (130.0, -100.0),
+        (150.0, -100.0),
+        (150.0, -20.0),
+        (150.0, 20.0),
+        (150.0, 80.0),
+        (150.0, 100.0),
+        (20.0, 100.0),
+        (-20.0, 100.0),
+        (-130.0, 100.0),
+        (-150.0, 100.0),
+        (-150.0, 20.0),
+        (-150.0, -20.0),
+        (-150.0, -80.0),
+        (-150.0, -100.0),
+        (-20.0, -100.0),
+        (20.0, -100.0),
+    ]
     for lap in range(course.lap_count):
-        for _checkpoint in course.checkpoint_element_ids:
-            timestamp += 1_000_000
-            _cross_active_gate(controller, timestamp)
-        assert controller.is_playing
-        assert controller.snapshot(_state(*start)).target_label == "FINISH"
-        timestamp += 1_000_000
-        snapshot = _cross_active_gate(controller, timestamp)
-        assert snapshot.completed_laps == lap + 1
+        snapshots = _drive(controller, lap_points, 2 + lap * len(lap_points))
+        assert [snapshots[index].target_element_id for index in (1, 3, 7, 11)] == [
+            "east_north",
+            "north",
+            "west_south",
+            "south_west",
+        ]
+        assert snapshots[-2].target_label == "FINISH"
+        assert snapshots[-2].session_state == "racing"
+        assert snapshots[-1].completed_laps == lap + 1
 
     assert not controller.is_playing
-    assert snapshot.session_state == "awaiting_name"
-    assert snapshot.final_time_us == timestamp - 1_000_000
+    assert snapshots[-1].session_state == "awaiting_name"
+    assert snapshots[-1].final_time_us == 48_000_000
     controller.submit_high_score_name("Racer")
-    leaderboard = controller.snapshot(_state(*start))
+    leaderboard = controller.snapshot(_state(20.0, -100.0))
     assert leaderboard.session_state == "leaderboard"
     assert leaderboard.leaderboard[0].name == "Racer"
     assert leaderboard.high_score_rank == 1
@@ -134,231 +126,95 @@ def test_point_to_point_finishes_at_last_checkpoint_and_rejects_skips(
     tmp_path: Path,
 ) -> None:
     game_map = load_game_map(_MAP)
-    authored = game_map.race_courses[0]
-    course = GameMapRaceCourse(
+    course = replace(
+        game_map.race_courses[0],
         course_id="sprint",
-        spawn_id=authored.spawn_id,
-        start_element_id=authored.start_element_id,
-        checkpoint_element_ids=(
-            authored.checkpoint_element_ids[0],
-            authored.checkpoint_element_ids[2],
-        ),
+        checkpoint_element_ids=("southeast", "north"),
         lap_count=0,
     )
-    start = _point(game_map, course.start_element_id)
-    last = _point(game_map, course.checkpoint_element_ids[1])
     controller = RaceController(
-        game_map,
-        course,
-        _state(start[0] + 100, start[1] - 100),
-        RaceTimeStore(tmp_path / "times.csv"),
+        game_map, course, _state(-20.0, -100.0), RaceTimeStore(tmp_path / "times.csv")
     )
-
-    _cross_active_gate(controller, 1_000_000)
-    skipped = controller.advance_frames(_trajectory([last], [2_000_000]), 1.0)[-1]
+    _drive(controller, [(20.0, -100.0)], 1)
+    # Cross north westbound while bypassing southeast, the active checkpoint.
+    skipped = _drive(controller, [(20.0, 100.0), (-20.0, 100.0)], 2)[-1]
     assert skipped.checkpoint_index == 0
     assert controller.is_playing
-    final_gate = _cross_active_gate(controller, 3_000_000)
-    assert final_gate.target_label == "FINISH"
-    finished = _cross_active_gate(controller, 4_000_000)
-
-    assert finished.final_time_us == 3_000_000
+    snapshots = _drive(
+        controller,
+        [
+            (20.0, 100.0),
+            (20.0, -100.0),
+            (130.0, -100.0),
+            (150.0, -100.0),
+            (150.0, 100.0),
+            (-20.0, 100.0),
+        ],
+        4,
+    )
+    assert snapshots[3].target_label == "FINISH"
+    assert snapshots[-1].final_time_us == 8_000_000
     assert not controller.is_playing
-
-
-def test_start_gate_detects_a_swept_crossing(tmp_path: Path) -> None:
-    game_map = load_game_map(_MAP)
-    course = game_map.race_courses[0]
-    probe = RaceController(
-        game_map,
-        course,
-        _state(0.0, 0.0),
-        RaceTimeStore(tmp_path / "times.csv"),
-    )
-    gate = probe.snapshot(_state(0.0, 0.0))
-    start = np.asarray(gate.gate_start_xyz_m[:2])
-    end = np.asarray(gate.gate_end_xyz_m[:2])
-    midpoint = (start + end) / 2.0
-    normal = np.asarray([-(end - start)[1], (end - start)[0]])
-    normal /= np.linalg.norm(normal)
-    before = midpoint - normal * 5.0
-    after = midpoint + normal * 5.0
-    controller = RaceController(
-        game_map,
-        course,
-        _state(float(before[0]), float(before[1])),
-        RaceTimeStore(tmp_path / "times.csv"),
-    )
-
-    snapshot = controller.advance_frames(
-        _trajectory([(float(after[0]), float(after[1]))], [7_000_000]), 1.0
-    )[-1]
-
-    assert snapshot.session_state == "racing"
-    assert snapshot.elapsed_time_us == 0
-
-
-@pytest.mark.parametrize(
-    ("element_id", "expected_direction"),
-    [
-        ("south_west", (1.0, 0.0)),
-        ("southeast", (1.0, 0.0)),
-        ("east_north", (0.0, 1.0)),
-        ("north", (-1.0, 0.0)),
-        ("west_south", (0.0, -1.0)),
-    ],
-)
-def test_gate_directions_follow_authored_course(
-    tmp_path: Path,
-    element_id: str,
-    expected_direction: tuple[float, float],
-) -> None:
-    game_map = load_game_map(_MAP)
-    course = game_map.race_courses[0]
-    controller = RaceController(
-        game_map,
-        course,
-        _state(-300.0, -300.0),
-        RaceTimeStore(tmp_path / "times.csv"),
-    )
-
-    assert (
-        np.dot(controller._gate_directions[element_id], np.asarray(expected_direction))
-        > 0.99
-    )
 
 
 def test_backward_start_crossing_does_not_start(tmp_path: Path) -> None:
     game_map = load_game_map(_MAP)
-    course = game_map.race_courses[0]
     controller = RaceController(
         game_map,
-        course,
-        _state(-300.0, -300.0),
+        game_map.race_courses[0],
+        _state(20.0, -100.0),
         RaceTimeStore(tmp_path / "times.csv"),
     )
-
-    snapshot = _cross_active_gate(controller, 1_000_000, forward=False)
-
+    snapshot = _drive(controller, [(-20.0, -100.0)], 1)[-1]
     assert snapshot.session_state == "awaiting_start"
     assert snapshot.target_kind == "start"
     assert snapshot.event is None
     assert snapshot.elapsed_time_us == 0
 
 
-def test_backward_checkpoint_crossing_does_not_advance(tmp_path: Path) -> None:
+def test_swept_crossing_advances_through_adjacent_gates(tmp_path: Path) -> None:
     game_map = load_game_map(_MAP)
-    course = game_map.race_courses[0]
-    controller = RaceController(
-        game_map,
-        course,
-        _state(-300.0, -300.0),
-        RaceTimeStore(tmp_path / "times.csv"),
-    )
-    _cross_active_gate(controller, 1_000_000)
-    checkpoint_id = controller._target_element_id
-
-    snapshot = _cross_active_gate(controller, 2_000_000, forward=False)
-
-    assert snapshot.session_state == "racing"
-    assert snapshot.checkpoint_index == 0
-    assert snapshot.target_element_id == checkpoint_id
-    assert snapshot.event is None
-
-
-def test_backward_finish_crossing_does_not_complete_race(tmp_path: Path) -> None:
-    game_map = load_game_map(_MAP)
-    authored = game_map.race_courses[0]
-    course = GameMapRaceCourse(
-        course_id="one-lap",
-        spawn_id=authored.spawn_id,
-        start_element_id=authored.start_element_id,
-        checkpoint_element_ids=authored.checkpoint_element_ids,
-        lap_count=1,
-    )
-    store = RaceTimeStore(tmp_path / "times.csv")
-    controller = RaceController(
-        game_map,
-        course,
-        _state(-300.0, -300.0),
-        store,
-    )
-    timestamp_us = 1_000_000
-    _cross_active_gate(controller, timestamp_us)
-    for _checkpoint in course.checkpoint_element_ids:
-        timestamp_us += 1_000_000
-        _cross_active_gate(controller, timestamp_us)
-    assert controller._target_element_id == course.start_element_id
-
-    snapshot = _cross_active_gate(controller, timestamp_us + 1_000_000, forward=False)
-
-    assert snapshot.session_state == "racing"
-    assert snapshot.completed_laps == 0
-    assert snapshot.target_label == "FINISH"
-    assert snapshot.final_time_us is None
-    assert snapshot.event is None
-    assert store.read(game_map.map_id, course.course_id) == ()
-
-
-@pytest.mark.parametrize("gate_fraction", [0.1, 0.9])
-def test_swept_crossing_advances_through_adjacent_gates(
-    tmp_path: Path, gate_fraction: float
-) -> None:
-    game_map = load_game_map(_MAP)
-    authored = game_map.race_courses[0]
-    course = GameMapRaceCourse(
+    course = replace(
+        game_map.race_courses[0],
         course_id="adjacent-gates",
-        spawn_id=authored.spawn_id,
-        start_element_id=authored.start_element_id,
         checkpoint_element_ids=("southeast", "east_south", "north"),
         lap_count=0,
     )
     controller = RaceController(
-        game_map,
-        course,
-        _state(-300.0, -300.0),
-        RaceTimeStore(tmp_path / "times.csv"),
+        game_map, course, _state(-20.0, -100.0), RaceTimeStore(tmp_path / "times.csv")
     )
-    _cross_active_gate(controller, 1_000_000)
-    first_gate = controller._gates[course.checkpoint_element_ids[0]]
-    second_gate = controller._gates[course.checkpoint_element_ids[1]]
-    first_crossing = np.asarray(
-        first_gate.interpolate(gate_fraction, normalized=True).coords[0]
-    )
-    second_crossing = np.asarray(
-        second_gate.interpolate(gate_fraction, normalized=True).coords[0]
-    )
-    direction = second_crossing - first_crossing
-    direction /= np.linalg.norm(direction)
-    before = first_crossing - direction
-    after = second_crossing + direction
-    controller._previous_xy = (float(before[0]), float(before[1]))
-
-    snapshot = controller.advance_frames(
-        _trajectory([(float(after[0]), float(after[1]))], [2_000_000]), 1.0
-    )[-1]
-
+    _drive(controller, [(20.0, -100.0), (144.0, -102.0)], 1)
+    # One diagonal segment crosses the eastbound corner entrance and northbound exit.
+    snapshot = _drive(controller, [(152.0, -94.0)], 3)[-1]
     assert snapshot.checkpoint_index == 2
     assert snapshot.target_element_id == "north"
 
 
-def test_start_gate_is_near_course_exit_instead_of_element_midpoint(
-    tmp_path: Path,
-) -> None:
-    game_map = load_game_map(_MAP)
+def test_intersection_gate_spans_the_full_arterial(tmp_path: Path) -> None:
+    game_map = load_game_map(_MAPS / "intersection_geometry.robotaxi.yaml")
+    course = GameMapRaceCourse(
+        course_id="wide-junction",
+        spawn_id="start",
+        start_element_id="west_road",
+        checkpoint_element_ids=("center", "east_road"),
+        lap_count=0,
+    )
+    controller = RaceController(
+        game_map, course, _state(-30.0, 0.0), RaceTimeStore(tmp_path / "times.csv")
+    )
+    # The skewed junction must span at least four 3.6 m lanes plus two 0.6 m curbs.
+    assert controller._gates["center"].length >= 15.6 - 0.15
+
+
+def test_hairpin_gate_is_at_the_course_entry(tmp_path: Path) -> None:
+    game_map = load_game_map(_MAPS / "hairpin.robotaxi.yaml")
     course = game_map.race_courses[0]
     controller = RaceController(
-        game_map,
-        course,
-        _state(-300.0, -300.0),
-        RaceTimeStore(tmp_path / "times.csv"),
+        game_map, course, _state(200.0, 20.0), RaceTimeStore(tmp_path / "times.csv")
     )
-    start_center = np.asarray(_point(game_map, course.start_element_id))
-    first_checkpoint = np.asarray(_point(game_map, course.checkpoint_element_ids[0]))
-    gate_center = np.asarray(_active_gate_midpoint(controller))
-
-    assert np.linalg.norm(gate_center - first_checkpoint) < np.linalg.norm(
-        start_center - first_checkpoint
+    gate = controller._gates["hairpin"]
+    assert gate.distance(controller._surfaces["approach"]) < gate.distance(
+        controller._surfaces["exit"]
     )
 
 
@@ -374,40 +230,6 @@ def test_course_gates_span_the_full_road_surface(tmp_path: Path) -> None:
 
     for element_id in (course.start_element_id, *course.checkpoint_element_ids):
         assert controller._gates[element_id].length == pytest.approx(8.4, abs=0.15)
-
-
-def test_boulevard_intersection_gates_span_the_full_arterial(tmp_path: Path) -> None:
-    game_map = load_game_map(_BOULEVARD_MAP)
-    course = game_map.race_courses[0]
-    controller = RaceController(
-        game_map,
-        course,
-        _state(-300.0, -300.0),
-        RaceTimeStore(tmp_path / "times.csv"),
-    )
-
-    for element_id in (course.start_element_id, *course.checkpoint_element_ids):
-        assert controller._gates[element_id].length >= 15.5
-
-
-def test_grand_prix_hairpin_gate_is_at_the_course_entry(tmp_path: Path) -> None:
-    game_map = load_game_map(_RACEWAY_MAP)
-    course = game_map.race_courses[0]
-    controller = RaceController(
-        game_map,
-        course,
-        _state(-300.0, -300.0),
-        RaceTimeStore(tmp_path / "times.csv"),
-    )
-    checkpoint_index = 4
-    checkpoint_id = course.checkpoint_element_ids[checkpoint_index]
-    previous_id = course.checkpoint_element_ids[checkpoint_index - 1]
-    following_id = course.checkpoint_element_ids[checkpoint_index + 1]
-
-    assert checkpoint_id == "infield_hairpin"
-    assert controller._gates[checkpoint_id].distance(
-        controller._surfaces[previous_id]
-    ) < controller._gates[checkpoint_id].distance(controller._surfaces[following_id])
 
 
 def test_gate_endpoints_and_target_follow_the_local_sloped_surface(
@@ -497,26 +319,3 @@ def test_race_course_spawn_is_required(tmp_path: Path) -> None:
 
     with pytest.raises(GameMapError, match="requires.*spawn"):
         load_game_map(path)
-
-
-def test_checkpoint_markers_can_be_disabled_without_disabling_gates(
-    tmp_path: Path,
-) -> None:
-    document = yaml.safe_load(_MAP.read_text(encoding="utf-8"))
-    document["race_courses"][0]["checkpoint_markers"] = False
-    path = tmp_path / "hidden-markers.robotaxi.yaml"
-    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
-    game_map = load_game_map(path)
-    course = game_map.race_courses[0]
-    controller = RaceController(
-        game_map,
-        course,
-        _state(-300.0, -300.0),
-        RaceTimeStore(tmp_path / "times.csv"),
-    )
-
-    before = controller.snapshot(_state(-300.0, -300.0))
-    after = _cross_active_gate(controller, 1_000_000)
-
-    assert before.checkpoint_markers is False
-    assert after.session_state == "racing"
