@@ -9,6 +9,7 @@ import json
 import math
 import threading
 from collections import deque
+from dataclasses import replace
 from pathlib import Path
 from queue import Full, Queue
 from typing import Any
@@ -20,8 +21,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.video_encoder import Mp4Encoder, result_to_rgb24_tensor
+from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from flashdreams.runtime_v2.webm_client_window import WebmClientWindow
 
 
 def render_physics_view(
@@ -213,7 +215,7 @@ class CaptureRecorder:
             "model": threading.BoundedSemaphore(image_slots),
             "presentation": threading.BoundedSemaphore(60),
         }
-        self._encoders: dict[str, Mp4Encoder] = {}
+        self._encoders: dict[str, WebmClientWindow] = {}
         self._last_frames: dict[str, tuple[int, np.ndarray]] = {}
         self._last_snapshot: dict[str, int] = {}
         self._contact_active: dict[str, bool] = {}
@@ -309,18 +311,29 @@ class CaptureRecorder:
     ) -> None:
         if name not in self._encoders:
             (self.directory / "frames" / name).mkdir(parents=True)
-            self._encoders[name] = Mp4Encoder(
-                self.directory / f"{name}.mp4",
-                width=frame.shape[1],
-                height=frame.shape[0],
-                preset="veryfast",
-                frames_per_second=(
-                    self.desc.frames_per_second_for_ui
-                    if name == "presentation"
-                    else self.desc.frames_per_second_for_step
-                ),
+            encoder = WebmClientWindow(self.directory / f"{name}.webm")
+            encoder.open(
+                replace(
+                    self.desc,
+                    video_width=frame.shape[1],
+                    video_height=frame.shape[0],
+                    output_layout=VideoTensorLayout.tchw,
+                    frames_per_second_for_step=(
+                        self.desc.frames_per_second_for_ui
+                        if name == "presentation"
+                        else self.desc.frames_per_second_for_step
+                    ),
+                )
             )
-        self._encoders[name].write(frame[None])
+            self._encoders[name] = encoder
+        self._encoders[name].write(
+            StepResult(
+                step_index=identifier,
+                output=torch.from_numpy(frame).permute(2, 0, 1)[None],
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+            )
+        )
         # A sustained contact needs endpoint snapshots, not three PNGs per tick.
         # Videos and contact telemetry still retain every frame.
         previous = self._last_frames.get(name)
