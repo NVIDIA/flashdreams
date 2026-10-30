@@ -19,6 +19,7 @@ import argparse
 import json
 import socket
 from dataclasses import asdict, replace
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -27,9 +28,6 @@ import numpy as np
 import pytest
 import torch
 from crazy_robotaxi.controls import GamepadControls, gamepad_driver_command
-from omnidreams_game_engine.input import DriverInput
-from functools import partial
-
 from crazy_robotaxi.debug import (
     DEBUG_METADATA_KEY,
     DebugFrameResult,
@@ -42,6 +40,7 @@ from crazy_robotaxi.physics import TaxiPhysicsWorld
 from ludus_renderer import BodyState, RigidBodyModel
 from omnidreams_game_engine.config import RasterConfig
 from omnidreams_game_engine.game_map import compile_game_map
+from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.scene import load_scene_bundle
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import PhysicsDebugFrame, VehicleState
@@ -64,7 +63,9 @@ pytestmark = pytest.mark.ci_cpu
 def test_live_headless_input_queues_rejects_late_and_acknowledges_consumption(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", RecordingEncoder)
+    monkeypatch.setattr(
+        "crazy_robotaxi.debug_capture.WebmClientWindow", RecordingEncoder
+    )
     now = [10_000_000_000]
     control = HeadlessInput(lambda: now[0])
     window = RobotaxiDebugWindow(
@@ -200,7 +201,9 @@ def test_live_headless_input_rejects_malformed_packets(payload: object) -> None:
 
 
 def test_timestamped_gamepad_file_and_socket_reach_driver(tmp_path, monkeypatch):
-    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", RecordingEncoder)
+    monkeypatch.setattr(
+        "crazy_robotaxi.debug_capture.WebmClientWindow", RecordingEncoder
+    )
     packet = {
         "id": "gentle",
         "timestamp_us": 100_000,
@@ -456,15 +459,17 @@ def test_invalid_scripts_fail_before_game_setup(tmp_path: Path, text: str) -> No
 
 
 class RecordingEncoder:
-    """In-memory encoder used to inspect pixels without invoking ffmpeg."""
+    """In-memory encoder used to inspect pixels without encoding video."""
 
     def __init__(self, *args, **kwargs) -> None:
         self.frames = []
         self.closed = False
-        self.preset = kwargs.get("preset", "medium")
 
-    def write(self, frames) -> None:
-        self.frames.extend(frames.copy())
+    def open(self, desc) -> None:
+        self.desc = desc
+
+    def write(self, result) -> None:
+        self.frames.extend(result.read_output().permute(0, 2, 3, 1).numpy().copy())
 
     def close(self) -> None:
         self.closed = True
@@ -476,7 +481,9 @@ def test_capture_keeps_model_frames_when_presentation_skips_or_repeats(
     monkeypatch: pytest.MonkeyPatch,
     paired: bool,
 ) -> None:
-    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", RecordingEncoder)
+    monkeypatch.setattr(
+        "crazy_robotaxi.debug_capture.WebmClientWindow", RecordingEncoder
+    )
     window = RobotaxiDebugWindow(tmp_path / "capture", snapshot_every=30)
     window.open(
         SessionDesc(
@@ -516,10 +523,6 @@ def test_capture_keeps_model_frames_when_presentation_skips_or_repeats(
     ]
     assert [r["source"]["capture_frame"] for r in presentations] == [0, 2, 2]
     encoders = window.recorder._encoders
-    assert all(
-        cast(RecordingEncoder, encoder).preset == "veryfast"
-        for encoder in encoders.values()
-    )
     assert np.all(cast(RecordingEncoder, encoders["generated"]).frames[0] == 255)
     assert np.all(cast(RecordingEncoder, encoders["hdmap"]).frames[0] == 0)
     assert manifest["contact_frames"] == [1]
@@ -532,7 +535,9 @@ def test_capture_keeps_model_frames_when_presentation_skips_or_repeats(
 def test_physics_video_shows_bounds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", RecordingEncoder)
+    monkeypatch.setattr(
+        "crazy_robotaxi.debug_capture.WebmClientWindow", RecordingEncoder
+    )
     window = RobotaxiDebugWindow(tmp_path / "capture")
     window.open(
         SessionDesc(
@@ -786,7 +791,9 @@ def test_image_overflow_keeps_telemetry_and_reset_identity(tmp_path, monkeypatch
         original(self, kind, *args)
 
     monkeypatch.setattr(CaptureRecorder, "_write", blocked)
-    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", RecordingEncoder)
+    monkeypatch.setattr(
+        "crazy_robotaxi.debug_capture.WebmClientWindow", RecordingEncoder
+    )
     recorder = CaptureRecorder(
         tmp_path,
         SessionDesc(video_width=6, video_height=4),
@@ -827,7 +834,7 @@ def test_encoder_failure_finalizes_manifest_and_fails_strict_capture(
         def write(self, frames):
             raise OSError("test disk failure")
 
-    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", BrokenEncoder)
+    monkeypatch.setattr("crazy_robotaxi.debug_capture.WebmClientWindow", BrokenEncoder)
     window = RobotaxiDebugWindow(tmp_path / "capture", strict=True)
     window.open(
         SessionDesc(video_width=6, video_height=4, metadata={DEBUG_METADATA_KEY: {}})
@@ -871,7 +878,7 @@ def test_script_completion_requires_consumption_and_endpoint(tmp_path):
     assert not manifest["complete"] and not manifest["script_complete"]
     assert manifest["pending_input_ids"] == ["press"]
     assert manifest["termination_reason"] == "close_command"
-    assert not list(window.directory.glob("*.mp4"))
+    assert not list(window.directory.glob("*.webm"))
 
 
 @pytest.mark.parametrize("chunks", [1, 32])
@@ -887,9 +894,6 @@ def test_image_buffer_budget_reaches_recorder_and_manifest(
         return CaptureRecorder(*args, **kwargs)
 
     monkeypatch.setattr("crazy_robotaxi.debug.CaptureRecorder", record_budget)
-    monkeypatch.setattr(
-        "crazy_robotaxi.debug.shutil.which", lambda _name: "/bin/ffmpeg"
-    )
     mode = RobotaxiDebugMode()
     parser = argparse.ArgumentParser()
     mode.add_arguments(parser)
@@ -935,11 +939,12 @@ def test_image_buffer_budget_rejects_nonpositive_values(tmp_path, chunks):
 def test_contact_bursts_keep_endpoints_periodic_images_and_every_video_frame(
     tmp_path, monkeypatch, reset_at, finish_during_contact
 ):
+    from crazy_robotaxi.debug_capture import CaptureRecorder
     from PIL import Image
 
-    from crazy_robotaxi.debug_capture import CaptureRecorder
-
-    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", RecordingEncoder)
+    monkeypatch.setattr(
+        "crazy_robotaxi.debug_capture.WebmClientWindow", RecordingEncoder
+    )
     count = 18 if finish_during_contact else 20
     records = tuple(
         {
@@ -978,3 +983,49 @@ def test_contact_bursts_keep_endpoints_periodic_images_and_every_video_frame(
                 Image.open(tmp_path / "frames" / view / f"{identifier:06d}.png")
             )
             np.testing.assert_array_equal(saved, encoder.frames[identifier])
+
+
+def test_webm_capture_round_trip_without_external_tools(tmp_path, monkeypatch):
+    import subprocess
+
+    from crazy_robotaxi.debug_capture import CaptureRecorder
+    from flashdreams_webm import Reader
+
+    def no_process(*args, **kwargs):
+        raise AssertionError("Debug capture must not launch a media executable")
+
+    monkeypatch.setattr(subprocess, "Popen", no_process)
+    monkeypatch.setenv("PATH", "")
+    desc = SessionDesc(
+        video_width=80,
+        video_height=72,
+        frames_per_second_for_step=30,
+        frames_per_second_for_ui=60,
+    )
+    recorder = CaptureRecorder(tmp_path, desc, images=True, snapshot_every=1)
+    records = tuple(_debug_record(i) for i in range(3))
+    video = torch.tensor([-1.0, 0.0, 1.0])[:, None, None, None].expand(-1, 3, 72, 80)
+    try:
+        recorder.observe(records)
+        recorder.submit(records, video, -video)
+        for index in range(3):
+            recorder.present({"source": records[index]}, video[index : index + 1])
+    finally:
+        recorder.close()
+    assert recorder.summary()["capture_complete"], recorder.summary()
+    assert not list(tmp_path.glob("*.mp4"))
+    for name in ("generated", "hdmap", "physics", "presentation"):
+        reader = Reader(str(tmp_path / f"{name}.webm"))
+        try:
+            assert (reader.width, reader.height) == (80, 72)
+            fps = 60 if name == "presentation" else 30
+            assert reader.duration_ns / 1e9 == pytest.approx(3 / fps, abs=1e-6)
+            luma = []
+            while (planes := reader.read()) is not None:
+                luma.append(np.frombuffer(planes[0], dtype=np.uint8).mean())
+            assert len(luma) == 3
+            if name != "physics":
+                expected = [235, 126, 16] if name == "hdmap" else [16, 126, 235]
+                np.testing.assert_allclose(luma, expected, atol=3)
+        finally:
+            reader.close()

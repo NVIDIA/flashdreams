@@ -2063,6 +2063,7 @@ def test_live_debug_respects_ui_selection_and_runtime_input(
         DEBUG_METADATA_KEY,
         RobotaxiLiveDebugUILoop,
         RobotaxiDebugUILoop,
+        RobotaxiLiveDebugUILoop,
     )
 
     app = _application()

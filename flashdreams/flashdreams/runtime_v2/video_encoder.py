@@ -44,7 +44,6 @@ class Mp4Encoder:
         width: int,
         height: int,
         frames_per_second: int,
-        preset: str = "medium",
     ) -> None:
         """
         Args:
@@ -52,7 +51,6 @@ class Mp4Encoder:
             width: Frame width in pixels, which every write must match.
             height: Frame height in pixels, which every write must match.
             frames_per_second: Rate the file plays back at.
-            preset: libx264 speed/compression tradeoff; defaults to ``medium``.
 
         Raises:
             ValueError: A dimension is odd. Rounding one up would write a file
@@ -63,7 +61,6 @@ class Mp4Encoder:
         self._width = width
         self._height = height
         self._frames_per_second = frames_per_second
-        self._preset = preset
         self._process: subprocess.Popen[bytes] | None = None
         self._errors: list[bytes] = []
         self._error_reader: threading.Thread | None = None
@@ -249,7 +246,7 @@ class Mp4Encoder:
             "-crf",
             "18",
             "-preset",
-            self._preset,
+            "medium",
             "-movflags",
             "+faststart",
             str(self._path),
