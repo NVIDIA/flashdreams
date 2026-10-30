@@ -128,10 +128,10 @@ def export_streaming_decoder(
         dynamo=False,
     )
 
-    # Consolidate weights inline so the browser can load a single file.
-    # ``onnx`` is an optional export-only dependency declared in the omnidreams
-    # token-stream extra; the ignore drops out once that extra is on the path.
-    import onnx  # ty:ignore[unresolved-import]
+    # Consolidate weights inline so the browser can load a single file. ``onnx``
+    # is a serving extra (flashdreams[serving]), imported lazily here so the
+    # recipe imports without it.
+    import onnx
 
     model = onnx.load(str(out_path))
     onnx.save_model(model, str(out_path), save_as_external_data=False)

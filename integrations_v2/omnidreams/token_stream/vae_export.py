@@ -148,7 +148,7 @@ def _validate_exported_onnx(precision: str) -> None:
     exercised client-side, so this catches a corrupt / malformed graph, not
     WebGPU-EP op support.
     """
-    import onnx  # ty:ignore[unresolved-import]
+    import onnx
 
     path = vae_artifacts.onnx_path(precision)
     try:

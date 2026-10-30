@@ -46,6 +46,10 @@ imgui-bundle           MIT          https://github.com/pthom/imgui_bundle
 loguru                 MIT          https://github.com/Delgan/loguru
 numpy                  BSD-3-Clause https://github.com/numpy/numpy
 nvidia-ml-py           BSD-3-Clause https://pypi.org/project/nvidia-ml-py/
+onnx                   Apache-2.0   https://github.com/onnx/onnx
+    Serving extra (flashdreams[serving]); used only when the WebRTC server runs
+    with --enable-token-stream, to export the VAE decoder to ONNX for the
+    browser's WebGPU decode.
 psutil                 BSD-3-Clause https://github.com/giampaolo/psutil
 pyyaml                 MIT          https://github.com/yaml/pyyaml
 safetensors            Apache-2.0   https://github.com/huggingface/safetensors
@@ -202,6 +206,13 @@ NVIDIA PhysX 5.9.0     BSD-3-Clause https://github.com/NVIDIA-Omniverse/PhysX
     ``ludus-renderer`` downloads the pinned PhysX source archive at first use,
     verifies its SHA-256, and builds it into a platform-local cache. The source
     and resulting native module are not redistributed in this repository.
+onnxruntime-web        MIT          https://github.com/microsoft/onnxruntime
+    Token streaming (``--enable-token-stream``) downloads the pinned
+    onnxruntime-web WebGPU distribution (onnxruntime-web 1.20.1) at launch,
+    verifies its SHA-256, and serves it same-origin to the connecting browser so
+    it can VAE-decode the streamed latents. The distribution is fetched at
+    runtime -- not vendored in this repository -- and redistributed only to the
+    browser that connects to a token-stream session.
 
 The OmniDreams runners read and write .mp4 video by invoking the external
 "ffmpeg" command-line tool as a subprocess (through mediapy). ffmpeg is a

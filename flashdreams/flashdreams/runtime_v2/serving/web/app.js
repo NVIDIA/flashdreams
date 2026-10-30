@@ -869,3 +869,47 @@ connect().catch(error => {
   console.error("Unable to start WebRTC.", error);
   showStatus(`Unable to start WebRTC: ${error.message}`, true);
 });
+
+// Token-stream path: when the server runs with --enable-token-stream it streams
+// pre-decode latents over a WebSocket instead of WebRTC video; the browser
+// VAE-decodes them on WebGPU and presents them on the overlay canvas. The
+// RTCPeerConnection above stays up for input and control (it just carries no
+// video track). Activated only when the server advertises token mode.
+async function startTokenStreamIfEnabled() {
+  let health;
+  try {
+    health = await (await fetch("/healthz")).json();
+  } catch {
+    return; // server not ready yet; the pixel path runs its own connect/retry
+  }
+  if (!health || !health.token_stream) {
+    return; // pixel (WebRTC video) path
+  }
+
+  const canvas = document.getElementById("token-canvas");
+  // Internal resolution matches the decoder's output (1280x704); CSS fits it to
+  // the viewport. The render loop blits each decoded frame onto this canvas.
+  canvas.width = 1280;
+  canvas.height = 704;
+  canvas.hidden = false;
+  status.style.display = "none"; // decode (and any failure) is shown on the canvas
+
+  const [{ detectWebGPU }, { TokenStreamSession }] = await Promise.all([
+    import("/token_stream/webgpu.js"),
+    import("/token_stream/session.js"),
+  ]);
+  const webgpu = await detectWebGPU();
+  const tokenUrl = new URL("/api/token-stream", location.href);
+  tokenUrl.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const session = new TokenStreamSession({
+    url: tokenUrl.href,
+    device: webgpu ? webgpu.device : null,
+    canvas,
+    log: (message) => console.log("[token]", message),
+  });
+  session.start();
+}
+
+startTokenStreamIfEnabled().catch(error => {
+  console.error("Token stream failed to start.", error);
+});

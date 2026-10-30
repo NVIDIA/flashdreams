@@ -127,6 +127,13 @@ serving = [
     "aiortc>=1.9",
     # Security floor for aiohttp/yarl's items-view reference leak.
     "multidict>=6.9.1,<7",
+    # Token streaming exports the VAE decoder to ONNX for the browser's WebGPU
+    # decode (flashdreams.recipes.taehv.export + the omnidreams token_stream
+    # launch path, both importing it lazily). Required only when the WebRTC
+    # server runs with --enable-token-stream; already present transitively via
+    # torch, declared here to pin the direct use. onnxruntime is not declared:
+    # it is used only by the manual export-parity test, run with `--with`.
+    "onnx>=1.16",
 ]
 
 [tool.setuptools.dynamic]
@@ -141,7 +148,7 @@ exclude = ["tests", "flashdreams._pytest_plugins*"]
 
 [tool.setuptools.package-data]
 "flashdreams.serving.webrtc" = ["web/*.html", "web/*.css", "web/*.js", "web/assets/*.svg"]
-"flashdreams.runtime_v2.serving" = ["web/*.html", "web/*.js"]
+"flashdreams.runtime_v2.serving" = ["web/*.html", "web/*.js", "web/token_stream/**/*.js"]
 
 [dependency-groups]
 # Default CUDA 13 profile. No source binding -- Linux falls through to
