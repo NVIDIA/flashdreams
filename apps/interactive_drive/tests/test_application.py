@@ -352,7 +352,9 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
     state = InteractiveDriveModelState(
         backend_factory=lambda _: backend,
         config=config,
-        desc=SimpleNamespace(output_layout="tchw", video_width=1, video_height=1),
+        desc=SimpleNamespace(
+            output_layout="tchw", video_width=1, video_height=1, token_stream=False
+        ),
         scene_loader=lambda *args: object(),
         scene=object(),
         vehicle=vehicle,
@@ -442,7 +444,9 @@ def test_a_worker_ranks_step_generates_but_presents_nothing(
     state = InteractiveDriveModelState(
         backend_factory=lambda _: backend,
         config=config,
-        desc=SimpleNamespace(output_layout="tchw", video_width=1, video_height=1),
+        desc=SimpleNamespace(
+            output_layout="tchw", video_width=1, video_height=1, token_stream=False
+        ),
         scene_loader=lambda *args: object(),
         scene=object(),
         vehicle=vehicle,

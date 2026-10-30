@@ -548,7 +548,7 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
         state.first_chunk = False
         state.blocks_generated += 1
         finished = self.is_finished()
-        if finished:
+        if finished and not state.desc.token_stream:
             chunk = replace(
                 chunk,
                 frames=(*chunk.frames, *state.backend.finish()),
@@ -566,32 +566,61 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
             if finished
             else _telemetry_status(state.vehicle, state.blocks_generated)
         )
-        results = []
-        for output in self._frame_chunk_tensors(chunk):
-            if output.shape[0]:
+        if state.desc.token_stream:
+            results = self._token_step_results(chunk, step_index, finalize_metrics)
+        else:
+            results = []
+            for output in self._frame_chunk_tensors(chunk):
+                if output.shape[0]:
+                    results.append(
+                        StepResult(
+                            step_index=step_index,
+                            output=output,
+                            frame_count=int(output.shape[0]),
+                            output_layout=state.desc.output_layout,
+                            metrics=finalize_metrics,
+                        )
+                    )
+            bev_output = self._bev_chunk_tensor(chunk)
+            if bev_output is not None:
                 results.append(
                     StepResult(
                         step_index=step_index,
-                        output=output,
-                        frame_count=int(output.shape[0]),
+                        output=bev_output,
+                        frame_count=int(bev_output.shape[0]),
                         output_layout=state.desc.output_layout,
                         metrics=finalize_metrics,
                     )
                 )
-        bev_output = self._bev_chunk_tensor(chunk)
-        if bev_output is not None:
-            results.append(
-                StepResult(
-                    step_index=step_index,
-                    output=bev_output,
-                    frame_count=int(bev_output.shape[0]),
-                    output_layout=state.desc.output_layout,
-                    metrics=finalize_metrics,
-                )
-            )
         model_loop_ms = (time.perf_counter() - step_started_at) * 1000.0
         state._publish_drive_telemetry(chunk, model_loop_ms)
         return results
+
+    def _token_step_results(
+        self,
+        chunk: FrameChunk,
+        step_index: int,
+        finalize_metrics: dict[str, float] | None,
+    ) -> list[StepResult]:
+        """One latent StepResult per step for the token-streaming path.
+
+        The backend produced a pre-decode latent ``[B, V, T, Cl, Hl, Wl]``;
+        ``frame_count`` is the latent frame count ``T`` the emitter streams.
+        """
+        latent = chunk.latent
+        if latent is None:
+            raise RuntimeError(
+                "token-stream mode expected a latent chunk from the backend, "
+                "but render produced none."
+            )
+        return [
+            StepResult.latent(
+                step_index=step_index,
+                output=latent,
+                frame_count=int(latent.shape[2]),
+                metrics=finalize_metrics,
+            )
+        ]
 
     def _frame_chunk_tensors(self, chunk: FrameChunk) -> list[Tensor]:
         """Return synchronized presentation channels for an emitted chunk."""
@@ -914,6 +943,14 @@ class _InteractiveDriveApplicationBase(IApplication):
             help="Disable the application UI and present model output directly.",
         )
         parser.add_argument(
+            "--enable-token-stream",
+            action="store_true",
+            help=(
+                "Stream pre-decode latent tokens to the client over WebSocket for "
+                "client-side VAE decode, instead of decoding to RGB on the server."
+            ),
+        )
+        parser.add_argument(
             "--game-mode",
             action="store_true",
             help=("Enable the vehicle speed limit and actor/static collisions."),
@@ -991,6 +1028,7 @@ class _InteractiveDriveApplicationBase(IApplication):
             postprocess=postprocess,
             bev=BevConfig(enabled=False),
             vehicle=VehicleConfig(),
+            enable_token_stream=args.enable_token_stream,
         )
         mesh = self._parallel_context
         self._config = InteractiveDriveConfig(
@@ -1026,6 +1064,7 @@ class _InteractiveDriveApplicationBase(IApplication):
             frames_per_second_for_step=app_config.chunk.fps,
             video_width=width,
             video_height=height,
+            token_stream=app_config.enable_token_stream,
         )
 
     def session_desc(self) -> SessionDesc:
@@ -1060,6 +1099,7 @@ def _build_backend(
         vehicle=config.vehicle,
         postprocess=config.postprocess,
         debug_condition_frame_dir=config.world_model_debug_condition_frame_dir,
+        token_mode=config.enable_token_stream,
     )
 
 
