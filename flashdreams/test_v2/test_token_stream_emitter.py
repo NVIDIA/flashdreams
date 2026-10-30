@@ -134,3 +134,24 @@ def test_close_unblocks_blocked_emit() -> None:
         assert await emitter.emit_chunk(latent, chunk_index=2) == 0
 
     asyncio.run(run())
+
+
+def test_epoch_change_resends_session_header() -> None:
+    latent = torch.randn(1, 1, 2, 2, 4, 4)
+    ws = FakeWebSocket()
+    emitter = _make_emitter(ws)
+
+    async def run() -> None:
+        await emitter.emit_chunk(latent, chunk_index=0, epoch=0)
+        await emitter.emit_chunk(latent, chunk_index=1, epoch=0)
+        await emitter.emit_chunk(latent, chunk_index=2, epoch=1)
+
+    asyncio.run(run())
+
+    control_frames = [raw for raw in ws.sent if framing.parse_header(raw).is_control]
+    assert len(control_frames) == 2  # one session header per epoch
+    epochs = [
+        json.loads(raw[framing.HEADER_SIZE :].decode())["epoch"]
+        for raw in control_frames
+    ]
+    assert epochs == [0, 1]

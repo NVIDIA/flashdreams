@@ -37,6 +37,10 @@ from flashdreams.runtime_v2.selected_file import (
     selected_file_suffix_allowed,
     selected_files_policy_status,
 )
+from flashdreams.runtime_v2.serving.token_stream import (
+    RawFloat16TokenCodecConfig,
+    TokenFrameEmitter,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -61,6 +65,18 @@ _BROWSER_SCRIPT = _WEB_RESOURCES.joinpath("app.js").read_text(encoding="utf-8")
 
 _INTERACTIVE_FRAME_QUEUE_SIZE = 2
 """Send-ready frames retained while the media sender is temporarily busy."""
+
+_TOKEN_FLOW_WINDOW = 4
+"""Latent chunks in flight to a token client before the ack window blocks."""
+
+_TOKEN_ATTACH_POLL_SECONDS = 0.5
+"""How long a latent write waits for a client to attach before rechecking close."""
+
+_TOKEN_EMIT_POLL_SECONDS = 0.5
+"""How long a latent write waits on the emit (ack window) before rechecking close."""
+
+_TOKEN_ACK_MESSAGE_TYPE = "token_frame_ack"
+"""Client -> server message type acknowledging one latent chunk."""
 
 _TRANSFER_STREAM_PRIORITY = -1
 """Portable high-priority CUDA stream request for interactive output copies."""
@@ -392,6 +408,14 @@ class WebRTCServer:
         self._materialization_count = 0
         self._closed = False
         self._client_connected = False
+        # Token streaming (--enable-token-stream): one latent WebSocket at a time,
+        # driven from the UI thread via the serving loop.
+        self._token_emitter: TokenFrameEmitter | None = None
+        self._token_emitter_ready = threading.Event()
+        self._token_lock = threading.Lock()
+        self._token_chunk_counter = 0
+        self._token_epoch = 0
+        self._token_last_step_index: int | None = None
         self._hide_cursor = False
         self._lock_cursor_to_window = False
         # Upload tokens, touched only on the event loop once it runs.
@@ -782,6 +806,9 @@ class WebRTCServer:
         window_size = self._window_size
         if session_desc is None or window_size is None:
             raise RuntimeError("Open the WebRTC server before writing.")
+        if result.is_latent:
+            self._emit_latent_chunk(result)
+            return
         frames = _validated_result_frames(
             result,
             session_desc,
@@ -800,6 +827,113 @@ class WebRTCServer:
             window_size,
         )
         track.enqueue(queued_frame)
+
+    def _emit_latent_chunk(self, result: StepResult) -> None:
+        """Stream one pre-decode latent chunk to the attached token client.
+
+        Called on the UI thread. Blocks until a client is attached, so the first
+        chunk a browser receives is AR step 0 (the one-chunk presentation queue
+        holds the model at AR 0 until a client connects). The latent is moved to
+        the host here, where its producer stream is already synced, then handed
+        to the serving loop's emitter, waiting on the ack window for
+        backpressure. Every wait is bounded by ``self._closed`` so a close() on
+        this same thread is never wedged.
+
+        ponytail: a reconnect mid-rollout gives the new client a cold decoder
+        cache at a non-zero AR step; a full fix resets the rollout on (re)attach
+        so the client always starts at AR 0.
+        """
+        emitter = self._wait_for_token_emitter()
+        if emitter is None:
+            return
+        last = self._token_last_step_index
+        if last is not None and result.step_index <= last:
+            # A reset restarted the AR index: bump the epoch so the client
+            # flushes its decoder cache and decodes the new rollout from scratch.
+            self._token_epoch += 1
+        self._token_last_step_index = result.step_index
+        chunk_id = self._token_chunk_counter
+        self._token_chunk_counter += 1
+        latent = result.read_output().detach().cpu()
+        loop = self._loop
+        if loop is None:
+            return
+        future = asyncio.run_coroutine_threadsafe(
+            emitter.emit_chunk(latent, chunk_index=chunk_id, epoch=self._token_epoch),
+            loop,
+        )
+        while not self._closed:
+            try:
+                future.result(timeout=_TOKEN_EMIT_POLL_SECONDS)
+                return
+            except TimeoutError:
+                continue
+        future.cancel()
+
+    def _wait_for_token_emitter(self) -> TokenFrameEmitter | None:
+        """Block until a token client attaches; ``None`` if the server closes."""
+        while not self._closed:
+            if self._token_emitter_ready.wait(timeout=_TOKEN_ATTACH_POLL_SECONDS):
+                with self._token_lock:
+                    emitter = self._token_emitter
+                if emitter is not None:
+                    return emitter
+        return None
+
+    async def _token_stream_ws(self, request: web.Request) -> web.WebSocketResponse:
+        """Serve the latent token stream to one browser client over a WebSocket."""
+        if self._closed:
+            raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
+        session_desc = self._session_desc
+        if session_desc is None or not session_desc.token_stream:
+            raise web.HTTPNotFound(
+                reason="Token streaming is not enabled for this session."
+            )
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        emitter = TokenFrameEmitter(
+            ws,
+            codec=RawFloat16TokenCodecConfig().setup(),
+            fps=session_desc.frames_per_second_for_step,
+            flow_window_size=_TOKEN_FLOW_WINDOW,
+        )
+        with self._token_lock:
+            # One token client at a time; a new connection replaces the old.
+            previous = self._token_emitter
+            self._token_emitter = emitter
+            self._token_emitter_ready.set()
+        if previous is not None:
+            previous.close()
+        try:
+            async for message in ws:
+                if message.type == web.WSMsgType.TEXT:
+                    self._handle_token_ack(emitter, message.data)
+                elif message.type == web.WSMsgType.ERROR:
+                    break
+        finally:
+            with self._token_lock:
+                if self._token_emitter is emitter:
+                    self._token_emitter = None
+                    self._token_emitter_ready.clear()
+            emitter.close()
+        return ws
+
+    def _handle_token_ack(self, emitter: TokenFrameEmitter, data: object) -> None:
+        """Route one ``token_frame_ack`` message to the emitter's flow control."""
+        if not isinstance(data, str):
+            return
+        try:
+            message = json.loads(data)
+        except (ValueError, TypeError):
+            return
+        if (
+            not isinstance(message, dict)
+            or message.get("type") != _TOKEN_ACK_MESSAGE_TYPE
+        ):
+            return
+        chunk_id = message.get("chunk_id")
+        if isinstance(chunk_id, int) and not isinstance(chunk_id, bool):
+            emitter.handle_ack(chunk_id)
 
     def close(self) -> None:
         """Close the peer connection and stop the WebRTC server."""
@@ -937,6 +1071,7 @@ class WebRTCServer:
         app.router.add_get("/app.js", self._serve_browser_script)
         app.router.add_get("/healthz", self._health)
         app.router.add_post("/api/webrtc/offer", self._offer)
+        app.router.add_get("/api/token-stream", self._token_stream_ws)
         app.router.add_post("/api/files", self._upload_selected_file)
         runner = web.AppRunner(app)
         await runner.setup()

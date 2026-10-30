@@ -198,6 +198,7 @@ class PresentationManager:
         self._stream_lock = threading.Lock()
         self._infer_stream_device = device is None
         self._trace_chunk_lifecycle = False
+        self._latent_passthrough = False
         self._presentation_stream: torch.cuda.Stream | None = None
         if device is not None:
             device = torch.device(device)
@@ -220,6 +221,7 @@ class PresentationManager:
         trace_chunk_lifecycle: bool = False,
         frames_per_second: int = 30,
         maximum_frames_per_second: int | None = None,
+        latent_passthrough: bool = False,
     ) -> None:
         """Set presentation timing and backpressure mode.
 
@@ -240,7 +242,13 @@ class PresentationManager:
             frames_per_second=frames_per_second,
             maximum_frames_per_second=maximum_frames_per_second,
         )
-        self._backpressure_mode = backpressure_mode
+        self._latent_passthrough = latent_passthrough
+        # A token-stream session must never drop a latent chunk: the client's
+        # temporal decoder cache needs every chunk, in order, from AR step 0, so
+        # it blocks regardless of the mode requested.
+        self._backpressure_mode = (
+            BackpressureMode.BLOCK if latent_passthrough else backpressure_mode
+        )
         self._stop = stop
         self._put_timeout = put_timeout
         self._trace_chunk_lifecycle = trace_chunk_lifecycle
@@ -395,6 +403,23 @@ class PresentationManager:
             self._frame_index = -1
             self._presented_frame_count = 0
 
+        if self._latent_passthrough:
+            # Token streaming: take whole latent chunks as fast as the client
+            # acks them -- no fps pacing and no per-frame stepping. The client
+            # owns playout pacing; the server backpressures only on the ack
+            # window (and the one-chunk queue). A chunk is never split or paced.
+            chunk = self._take_buffered_chunk(generation, latest=False)
+            if chunk is None:
+                return False, None
+            self._presented_chunk = chunk
+            self._frame_index = 0
+            self._presented_frame_count += 1
+            step = (generation, chunk[0].step_index)
+            self._trace_presented_frame(generation)
+            self._profiler.event("present.frame", step=step)
+            self._profiler.step_presented(step)
+            return True, chunk
+
         now = time.monotonic() if now is None else float(now)
         backlog = self.is_backlogged
         if not self._presentation_clock.is_due(now, generation, backlog=backlog):
@@ -434,6 +459,19 @@ class PresentationManager:
     def presented_frame_count(self) -> int:
         """Return frames selected one-by-one in the current generation."""
         return self._presented_frame_count
+
+    def presented_latent_result(self) -> StepResult | None:
+        """Return the current presented chunk's latent result, if any.
+
+        The token-stream UI path reads this instead of :meth:`presented_frame`,
+        which composites RGB; a latent chunk is handed on whole to the emitter.
+        Returns ``None`` when the presented chunk is a normal RGB result or when
+        nothing has been presented yet.
+        """
+        chunk = self._presented_chunk
+        if chunk is None or not chunk[0].is_latent:
+            return None
+        return chunk[0]
 
     @property
     def dropped_for_space(self) -> int:

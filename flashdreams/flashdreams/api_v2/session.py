@@ -18,6 +18,7 @@ from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.profiler import NullProfiler
 from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.token_stream_ui_loop import TokenStreamUILoop
 
 
 class ISession(ABC):
@@ -191,7 +192,12 @@ class ISession(ABC):
         """Return both loops and stop further registration."""
         ui_loop = self._registered_ui_loop
         if ui_loop is None:
-            ui_loop = self.register_ui_loop(BlitModelOutputToScreenLoop)
+            default_ui_loop: type[IUILoop[Any]] = (
+                TokenStreamUILoop
+                if self.session_desc.token_stream
+                else BlitModelOutputToScreenLoop
+            )
+            ui_loop = self.register_ui_loop(default_ui_loop)
         model_loop = self._registered_model_loop
         if model_loop is None:
             raise RuntimeError("ISession.init() did not register a model loop.")

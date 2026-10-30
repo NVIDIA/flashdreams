@@ -54,13 +54,20 @@ class TokenFrameEmitter:
         self._codec = codec
         self._fps = fps
         self._extra_header = extra_header or {}
+        self._flow_window_size = flow_window_size
         self._flow = asyncio.Semaphore(flow_window_size)
         self._inflight: set[int] = set()
         self._header_sent = False
+        self._epoch = 0
         self._closed = False
 
     async def emit_chunk(
-        self, latent: torch.Tensor, *, chunk_index: int, is_keyframe: bool = False
+        self,
+        latent: torch.Tensor,
+        *,
+        chunk_index: int,
+        epoch: int = 0,
+        is_keyframe: bool = False,
     ) -> int:
         """Encode and send one latent chunk, returning the number of frames sent.
 
@@ -68,7 +75,17 @@ class TokenFrameEmitter:
         closed. Returns ``0`` without sending when the emitter is already closed
         or closes while waiting. The latent is reduced to ``[T, Cl, Hl, Wl]``
         before per-frame encoding.
+
+        A change in ``epoch`` (a reset began a new rollout) re-sends the session
+        header so the client flushes its decoder cache, and refills the flow
+        window so stale in-flight acks from the previous epoch are dropped. The
+        wire ``chunk_index`` stays monotonic across epochs so acks never alias.
         """
+        if epoch != self._epoch:
+            self._epoch = epoch
+            self._header_sent = False
+            self._inflight.clear()
+            self._flow = asyncio.Semaphore(self._flow_window_size)
         if self._closed:
             return 0
 
@@ -126,6 +143,7 @@ class TokenFrameEmitter:
         """Send the one-shot control frame describing the stream to the client."""
         header = {
             "protocol_version": framing.PROTOCOL_VERSION,
+            "epoch": self._epoch,
             "latent_shape": list(latent.shape[1:]),
             "frames_per_chunk": int(latent.shape[0]),
             "fps": self._fps,

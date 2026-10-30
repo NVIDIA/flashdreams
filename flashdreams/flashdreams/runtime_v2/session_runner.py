@@ -160,6 +160,7 @@ def run_session(
             trace_chunk_lifecycle=trace_chunk_lifecycle,
             frames_per_second=session_desc.frames_per_second_for_step,
             maximum_frames_per_second=session_desc.frames_per_second_for_ui,
+            latent_passthrough=session_desc.token_stream,
         )
 
         def expire_if_due() -> bool:

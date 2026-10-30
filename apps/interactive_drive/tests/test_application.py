@@ -1743,3 +1743,32 @@ def test_focus_loss_releases_held_brake(tmp_path: Path) -> None:
     assert command.throttle == 1.0
     assert command.brake == 0.0
     assert loop.state.drive_input.pressed_keys == {"w"}
+
+
+def test_token_stream_flag_reaches_session_despite_preinit_desc_capture(
+    tmp_path: Path,
+) -> None:
+    """``--enable-token-stream`` must reach the session's description.
+
+    The runtime captures ``application.session_desc()`` before ``init`` runs
+    (``init`` is deferred into ``ApplicationRunner.run``), so a flag the
+    application only sets while parsing its own arguments in ``init`` is absent
+    from that captured description. ``create_session`` re-applies it, and
+    without that the token-stream WebSocket route stays disabled.
+    """
+    scene = tmp_path / "local.usdz"
+    scene.touch()
+
+    # Off by default: the captured desc and the session both lack the flag.
+    app_off = InteractiveDriveApplication()
+    captured_off = app_off.session_desc()
+    app_off.init(["--scene", str(scene)])
+    assert app_off.create_session(captured_off).session_desc.token_stream is False
+
+    # On: the flag is parsed in init(), after the desc was already captured, yet
+    # the session the runtime builds from that stale desc still carries it.
+    app_on = InteractiveDriveApplication()
+    captured_on = app_on.session_desc()
+    assert captured_on.token_stream is False
+    app_on.init(["--scene", str(scene), "--enable-token-stream"])
+    assert app_on.create_session(captured_on).session_desc.token_stream is True
