@@ -82,6 +82,8 @@ from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
 
+_RACE_MAP = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
+
 _DEMO_RACE_MAP = (
     Path(__file__).parents[1]
     / "crazy_robotaxi"
