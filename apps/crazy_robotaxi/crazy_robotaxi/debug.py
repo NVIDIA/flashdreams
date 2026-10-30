@@ -20,7 +20,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import shutil
 import socket
 import sys
 import time
@@ -509,8 +508,6 @@ class RobotaxiDebugMode(ClientWindowMode):
             or parsed_args.debug_cpu_sample_ms < 0
         ):
             raise ValueError("--debug-cpu-sample-ms must be finite and nonnegative")
-        if parsed_args.debug_capture_images and shutil.which("ffmpeg") is None:
-            raise ValueError("robotaxi-debug requires ffmpeg on PATH")
         if any(
             not math.isfinite(value) or value < 0
             for value in parsed_args.debug_generation_delay_ms

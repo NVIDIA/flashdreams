@@ -121,11 +121,12 @@ physics states before gameplay adjustments, camera poses, ground errors, collide
 snapshots, and game state. Observations are queued before model generation, so a
 generation failure retains the physics evidence. Hidden warmup is excluded.
 
-By default, both modes save `generated.mp4`, `hdmap.mp4`, `physics.mp4`, and
+By default, both modes save `generated.webm`, `hdmap.webm`, `physics.webm`, and
 sampled/contact/final screenshots. Normal UI mode additionally saves
-`presentation.mp4` and an atomically updated `latest.png`; `--no-ui` selects the
+`presentation.webm` and an atomically updated `latest.png`; `--no-ui` selects the
 paired diagnostic presentation. Pass `--no-debug-capture-images` before `--` to
-keep telemetry without videos or PNGs; this also removes the `ffmpeg` requirement.
+keep telemetry without videos or PNGs. Video capture uses the native AV1/WebM
+writer and does not require FFmpeg.
 
 `presentation.jsonl` records UI ticks, actual presentation timestamps, and source
 frame identifiers. Join its `source.capture_frame` to `telemetry.jsonl` to find
@@ -222,7 +223,7 @@ Include a close event or use the runtime timeout to bound the run. Scripted inpu
 uses the same prewarm, presentation, keyboard handling, and sampling as live
 input. Wall-clock duration does not guarantee a fixed number of generated frames.
 The scenario runner uses the dedicated debug map for `flat_acceleration` and
-`curb_impact`, captures paired views, and checks videos with `ffprobe`:
+`curb_impact`, captures paired views, and checks videos with the native AV1 reader:
 
 ```bash
 uv run --package flashdreams-omnidreams python \
