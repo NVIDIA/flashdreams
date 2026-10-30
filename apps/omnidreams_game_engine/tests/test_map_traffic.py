@@ -94,6 +94,78 @@ def test_active_traffic_walks_route_cursor_without_global_search() -> None:
     assert targets[0].timestamp_us == pytest.approx(1_590_000, abs=1.0)
 
 
+@pytest.mark.parametrize("active", [False, True])
+def test_batched_route_samples_match_tracks_at_boundaries(active: bool) -> None:
+    routes = (
+        np.asarray([[0, 0, 0], [19, 7, 3], [0, 0, 0]], dtype=np.float32),
+        np.asarray(
+            [[100, 0, 0], [100, 23, 0], [117, 23, 0], [100, 0, 0]], dtype=np.float32
+        ),
+    )
+    controller = MapTrafficController(
+        tuple(
+            _traffic_definition(route, vehicle_id=str(i))
+            for i, route in enumerate(routes)
+        ),
+        VehicleConfig(),
+    )
+    if active:
+        _activate(controller)
+    for boundary in (0, 1, -1):
+        for offset in (-1, 0, 1):
+            for state in controller._states:
+                state.timestamp_us = float(
+                    state.scene_object.timestamps_us[boundary] + offset
+                )
+                state.position_m = np.asarray([77, -33, 2], dtype=np.float32)
+            observations = controller._observations()
+            for state in controller._states:
+                position, _, velocity = state.scene_object.sample(
+                    int(state.timestamp_us)
+                )
+                observation = observations[state.object_id]
+                np.testing.assert_array_equal(
+                    observation.position_xy,
+                    state.position_m[:2] if active else position[:2],
+                )
+                np.testing.assert_array_equal(observation.velocity_xy, velocity[:2])
+                if not active:
+                    assert state.route_segment_index == controller._route_segment_index(
+                        state.scene_object, state.timestamp_us
+                    )
+
+
+def test_offscreen_following_wrap_and_activation_keep_logical_progress() -> None:
+    route = np.asarray([[0, 0, 0], [100, 0, 0], [0, 0, 0]], dtype=np.float32)
+    controller = MapTrafficController(
+        (
+            _traffic_definition(route, vehicle_id="follower", start_distance_m=10),
+            _traffic_definition(route, vehicle_id="leader", start_distance_m=20),
+        ),
+        VehicleConfig(),
+    )
+    follower, leader = controller._states
+    assert controller.prepare_step(_body_at((-1000, -1000)), 1 / 30) == ()
+    assert follower.velocity_scale == 0
+    assert leader.velocity_scale == 1
+    stopped_at = follower.timestamp_us
+    controller.prepare_step(_body_at((-1000, -1000)), 1 / 30)
+    assert follower.timestamp_us == stopped_at
+    _activate(controller)
+    expected, _, _ = follower.scene_object.sample(int(stopped_at))
+    np.testing.assert_array_equal(follower.position_m, expected)
+    controller.set_vicinity(None)
+    follower.timestamp_us = follower.duration_us - 10
+    follower.velocity_scale = 1
+    controller.prepare_step(_body_at((-1000, -1000)), 0.1)
+    assert follower.timestamp_us == 99_990
+    assert follower.route_segment_index == 0
+    assert (
+        MapTrafficController((), VehicleConfig()).prepare_step(_body_at((0, 0)), 0.1)
+        == ()
+    )
+
+
 def test_collision_recovery_globally_reacquires_route_and_cursor() -> None:
     centerline = np.asarray(
         [[0, 0, 0], [20, 0, 0], [20, 20, 0], [0, 20, 0], [0, 0, 0]],
