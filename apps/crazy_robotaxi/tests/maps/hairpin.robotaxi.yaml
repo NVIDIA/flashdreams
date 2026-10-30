@@ -1,0 +1,56 @@
+schema_version: 1
+id: hairpin-entry-test
+name: Hairpin Entry Test
+
+compiler:
+  sample_spacing_m: 1.5
+  ground_margin_m: 10
+  intersection_connector_samples: 8
+
+profiles:
+  street:
+    lane_width_m: 5.5
+    curb_offset_m: 1.5
+    lanes: [backward, forward]
+    speed_limit_mps: 12
+    lane_marking: {style: SOLID_GROUP, color: YELLOW}
+    divider_markings:
+      - {style: SOLID_GROUP, color: YELLOW}
+
+nodes:
+  - {id: approach_start, type: cul_de_sac, pose: {x_m: 230, y_m: 20}, culdesac_radius_m: 15}
+  - {id: entry, type: road_joint, pose: {x_m: 90, y_m: 20}}
+  - {id: exit_node, type: road_joint, pose: {x_m: 100, y_m: 140}}
+  - {id: exit_end, type: cul_de_sac, pose: {x_m: 220, y_m: 140}, culdesac_radius_m: 15}
+
+roads:
+  - {id: approach, from: approach_start, to: entry, profile: street}
+  - id: hairpin
+    from: entry
+    to: exit_node
+    profile: street
+    bezier:
+      - control_points:
+          - {x_m: 40, y_m: 20}
+          - {x_m: 20, y_m: 45}
+        end: {x_m: 20, y_m: 75}
+      - control_points:
+          - {x_m: 20, y_m: 110}
+          - {x_m: 55, y_m: 140}
+        end: {x_m: 100, y_m: 140}
+  - {id: exit, from: exit_node, to: exit_end, profile: street}
+
+race_courses:
+  - id: hairpin-test
+    spawn: start
+    start: approach
+    checkpoints: [hairpin, exit]
+    lap_count: 0
+
+spawns:
+  - id: start
+    road: approach
+    lane: 1
+    distance_m: 20
+    image: package://omnidreams_game_engine/screenshot.jpg
+    prompt: A test road approaching a hairpin.
