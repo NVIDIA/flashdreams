@@ -72,6 +72,43 @@ def test_event_accumulator_separates_held_and_transient_input() -> None:
     assert cleared == ActionSnapshot()
 
 
+def test_event_accumulator_ignores_input_until_focus_returns() -> None:
+    """Keep UI hover and clicks out of model actions after capture is released."""
+    accumulator = ActionEventAccumulator()
+    accumulator.consume(
+        _events(FocusUserInputEvent(timestamp=uint64(0), focused=False))
+    )
+    ignored = accumulator.consume(
+        _events(
+            KeyboardUserInputEvent(
+                timestamp=uint64(1), key="w", state=KeyboardInputState.PRESSED
+            ),
+            MouseUserInputEvent(timestamp=uint64(2), action="move", x=0.1, y=0.1),
+            MouseUserInputEvent(timestamp=uint64(3), action="move", x=0.9, y=0.9),
+            MouseUserInputEvent(
+                timestamp=uint64(4), action="button", button=0, pressed=True
+            ),
+            MouseUserInputEvent(timestamp=uint64(5), action="wheel", wheel_y=1),
+        )
+    )
+    assert ignored == ActionSnapshot()
+
+    resumed = accumulator.consume(
+        _events(
+            FocusUserInputEvent(timestamp=uint64(6), focused=True),
+            MouseUserInputEvent(timestamp=uint64(7), action="move", x=0.4, y=0.4),
+            MouseUserInputEvent(timestamp=uint64(8), action="move", x=0.5, y=0.6),
+            KeyboardUserInputEvent(
+                timestamp=uint64(9), key="w", state=KeyboardInputState.PRESSED
+            ),
+        )
+    )
+    assert resumed.keys == frozenset({"W"})
+    assert resumed.mouse_dx == pytest.approx(0.1)
+    assert resumed.mouse_dy == pytest.approx(0.2)
+    assert resumed.mouse_buttons == frozenset()
+
+
 class _DiffusionModel:
     dtype = torch.float32
 
