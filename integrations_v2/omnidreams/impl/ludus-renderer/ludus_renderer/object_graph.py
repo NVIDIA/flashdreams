@@ -57,6 +57,9 @@ class VehicleModel:
     max_brake_force_n: float
     """Maximum braking force available to the shared drive actuator."""
 
+    center_of_mass_offset_m: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    """Center of mass relative to the body origin, independent of its collider."""
+
 
 @dataclass(frozen=True)
 class RigidBodyModel:
@@ -151,6 +154,10 @@ class InvisibleBarrier:
     thickness_m: float = 0.30
     height_m: float = 3.0
     barrier_id: str | None = None
+    start_z_m: float = 0.0
+    """World height at the wall segment's starting endpoint."""
+    end_z_m: float = 0.0
+    """World height at the wall segment's ending endpoint."""
 
 
 @dataclass
@@ -287,6 +294,8 @@ class PhysicsObjectGraph:
             thickness_m=barrier.thickness_m,
             height_m=barrier.height_m,
             barrier_id=barrier_id,
+            start_z_m=barrier.start_z_m,
+            end_z_m=barrier.end_z_m,
         )
         barriers = list(self.barriers)
         for index, existing in enumerate(barriers):

@@ -284,7 +284,8 @@ def integrate_vehicle(
         )
     )
 
-    return VehicleState(
+    return replace(
+        state,
         x_m=x_m,
         y_m=y_m,
         z_m=state.z_m,
@@ -432,7 +433,9 @@ def sample_chunk_trajectory(
             actor_samples.append(frame_actor_samples)
             if capture_physics_debug:
                 physics_debug_frames.append(physics_world.debug_frame(state))
-        if ground_snapper is not None:
+        # PhysX already resolves the chassis pose against the ground. Snapping
+        # again can flatten valid slopes and separate the camera from the body.
+        if ground_snapper is not None and physics_world is None:
             state = ground_snapper.snap(state, vehicle_config)
         if physics_world is not None and capture_physics_debug and not use_start_state:
             physics_debug_frames[-1] = replace(
@@ -494,6 +497,15 @@ def state_from_initial_pose(
         y_m=float(initial_rig_to_world[1, 3]),
         z_m=float(initial_rig_to_world[2, 3]),
         yaw_rad=initial_yaw_rad,
+        pitch_rad=math.atan2(
+            -float(initial_rig_to_world[2, 0]),
+            math.hypot(
+                float(initial_rig_to_world[0, 0]), float(initial_rig_to_world[1, 0])
+            ),
+        ),
+        roll_rad=math.atan2(
+            float(initial_rig_to_world[2, 1]), float(initial_rig_to_world[2, 2])
+        ),
         speed_mps=initial_speed_mps,
         steer_rad=0.0,
         velocity_x_mps=math.cos(initial_yaw_rad) * initial_speed_mps,
