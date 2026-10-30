@@ -20,7 +20,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import subprocess
 from pathlib import Path
 
 from flashdreams.runtime_v2.cli import entrypoint
@@ -52,29 +51,21 @@ def check_capture(directory: Path) -> dict[str, float | int]:
     assert expected <= consumed, f"Inputs not consumed: {expected - consumed}"
     timestamps = [record["simulation_timestamp_us"] for record in records]
     assert all(b > a for a, b in zip(timestamps, timestamps[1:]))
+    from flashdreams_webm import Reader
+
     for name in ("generated", "hdmap", "physics"):
-        probed = subprocess.run(
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-count_frames",
-                "-show_entries",
-                "stream=nb_read_frames,width,height",
-                "-of",
-                "json",
-                str(directory / f"{name}.mp4"),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        (stream,) = json.loads(probed.stdout)["streams"]
-        assert int(stream["nb_read_frames"]) == len(records)
-        assert (stream["width"], stream["height"]) == (
-            manifest["width"],
-            manifest["height"],
-        )
+        reader = Reader(str(directory / f"{name}.webm"))
+        try:
+            assert (reader.width, reader.height) == (
+                manifest["width"],
+                manifest["height"],
+            )
+            frame_count = 0
+            while reader.read() is not None:
+                frame_count += 1
+            assert frame_count == len(records)
+        finally:
+            reader.close()
     errors = [record["ground_error_m"] for record in records]
     assert all(error is not None and math.isfinite(error) for error in errors)
     speeds = [record["vehicle"]["speed_mps"] for record in records]
