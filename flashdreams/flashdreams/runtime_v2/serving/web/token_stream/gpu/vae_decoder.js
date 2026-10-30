@@ -34,6 +34,12 @@ export class VaeDecoder {
     // GPU ~halves decode and makes the token path server-bound). Falls back to
     // the portable CPU-cache output at init if a client can't do it.
     this._gpuResident = true
+    this._gpuDevice = null // the device ORT uses for GPU-direct render
+    // GPU-direct-to-canvas: when the output is a bindable GPU storage buffer, the
+    // render loop draws it straight to a WebGPU canvas (no getData readback, no
+    // CPU display transform). Probed at warmup; enabled by the session.
+    this._gpuBufferOk = false
+    this._directRender = false
     this._log = () => {}
   }
 
@@ -45,6 +51,31 @@ export class VaeDecoder {
   /** Temporal-cache location after init ("gpu-resident" | "cpu" fallback). */
   get cacheMode() {
     return this._gpuResident ? "gpu-resident" : "cpu"
+  }
+
+  /** The WebGPU device ORT runs on (owns the output buffer), or null. */
+  get device() {
+    return this._gpuDevice
+  }
+
+  /** Decoder output width (set during init). */
+  get outputWidth() {
+    return this._out?.width
+  }
+
+  /** Decoder output height (set during init). */
+  get outputHeight() {
+    return this._out?.height
+  }
+
+  /** Whether GPU-direct-to-canvas is viable (gpu-resident + bindable buffer). */
+  get directRenderCapable() {
+    return this._gpuResident && this._gpuBufferOk && !!this._gpuDevice
+  }
+
+  /** Switch decode output to GPU-direct (held GPU buffer, no readback). */
+  enableDirectRender() {
+    this._directRender = true
   }
 
   /**
@@ -120,6 +151,21 @@ export class VaeDecoder {
     }
     const setup = async () => {
       this._session = await this._ort.InferenceSession.create(modelUrl, buildOpts())
+      // ORT-web creates and OWNS its WebGPU device (it calls requestDevice itself
+      // and redefines env.webgpu.device to point at it), ignoring any device we
+      // assigned earlier. Adopt ORT's actual device so GPU-direct binds the output
+      // buffer on the SAME device -- otherwise CreateBindGroup fails cross-device.
+      let ortDevice = this._ort?.env?.webgpu?.device
+      if (ortDevice && typeof ortDevice.then === "function") {
+        try {
+          ortDevice = await ortDevice
+        } catch {
+          ortDevice = null
+        }
+      }
+      if (ortDevice && typeof ortDevice.createBindGroup === "function") {
+        this._gpuDevice = ortDevice
+      }
       this._cache = this._zeroCache(this._cacheSpec)
       await this._warmup()
     }
@@ -162,22 +208,28 @@ export class VaeDecoder {
     // Queue behind any in-flight decode so runs never overlap and the cache
     // threads in order. A rejected decode must not wedge the queue, so the
     // chain swallows errors while the returned promise still surfaces them.
-    const result = this._chain.then(() => this._decodeOne(latentFrames))
+    const result = this._chain.then(() => {
+      return this._decodeOne(latentFrames)
+    })
     this._chain = result.catch(() => {})
     return result
   }
 
   async _decodeOne(latentFrames) {
     if (this._gpuResident) {
-      // Default path: outputs (incl. RGB) are GPU buffers.
+      if (this._directRender) {
+        // GPU-direct: keep the output GPU buffer, no readback / transform.
+        return this._decodeOneGpuDirect(latentFrames)
+      }
+      // Default path: outputs (incl. RGB) are GPU buffers, read back to CPU.
       return this._decodeOneGpu(latentFrames)
     }
     return this._decodeOneCpu(latentFrames)
   }
 
-  // Default decode: GPU-resident cache + GPU RGB output, no per-stage timing.
-  // The RGB output is a GPU buffer (preferredOutputLocation), so read it back
-  // explicitly; the cache stays on the GPU and threads forward in `_run`.
+  // Default decode: GPU-resident cache + GPU RGB output. The RGB output is a GPU
+  // buffer (preferredOutputLocation), so read it back to CPU explicitly; the
+  // cache stays on the GPU and threads forward in `_run`.
   async _decodeOneGpu(latentFrames) {
     const rgb = await this._run(this._assembleLatent(latentFrames))
     const data = await rgb.getData(true) // GPU→CPU readback of the RGB buffer
@@ -192,6 +244,54 @@ export class VaeDecoder {
       frames,
       width: this._out.width,
       height: this._out.height,
+    }
+  }
+
+  // GPU-direct: run the decode and hand the render loop the output GPU buffer
+  // (planar [T, 3, H, W] fp32, [-1, 1]) WITHOUT reading it back or running the CPU
+  // display transform -- the render loop draws it straight to the canvas. The ORT
+  // output tensor is held alive (so ORT does not recycle its buffer) and disposed
+  // by the render loop after the chunk's last frame is presented. Per the no-copy
+  // decision, a missing/unbindable buffer throws (-> session falls back to CPU).
+  async _decodeOneGpuDirect(latentFrames) {
+    const latent = this._assembleLatent(latentFrames)
+    const rgb = await this._run(latent)
+    // FUNCTIONAL wait (not profiling): the CPU path implicitly waited for the GPU
+    // inside getData(), so "ack on buffer" meant the GPU was done and the 4-chunk
+    // flow window bounded GPU work + held buffers. Without this, acks fire at
+    // submit time, so on a slow client the GPU queue and the held 86 MB buffers
+    // grow unbounded (latency creep, VRAM growth, device loss). Also keeps
+    // profiled and unprofiled behavior identical.
+    if (this._gpuDevice) {
+      try {
+        await this._gpuDevice.queue.onSubmittedWorkDone()
+      } catch {
+        // best-effort
+      }
+    }
+    const buffer = rgb?.gpuBuffer
+    if (!buffer) {
+      try {
+        rgb?.dispose?.()
+      } catch {
+        // best-effort
+      }
+      throw new Error("decoder output exposes no gpuBuffer; GPU-direct not usable")
+    }
+    return {
+      gpu: true,
+      buffer,
+      frameCount: this._out.frames,
+      width: this._out.width,
+      height: this._out.height,
+      // Held until the render loop presents the last frame, then disposed.
+      dispose: () => {
+        try {
+          rgb.dispose?.()
+        } catch {
+          // best-effort
+        }
+      },
     }
   }
 
@@ -239,7 +339,6 @@ export class VaeDecoder {
     } catch {
       adapter = null
     }
-
     // fp16 only when the session offers it and the client can run the half-
     // precision shaders (Dawn/Linux does not expose shader-f16 today); else fp32.
     const useFp16 =
@@ -267,29 +366,54 @@ export class VaeDecoder {
             `--use-angle=vulkan --enable-features=Vulkan to expose the full buffer limit`
         )
       }
-      // Create the WebGPU device ourselves and hand it to ORT with the adapter's
-      // MAX buffer limits (both precisions); otherwise ORT-web's default device
-      // (1 GB) is too small for the ~1.8 GB fp32 buffer. fp16 also needs shader-f16.
-      try {
-        const features = []
-        if (useFp16) {
-          features.push("shader-f16")
+      // Reuse the device ORT already runs on when it is big enough. ORT-web's
+      // WebGPU backend is a singleton, so after a reset re-inits the decoder, a
+      // second device we create is NOT the one ORT's output buffers live on --
+      // binding them for GPU-direct would then fail cross-device. Only create a
+      // device when ORT has none big enough yet (the first init).
+      let existing = this._ort?.env?.webgpu?.device
+      if (existing && typeof existing.then === "function") {
+        try {
+          existing = await existing
+        } catch {
+          existing = null
         }
-        const device = await adapter.requestDevice({
-          requiredFeatures: features,
-          requiredLimits: {
-            maxBufferSize: adapter.limits.maxBufferSize,
-            maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
-          },
+      }
+      if (
+        existing &&
+        typeof existing.createBindGroup === "function" &&
+        (existing.limits?.maxBufferSize ?? 0) >= needed
+      ) {
+        this._gpuDevice = existing // functional: GPU-direct + GPU-completion wait
+        this._log("[vae-decoder] reusing ORT's existing WebGPU device", {
+          source: "client",
         })
-        this._ort.env.webgpu.device = device
-      } catch (err) {
-        // fall through: let ORT create its own default device (may hit the buffer
-        // limit, but better than not starting the decoder at all)
-        this._log(
-          `[vae-decoder] custom WebGPU device setup failed (${err?.message}); using ORT default device`,
-          { source: "client" }
-        )
+      } else {
+        // Create the device with the adapter's MAX buffer limits (both
+        // precisions); ORT-web's default device (1 GB) is too small for the
+        // ~1.8 GB fp32 activation. fp16 also needs shader-f16.
+        try {
+          const features = []
+          if (useFp16) {
+            features.push("shader-f16")
+          }
+          const device = await adapter.requestDevice({
+            requiredFeatures: features,
+            requiredLimits: {
+              maxBufferSize: adapter.limits.maxBufferSize,
+              maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+            },
+          })
+          this._ort.env.webgpu.device = device
+          this._gpuDevice = device // functional: GPU-direct + GPU-completion wait
+        } catch (err) {
+          // fall through: let ORT create its own default device (may hit the
+          // buffer limit, but better than not starting the decoder at all)
+          this._log(
+            `[vae-decoder] custom WebGPU device setup failed (${err?.message}); using ORT default device`,
+            { source: "client" }
+          )
+        }
       }
     }
     return precision
@@ -351,6 +475,30 @@ export class VaeDecoder {
       )
     for (let i = 0; i < 2; i++) {
       const rgb = await this._run(zero())
+      if (i === 1 && this._gpuResident) {
+        // Probe whether the output is a GPU buffer we can bind read-only for
+        // GPU-direct-to-canvas (needs STORAGE usage). Decided once, here. A probe
+        // failure only disables GPU-direct; it must not break gpu-resident decode.
+        try {
+          const buf = rgb?.gpuBuffer
+          const usage = buf?.usage ?? 0
+          const hasStorage =
+            typeof GPUBufferUsage !== "undefined" &&
+            (usage & GPUBufferUsage.STORAGE) !== 0
+          this._gpuBufferOk = !!(buf && hasStorage)
+          this._log(
+            `[vae-decoder] gpu-direct probe: gpuBuffer=${!!buf} ` +
+              `usage=0x${usage.toString(16)} STORAGE=${hasStorage} ` +
+              `size=${buf?.size ?? "n/a"}`,
+            { source: "client" }
+          )
+        } catch (error) {
+          this._gpuBufferOk = false
+          this._log(`[vae-decoder] gpu-direct probe failed: ${error.message}`, {
+            source: "client",
+          })
+        }
+      }
       try {
         rgb?.dispose?.() // free the warmup RGB (a GPU buffer in resident mode)
       } catch {

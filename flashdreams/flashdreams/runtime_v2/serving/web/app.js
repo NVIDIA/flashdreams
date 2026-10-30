@@ -901,11 +901,15 @@ async function startTokenStreamIfEnabled() {
   const webgpu = await detectWebGPU();
   const tokenUrl = new URL("/api/token-stream", location.href);
   tokenUrl.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  // GPU-direct-to-canvas is on by default; ?direct=0 (or off) forces the CPU path.
+  const directParam = new URLSearchParams(location.search).get("direct");
+  const direct = !(directParam === "0" || directParam === "off");
   const session = new TokenStreamSession({
     url: tokenUrl.href,
     device: webgpu ? webgpu.device : null,
     canvas,
     log: (message) => console.log("[token]", message),
+    direct,
   });
   session.start();
 }

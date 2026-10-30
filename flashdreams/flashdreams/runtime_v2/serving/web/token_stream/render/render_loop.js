@@ -37,6 +37,7 @@ export class RenderLoop {
     this._onChunkPresented = onChunkPresented
     this._onFramePresented = onFramePresented
     this._onChunkBuffered = onChunkBuffered
+    this._renderer = null // GPU-direct renderer; null => CPU blit path
     this._queue = []
     this._running = false
     this._rafId = null
@@ -137,6 +138,9 @@ export class RenderLoop {
       window.cancelAnimationFrame(this._rafId)
       this._rafId = null
     }
+    // GPU-direct: dispose any held chunk buffers still queued (return them to
+    // ORT's pool instead of leaking).
+    this._disposeQueuedGpuBuffers()
     this._queue.length = 0
     this._current = null
     this._frameCursor = 0
@@ -145,19 +149,53 @@ export class RenderLoop {
     this._starved = false
   }
 
+  /** Set the GPU-direct renderer; when present, frames draw via it (no blit). */
+  setRenderer(renderer) {
+    this._renderer = renderer
+  }
+
+  _disposeQueuedGpuBuffers() {
+    // Each chunk's dispose rides its last frame item (paced) or the chunk (arrival).
+    for (const item of this._frameQueue) {
+      item.dispose?.()
+    }
+    for (const chunk of this._queue) {
+      chunk.dispose?.()
+    }
+    if (this._current && this._current.gpu) {
+      this._current.dispose?.()
+    }
+  }
+
   /**
    * Enqueue a decoded chunk for presentation.
    * @param {DecodedChunk} decodedChunk
    */
   enqueue(decodedChunk) {
     if (this._paced) {
-      const { chunkId, frames } = decodedChunk
-      for (let i = 0; i < frames.length; i += 1) {
-        this._frameQueue.push({
-          chunkId,
-          frame: frames[i],
-          isLast: i === frames.length - 1,
-        })
+      const { chunkId } = decodedChunk
+      if (decodedChunk.gpu) {
+        // GPU-direct: frames reference the shared chunk buffer; the chunk's
+        // dispose rides the LAST frame so the buffer frees once fully presented.
+        const n = decodedChunk.frameCount
+        for (let i = 0; i < n; i += 1) {
+          this._frameQueue.push({
+            chunkId,
+            buffer: decodedChunk.buffer,
+            frameIndex: i,
+            isLast: i === n - 1,
+            dispose: i === n - 1 ? decodedChunk.dispose : null,
+          })
+        }
+      } else {
+        const frames = decodedChunk.frames
+        for (let i = 0; i < frames.length; i += 1) {
+          this._frameQueue.push({
+            chunkId,
+            frame: frames[i],
+            isLast: i === frames.length - 1,
+          })
+        }
       }
       // Ack on buffer, not on present: paced presentation delays frames, and
       // acking on present would throttle the server's flow-control window and
@@ -190,13 +228,21 @@ export class RenderLoop {
       this._frameCursor = 0
     }
     if (this._current) {
-      const frames = this._current.frames
-      this._blit(frames[this._frameCursor])
-      this._drawBadge()
+      const cur = this._current
+      const n = cur.gpu ? cur.frameCount : cur.frames.length
+      if (cur.gpu) {
+        this._renderer.present(cur.buffer, this._frameCursor)
+      } else {
+        this._blit(cur.frames[this._frameCursor])
+        this._drawBadge()
+      }
       this._onFramePresented?.(now)
       this._frameCursor += 1
-      if (this._frameCursor >= frames.length) {
-        this._onChunkPresented?.(this._current.chunkId)
+      if (this._frameCursor >= n) {
+        this._onChunkPresented?.(cur.chunkId)
+        if (cur.gpu) {
+          cur.dispose?.() // GPU-direct: free the chunk buffer after its last frame
+        }
         this._current = null
       }
     }
@@ -226,13 +272,23 @@ export class RenderLoop {
       this._starved = false
     }
     const item = this._frameQueue.shift()
-    this._blit(item.frame)
-    this._drawBadge()
+    this._present(item)
     this._onFramePresented?.(now)
     if (item.isLast) {
       this._onChunkPresented?.(item.chunkId)
+      item.dispose?.() // GPU-direct: free the chunk buffer after its last frame
     }
     this._nextAt += this._interval
+  }
+
+  // Present one paced frame item: GPU-direct draws the buffer, else blits ImageData.
+  _present(item) {
+    if (item.buffer !== undefined) {
+      this._renderer.present(item.buffer, item.frameIndex)
+    } else {
+      this._blit(item.frame)
+      this._drawBadge()
+    }
   }
 
   _blit(frame) {
