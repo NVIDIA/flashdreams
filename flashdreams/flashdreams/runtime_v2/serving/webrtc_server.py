@@ -876,6 +876,11 @@ class WebRTCServer:
                 return
             except TimeoutError:
                 continue
+            except (ConnectionError, RuntimeError) as error:
+                # The token client went away mid-send; stop streaming to it rather
+                # than crashing the model/UI loop. A reconnect attaches a new emitter.
+                logger.info("token emit aborted (client gone): {}", error)
+                return
         future.cancel()
 
     def _wait_for_token_emitter(self) -> TokenFrameEmitter | None:

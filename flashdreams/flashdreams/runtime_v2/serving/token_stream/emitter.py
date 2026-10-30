@@ -97,7 +97,14 @@ class TokenFrameEmitter:
             latent = latent[0]
 
         if not self._header_sent:
-            await self._send_session_header(latent)
+            try:
+                await self._send_session_header(latent)
+            except (ConnectionError, RuntimeError) as error:
+                # Client vanished (e.g. tab close) before the header: treat as
+                # closed and stop, so the generation loop is not crashed.
+                self._closed = True
+                logger.info("token client disconnected before header: {}", error)
+                return 0
             self._header_sent = True
 
         await self._flow.acquire()
@@ -119,7 +126,15 @@ class TokenFrameEmitter:
                 is_keyframe=(is_keyframe and frame_idx == 0),
                 is_last_in_chunk=(frame_idx == total - 1),
             )
-            await self._ws.send_bytes(frame)
+            try:
+                await self._ws.send_bytes(frame)
+            except (ConnectionError, RuntimeError) as error:
+                # Client disconnected mid-send (e.g. tab close): the transport is
+                # gone. Mark closed and stop rather than crashing the generation
+                # loop via future.result() in the serving layer.
+                self._closed = True
+                logger.info("token client disconnected mid-send: {}", error)
+                return frame_idx
         return total
 
     def handle_ack(self, chunk_id: int) -> None:
