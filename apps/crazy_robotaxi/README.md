@@ -460,6 +460,33 @@ uv run --package flashdreams-omnidreams flashdreams-run-v2 \
 Race times are stored per map and course. Use `--race-times PATH` to choose a
 different leaderboard file.
 
+### Pacific Breakwater
+
+Select **Pacific Breakwater** for a closed coastal circuit with waterfront
+straights, marina bends, technical esses and a cape hairpin. All four lanes
+follow the race direction, with no NPC traffic. Choose `coastal-sprint` for
+one lap or `coastal-grand-prix` for three laps.
+
+The bundled 1280x704 initial frame uses the compiled spawn's calibrated front
+camera, with a visible silver hood. Its road surface, curbs and white markings
+are projected directly from the semantic map. Generated scenery and asphalt
+texture are composited around that geometry; the generated road layout is
+discarded.
+The full spawn prompt establishes the coastal setting for normal play; the
+shorter base and nine road fragments keep lighting and hood framing consistent
+while adding local landmarks with dynamic prompts enabled. The runtime supplies
+turn direction and vehicle motion.
+
+```bash
+uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+  crazy-robotaxi-omnidreams --mode native-window -- \
+  --map apps/crazy_robotaxi/crazy_robotaxi/maps/pacific_breakwater.robotaxi.yaml \
+  --game-mode race --race-course coastal-sprint --live-edit-dynamic-prompts
+```
+
+`--live-edit-dynamic-prompts` activates the road fragments and disables native DiT
+acceleration, as described below. Omit it to use the full static spawn prompt.
+
 ## Optional live-edit abilities
 
 Live-edit features are disabled by default. Enable them on the **LIVE EDIT**
@@ -536,3 +563,28 @@ the source YAML directly and compiles it as needed.
 Each spawn can define both a full `prompt` for normal play and a shorter
 `prompt_context` base for `--live-edit-dynamic-prompts`; selected dynamic
 fragments are appended only to the latter.
+The static `prompt` persists throughout driving: describe the camera,
+visual style and regional scenery without fixing the current road
+placement, lane count, upcoming turn or landmark position. Spawn-specific
+geometry belongs in the initial image;
+location-specific descriptions belong in the dynamic map fragments.
+Keep weather, haze, fog, lighting and time of day out of both map prompts and
+scenery fragments. Weather effects belong to the separate live-edit weather
+controls.
+
+The bundled maps each have a dedicated hood-view initial frame. FlashDreams
+Raceway shows grandstands, pit garages and a city skyline; Boulevard District
+shows a leafy residential boulevard with yellow traffic separation. Both
+frames use the compiled spawn's road projection, with map-relative assets
+also used by the map and course menus. Their spawn prompts match the scenery.
+
+**Harbor Market** adds a waterfront taxi district with a connected street grid,
+four-lane market avenue, ferry turnaround, two parking courts and 32 traffic
+vehicles. Red-brick market halls, green awnings, cafes and dockside workshops
+give each neighborhood its own dynamic prompt fragments.
+
+**Mesa Gardens** adds a desert resort taxi district with a curved outer loop,
+cross-town avenues, garden streets, two terminal turnarounds, a resort parking
+court and 28 traffic vehicles. Its fragments describe cream stucco shops,
+terracotta arcades, botanical gardens and desert landscaping. Both maps are
+available from the map menu for Taxi and Free Roam modes.
