@@ -24,6 +24,7 @@ from crazy_robotaxi.application import (
 )
 from crazy_robotaxi.controls import BoundActionState, ControlsConfig
 from crazy_robotaxi.dynamics import TaxiVehicleConfig
+from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import GameSelection
 from crazy_robotaxi.headless_ui import CrazyRobotaxiHeadlessUILoop
 from crazy_robotaxi.live_edit.config import (
@@ -37,6 +38,7 @@ from crazy_robotaxi.live_edit.config import (
     WeatherPreset,
 )
 from crazy_robotaxi.physics import TaxiPhysicsWorld
+from crazy_robotaxi.race import RaceGameSnapshot
 from crazy_robotaxi.rules import TaxiGameSnapshot
 from crazy_robotaxi.session import (
     CrazyRobotaxiModelLoop,
@@ -58,6 +60,7 @@ from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
 from omnidreams_game_engine.types import (
     CameraCalibration,
     DriverCommand,
+    PhysicsDebugFrame,
     SceneDefinition,
 )
 from torch import Tensor
@@ -69,7 +72,7 @@ from flashdreams.infra.diffusion.transformer.base import TransformerConfig
 from flashdreams.infra.encoder.base import EncoderConfig
 from flashdreams.infra.pipeline import StreamInferencePipelineConfig
 from flashdreams.runtime_v2 import cli as runtime_cli
-from flashdreams.runtime_v2.session_desc import PresentationMode
+from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
@@ -78,6 +81,8 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
+
+_RACE_MAP = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
 
 _DEMO_RACE_MAP = (
     Path(__file__).parents[1]
@@ -590,6 +595,7 @@ def test_pressed_r_can_discard_an_unsubmitted_score() -> None:
     class ProbeState:
         game_selected = True
         config = SimpleNamespace(profile_input_latency=False)
+        session_desc = SessionDesc()
 
         def __init__(self) -> None:
             self.driver_input = DriverInput()
@@ -622,6 +628,7 @@ def test_model_input_is_applied_before_rollout_work() -> None:
     class ProbeState:
         game_selected = True
         config = SimpleNamespace(profile_input_latency=False)
+        session_desc = SessionDesc()
 
         def __init__(self) -> None:
             self.driver_input = DriverInput()
@@ -763,6 +770,7 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
             Any,
             SimpleNamespace(
                 frames_per_second_for_step=30,
+                metadata={},
                 video_height=4,
                 video_width=4,
             ),
@@ -1429,3 +1437,538 @@ def test_headless_loop_presents_video_channel_and_finishes() -> None:
     assert resets == ["hud"]
     presented[0] = ()
     assert loop.step(1, UserInputEvents([])) == []
+
+
+@pytest.mark.parametrize("game_mode", ["taxi", "race", "free-roam"])
+@pytest.mark.parametrize("source", ["file", "socket"])
+def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    game_mode: str,
+    source: str,
+) -> None:
+    import json
+    import socket
+    import time
+
+    from crazy_robotaxi.debug import RobotaxiDebugWindow
+    from crazy_robotaxi.settings import SettingsDocument
+    from omnidreams_game_engine.types import VehicleState
+    from PIL import Image
+
+    from flashdreams.runtime_v2.application_runner import ApplicationRunner
+
+    script = tmp_path / "drive.yaml"
+    commands = [
+        {
+            "id": "press",
+            "timestamp_us": 100_000,
+            "type": "keyboard",
+            "key": "w",
+            "pressed": True,
+        },
+        {
+            "id": "release",
+            "timestamp_us": 400_000,
+            "type": "keyboard",
+            "key": "w",
+            "pressed": False,
+        },
+        {"id": "end", "timestamp_us": 1_000_000, "type": "close"},
+    ]
+    script.write_text(json.dumps({"events": commands}))
+    (tmp_path / "settings.yaml").write_text(
+        "game:\n  taxi:\n    vehicle: {max_speed_mps: 17}\n"
+        "    rules: {global_time_s: 180}\n"
+        "live_edit:\n  items: {nitro_duration_s: 2.5}\n"
+    )
+    snapshot: TaxiGameSnapshot | RaceGameSnapshot | FreeRoamSnapshot = TaxiGameSnapshot(
+        phase="seeking_pickup",
+        target_xyz_m=(25, 0, 0),
+        distance_m=25,
+        relative_bearing_rad=0,
+        target_radius_m=5,
+        remaining_time_s=None,
+        score=0,
+    )
+    if game_mode == "free-roam":
+        snapshot = FreeRoamSnapshot()
+    elif game_mode == "race":
+        snapshot = RaceGameSnapshot(
+            map_id="test",
+            course_id="test-loop",
+            session_state="racing",
+            target_kind="checkpoint",
+            target_element_id="finish",
+            target_xyz_m=(25, 0, 0),
+            gate_start_xyz_m=(25, -5, 0),
+            gate_end_xyz_m=(25, 5, 0),
+            checkpoint_markers=False,
+            distance_m=25,
+            relative_bearing_rad=0,
+            checkpoint_index=0,
+            checkpoint_count=1,
+            completed_laps=0,
+            lap_count=0,
+            elapsed_time_us=0,
+            best_time_us=None,
+        )
+    applied = []
+    closed = []
+    debug_enabled = []
+
+    def engine_step(commands):
+        start = len(applied)
+        applied.extend(commands)
+        count = len(commands)
+        vehicles = tuple(VehicleState(start + i, 0, 0, 0, i, 0) for i in range(count))
+        hdmap = torch.zeros(1, 1, count, 3, 4, 8)
+        for index in range(count):
+            hdmap[:, :, index] = (start + index) / 10 - 1
+        return SimpleNamespace(
+            metrics={},
+            game_frames=tuple(snapshot for i in range(count)),
+            trajectory=SimpleNamespace(
+                timestamps_us=np.arange(start, start + count) * 33333,
+                rig_poses_world=np.repeat(
+                    np.eye(4, dtype=np.float32)[None], count, axis=0
+                ),
+                vehicle_states=vehicles,
+                physx_timings=None,
+                physics_debug_frames=tuple(
+                    PhysicsDebugFrame(
+                        ego_position_m=np.asarray(
+                            [v.x_m, v.y_m, 0.8], dtype=np.float32
+                        ),
+                        ego_orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
+                        ego_dimensions_lwh=np.asarray([4.8, 2, 1.6], dtype=np.float32),
+                        actor_positions_m=np.empty((0, 3), dtype=np.float32),
+                        actor_orientations_xyzw=np.empty((0, 4), dtype=np.float32),
+                        actor_dimensions_lwh=np.empty((0, 3), dtype=np.float32),
+                        barrier_segments_xy_m=np.empty((0, 2, 2), dtype=np.float32),
+                        barrier_thicknesses_m=np.empty(0, dtype=np.float32),
+                        barrier_heights_m=np.empty(0, dtype=np.float32),
+                        vehicle_state=v,
+                        actor_collision=False,
+                        static_barrier_collision=False,
+                        physics_started_ns=time.monotonic_ns(),
+                        physics_completed_ns=time.monotonic_ns(),
+                    )
+                    for v in vehicles
+                ),
+            ),
+            condition=SimpleNamespace(hdmap_bvtchw=hdmap, bev_tchw=None),
+        )
+
+    engine = SimpleNamespace(
+        current_game_frame=snapshot,
+        step=engine_step,
+        is_running=True,
+        simulation=SimpleNamespace(set_physx_debug_enabled=debug_enabled.append),
+        close=lambda: closed.append(True),
+    )
+    monkeypatch.setattr(
+        "crazy_robotaxi.session.build_taxi_engine", lambda **kwargs: engine
+    )
+    original_apply = DriverInput.apply
+    read_keys = []
+
+    def apply(driver, events):
+        read_keys.extend(
+            event
+            for event in events.get_events()
+            if isinstance(event, KeyboardUserInputEvent)
+        )
+        return original_apply(driver, events)
+
+    monkeypatch.setattr(DriverInput, "apply", apply)
+    encoded = {}
+
+    class Encoder:
+        def __init__(self, path, **kwargs):
+            self.path = path
+            encoded[path.stem] = []
+
+        def write(self, frames):
+            encoded[self.path.stem].extend(frames.copy())
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("crazy_robotaxi.debug_capture.Mp4Encoder", Encoder)
+
+    def generate(**kwargs):
+        # Deliberately slower than a chunk: inputs must still arrive while busy.
+        time.sleep(0.18)
+        return -kwargs["input"]
+
+    pipeline = SimpleNamespace(
+        device="cpu",
+        initialize_cache=lambda **kwargs: None,
+        get_num_output_frames=lambda index: 4,
+        generate=generate,
+        finalize=lambda **kwargs: None,
+    )
+    defaults = replace(_STUB_DEFAULTS, width=8, height=4)
+    app = _application(
+        defaults=defaults,
+        pipeline_factory=lambda config, device: pipeline,
+        scene_factory=lambda request, raster: _scene(width=8, height=4),
+    )
+    app.resolve_client_window_mode("robotaxi-debug")
+
+    class Window(RobotaxiDebugWindow):
+        def open(self, desc):
+            super().open(desc)
+            if source == "socket":
+                with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as client:
+                    for command in commands:
+                        client.sendto(
+                            json.dumps(command).encode(),
+                            str(self.directory / "control.sock"),
+                        )
+
+    window = Window(
+        tmp_path / "capture",
+        snapshot_every=2,
+        cpu_sample_ms=10,
+        generation_delays_ms=(120, 0),
+    )
+    ApplicationRunner(app, window).run(
+        app.session_desc(),
+        [
+            "--device",
+            "cpu",
+            "--game-time-s",
+            "140",
+            "--game-mode",
+            game_mode,
+            "--map",
+            str(_RACE_MAP),
+            *(["--race-course", "test-loop"] if game_mode == "race" else []),
+            *(["--drive-script", str(script)] if source == "file" else []),
+            "--no-ui",
+            "--prewarm-blocks",
+            "0",
+            "--config",
+            str(tmp_path / "settings.yaml"),
+        ],
+        timeout_seconds=10,
+    )
+    records = [
+        json.loads(line)
+        for line in (window.directory / "telemetry.jsonl").read_text().splitlines()
+    ]
+    assert len(records) == len(applied)
+    frame_ids = [record["frame"] for record in records]
+    assert all(b > a for a, b in zip(frame_ids, frame_ids[1:]))
+    assert [record["physics_vehicle"]["x_m"] for record in records] == frame_ids
+    assert [record["simulation_timestamp_us"] for record in records] == [
+        i * 33333 for i in frame_ids
+    ]
+    assert any(command.throttle > 0 for command in applied)
+    assert applied[-1].throttle == 0
+    assert [int(event.timestamp) for event in read_keys] == [100_000, 400_000]
+    assert debug_enabled and all(debug_enabled) and closed == [True]
+    assert (
+        len(encoded["generated"])
+        == len(encoded["hdmap"])
+        == len(encoded["physics"])
+        == len(records)
+    )
+    for index, frame_id in enumerate(frame_ids):
+        assert int(encoded["hdmap"][index][0, 0, 0]) == pytest.approx(
+            np.clip(frame_id * 12.75, 0, 255), abs=1
+        )
+    with Image.open(
+        window.directory / "frames/generated" / f"{len(records) - 1:06d}.png"
+    ) as image:
+        assert image.size == (8, 4)
+    acknowledgments = [
+        json.loads(line)
+        for line in (window.directory / "input_events.jsonl").read_text().splitlines()
+    ]
+    assert [
+        event["id"] for event in acknowledgments if event["status"] == "consumed"
+    ] == ["press", "release"]
+    assert not [event for event in acknowledgments if event["status"] == "rejected"]
+    steps = [
+        json.loads(line)
+        for line in (window.directory / "model_steps.jsonl").read_text().splitlines()
+    ]
+    assert steps and all("model_step_cpu_ms" in step["metrics"] for step in steps)
+    assert all(step["metrics"]["generate_wall_ms"] >= 150 for step in steps)
+    assert all(
+        step["metrics"]["generate_cpu_ms"] < step["metrics"]["generate_wall_ms"]
+        for step in steps
+    )
+    samples = [
+        json.loads(line)
+        for line in (window.directory / "cpu_samples.jsonl").read_text().splitlines()
+    ]
+    assert any(
+        any(frame["function"] == "generate" for frame in sample["stack"])
+        for sample in samples
+    )
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert manifest["finalized"] and manifest["frames_written"] == len(records)
+    assert manifest["model_preset"] == _STUB_PIPELINE_CONFIG.name
+    report = json.loads((window.directory / "timing_summary.json").read_text())
+    assert report["generation_adherence"] == "not_evaluated"
+    assert report["generation_delays"]
+    assert report["generation_delays"][0]["requested_ms"] == 120
+    progress = report["physics_progress"][0]
+    assert progress["simulation_to_wall_ratio"] < 0.9
+    assert progress["physics_gap_ms"]["max"] >= 150
+    by_id = {row["id"]: row for row in report["inputs"]}
+    press = by_id["press"]
+    assert press["physics_association"] == "observed"
+    assert press["dispatched_us"] < press["consumed_us"] <= press["physics_started_us"]
+    assert press["scheduled_to_physics_started_ms"] > 100
+    assert press["generation_returned_us"] >= press["physics_completed_us"]
+    assert press["first_presentation_us"] >= press["generation_returned_us"]
+    captured_settings = window.directory / "inputs/settings.yaml"
+    assert json.loads(captured_settings.read_text()) == manifest["settings"]
+    restored = SettingsDocument.load(
+        captured_settings,
+        pipeline_config=_STUB_PIPELINE_CONFIG,
+        width=8,
+        height=4,
+    ).settings
+    assert restored.game.taxi.vehicle.max_speed_mps == 17
+    assert restored.game.taxi.rules.global_time_s == 140
+    assert restored.live_edit.items.nitro_duration_s == 2.5
+    assert restored.model.device == "cpu"
+    assert restored.runtime.prewarm_blocks == 0
+    assert (
+        window.directory / "inputs" / _RACE_MAP.name
+    ).read_text() == _RACE_MAP.read_text()
+    from crazy_robotaxi.driving_script import load_driving_script
+
+    if source == "file":
+        captured_script = load_driving_script(window.directory / "inputs/drive.yaml")
+        assert captured_script.events == load_driving_script(script).events
+
+
+@pytest.mark.parametrize("no_ui", [False, True])
+def test_live_debug_respects_ui_selection_and_runtime_input(
+    tmp_path: Path, no_ui: bool
+) -> None:
+    from crazy_robotaxi.debug import (
+        DEBUG_METADATA_KEY,
+        RobotaxiLiveDebugUILoop,
+        RobotaxiDebugUILoop,
+    )
+
+    app = _application()
+    app.resolve_client_window_mode("robotaxi-debug")
+    app.init(
+        [
+            "--device",
+            "cpu",
+            "--game-mode",
+            "free-roam",
+            "--map",
+            str(_RACE_MAP),
+            "--config",
+            str(tmp_path / "settings.yaml"),
+            "--prewarm-blocks",
+            "2",
+            "--total-blocks",
+            "2",
+            "--debug-view",
+            "paired" if no_ui else "gameplay",
+        ]
+    )
+    session = app.create_session(app.session_desc())
+    session.init()
+    ui_loop, model_loop = session._take_loops()
+    assert isinstance(
+        ui_loop, RobotaxiDebugUILoop if no_ui else RobotaxiLiveDebugUILoop
+    )
+    assert isinstance(model_loop, CrazyRobotaxiModelLoop)
+    assert model_loop.state.config.driving_script is None
+    assert model_loop.state.config.prewarm_blocks == 2
+    assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
+    metadata = session.session_desc.metadata[DEBUG_METADATA_KEY]
+    assert metadata["input_mode"] == "runtime" and metadata["paired_views"] == no_ui
+
+
+@pytest.mark.parametrize(
+    "mode, extra, error",
+    [
+        ("robotaxi-debug", ["--ui"], "conflicts"),
+        ("native", [], "requires --mode"),
+    ],
+)
+def test_debug_view_rejects_conflicting_or_non_debug_use(tmp_path, mode, extra, error):
+    app = _application()
+    app.resolve_client_window_mode(mode)
+    with pytest.raises(ValueError, match=error):
+        app.init(
+            [
+                "--config",
+                str(tmp_path / "settings.yaml"),
+                "--debug-view",
+                "paired",
+                *extra,
+            ]
+        )
+
+
+@pytest.mark.parametrize("missing", ["--map", "--game-mode", "--race-course"])
+def test_scripted_headless_startup_requires_complete_cli_selection(
+    tmp_path: Path,
+    missing: str,
+) -> None:
+    script = tmp_path / "drive.yaml"
+    script.write_text("events: [{id: end, timestamp_us: 0, type: close}]")
+    arguments = [
+        "--device",
+        "cpu",
+        "--drive-script",
+        str(script),
+        "--game-mode",
+        "race",
+        "--map",
+        str(_RACE_MAP),
+        "--race-course",
+        "test-loop",
+    ]
+    index = arguments.index(missing)
+    del arguments[index : index + 2]
+    with pytest.raises(ValueError, match="--drive-script.*requires"):
+        _application().init(arguments)
+
+
+@pytest.mark.parametrize("game_mode", ["taxi", "free-roam", "race"])
+def test_engine_only_debug_skips_model_loading_and_labels_capture(tmp_path, game_mode):
+    from crazy_robotaxi.debug import DEBUG_METADATA_KEY
+    from crazy_robotaxi.debug_engine import SemanticDebugPipeline
+
+    prepared = []
+
+    def unexpected_model(*_args):
+        pytest.fail("Engine-only debug attempted to construct a world model")
+
+    app = _application(
+        pipeline_factory=unexpected_model,
+        native_preparer=lambda: prepared.append(True),
+    )
+    app.resolve_client_window_mode("robotaxi-debug")
+    app.init(
+        [
+            "--config",
+            str(tmp_path / "settings.yaml"),
+            "--map",
+            str(_RACE_MAP),
+            "--game-mode",
+            game_mode,
+            "--device",
+            "cpu",
+            "--debug-engine-only",
+            *(["--race-course", "test-loop"] if game_mode == "race" else []),
+        ]
+    )
+    pipeline = app._pipeline
+    assert isinstance(pipeline, SemanticDebugPipeline)
+    assert prepared == [True]
+    session = app.create_session(app.session_desc())
+    metadata = session.session_desc.metadata[DEBUG_METADATA_KEY]
+    assert metadata["engine_only"] is True
+    assert metadata["world_model_loaded"] is False
+    assert metadata["video_source"] == "semantic"
+    assert metadata["input_mode"] == "runtime"
+    assert metadata["game_mode"] == game_mode
+    app.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        pipeline.initialize_cache()
+
+
+def test_engine_only_debug_requires_headless_debug_mode(tmp_path):
+    def unexpected(*_args):
+        pytest.fail("Invalid engine-only mode attempted preparation")
+
+    app = _application(
+        pipeline_factory=unexpected,
+        scene_factory=unexpected,
+        native_preparer=unexpected,
+    )
+    app.resolve_client_window_mode("native")
+    with pytest.raises(ValueError, match="requires --mode robotaxi-debug"):
+        app.init(["--config", str(tmp_path / "settings.yaml"), "--debug-engine-only"])
+
+
+def test_engine_only_rejects_live_edit_before_resolving_model_assets(
+    tmp_path, monkeypatch
+):
+    def unexpected(*_args):
+        pytest.fail("Engine-only debug attempted model-asset preparation")
+
+    monkeypatch.setattr(
+        "crazy_robotaxi.application.resolve_live_edit_assets", unexpected
+    )
+    app = _application(pipeline_factory=unexpected)
+    app.resolve_client_window_mode("robotaxi-debug")
+    with pytest.raises(ValueError, match="live-edit abilities disabled"):
+        app.init(
+            [
+                "--config",
+                str(tmp_path / "settings.yaml"),
+                "--debug-engine-only",
+                "--live-edit-style",
+            ]
+        )
+
+
+@pytest.mark.parametrize("game_mode", ["taxi", "free-roam", "race"])
+@pytest.mark.parametrize("engine_only", [False, True])
+@pytest.mark.parametrize("disable_traffic", [False, True])
+def test_debug_traffic_selection_reaches_scene_requests_and_capture(
+    tmp_path, game_mode, engine_only, disable_traffic
+):
+    from crazy_robotaxi.debug import DEBUG_METADATA_KEY
+
+    requests = []
+    app = _application(
+        scene_factory=lambda request, raster: requests.append(request) or _scene()
+    )
+    app.resolve_client_window_mode("robotaxi-debug")
+    app.init(
+        [
+            "--config",
+            str(tmp_path / "settings.yaml"),
+            "--map",
+            str(_RACE_MAP),
+            "--game-mode",
+            game_mode,
+            "--device",
+            "cpu",
+            *(["--debug-engine-only"] if engine_only else []),
+            *(["--debug-no-traffic"] if disable_traffic else []),
+            *(["--race-course", "test-loop"] if game_mode == "race" else []),
+        ]
+    )
+    assert requests
+    assert all(request.traffic_enabled is not disable_traffic for request in requests)
+    session = app.create_session(app.session_desc())
+    metadata = session.session_desc.metadata[DEBUG_METADATA_KEY]
+    assert metadata["traffic_enabled"] is not disable_traffic
+    assert metadata["engine_only"] is engine_only
+    app.close()
+
+
+def test_no_traffic_flag_rejects_native_mode_before_preparation(tmp_path):
+    def unexpected(*_args):
+        pytest.fail("Invalid traffic debug mode attempted preparation")
+
+    app = _application(
+        pipeline_factory=unexpected,
+        scene_factory=unexpected,
+        native_preparer=unexpected,
+    )
+    app.resolve_client_window_mode("native")
+    with pytest.raises(
+        ValueError, match="--debug-no-traffic requires --mode robotaxi-debug"
+    ):
+        app.init(["--config", str(tmp_path / "settings.yaml"), "--debug-no-traffic"])

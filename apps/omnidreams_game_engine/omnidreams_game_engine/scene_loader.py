@@ -7,6 +7,7 @@ import io
 import json
 import zipfile
 from collections import defaultdict
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -596,6 +597,8 @@ def load_scene_bundle(
     scene_path: Path,
     camera_name: str,
     raster: RasterConfig,
+    *,
+    traffic_enabled: bool = True,
 ) -> SceneDefinition:
     scene_path = Path(scene_path)
     with zipfile.ZipFile(scene_path, "r") as zf:
@@ -613,6 +616,9 @@ def load_scene_bundle(
             if "game_map.json" in zf.namelist()
             else None
         )
+
+    if game_map is not None and not traffic_enabled:
+        game_map = replace(game_map, traffic=())
 
     return SceneDefinition(
         scene_path=scene_path,

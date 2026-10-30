@@ -11,7 +11,7 @@ import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ludus_renderer import prepare_ludus
 from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
@@ -34,6 +34,9 @@ from crazy_robotaxi.controls import (
     default_controls_dir,
     load_controls_documents,
 )
+from crazy_robotaxi.debug import DEBUG_METADATA_KEY
+from crazy_robotaxi.debug_input import DEBUG_CONTROL_KEY, HeadlessInput
+from crazy_robotaxi.driving_script import DrivingScript, load_driving_script
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameRaceCourseOption
 from crazy_robotaxi.high_scores import default_high_scores_path, default_race_times_path
 from crazy_robotaxi.live_edit.config import (
@@ -53,12 +56,16 @@ from crazy_robotaxi.settings import (
     normalize_settings,
     options_documentation,
     presentation_resolution_wh,
+    settings_to_dict,
 )
 from crazy_robotaxi.ui import bev_display_extent
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.session import ISession
 from flashdreams.infra.config import derive_config
-from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
+from flashdreams.runtime_v2.session_desc import (
+    PresentationMode,
+    SessionDesc,
+)
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 _ROOT = Path(__file__).resolve().parent
@@ -181,6 +188,15 @@ class ApplicationConfig:
     no_ui: bool = False
     """Present raw model frames without the ImGui HUD (no graphics device)."""
 
+    driving_script: DrivingScript | None = None
+    """Timestamped events preloaded into the live headless input queue."""
+
+    debug_engine_only: bool = False
+    """Present semantic rendering without loading a world model in robotaxi-debug."""
+
+    debug_capture: bool = False
+    """Capture the ordinary interactive UI offscreen through robotaxi-debug."""
+
 
 PipelineFactory = Callable[[Any, str], Any]
 SceneFactory = Callable[[SceneRequest, Any], SceneDefinition]
@@ -215,12 +231,15 @@ class CrazyRobotaxiApplication(IApplication):
         self._pipeline: Any | None = None
         self._scenes: dict[SceneRequest, SceneDefinition] = {}
         self._config: ApplicationConfig | None = None
+        self._capture_settings: dict[str, object] = {}
         self._map_options: tuple[GameMapOption, ...] = ()
         self._allow_exit = True
+        self._debug_capture = False
 
     def resolve_client_window_mode(self, mode: str) -> str:
         """Disable menu shutdown when serving browser clients over WebRTC."""
         self._allow_exit = mode != "webrtc"
+        self._debug_capture = mode == "robotaxi-debug"
         return mode
 
     def session_desc(self) -> SessionDesc:
@@ -291,6 +310,42 @@ class CrazyRobotaxiApplication(IApplication):
         initial_race_course_id: str | None = (
             args.race_course if arg_was_explicit(args, "race_course") else None
         )
+        driving_script = (
+            None
+            if args.drive_script is None
+            else load_driving_script(args.drive_script)
+        )
+        if args.debug_no_traffic and not self._debug_capture:
+            raise ValueError("--debug-no-traffic requires --mode robotaxi-debug")
+        if args.debug_engine_only and not self._debug_capture:
+            raise ValueError("--debug-engine-only requires --mode robotaxi-debug")
+        if args.debug_engine_only and settings.live_edit.any_enabled:
+            raise ValueError(
+                "--debug-engine-only requires live-edit abilities disabled"
+            )
+        if args.debug_view is not None:
+            if not self._debug_capture:
+                raise ValueError("--debug-view requires --mode robotaxi-debug")
+            debug_ui = args.debug_view == "gameplay"
+            if arg_was_explicit(args, "ui") and args.ui != debug_ui:
+                raise ValueError("--debug-view conflicts with --ui/--no-ui")
+            args.ui = debug_ui
+        if self._debug_capture and driving_script is None:
+            if initial_game_mode is None or initial_map_path is None:
+                raise ValueError(
+                    "robotaxi-debug requires explicit --game-mode and --map"
+                )
+            if initial_game_mode == "race" and initial_race_course_id is None:
+                raise ValueError("robotaxi-debug in race mode requires --race-course")
+        if driving_script is not None:
+            if initial_game_mode is None or initial_map_path is None:
+                raise ValueError(
+                    "--drive-script requires explicit --game-mode and --map"
+                )
+            if initial_game_mode == "race" and initial_race_course_id is None:
+                raise ValueError("--drive-script in race mode requires --race-course")
+            if not self._debug_capture:
+                raise ValueError("--drive-script requires --mode robotaxi-debug")
         if (
             settings.runtime.total_blocks is not None
             and settings.runtime.total_blocks <= 0
@@ -332,6 +387,20 @@ class CrazyRobotaxiApplication(IApplication):
         native_dit_disabled_for_live_edit = configured_pipeline is not pipeline_config
         pipeline_config = configured_pipeline
         live_edit = resolve_live_edit_assets(settings.live_edit)
+        self._capture_settings = (
+            {
+                "schema_version": 1,
+                **settings_to_dict(
+                    replace(
+                        settings,
+                        model=replace(settings.model, pipeline=pipeline_config),
+                        live_edit=live_edit,
+                    )
+                ),
+            }
+            if driving_script is not None or self._debug_capture
+            else {}
+        )
         self._pipeline_config = pipeline_config
         self._config = ApplicationConfig(
             scene_request=SceneRequest(
@@ -339,6 +408,7 @@ class CrazyRobotaxiApplication(IApplication):
                 camera_name=DEFAULT_FRONT_CAMERA_LOGICAL_NAME,
                 use_prompt_context=settings.live_edit.dynamic_prompts.active,
                 force_recompile=bool(args.force_map_recompile),
+                traffic_enabled=not args.debug_no_traffic,
             ),
             renderer=renderer,
             game=game,
@@ -384,6 +454,9 @@ class CrazyRobotaxiApplication(IApplication):
             native_dit_disabled_for_live_edit=native_dit_disabled_for_live_edit,
             visual_flare_enabled=settings.game.effects.visual_flare,
             no_ui=not args.ui,
+            driving_script=driving_script,
+            debug_capture=self._debug_capture,
+            debug_engine_only=args.debug_engine_only,
         )
         self._map_options = _discover_game_maps(map_path)
         scene_requests = [self._config.scene_request]
@@ -412,7 +485,14 @@ class CrazyRobotaxiApplication(IApplication):
             for request in scene_requests
         }
         self._native_preparer()
-        self._pipeline = self._pipeline_factory(pipeline_config, settings.model.device)
+        if args.debug_engine_only:
+            from crazy_robotaxi.debug_engine import SemanticDebugPipeline
+
+            self._pipeline = SemanticDebugPipeline(settings.model.device)
+        else:
+            self._pipeline = self._pipeline_factory(
+                pipeline_config, settings.model.device
+            )
 
     def _apply_cli_settings(
         self,
@@ -583,6 +663,8 @@ class CrazyRobotaxiApplication(IApplication):
         encoder = pipeline_config.encoder
         bev = config.renderer.bev
         bev_resolution = f"{bev.width}x{bev.height}" if bev.enabled else "disabled"
+        if config.driving_script is not None:
+            assert config.initial_map_path is not None
         _LOGGER.info(
             "Crazy Robotaxi model preset=%s resolution=%sx%s native_dit=%s "
             "native_backend=%s attention_backend=%s native_vae=%s "
@@ -610,8 +692,42 @@ class CrazyRobotaxiApplication(IApplication):
             session_desc=replace(
                 session_desc,
                 presentation_mode=PresentationMode.CONTINUOUS,
+                backpressure_mode=session_desc.backpressure_mode,
                 metadata={
                     **session_desc.metadata,
+                    **(
+                        {
+                            DEBUG_CONTROL_KEY: HeadlessInput(),
+                            DEBUG_METADATA_KEY: {
+                                "map": str(config.initial_map_path),
+                                "game_mode": config.initial_game_mode,
+                                "race_course": config.initial_race_course_id,
+                                "input_mode": "runtime",
+                                "engine_only": config.debug_engine_only,
+                                "traffic_enabled": config.scene_request.traffic_enabled,
+                                "world_model_loaded": not config.debug_engine_only,
+                                "video_source": "semantic"
+                                if config.debug_engine_only
+                                else "world_model",
+                                "paired_views": config.no_ui,
+                                "script": None
+                                if config.driving_script is None
+                                else str(config.driving_script.path),
+                                "model_preset": config.model_preset_name,
+                                "model_seed": pipeline_config.diffusion_model.seed,
+                                "game_seed": config.game.seed,
+                                "settings": self._capture_settings,
+                                "map_source": cast(
+                                    Path, config.initial_map_path
+                                ).read_text(encoding="utf-8"),
+                                "script_events": []
+                                if config.driving_script is None
+                                else list(config.driving_script.events),
+                            },
+                        }
+                        if config.debug_capture
+                        else {}
+                    ),
                     **(
                         {
                             _TRACE_METADATA_KEY: True,
@@ -734,6 +850,26 @@ def _parser(
     parser.add_argument("--display-width", type=int)
     parser.add_argument("--display-height", type=int)
     parser.add_argument("--force-map-recompile", action="store_true")
+    parser.add_argument(
+        "--drive-script",
+        type=Path,
+        help="YAML timestamped events for robotaxi-debug; requires --game-mode and --map, and --race-course in race mode.",
+    )
+    parser.add_argument(
+        "--debug-no-traffic",
+        action="store_true",
+        help="Disable NPC traffic in robotaxi-debug simulation and semantic rendering, with or without world-model generation.",
+    )
+    parser.add_argument(
+        "--debug-engine-only",
+        action="store_true",
+        help="Run robotaxi-debug with semantic video and ordinary game/input logging, without loading a world model. Requires live-edit abilities disabled.",
+    )
+    parser.add_argument(
+        "--debug-view",
+        choices=("gameplay", "paired"),
+        help="robotaxi-debug view: ordinary game UI offscreen, or raw generated/conditioning pairs. Defaults to gameplay; --no-ui also selects paired.",
+    )
     parser.add_argument(
         "--ui",
         action=argparse.BooleanOptionalAction,

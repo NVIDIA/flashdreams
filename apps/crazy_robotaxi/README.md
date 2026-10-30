@@ -100,6 +100,153 @@ For raw model frames without menus or HUD, pass `--no-ui` together with explicit
 `--race-course`. With a `webrtc` or `mp4` client this skips the Vulkan UI;
 model generation still needs the OmniDreams GPU runtime.
 
+## Headless driving and diagnosis
+
+`--mode robotaxi-debug` runs the normal game and input path without a desktop
+window. By default it captures the ordinary UI rendered offscreen. Add
+`--no-ui` after `--` for paired generated, HD-map, and physics views. Select an
+explicit `--map` and `--game-mode`; race mode also needs `--race-course`.
+
+```bash
+uv run --package flashdreams-omnidreams flashdreams-run-v2 \
+  crazy-robotaxi-omnidreams-perf --mode robotaxi-debug \
+  --debug-output-dir /tmp/robotaxi-capture --debug-cpu-sample-ms 20 -- \
+  --map apps/crazy_robotaxi/tests/maps/debug_flat.robotaxi.yaml \
+  --game-mode free-roam
+```
+
+Each capture needs a fresh output directory. Both presentation modes record
+`telemetry.jsonl` for every simulation frame, including applied commands, native
+physics states before gameplay adjustments, camera poses, ground errors, collider
+snapshots, and game state. Observations are queued before model generation, so a
+generation failure retains the physics evidence. Hidden warmup is excluded.
+
+By default, both modes save `generated.mp4`, `hdmap.mp4`, `physics.mp4`, and
+sampled/contact/final screenshots. Normal UI mode additionally saves
+`presentation.mp4` and an atomically updated `latest.png`; `--no-ui` selects the
+paired diagnostic presentation. Pass `--no-debug-capture-images` before `--` to
+keep telemetry without videos or PNGs; this also removes the `ffmpeg` requirement.
+
+`presentation.jsonl` records UI ticks, actual presentation timestamps, and source
+frame identifiers. Join its `source.capture_frame` to `telemetry.jsonl` to find
+repeated or skipped presentations. `capture_frame` stays unique across restarts;
+`rollout_epoch`, `frame`, `model_step`, `autoregressive_index`, and `chunk_frame`
+retain simulation/chunk identity. `media.jsonl` maps encoded video indices to
+capture or presentation frame IDs, including when images are missing. Videos
+use nominal frame rates; use presentation timestamps to reconstruct wall time.
+
+A background writer performs disk writes, encoding, and physics drawing. Its
+queue holds at most 256 observation/media jobs, four model-image chunks, and 60
+UI images; images are copied into owned RGB byte storage before enqueueing.
+Producers never wait for disk. Capture still costs observation collection and
+image conversion/copy work. Overflow preserves gameplay timing and records
+missing inclusive frame ranges in `manifest.json`. `--debug-strict-capture`
+fails the run on capture gaps or writer errors. Normal shutdown drains accepted
+work before closing the files.
+
+The manifest separates file finalization, capture coverage, and scripted-run
+completion. It includes produced/saved counts, missing ranges, generated frame
+count, writer errors, pending input IDs, and termination reason. `complete`
+requires complete capture and consumed inputs; scripted runs must also reach
+their close event or a configured block/game endpoint. `inputs/` preserves the
+map, settings, and input file. Rejected live commands remain visible in the input
+log and do not themselves invalidate an otherwise complete capture.
+
+### Timestamped inputs
+
+Both live agents and YAML files use the same event schema and queue. Times are
+integer microseconds on a monotonic wall clock that starts **after gameplay
+initialization and model warmup**. It continues through restarts. Controls retain
+their state until a release event, just as a person holding a key would.
+
+Send JSON datagrams to `<output-dir>/control.sock`. Bind a local Unix datagram
+reply socket before sending to receive acknowledgments. A `status` request
+returns `loading` with `elapsed_us: null`, or `ready` with the current
+`elapsed_us`. Schedule commands ahead of that time, allowing for transport and
+UI polling latency:
+
+```python
+import json
+import socket
+
+with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as agent:
+    agent.bind("/tmp/robotaxi-agent.sock")  # Fresh path; remove after closing.
+    agent.settimeout(2)
+    game = "/tmp/robotaxi-capture/control.sock"
+    agent.sendto(b'{"id":"clock","type":"status"}', game)
+    clock = json.loads(agent.recv(4096))
+    assert clock["status"] == "ready"  # Query again while loading.
+    event = {"id": "forward", "timestamp_us": clock["elapsed_us"] + 500_000,
+             "type": "keyboard", "key": "w", "pressed": True}
+    agent.sendto(json.dumps(event).encode(), game)
+    print(json.loads(agent.recv(4096)))  # accepted or rejected
+```
+
+Every command requires a unique string `id`, an integer `timestamp_us`, and a
+`type`. Supported payloads are `keyboard` with `key` and Boolean `pressed`,
+`focus` with Boolean `focused`, and `close`. `close` ends the capture through the
+normal runtime lifecycle. The input socket is local; it is not a network service.
+
+Acknowledgments are also flushed to `input_events.jsonl`, so a disconnected or
+slow agent can recover them:
+
+- `accepted`: the application received a valid command before its deadline.
+- `rejected`: invalid, duplicate, or late input. `reason: late` means its timestamp
+  was earlier than `received_us`; the command is never applied. Receipt is when
+  the application reads the socket, not when the sender writes it.
+- `dispatched`: the command's time has arrived and the UI submitted it to the
+  ordinary runtime event buffer. `dispatched_us` records polling delay.
+- `consumed`: the model's input consumer read it, with `consumed_us` and
+  `model_step`. Close events end at dispatch because the UI handles shutdown.
+- `cancelled`: shutdown occurred before a pending command was consumed.
+
+A command accepted on time remains valid if the game later stalls. Inputs are
+never dispatched early; they enter at the first UI poll at or after the timestamp.
+The model still consumes inputs at chunk boundaries, so consumption can be late
+and a short press may be sampled later. This deliberately preserves native input
+behavior, allowing headless captures to expose responsiveness regressions.
+Acknowledgments measure that latency; they do not claim sub-chunk physics updates.
+The queue accepts at most 100,000 unique command IDs per capture.
+
+For unattended runs, add `--drive-script path/to/inputs.yaml` after `--`. The file
+preloads the same commands before the ready clock starts:
+
+```yaml
+events:
+  - {id: accelerate, timestamp_us: 0, type: keyboard, key: w, pressed: true}
+  - {id: release, timestamp_us: 3000000, type: keyboard, key: w, pressed: false}
+  - {id: end, timestamp_us: 4000000, type: close}
+```
+
+Include a close event or use the runtime timeout to bound the run. Scripted input
+uses the same prewarm, presentation, keyboard handling, and sampling as live
+input. Wall-clock duration does not guarantee a fixed number of generated frames.
+The scenario runner uses the dedicated debug map for `flat_acceleration` and
+`curb_impact`, captures paired views, and checks videos with `ffprobe`:
+
+```bash
+uv run --package flashdreams-omnidreams python \
+  apps/crazy_robotaxi/tests/run_headless_scenario.py flat_acceleration \
+  --output-dir /tmp/robotaxi-flat
+```
+
+### Model-thread instrumentation
+
+`model_steps.jsonl` records the model thread's native OS thread ID and per-chunk
+wall/CPU times for simulation, rules, conditioning, generation, cache finalization,
+postprocessing, and the overall model step. Compare wall time with thread CPU time
+to distinguish CPU work from waiting. These wall timers do not synchronize GPU
+kernels and are not CUDA kernel durations; existing pipeline profiling remains
+available for GPU measurements.
+
+`--debug-cpu-sample-ms 20` additionally records Python stacks in `cpu_samples.jsonl`.
+The UI samples the model thread, including loading, with no extra runtime thread.
+Use the native thread ID to correlate with OS CPU monitoring. Stack samples show
+the Python call site when native code is running or waiting, not native C++ stacks.
+UI stalls or native code holding the GIL delay sampling; inspect actual
+`sampled_ns` intervals rather than assuming the requested cadence. Sampling is
+disabled by default.
+
 ## Options and user configuration
 
 Open **OPTIONS** from **SELECT GAME MODE**. The screen is generated from the

@@ -200,3 +200,27 @@ def test_initial_image_tensor_owns_writable_numpy_storage(monkeypatch) -> None:
 
     assert writable_flags == [True]
     assert tensor.shape == (1, 1, 1, 3, 4, 8)
+
+
+def test_observer_receives_simulation_before_failed_generation(monkeypatch):
+    pipeline = _Pipeline()
+    observed = []
+
+    def fail(**kwargs):
+        assert len(observed) == 1
+        raise RuntimeError("test generation failure")
+
+    monkeypatch.setattr(pipeline, "generate", fail)
+    rollout = WorldModelRollout(
+        pipeline=pipeline, scene=_scene(), engine_factory=_Engine
+    )
+    try:
+        with pytest.raises(RuntimeError, match="test generation failure"):
+            rollout.step(
+                autoregressive_index=0,
+                commands=(DriverCommand(),) * 2,
+                observe_engine_step=observed.append,
+            )
+        assert len(observed[0].trajectory.vehicle_states) == 2
+    finally:
+        rollout.close()

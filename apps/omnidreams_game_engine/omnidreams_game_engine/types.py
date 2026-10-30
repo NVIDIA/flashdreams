@@ -167,6 +167,29 @@ class PhysicsDebugFrame:
     actor_ids: tuple[str, ...] = ()
     barrier_ids: tuple[str, ...] = ()
 
+    vehicle_state: VehicleState | None = None
+    """Physical vehicle pose before gameplay policy and render ground alignment."""
+
+    actor_collision: bool = False
+    """Actor response reported by the game for this physics frame."""
+
+    static_barrier_collision: bool = False
+    """Static-barrier proximity response reported for this physics frame."""
+
+    ego_chassis_offset_m: FloatArray | None = None
+    """Inset chassis center relative to the ego body origin."""
+
+    ego_chassis_dimensions_lwh: FloatArray | None = None
+    """Native chassis dimensions; ego dimensions describe game contact bounds."""
+
+    ego_linear_velocity_mps: FloatArray | None = None
+    ego_angular_velocity_radps: FloatArray | None = None
+    """Resolved native body velocities before gameplay policy."""
+
+    physics_started_ns: int | None = None
+    physics_completed_ns: int | None = None
+    """Monotonic host bounds of this physics advance; absent for the seed pose."""
+
 
 @dataclass(frozen=True, slots=True)
 class PhysXChunkTimings:

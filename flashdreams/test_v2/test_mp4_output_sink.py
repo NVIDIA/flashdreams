@@ -214,6 +214,37 @@ def test_close_tolerates_a_sink_that_was_never_opened(tmp_path: Path) -> None:
 
 
 @needs_ffmpeg
+@pytest.mark.parametrize("preset", [None, "veryfast"])
+def test_encoder_preset_preserves_frame_count_size_and_order(
+    tmp_path: Path, preset: str | None
+) -> None:
+    path = tmp_path / "preset.mp4"
+    encoder = Mp4Encoder(
+        path,
+        width=_WIDTH,
+        height=_HEIGHT,
+        frames_per_second=30,
+        **({"preset": preset} if preset is not None else {}),
+    )
+    command = encoder._command("ffmpeg")
+    assert command[command.index("-preset") + 1] == (preset or "medium")
+    source = np.zeros((3, _HEIGHT, _WIDTH, 3), dtype=np.uint8)
+    source[0, :, :, 0] = 255
+    source[2, :, :, 2] = 255
+    encoder.write(source[:1])
+    encoder.write(source[1:])
+    encoder.close()
+
+    decoded = _decode(path)
+    assert decoded.shape == source.shape
+    red = _mean_colour(decoded[0])
+    blue = _mean_colour(decoded[2])
+    assert red[0] > 180 and max(red[1:]) < 80
+    assert max(_mean_colour(decoded[1])) < 40
+    assert blue[2] > 180 and max(blue[:2]) < 80
+
+
+@needs_ffmpeg
 @pytest.mark.parametrize(
     "layout",
     [

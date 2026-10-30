@@ -9,15 +9,20 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from functools import cached_property, partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import torch
+from omnidreams_game_engine.engine import EngineStep, GameEngine
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.model import WorldModelRollout
 from omnidreams_game_engine.scene import SceneRequest
+from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
+    EgoVehicleKinematics,
+)
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 
 from crazy_robotaxi.controls import (
@@ -27,6 +32,8 @@ from crazy_robotaxi.controls import (
     keyboard_driver_command,
     wheel_driver_command,
 )
+from crazy_robotaxi.debug import RobotaxiDebugUILoop, RobotaxiLiveDebugUILoop
+from crazy_robotaxi.debug_input import DEBUG_CONTROL_KEY, HeadlessInput
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
@@ -99,6 +106,14 @@ class ModelState:
     """Speed aligned with the retained terminal presentation frame."""
 
     blocks_generated: int = 0
+    last_debug_record: dict[str, Any] | None = None
+    """Source identity retained when a terminal UI repeats the last model frame."""
+
+    debug_frames: int = 0
+    """Observed frames simulated in this rollout."""
+
+    debug_ground: GroundSnapper | None = None
+    """Ground sampler used to measure physical height before render alignment."""
     rollout_epoch: int = 0
     """Incremented whenever mutable game and model state is reset."""
 
@@ -118,6 +133,11 @@ class ModelState:
 
     def ensure_rollout(self) -> WorldModelRollout:
         """Build and prewarm renderer, PhysX, game, and cache on the model thread."""
+        control = self.session_desc.metadata.get(DEBUG_CONTROL_KEY)
+        if isinstance(control, HeadlessInput):
+            control.model_ident = threading.get_ident()
+            control.native_thread_id = threading.get_native_id()
+        capture = getattr(self.config, "debug_capture", False)
         if self.rollout is None:
             scene = self.scene
             if scene is None:
@@ -145,8 +165,25 @@ class ModelState:
                 ),
                 trace_chunk_lifecycle=self.config.profile_input_latency,
             )
+            if capture:
+                self.debug_ground = None
+                if (
+                    scene.ground_mesh_vertices is not None
+                    and scene.ground_mesh_faces is not None
+                ):
+                    self.debug_ground = GroundSnapper(
+                        scene.ground_mesh_vertices, scene.ground_mesh_faces
+                    )
+        if capture:
+            # Rollout resets recreate the simulation, so enable capture on the
+            # active engine rather than retaining the previous engine's flag.
+            simulation = cast(GameEngine, self.rollout.engine).simulation
+            cast(EgoVehicleKinematics, simulation).set_physx_debug_enabled(True)
         if not self.prewarm_complete:
             self._prewarm_rollout()
+        control = self.session_desc.metadata.get(DEBUG_CONTROL_KEY)
+        if isinstance(control, HeadlessInput):
+            control.start()
         return self.rollout
 
     def select_game(self, selection: GameSelection) -> None:
@@ -279,8 +316,10 @@ class ModelState:
                 epoch=self.rollout_epoch,
             )
         self.blocks_generated = 0
+        self.debug_frames = 0
         self.finished = False
         self.realtime_miss_count = 0
+        self.last_debug_record = None
         self.last_video = None
         self.last_hdmap = None
         self.last_bev = None
@@ -345,7 +384,20 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
     """Run simulation, rules, conditioning, and generation in one V2 step."""
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+        try:
+            return self._step(step_index, events)
+        except BaseException:
+            control = self.state.session_desc.metadata.get(DEBUG_CONTROL_KEY)
+            if isinstance(control, HeadlessInput) and control.capture is not None:
+                control.capture.termination_reason = "model_error"
+            raise
+
+    def _step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         state = self.state
+        capture = getattr(state.config, "debug_capture", False)
+        control = state.session_desc.metadata.get(DEBUG_CONTROL_KEY)
+        if isinstance(control, HeadlessInput):
+            control.consumed(events, step=step_index)
         runtime_generation = getattr(self, "_generation", 0)
         trace_enabled = getattr(state.config, "profile_input_latency", False)
         # Match Interactive Drive: apply every unread edge before rollout setup,
@@ -376,6 +428,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         cache_finalize_returned_ns: int | None = None
         live_edit_statuses: tuple[LiveEditHudStatus, ...] | None = None
         current_prompt = ""
+        debug_records: tuple[dict[str, Any], ...] = ()
         if snapshot.session_state in active_states:
             current_prompt = rollout.scene.prompt
             live_edit = getattr(rollout.engine, "live_edit", None)
@@ -385,6 +438,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                         live_edit.request_action(action)
             autoregressive_index = state.blocks_generated
             frame_count = rollout.frame_count(autoregressive_index)
+            valid_count = frame_count
             input_window = state.input_timeline.next_window(
                 frame_count,
                 input_times_s=input_times_s,
@@ -420,10 +474,90 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                         steer=command.steer,
                         reverse=command.reverse,
                     )
+
+            def observe(engine_step: EngineStep) -> None:
+                nonlocal debug_records
+                trajectory = engine_step.trajectory
+                if len(trajectory.physics_debug_frames) != frame_count:
+                    raise RuntimeError(
+                        "Debug capture requires per-frame physics observations"
+                    )
+                records: list[dict[str, Any]] = []
+                for index in range(valid_count):
+                    physics = trajectory.physics_debug_frames[index]
+                    physical = physics.vehicle_state
+                    if physical is None:
+                        raise RuntimeError("Physics observation has no vehicle state")
+                    ground_height = (
+                        None
+                        if state.debug_ground is None
+                        else state.debug_ground.ground_height_at(
+                            physical.x_m, physical.y_m, physical.z_m
+                        )
+                    )
+                    records.append(
+                        {
+                            "frame": state.debug_frames + index,
+                            "produced_ns": time.monotonic_ns(),
+                            "elapsed_us": control.elapsed_us()
+                            if isinstance(control, HeadlessInput)
+                            else None,
+                            "transition_timestamp_us": transition_timestamps_us[index],
+                            "physics_started_ns": physics.physics_started_ns,
+                            "physics_completed_ns": physics.physics_completed_ns,
+                            "rollout_epoch": state.rollout_epoch,
+                            "simulation_timestamp_us": int(
+                                trajectory.timestamps_us[index]
+                            ),
+                            "command": asdict(commands[index]),
+                            "vehicle": asdict(trajectory.vehicle_states[index]),
+                            "physics_vehicle": asdict(physical),
+                            "rig_pose_world": trajectory.rig_poses_world[index].copy(),
+                            "ground_height_m": ground_height,
+                            "ground_error_m": None
+                            if ground_height is None
+                            else physical.z_m - ground_height,
+                            "actor_collision": physics.actor_collision,
+                            "static_barrier_collision": physics.static_barrier_collision,
+                            "physics_colliders": asdict(physics),
+                            "game": asdict(
+                                cast(
+                                    TaxiGameSnapshot
+                                    | RaceGameSnapshot
+                                    | FreeRoamSnapshot,
+                                    engine_step.game_frames[index],
+                                )
+                            ),
+                            "model_step": step_index,
+                            "autoregressive_index": autoregressive_index,
+                            "chunk_frame": index,
+                        }
+                    )
+                debug_records = tuple(records)
+                state.last_debug_record = records[-1]
+                if isinstance(control, HeadlessInput) and control.capture is not None:
+                    control.capture.observe(debug_records)
+                state.debug_frames += valid_count
+                if isinstance(control, HeadlessInput):
+                    control.delay_generation(autoregressive_index, self._shutdown_event)
+
             generated = rollout.step(
                 autoregressive_index=autoregressive_index,
                 commands=commands,
+                **({"observe_engine_step": observe} if capture else {}),
             )
+            if capture and isinstance(control, HeadlessInput):
+                control.messages.put(
+                    (
+                        None,
+                        {
+                            "status": "generation_returned",
+                            "model_step": step_index,
+                            "rollout_epoch": state.rollout_epoch,
+                            "elapsed_us": control.elapsed_us(),
+                        },
+                    )
+                )
             if trace_enabled and generated._trace is not None:
                 trace = generated._trace
                 cache_finalize_returned_ns = trace.cache_finalize_returned_ns
@@ -473,7 +607,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             hdmap = hdmap[0, 0]
             game_frames = engine_step.game_frames
             poses = engine_step.trajectory.rig_poses_world
-            if trace_enabled:
+            if trace_enabled or capture:
                 simulation_timestamps_us = tuple(
                     int(value) for value in engine_step.trajectory.timestamps_us
                 )
@@ -481,6 +615,12 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 vehicle.speed_mps for vehicle in engine_step.trajectory.vehicle_states
             )
             bev = engine_step.condition.bev_tchw
+            if (
+                capture
+                and isinstance(control, HeadlessInput)
+                and control.capture is not None
+            ):
+                control.capture.submit(debug_records, video, hdmap)
             metrics = dict(generated.metrics)
             if state.blocks_generated == 1 and state.prewarm_wall_ms > 0.0:
                 metrics["startup_prewarm_wall_ms"] = state.prewarm_wall_ms
@@ -491,12 +631,20 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             state.last_pose = poses[-1].copy()
             state.last_speed_mps = speeds_mps[-1]
         else:
+            if capture and state.config.no_ui:
+                if isinstance(control, HeadlessInput) and control.capture is not None:
+                    control.capture.termination_reason = "game_ended"
+                # Paired observations stop when the game stops generating frames.
+                state.finished = True
+                return []
             if (
                 state.last_video is None
                 or state.last_hdmap is None
                 or state.last_pose is None
             ):
                 raise RuntimeError("Terminal game state has no generated frame")
+            if state.last_debug_record is not None:
+                debug_records = (state.last_debug_record,)
             video = state.last_video
             hdmap = state.last_hdmap
             game_frames = (snapshot,)
@@ -521,6 +669,11 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             live_edit_statuses=live_edit_statuses,
             current_prompt=current_prompt,
         )
+        if debug_records:
+            hud_frames = tuple(
+                replace(frame, debug_record=record)
+                for frame, record in zip(hud_frames, debug_records, strict=True)
+            )
         invoke_async(
             state.ui_loop,
             lambda ui_state, frames=hud_frames: ui_state.publish(frames),
@@ -530,6 +683,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             and state.blocks_generated >= state.config.total_blocks
         ):
             state.finished = True
+            if isinstance(control, HeadlessInput) and control.capture is not None:
+                control.capture.termination_reason = "block_limit"
         count = int(video.shape[0])
         if snapshot.session_state in active_states:
             model_step_wall_ms = (time.perf_counter() - step_wall_started) * 1000.0
@@ -546,7 +701,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     "chunk_duration_ms": chunk_duration_ms,
                 }
             )
-            if state.config.pipeline_profiling:
+            if state.config.pipeline_profiling or isinstance(control, HeadlessInput):
                 metrics["model_step_wall_ms"] = model_step_wall_ms
                 metrics["realtime_margin_ms"] = realtime_margin_ms
             physx = engine_step.trajectory.physx_timings
@@ -583,6 +738,21 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                         model_step_cpu_ms,
                         float(metrics.get("engine_cpu_ms", 0.0)),
                     )
+        if isinstance(control, HeadlessInput):
+            control.messages.put(
+                (
+                    None,
+                    {
+                        "status": "model_step",
+                        "model_step": step_index,
+                        "rollout_epoch": state.rollout_epoch,
+                        "autoregressive_index": autoregressive_index,
+                        "elapsed_us": control.elapsed_us(),
+                        "native_thread_id": threading.get_native_id(),
+                        "metrics": dict(metrics),
+                    },
+                )
+            )
         results = [
             StepResult(
                 step_index=step_index,
@@ -661,6 +831,7 @@ class CrazyRobotaxiSession(ISession):
             presentation_size=(presentation_width, presentation_height),
             allow_exit=self._config.allow_exit,
             bev=self._config.renderer.bev,
+            debug_control=self._session_desc.metadata.get(DEBUG_CONTROL_KEY),
             profile_input_latency=self._config.profile_input_latency,
             show_fps=self._config.show_fps,
             show_current_prompt=self._config.show_current_prompt,
@@ -681,7 +852,16 @@ class CrazyRobotaxiSession(ISession):
             initial_map_path=self._config.initial_map_path,
             initial_race_course_id=self._config.initial_race_course_id,
         )
-        if self._config.no_ui:
+        if self._config.debug_capture and self._config.no_ui:
+            ui_loop = self.register_ui_loop(RobotaxiDebugUILoop, state=hud_state)
+        elif self._config.debug_capture and not self._config.no_ui:
+            ui_loop = self.register_ui_loop(
+                RobotaxiLiveDebugUILoop,
+                state=hud_state,
+                width=self._session_desc.video_width,
+                height=self._session_desc.video_height,
+            )
+        elif self._config.no_ui:
             if (
                 self._config.initial_game_mode is None
                 or self._config.initial_map_path is None
