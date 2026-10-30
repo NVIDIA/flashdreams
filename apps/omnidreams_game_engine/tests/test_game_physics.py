@@ -21,6 +21,7 @@ from omnidreams_game_engine.simulation.game_physics import (
     _BarrierReboundIndex,
     _reinforce_static_barrier_rebound,
 )
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import SceneDefinition, VehicleState
 
 pytestmark = pytest.mark.ci_cpu
@@ -260,3 +261,54 @@ def test_empty_barrier_index_preserves_resolved_velocity() -> None:
     assert not contacted
     np.testing.assert_array_equal(actual, resolved)
     assert actual is not resolved
+
+
+def test_ground_index_populates_only_queried_cells_and_preserves_face_order() -> None:
+    vertices = np.asarray(
+        [
+            [-400, -400, 0],
+            [400, -400, 0],
+            [400, 400, 0],
+            [-400, 400, 0],
+            [0, 0, 8],
+            [2, 0, 8],
+            [0, 2, 8],
+            [0, 0, 10],
+            [2, 0, 10],
+            [0, 2, 10],
+            [4, 4, 0],
+            [4, 4, 5],
+            [4, 6, 0],
+        ],
+        dtype=np.float32,
+    )
+    faces = np.asarray([[0, 1, 2], [0, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]])
+    sampler = GroundSnapper(vertices, faces)
+    assert not sampler._cell_candidates
+    points = np.asarray(
+        [
+            [-400, -400, 0],
+            [400, 400, 0],
+            [1, 1, 9],
+            [2, 0, 8],
+            [4, 4, 0],
+            [401, 0, 0],
+            [-401, 0, 0],
+        ],
+        dtype=np.float64,
+    )
+    heights = sampler._raycast(points)
+    np.testing.assert_array_equal(heights, [0, 0, 8, 8, 0, np.nan, np.nan])
+    assert len(sampler._cell_candidates) == 5
+    for (i, j), candidates in sampler._cell_candidates.items():
+        expected = [
+            face
+            for face in range(len(faces))
+            if sampler._cell_x(sampler._tri_xy_min[face, 0])
+            <= i
+            <= sampler._cell_x(sampler._tri_xy_max[face, 0])
+            and sampler._cell_y(sampler._tri_xy_min[face, 1])
+            <= j
+            <= sampler._cell_y(sampler._tri_xy_max[face, 1])
+        ]
+        np.testing.assert_array_equal(candidates, expected)

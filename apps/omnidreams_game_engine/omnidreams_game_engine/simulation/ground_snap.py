@@ -18,6 +18,7 @@ from dataclasses import replace
 
 import numpy as np
 import numpy.typing as npt
+import shapely
 
 from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.types import VehicleState
@@ -97,19 +98,28 @@ class GroundSnapper:
             max(1, int(np.ceil(grid_extent[0] / self._grid_resolution_m))),
             max(1, int(np.ceil(grid_extent[1] / self._grid_resolution_m))),
         )
-        cell_buckets: dict[tuple[int, int], list[int]] = {}
-        for tri_idx in range(faces_i.shape[0]):
-            i_min = self._cell_x(self._tri_xy_min[tri_idx, 0])
-            i_max = self._cell_x(self._tri_xy_max[tri_idx, 0])
-            j_min = self._cell_y(self._tri_xy_min[tri_idx, 1])
-            j_max = self._cell_y(self._tri_xy_max[tri_idx, 1])
-            for i in range(i_min, i_max + 1):
-                for j in range(j_min, j_max + 1):
-                    cell_buckets.setdefault((i, j), []).append(tri_idx)
-        self._cell_candidates: dict[tuple[int, int], np.ndarray] = {
-            cell: np.asarray(idxs, dtype=np.int32)
-            for cell, idxs in cell_buckets.items()
-        }
+        cell_min = np.clip(
+            ((self._tri_xy_min - self._grid_origin) / self._grid_resolution_m).astype(
+                np.int64
+            ),
+            0,
+            np.asarray(self._grid_shape) - 1,
+        )
+        cell_max = np.clip(
+            ((self._tri_xy_max - self._grid_origin) / self._grid_resolution_m).astype(
+                np.int64
+            ),
+            0,
+            np.asarray(self._grid_shape) - 1,
+        )
+        # Index inclusive cell ranges instead of materializing every covered cell.
+        # Query cell centers so triangles on grid boundaries keep the same coverage.
+        self._triangle_cells = shapely.STRtree(
+            shapely.box(
+                cell_min[:, 0], cell_min[:, 1], cell_max[:, 0] + 1, cell_max[:, 1] + 1
+            )
+        )
+        self._cell_candidates: dict[tuple[int, int], np.ndarray] = {}
 
     def _cell_x(self, x: float) -> int:
         i = int((x - self._grid_origin[0]) / self._grid_resolution_m)
@@ -138,7 +148,15 @@ class GroundSnapper:
         # tile ray groups if sample grids grow beyond the default 16 rays.
         for cell, indices in groups.items():
             candidates = self._cell_candidates.get(cell)
-            if candidates is None or candidates.size == 0:
+            if candidates is None:
+                # Preserve authored face order when equally near surfaces overlap.
+                candidates = np.sort(
+                    self._triangle_cells.query(
+                        shapely.Point(cell[0] + 0.5, cell[1] + 0.5)
+                    )
+                ).astype(np.int32)
+                self._cell_candidates[cell] = candidates
+            if candidates.size == 0:
                 continue
             selected = points[indices]
             v2x = selected[:, 0, None] - self._a_x[candidates]
