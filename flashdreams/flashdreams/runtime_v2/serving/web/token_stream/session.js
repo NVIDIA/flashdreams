@@ -15,6 +15,7 @@ import { getDecoder } from "./codec/registry.js"
 import { TokenStreamSocket } from "./network/token_socket.js"
 import { RenderLoop } from "./render/render_loop.js"
 import { VaeDecoder } from "./gpu/vae_decoder.js"
+import { WebGpuCanvasRenderer } from "./gpu/canvas_renderer.js"
 
 const noop = () => {}
 
@@ -28,12 +29,13 @@ export class TokenStreamSession {
    *   capability signaling (reserved for negotiation; not required here)
    * @param {(message: string, meta?: object) => void} [options.log] logger
    */
-  constructor({ url, device = null, canvas = null, controlChannel = null, log = noop }) {
+  constructor({ url, device = null, canvas = null, controlChannel = null, log = noop, direct = true }) {
     this._url = url
     this._device = device
     this._canvas = canvas
     this._controlChannel = controlChannel
     this._log = log
+    this._allowDirectRender = direct !== false // GPU-direct unless ?direct=0
 
     this._socket = null
     this._decoder = null
@@ -122,6 +124,12 @@ export class TokenStreamSession {
       return
     }
 
+    // A reset re-sends the session header; stop the previous paced loop (and free
+    // its held GPU buffers) before starting a new one, so two loops never drive
+    // the same canvas.
+    if (this._renderLoop) {
+      this._renderLoop.stop()
+    }
     this._renderLoop = new RenderLoop({
       canvas: this._canvas,
       paced: this._paced,
@@ -159,6 +167,37 @@ export class TokenStreamSession {
       await this._vaeDecoder.init(header, this._device, this._log)
       this._vaeReady = true
       const cacheMode = this._vaeDecoder.cacheMode
+      // GPU-direct-to-canvas: when the decoder output is a bindable GPU buffer,
+      // draw it straight to a WebGPU canvas (no getData readback, no CPU
+      // transform). Any failure throws here and we stay on the CPU-readback path.
+      if (
+        this._allowDirectRender &&
+        this._vaeDecoder.directRenderCapable &&
+        this._canvas
+      ) {
+        try {
+          const renderer = await WebGpuCanvasRenderer.create(
+            this._vaeDecoder.device,
+            this._canvas,
+            {
+              width: this._vaeDecoder.outputWidth,
+              height: this._vaeDecoder.outputHeight,
+            },
+            { log: this._log }
+          )
+          this._vaeDecoder.enableDirectRender()
+          this._renderLoop.setRenderer(renderer)
+          this._renderer = renderer
+          this._log("GPU-direct render enabled (no readback/transform)", {
+            source: "client",
+          })
+        } catch (error) {
+          this._log(
+            `GPU-direct render unavailable (${error.message}); using CPU readback`,
+            { source: "client" }
+          )
+        }
+      }
       if (cacheMode === "cpu") {
         // GPU-resident cache unavailable on this client → decode is ~2x slower;
         // surface it on-screen so a slow stream isn't mistaken for "just slow".
@@ -233,7 +272,17 @@ export class TokenStreamSession {
 
     try {
       const rgb = await this._vaeDecoder.decode(latentFrames)
-      this._renderLoop.enqueue({ chunkId, frames: rgb.frames ?? [rgb] })
+      if (rgb.gpu) {
+        this._renderLoop.enqueue({
+          chunkId,
+          gpu: true,
+          buffer: rgb.buffer,
+          frameCount: rgb.frameCount,
+          dispose: rgb.dispose,
+        })
+      } else {
+        this._renderLoop.enqueue({ chunkId, frames: rgb.frames ?? [rgb] })
+      }
     } catch (error) {
       this._log(`token chunk ${chunkId} decode failed: ${error.message}`, {
         source: "client",
