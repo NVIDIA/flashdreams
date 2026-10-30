@@ -10,6 +10,8 @@
 // CPU-decode fallback, or a "token decode unavailable" notice) so a degraded or
 // failed decode is visible rather than a silent blank.
 
+import { PresentationClock } from "./presentation_clock.js"
+
 /**
  * @typedef {Object} DecodedChunk
  * @property {number} chunkId
@@ -31,7 +33,6 @@ export class RenderLoop {
     onChunkBuffered = () => {},
     paced = false,
     fps = 30,
-    preRoll = 8,
   }) {
     this._canvas = canvas
     this._onChunkPresented = onChunkPresented
@@ -48,16 +49,19 @@ export class RenderLoop {
     this._current = null
     this._frameCursor = 0
     this._badge = null // persistent corner label drawn over each presented frame
-    // Paced playout (the default; session can disable it): present at a fixed
-    // cadence (the advertised fps) through a small jitter buffer, instead of one
-    // frame per rAF on arrival, to smooth the chunk-boundary gaps.
-    // See docs/token-frame-pacing-plan.md.
+    // Paced playout (the default; session can disable it with ?pace=off):
+    // present through an adaptive presentation clock instead of one frame per rAF
+    // on arrival, so the chunk-boundary gaps become an even cadence.
     this._paced = paced
-    this._interval = 1000 / (fps || 30)
-    this._preRoll = Math.max(1, preRoll)
+    // The clock is a parity port of the pixel path's server-side
+    // _PresentationClock (runtime_v2/presentation_manager.py): it paces at the
+    // observed chunk-arrival rate (x0.98 drain), not a fixed fps, so an even
+    // cadence replaces the 30 fps bursts + deficit freezes. See
+    // docs/token-frame-pacing-plan.md.
+    this._clock = new PresentationClock(fps || 30)
     this._frameQueue = [] // flat {chunkId, frame, isLast} awaiting paced playout
+    this._chunksBuffered = 0 // complete chunks with frames still queued (backlog)
     this._paceStarted = false
-    this._nextAt = 0
     this._starved = false
   }
 
@@ -145,8 +149,10 @@ export class RenderLoop {
     this._current = null
     this._frameCursor = 0
     this._frameQueue.length = 0
+    this._chunksBuffered = 0
     this._paceStarted = false
     this._starved = false
+    this._clock.reset()
   }
 
   /** Set the GPU-direct renderer; when present, frames draw via it (no blit). */
@@ -197,6 +203,12 @@ export class RenderLoop {
           })
         }
       }
+      // Feed the clock the chunk's arrival so it can pace to the observed rate.
+      this._chunksBuffered += 1
+      this._clock.observeArrival(
+        typeof performance !== "undefined" ? performance.now() : Date.now(),
+        decodedChunk.gpu ? decodedChunk.frameCount : decodedChunk.frames.length
+      )
       // Ack on buffer, not on present: paced presentation delays frames, and
       // acking on present would throttle the server's flow-control window and
       // starve the buffer (see docs/token-frame-pacing-plan.md §4).
@@ -248,37 +260,38 @@ export class RenderLoop {
     }
   }
 
-  // Paced playout: hold a small pre-roll, then present one buffered frame per
-  // ``interval`` (the advertised fps) so the chunk-boundary bursts are smoothed.
-  // On starvation, hold the last frame and re-anchor on resume so playback
-  // continues at cadence rather than bursting through the backlog.
+  // Adaptive paced playout (pixel-path parity): present buffered frames at the
+  // clock's cadence, which tracks the observed chunk-arrival rate. An empty
+  // buffer holds the last frame (a deficit stall); a whole chunk waiting behind
+  // the active one drains at the ceiling rate so latency does not grow. On
+  // resume the clock re-anchors, so a stall never bursts through the backlog.
   _tickPaced(now) {
-    if (!this._paceStarted) {
-      if (this._frameQueue.length < this._preRoll) {
-        return // building the pre-roll buffer
-      }
-      this._paceStarted = true
-      this._nextAt = now
-    }
     if (this._frameQueue.length === 0) {
-      this._starved = true // hold the last frame; re-anchor when frames resume
+      // A real stall is "due but empty": the x0.98 drain margin briefly empties
+      // the queue within a frame's own slot, which is not a visible stall, so
+      // only count a starvation once a frame is actually due.
+      if (this._paceStarted && !this._starved && this._clock.isDue(now)) {
+        this._starved = true // hold the last frame until frames resume
+      }
       return
     }
-    if (now < this._nextAt) {
-      return // not yet time for the next frame
-    }
     if (this._starved) {
-      this._nextAt = now // resume at cadence after a stall, no catch-up burst
       this._starved = false
+    }
+    this._paceStarted = true
+    const backlog = this._chunksBuffered > 1
+    if (!this._clock.isDue(now, backlog)) {
+      return // not yet time for the next frame
     }
     const item = this._frameQueue.shift()
     this._present(item)
     this._onFramePresented?.(now)
     if (item.isLast) {
+      this._chunksBuffered -= 1
       this._onChunkPresented?.(item.chunkId)
       item.dispose?.() // GPU-direct: free the chunk buffer after its last frame
     }
-    this._nextAt += this._interval
+    this._clock.markAdvanced(now, backlog)
   }
 
   // Present one paced frame item: GPU-direct draws the buffer, else blits ImageData.

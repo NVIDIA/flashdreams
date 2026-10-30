@@ -48,22 +48,18 @@ export class TokenStreamSession {
     // chunkId -> ordered array of decoded latent frames awaiting completion.
     this._pendingChunks = new Map()
 
-    // Paced playout (default on): present frames at the advertised fps through a
-    // small jitter buffer so the chunk-boundary bursts become an even cadence.
-    // A/B-measured win at preRoll 8 (p90 300->183 ms, max 733->667) for ~+70 ms
-    // e2e. ?pace=off (or 0) falls back to blit-on-arrival; ?pace=<N> overrides
-    // the pre-roll depth. See docs/token-frame-pacing-plan.md.
-    const DEFAULT_PRE_ROLL = 8
+    // Paced playout (default on): present frames through the adaptive
+    // presentation clock (render/presentation_clock.js) so chunk-boundary bursts
+    // become an even cadence matching the pixel path. ?pace=off (or 0) falls back
+    // to blit-on-arrival. See docs/token-frame-pacing-plan.md.
     const paceParam =
       typeof location !== "undefined"
         ? new URLSearchParams(location.search).get("pace")
         : null
     this._paced = paceParam !== "off" && paceParam !== "0"
-    const preRollParam = Number.parseInt(paceParam ?? "", 10)
-    this._preRoll = preRollParam > 0 ? preRollParam : DEFAULT_PRE_ROLL
     this._log(
       this._paced
-        ? `paced playout (preRoll=${this._preRoll} frames)`
+        ? "adaptive paced playout (presentation clock)"
         : "paced playout disabled (blit on arrival)",
       { source: "client" }
     )
@@ -134,7 +130,6 @@ export class TokenStreamSession {
       canvas: this._canvas,
       paced: this._paced,
       fps: header?.fps,
-      preRoll: this._preRoll,
       // Paced mode acks on buffer (fires only when paced) so pacing never
       // throttles the server's flow-control window; see the plan doc §4.
       onChunkBuffered: (chunkId) => this._socket?.sendAck(chunkId),
