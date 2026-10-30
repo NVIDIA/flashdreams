@@ -778,7 +778,8 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                 assert "applyCursorOptions" in browser_script
                 assert "document.exitPointerLock" in browser_script
                 assert (
-                    'hideCursor && document.hasFocus() ? "none" : ""' in browser_script
+                    'hideCursor && document.hasFocus() && canHideCursor ? "none" : ""'
+                    in browser_script
                 )
                 assert "event.movementX" in browser_script
                 assert "pressedKeys.has(keyId)" in browser_script
