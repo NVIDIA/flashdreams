@@ -47,6 +47,7 @@ def build_taxi_engine(
     race_times_path: Path | None = None,
     actor_controllers: tuple[PhysicsActorController, ...] = (),
     live_edit: LiveEditConfig = LiveEditConfig(),
+    render_conditions: bool = True,
 ) -> GameEngine:
     """Construct every mutable Taxi subsystem on the calling model thread."""
     if scene.game_map is None:
@@ -139,8 +140,10 @@ def build_taxi_engine(
         rules = TaxiGameRules(controller)
     if live_edit_gameplay is not None:
         rules = LiveEditGameRules(rules, live_edit_gameplay)
-    renderer = LudusConditionRenderer(raster, bev, device=device)
-    renderer.load_scene(scene)
+    renderer = None
+    if render_conditions:
+        renderer = LudusConditionRenderer(raster, bev, device=device)
+        renderer.load_scene(scene)
     engine = GameEngine(
         simulation=simulation,
         rules=rules,

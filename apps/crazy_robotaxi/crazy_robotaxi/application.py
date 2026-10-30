@@ -91,6 +91,7 @@ _DEFAULT_PREWARM_BLOCKS = 8
 class CrazyRobotaxiApplicationDefaults:
     """Defaults supplied by a world-model integration."""
 
+    realtime_gameplay: bool = True
     title: str = "Crazy Robotaxi"
     slug: str = "crazy-robotaxi"
     width: int = 1280
@@ -184,6 +185,9 @@ class ApplicationConfig:
 
     visual_flare_enabled: bool = False
     """Whether collision feedback may darken the presented game frame."""
+
+    realtime_gameplay: bool = True
+    """Run authoritative physics on a separate CPU process."""
 
     no_ui: bool = False
     """Present raw model frames without the ImGui HUD (no graphics device)."""
@@ -454,6 +458,7 @@ class CrazyRobotaxiApplication(IApplication):
             native_dit_disabled_for_live_edit=native_dit_disabled_for_live_edit,
             visual_flare_enabled=settings.game.effects.visual_flare,
             no_ui=not args.ui,
+            realtime_gameplay=args.realtime_gameplay,
             driving_script=driving_script,
             debug_capture=self._debug_capture,
             debug_engine_only=args.debug_engine_only,
@@ -844,6 +849,12 @@ def _parser(
         help="write the selected preset's options reference to Markdown and exit",
     )
     parser.add_argument("--controls-dir", type=Path)
+    parser.add_argument(
+        "--realtime-gameplay",
+        action=argparse.BooleanOptionalAction,
+        default=defaults.realtime_gameplay,
+        help="Run gameplay on its own CPU clock (default: enabled).",
+    )
     parser.add_argument("--map", type=Path, default=_DEFAULT_MAP)
     parser.add_argument("--width", type=int, default=defaults.width)
     parser.add_argument("--height", type=int, default=defaults.height)

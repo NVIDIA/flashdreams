@@ -222,7 +222,14 @@ class HeadlessInput:
                 events.append(event)
             return events
 
-    def consumed(self, events: UserInputEvents, *, step: int) -> None:
+    def consumed(
+        self,
+        events: UserInputEvents,
+        *,
+        step: int,
+        consumed_ns: int | None = None,
+        consumer: str = "model",
+    ) -> None:
         """Acknowledge events read by the normal model-thread input consumer."""
         with self._lock:
             for event in events.get_events():
@@ -235,8 +242,13 @@ class HeadlessInput:
                             {
                                 **response,
                                 "status": "consumed",
-                                "consumed_us": self.elapsed_us(),
-                                "model_step": step,
+                                "consumed_us": self.elapsed_us()
+                                if consumed_ns is None or self.ready_ns is None
+                                else (consumed_ns - self.ready_ns) // 1000,
+                                "consumer": consumer,
+                                "gameplay_tick"
+                                if consumer == "gameplay"
+                                else "model_step": step,
                             },
                         )
                     )

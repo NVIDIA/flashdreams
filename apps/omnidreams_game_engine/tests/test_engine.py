@@ -332,3 +332,15 @@ def test_physics_timestamps_exclude_seed_and_measure_each_advance(monkeypatch) -
         (1000, 2000),
         (3000, 4000),
     ]
+
+
+def test_camera_keeps_ground_attitude_without_visual_suspension_offsets():
+    from dataclasses import replace
+    from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
+
+    vehicle = VehicleState(1, 2, 3, 0.3, 5, 0, pitch_rad=0.1, roll_rad=-0.05)
+    expected = rig_pose_from_vehicle_state(vehicle)
+    bounced = replace(vehicle, suspension_pitch_rad=0.08, suspension_roll_rad=0.04)
+    np.testing.assert_allclose(rig_pose_from_vehicle_state(bounced), expected)
+    level = replace(vehicle, pitch_rad=0, roll_rad=0)
+    assert not np.allclose(rig_pose_from_vehicle_state(level), expected)

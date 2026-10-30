@@ -63,7 +63,7 @@ class RobotaxiDebugUILoop(IUILoop[TaxiHudState]):
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Package both model channels and their matching telemetry for the sink."""
-        del events
+        self.state.consume_input_events(events)
         count = self.presented_model_frame_count
         if count == self._last_presented_count:
             return []

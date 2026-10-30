@@ -3820,3 +3820,47 @@ def test_saving_live_edit_that_disables_native_dit_shows_notice_before_restart(
         "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
         not in menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
     )
+
+
+def test_hud_uses_current_gameplay_while_video_frame_stays_unchanged(monkeypatch):
+    video = torch.zeros(1, 3, 360, 320)
+    state = TaxiHudState(320, 360, _calibration())
+    state._menu_stage = "game"
+    old_snapshot = _snapshot()
+    state.publish(
+        build_hud_frames(video, (old_snapshot,), np.eye(4, dtype=np.float32)[None])
+    )
+    state.select_presented_frame(video[0])
+    latest = SimpleNamespace(
+        step=SimpleNamespace(
+            game_frames=(old_snapshot,),
+            trajectory=SimpleNamespace(vehicle_states=(SimpleNamespace(speed_mps=12),)),
+        ),
+        presentation=None,
+    )
+    delivered = []
+    state.gameplay = SimpleNamespace(
+        timeline=SimpleNamespace(latest=latest),
+        check=lambda: None,
+        submit_input=delivered.append,
+    )
+    speeds = []
+    monkeypatch.setattr(
+        TaxiHudState,
+        "_draw_speed",
+        lambda self, imgui, speed, **kwargs: speeds.append(speed),
+    )
+    events = UserInputEvents(
+        [
+            KeyboardUserInputEvent(
+                timestamp=np.uint64(100), key="w", state=KeyboardInputState.PRESSED
+            )
+        ]
+    )
+    state.consume_input_events(events)
+    state.draw(_FakeImGui())
+    latest.step.trajectory.vehicle_states = (SimpleNamespace(speed_mps=18),)
+    state.draw(_FakeImGui())
+    assert speeds == [12, 18]
+    assert delivered == [events]
+    assert state._current is not None and state._current.speed_mps == 0

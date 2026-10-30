@@ -490,6 +490,9 @@ class TaxiHudState:
     _latest_input_latency_ms: float | None = None
     """Latest UI-ingress-to-model-frame-selection latency measurement."""
 
+    gameplay: Any | None = None
+    """Process bridge supplying current gameplay independently of video."""
+
     _latest_committed_frame: TaxiHudFrame | None = None
     """Newest generated frame metadata received from the model thread."""
 
@@ -573,6 +576,8 @@ class TaxiHudState:
 
     def consume_input_events(self, events: UserInputEvents) -> None:
         """Track responsive drive state and receipt times on the UI thread."""
+        if self.gameplay is not None:
+            self.gameplay.submit_input(events)
         received = events.get_events()
         for event in received:
             if isinstance(event, FocusUserInputEvent) and not event.focused:
@@ -1342,6 +1347,18 @@ class TaxiHudState:
                 lines=(f"{self._loading_status}{dots}", f"ELAPSED  {elapsed_s}s"),
             )
             return
+        if self.gameplay is not None:
+            self.gameplay.check()
+            latest = self.gameplay.timeline.latest
+            if latest is not None:
+                hud_frame = replace(
+                    hud_frame,
+                    snapshot=latest.step.game_frames[-1],
+                    speed_mps=latest.step.trajectory.vehicle_states[-1].speed_mps,
+                    live_edit_status=latest.presentation.status
+                    if latest.presentation is not None
+                    else hud_frame.live_edit_status,
+                )
         snapshot = hud_frame.snapshot
         active = snapshot.session_state in {"playing", "awaiting_start", "racing"}
         prompt_offset = (
@@ -4011,16 +4028,12 @@ def _composite_bev_ego_car(panel: Tensor) -> None:
     bottom = top + car_height
     right = left + car_width
 
-    white, yellow, glass = panel.new_tensor(
-        (
-            (1.0, 1.0, 1.0),
-            (1.0, 0.6, -1.0),
-            (-0.8, -0.2, 0.15),
-        )
-    ).view(3, 3, 1, 1)
-    panel[:, top + 1 : bottom - 1, left:right] = white
-    panel[:, top:bottom, left + 1 : right - 1] = white
-    panel[:, top + 1 : bottom - 1, left + 1 : right - 1] = yellow
+    # Scalar fills stay on the presentation stream. Uploading a new color
+    # tensor here waits for queued GPU work and blocks the UI's input polling.
+    panel[:, top + 1 : bottom - 1, left:right].fill_(1.0)
+    panel[:, top:bottom, left + 1 : right - 1].fill_(1.0)
+    for channel, value in enumerate((1.0, 0.6, -1.0)):
+        panel[channel, top + 1 : bottom - 1, left + 1 : right - 1].fill_(value)
 
     window_left = left + max(2, car_width // 3)
     window_right = right - max(2, car_width // 3)
@@ -4028,16 +4041,17 @@ def _composite_bev_ego_car(panel: Tensor) -> None:
         return
     window_height = max(1, car_height // 5)
     window_offset = max(2, car_height // 5)
-    panel[
-        :,
-        top + window_offset : top + window_offset + window_height,
-        window_left:window_right,
-    ] = glass
-    panel[
-        :,
-        bottom - window_offset - window_height : bottom - window_offset,
-        window_left:window_right,
-    ] = glass
+    for channel, value in enumerate((-0.8, -0.2, 0.15)):
+        panel[
+            channel,
+            top + window_offset : top + window_offset + window_height,
+            window_left:window_right,
+        ].fill_(value)
+        panel[
+            channel,
+            bottom - window_offset - window_height : bottom - window_offset,
+            window_left:window_right,
+        ].fill_(value)
 
 
 class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
