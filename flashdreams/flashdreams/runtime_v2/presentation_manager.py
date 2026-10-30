@@ -744,6 +744,11 @@ class PresentationManager:
 
 def _frame_at(result: StepResult, frame_index: int) -> Tensor:
     """Return one result frame as ``[C, H, W]``."""
+    if result.is_latent:
+        raise ValueError(
+            "a latent StepResult cannot be presented as an RGB frame; it must be "
+            "routed to the token stream instead of the frame compositor."
+        )
     output = result.read_output()
     if result.output_layout is VideoTensorLayout.tchw:
         frame = output[frame_index]

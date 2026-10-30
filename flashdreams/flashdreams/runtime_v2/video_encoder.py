@@ -284,6 +284,11 @@ def result_to_rgb24_tensor(
             one sequence of frames, or disagrees with itself over its frame
             count.
     """
+    if result.is_latent:
+        raise ValueError(
+            "the video encoder cannot encode a latent StepResult; latents are "
+            "streamed to a token-stream client, not encoded as pixels."
+        )
     if result.output_layout is not session_desc.output_layout:
         raise ValueError(
             f"Output was described as {session_desc.output_layout.value} but "
