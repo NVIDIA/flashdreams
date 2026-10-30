@@ -552,10 +552,14 @@ class InteractiveDriveApplication(_InteractiveDriveApplicationBase):
         if session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("Interactive Drive requires tchw output.")
         # The runtime reads session_desc() before init() parses this
-        # application's own arguments, so --enable-token-stream is re-applied
-        # here, after init, where the resolved config is known.
+        # application's own arguments, so --enable-token-stream and the decoder
+        # metadata prepared in init() are re-applied here, after init, where the
+        # resolved config is known. Merge (not overwrite) metadata so reserved
+        # runtime keys survive.
         session_desc = replace(
-            session_desc, token_stream=self._config.app.enable_token_stream
+            session_desc,
+            token_stream=self._config.app.enable_token_stream,
+            metadata={**session_desc.metadata, **self._token_stream_metadata},
         )
         if (
             session_desc.video_width,

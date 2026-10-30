@@ -16,6 +16,7 @@ from omnidreams.config import (
     OMNIDREAMS_PERF_PIPELINE_CONFIG,
     OMNIDREAMS_PIPELINE_CONFIG,
 )
+from omnidreams.token_stream.vae_export import prepare_token_stream
 
 from flashdreams.api_v2.application import IApplication
 
@@ -27,6 +28,7 @@ OMNIDREAMS_INTERACTIVE_DRIVE_DEFAULTS = InteractiveDriveApplicationDefaults(
     width=1280,
     height=704,
     pipeline_config=OMNIDREAMS_PIPELINE_CONFIG,
+    token_stream_preparer=prepare_token_stream,
 )
 OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS = (
     InteractiveDriveApplicationDefaults(
@@ -37,6 +39,7 @@ OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_GB300_DEFAULTS = (
         width=1280,
         height=704,
         pipeline_config=OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG,
+        token_stream_preparer=prepare_token_stream,
     )
 )
 OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_RTX_PRO_6000_DEFAULTS = (
@@ -48,6 +51,7 @@ OMNIDREAMS_INTERACTIVE_DRIVE_OPTIMIZED_RTX_PRO_6000_DEFAULTS = (
         width=1280,
         height=704,
         pipeline_config=OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG,
+        token_stream_preparer=prepare_token_stream,
     )
 )
 OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS = InteractiveDriveApplicationDefaults(
@@ -58,6 +62,7 @@ OMNIDREAMS_INTERACTIVE_DRIVE_PERF_DEFAULTS = InteractiveDriveApplicationDefaults
     width=1168,
     height=640,
     pipeline_config=OMNIDREAMS_PERF_PIPELINE_CONFIG,
+    token_stream_preparer=prepare_token_stream,
 )
 
 OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS = InteractiveDriveApplicationDefaults(
@@ -68,6 +73,7 @@ OMNIDREAMS_INTERACTIVE_DRIVE_FAST_PERF_DEFAULTS = InteractiveDriveApplicationDef
     width=1168,
     height=640,
     pipeline_config=OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
+    token_stream_preparer=prepare_token_stream,
 )
 
 

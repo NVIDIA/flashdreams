@@ -1772,3 +1772,62 @@ def test_token_stream_flag_reaches_session_despite_preinit_desc_capture(
     assert captured_on.token_stream is False
     app_on.init(["--scene", str(scene), "--enable-token-stream"])
     assert app_on.create_session(captured_on).session_desc.token_stream is True
+
+
+def test_token_stream_preparer_runs_in_init_and_merges_its_metadata(
+    tmp_path: Path,
+) -> None:
+    """A token-stream run exports the decoder in init() and carries its metadata.
+
+    The preparer (an integration-supplied hook) runs once, during init(), with
+    the raster dimensions the model generates at. Its returned metadata reaches
+    the session the runtime builds from the pre-init desc, merged with -- not
+    overwriting -- any metadata the runtime already set.
+    """
+    scene = tmp_path / "local.usdz"
+    scene.touch()
+
+    calls: list[dict[str, Any]] = []
+
+    def _preparer(
+        pipeline_config: Any, *, video_width: int, video_height: int, device: str
+    ) -> dict[str, Any]:
+        calls.append({"width": video_width, "height": video_height})
+        return {
+            "token_stream_extra_header": {"vae_model": {"version": "abc"}},
+            "token_stream_assets": {"vae-model/abc/fp32.onnx": "/tmp/x.onnx"},
+        }
+
+    app = InteractiveDriveApplication(
+        defaults=InteractiveDriveApplicationDefaults(
+            token_stream_preparer=_preparer, width=1280, height=704
+        )
+    )
+    # The runtime captures the desc (with a reserved key) before init runs.
+    captured = replace(app.session_desc(), metadata={"reserved": "keep"})
+    app.init(["--scene", str(scene), "--enable-token-stream"])
+
+    # The preparer ran once, in init, with the raster dims (not session dims).
+    assert calls == [{"width": 1280, "height": 704}]
+
+    metadata = app.create_session(captured).session_desc.metadata
+    assert metadata["token_stream_extra_header"] == {"vae_model": {"version": "abc"}}
+    assert metadata["token_stream_assets"] == {"vae-model/abc/fp32.onnx": "/tmp/x.onnx"}
+    assert metadata["reserved"] == "keep"  # the pre-existing key survives the merge
+
+
+def test_token_stream_preparer_is_not_run_without_the_flag(tmp_path: Path) -> None:
+    scene = tmp_path / "local.usdz"
+    scene.touch()
+    calls: list[int] = []
+
+    def _preparer(pipeline_config: Any, **_: Any) -> dict[str, Any]:
+        calls.append(1)
+        return {}
+
+    app = InteractiveDriveApplication(
+        defaults=InteractiveDriveApplicationDefaults(token_stream_preparer=_preparer)
+    )
+    app.init(["--scene", str(scene)])  # no --enable-token-stream
+    assert calls == []
+    assert app.create_session(app.session_desc()).session_desc.metadata == {}

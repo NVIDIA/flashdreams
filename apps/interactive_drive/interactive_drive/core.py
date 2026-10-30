@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import math
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
@@ -77,6 +77,14 @@ from interactive_drive.types import (
 BackendFactory = Callable[[AppConfig], RenderBackend]
 SceneLoader = Callable[..., SceneBundle]
 ViewMode = Literal["rgb", "hdmap", "physx"]
+TokenStreamPreparer = Callable[..., Mapping[str, Any]]
+"""Provisions the client-side VAE decoder for a token-stream run.
+
+Called ``(pipeline_config, *, video_width, video_height, device)`` in
+:meth:`init` on rank zero; returns the ``SessionDesc.metadata`` entries to merge
+(the ``token_stream_extra_header`` the emitter advertises and the
+``token_stream_assets`` the server serves the artifacts from), or raises to abort
+the launch."""
 
 HUD_DESIGN_SIZE = (1280.0, 704.0)
 """The viewport the HUD's panel sizes were chosen against."""
@@ -192,6 +200,17 @@ class InteractiveDriveApplicationDefaults:
     of saying which model runs, and two answers to that has no sensible meaning.
     Whatever a factory needs beyond the scene is its own to close over, which is
     what the default does with the pipeline config.
+    """
+
+    token_stream_preparer: TokenStreamPreparer | None = None
+    """Provisions the client-side VAE decoder when ``--enable-token-stream`` is set.
+
+    Token streaming moves the VAE decode to the browser, which needs the exact
+    decoder the model generates with, exported to ONNX. An integration whose
+    latents are client-decodable supplies a preparer that exports (or reuses) it
+    and returns the session metadata the server advertises and serves; ``None``
+    leaves the stream carrying latents with no decoder descriptor. See
+    :class:`TokenStreamPreparer`.
     """
 
     parallel_context: ParallelContext | None = None
@@ -854,6 +873,9 @@ class _InteractiveDriveApplicationBase(IApplication):
         self._full_size_hud = defaults.full_size_hud
         self._parallel_context = defaults.parallel_context
         self._initial_session_video_size = (defaults.width, defaults.height)
+        self._pipeline_config = defaults.pipeline_config
+        self._token_stream_preparer = defaults.token_stream_preparer
+        self._token_stream_metadata: Mapping[str, Any] = {}
         self._backend_factory: BackendFactory = defaults.backend_factory or partial(
             _build_backend,
             pipeline_config=defaults.pipeline_config,
@@ -1065,6 +1087,31 @@ class _InteractiveDriveApplicationBase(IApplication):
             video_width=width,
             video_height=height,
             token_stream=app_config.enable_token_stream,
+        )
+        self._maybe_prepare_token_stream(app_config)
+
+    def _maybe_prepare_token_stream(self, app_config: AppConfig) -> None:
+        """Export/reuse the client-side VAE decoder for a token-stream run.
+
+        Runs in the preparation phase (``init``) on rank zero only, before the
+        subclass builds the heavy backend, so an inability to provision the
+        decoder aborts the launch early rather than after loading the model.
+        Uses the raster dimensions the model generates at -- not the presented
+        session size, which a postprocess preset or a camera grid can inflate --
+        so the exported latent shape matches the frames on the wire.
+        """
+        if not app_config.enable_token_stream or self._token_stream_preparer is None:
+            return
+        mesh = self._parallel_context
+        if mesh is not None and not mesh.is_main:
+            return
+        self._token_stream_metadata = dict(
+            self._token_stream_preparer(
+                self._pipeline_config,
+                video_width=app_config.raster.width,
+                video_height=app_config.raster.height,
+                device=app_config.world_model_device,
+            )
         )
 
     def session_desc(self) -> SessionDesc:

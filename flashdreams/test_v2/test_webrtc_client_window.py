@@ -12,6 +12,7 @@ import threading
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, TypeVar, cast
 from unittest.mock import AsyncMock, Mock
 
@@ -156,6 +157,60 @@ async def test_file_upload_accepts_multiple_files() -> None:
         assert [chosen.data for chosen in event.files] == [b"one", b"two"]
     finally:
         await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_token_stream_asset_route_serves_published_keys_with_types(
+    tmp_path: Path,
+) -> None:
+    """The asset route serves a file only for a key the session published, with
+    the right Content-Type for the runtime files.
+
+    The matched path is a dict key, never joined onto a directory, so an unknown
+    path (including a traversal-shaped one) is simply absent and returns 404 --
+    no file the application did not publish is reachable. ``.wasm`` must be
+    ``application/wasm`` (else ``instantiateStreaming`` fails) and ``.mjs``
+    ``text/javascript`` (else the module load fails).
+    """
+    onnx = tmp_path / "taehv_decoder.fp32.onnx"
+    onnx.write_bytes(b"onnx-bytes")
+    wasm = tmp_path / "rt.wasm"
+    wasm.write_bytes(b"\x00asm\x01\x00\x00\x00")
+    mjs = tmp_path / "rt.mjs"
+    mjs.write_bytes(b"export const ok = 1\n")
+    assets = {
+        "vae-model/deadbeef/fp32.onnx": str(onnx),
+        "ort/1.20.1/ort-wasm-simd-threaded.jsep.wasm": str(wasm),
+        "ort/1.20.1/ort-wasm-simd-threaded.jsep.mjs": str(mjs),
+    }
+    window = WebRTCClientWindow()
+    window.open(replace(_session_desc(), metadata={"token_stream_assets": assets}))
+    try:
+        base = window.server.url
+        async with ClientSession() as client:
+            async with client.get(
+                f"{base}api/token-stream/assets/vae-model/deadbeef/fp32.onnx"
+            ) as ok:
+                assert ok.status == 200
+                assert await ok.read() == b"onnx-bytes"
+            async with client.get(
+                f"{base}api/token-stream/assets/"
+                "ort/1.20.1/ort-wasm-simd-threaded.jsep.wasm"
+            ) as served_wasm:
+                assert served_wasm.status == 200
+                assert served_wasm.headers["Content-Type"] == "application/wasm"
+            async with client.get(
+                f"{base}api/token-stream/assets/"
+                "ort/1.20.1/ort-wasm-simd-threaded.jsep.mjs"
+            ) as served_mjs:
+                assert served_mjs.status == 200
+                assert served_mjs.headers["Content-Type"] == "text/javascript"
+            async with client.get(
+                f"{base}api/token-stream/assets/ort/1.20.1/absent.wasm"
+            ) as missing:
+                assert missing.status == 404
+    finally:
         window.close()
 
 

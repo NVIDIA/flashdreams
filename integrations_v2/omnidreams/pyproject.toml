@@ -104,6 +104,7 @@ omnidreams-prepare = "omnidreams.impl.tools.prepare:main"
 [tool.setuptools]
 packages = [
     "omnidreams",
+    "omnidreams.token_stream",
     "omnidreams.apps",
     "omnidreams.apps.interactive_drive",
     "omnidreams.apps.crazy_robotaxi",

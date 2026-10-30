@@ -41,6 +41,12 @@ from flashdreams.runtime_v2.serving.token_stream import (
     RawFloat16TokenCodecConfig,
     TokenFrameEmitter,
 )
+from flashdreams.runtime_v2.serving.token_stream.config import (
+    ASSET_CONTENT_TYPES,
+    ASSET_METADATA_KEY,
+    ASSET_URL_PREFIX,
+    EXTRA_HEADER_METADATA_KEY,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -896,6 +902,7 @@ class WebRTCServer:
             codec=RawFloat16TokenCodecConfig().setup(),
             fps=session_desc.frames_per_second_for_step,
             flow_window_size=_TOKEN_FLOW_WINDOW,
+            extra_header=session_desc.metadata.get(EXTRA_HEADER_METADATA_KEY),
         )
         with self._token_lock:
             # One token client at a time; a new connection replaces the old.
@@ -1072,6 +1079,9 @@ class WebRTCServer:
         app.router.add_get("/healthz", self._health)
         app.router.add_post("/api/webrtc/offer", self._offer)
         app.router.add_get("/api/token-stream", self._token_stream_ws)
+        app.router.add_get(
+            ASSET_URL_PREFIX + "/{path:.+}", self._serve_token_stream_asset
+        )
         app.router.add_post("/api/files", self._upload_selected_file)
         runner = web.AppRunner(app)
         await runner.setup()
@@ -1098,6 +1108,30 @@ class WebRTCServer:
     async def _serve_browser_script(self, _: web.Request) -> web.Response:
         """Return the browser client's JavaScript."""
         return web.Response(text=_BROWSER_SCRIPT, content_type="text/javascript")
+
+    async def _serve_token_stream_asset(
+        self, request: web.Request
+    ) -> web.StreamResponse:
+        """Serve one per-session token-stream asset (the client-side VAE-decoder
+        ONNX, later the onnxruntime-web dist) by exact path.
+
+        The matched path is a key into the session's published asset map, never
+        joined onto a directory, so only a file the application explicitly
+        published is reachable -- there is no path-traversal surface.
+        """
+        session_desc = self._session_desc
+        if session_desc is None:
+            raise web.HTTPNotFound()
+        assets = session_desc.metadata.get(ASSET_METADATA_KEY) or {}
+        local = assets.get(request.match_info["path"])
+        if local is None:
+            raise web.HTTPNotFound()
+        # Set a correct type for assets the stdlib mimetypes table serves wrong
+        # (.wasm/.mjs); FileResponse keeps its own guess for everything else.
+        suffix = local[local.rfind(".") :] if "." in local else ""
+        content_type = ASSET_CONTENT_TYPES.get(suffix)
+        headers = {"Content-Type": content_type} if content_type else None
+        return web.FileResponse(local, headers=headers)
 
     async def _health(self, _: web.Request) -> web.Response:
         """Report whether the server has an open session and client."""
