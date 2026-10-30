@@ -9,14 +9,14 @@ compiler:
 
 profiles:
   raceway:
-    lane_width_m: 5.5
-    curb_offset_m: 1.5
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
     lanes: [backward, backward, forward, forward]
     speed_limit_mps: 24.0
     lane_marking: {style: DASHED_SINGLE, color: WHITE}
     divider_markings:
       - {style: DASHED_SINGLE, color: WHITE}
-      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: DASHED_SINGLE, color: YELLOW}
       - {style: DASHED_SINGLE, color: WHITE}
 
 nodes:
