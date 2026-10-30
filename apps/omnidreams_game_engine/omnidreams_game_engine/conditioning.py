@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import shapely
 import torch
 from ludus_renderer import (
     PRIM_BEV_ROAD_SURFACE,
@@ -27,6 +28,7 @@ from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.contracts import ConditionRenderer
 from omnidreams_game_engine.dynamic_scene import MutableObjectSceneBuffer
 from omnidreams_game_engine.game_map.types import GameMapElement
+from omnidreams_game_engine.patterns import triangulate_polygon_xy
 from omnidreams_game_engine.types import (
     ConditionBatch,
     SceneDefinition,
@@ -108,6 +110,8 @@ class LudusConditionRenderer(ConditionRenderer):
             road_surface_pool = _build_bev_road_surface_pool(
                 scene.game_map.elements,
                 self._device,
+                ground_vertices=scene.game_map.ground_vertices,
+                ground_faces=scene.game_map.ground_faces,
             )
             if road_surface_pool is not None:
                 base_scene = TimestampedScene(
@@ -219,13 +223,46 @@ def _bev_presentation_frames(frames: Tensor) -> Tensor:
 def _build_bev_road_surface_pool(
     elements: tuple[GameMapElement, ...],
     device: torch.device,
+    *,
+    ground_vertices: np.ndarray | None = None,
+    ground_faces: np.ndarray | None = None,
 ) -> TimestampedPolygonPool | None:
     """Build a lightweight black paved-surface layer for BEV alpha coverage."""
     vertices: list[Tensor] = []
     triangles: list[Tensor] = []
     vertex_counts: list[int] = []
     triangle_counts: list[int] = []
-    for element in elements:
+    elevated = ground_vertices is not None and np.ptp(ground_vertices[:, 2]) > 0
+    if elevated:
+        assert ground_vertices is not None and ground_faces is not None
+        ground = ground_vertices[ground_faces].astype(np.float64)
+        ground_polygons = shapely.polygons(ground[:, :, :2])
+        ground_index = shapely.STRtree(ground_polygons)
+        for element in elements:
+            pavement = Polygon(element.surface_world[:, :2])
+            ground_ids = ground_index.query(pavement, predicate="intersects")
+            pieces = shapely.intersection(pavement, ground_polygons[ground_ids])
+            for piece, ground_id in zip(pieces, ground_ids, strict=True):
+                face = ground[ground_id]
+                normal = np.cross(face[1] - face[0], face[2] - face[0])
+                for part in shapely.get_parts(piece):
+                    if part.geom_type != "Polygon" or part.area == 0:
+                        continue
+                    xy = np.asarray(part.exterior.coords[:-1])
+                    z = face[0, 2] - (xy - face[0, :2]) @ normal[:2] / normal[2]
+                    xyz = np.column_stack((xy, z + _BEV_ROAD_DEPTH_OFFSET_M))
+                    clipped = triangulate_polygon_xy(xyz).reshape(-1, 3)
+                    if not len(clipped):
+                        continue
+                    # Each ground piece gets its own bounds and CUDA work block.
+                    # A map-wide polygon disables culling and serializes the mesh.
+                    vertices.append(torch.from_numpy(clipped))
+                    triangles.append(
+                        torch.arange(len(clipped), dtype=torch.int32).reshape(-1, 3)
+                    )
+                    vertex_counts.append(len(clipped))
+                    triangle_counts.append(len(clipped) // 3)
+    for element in () if elevated else elements:
         surface = np.asarray(element.surface_world, dtype=np.float32)
         polygon = Polygon(surface[:, :2]).simplify(
             _BEV_ROAD_SIMPLIFY_M,

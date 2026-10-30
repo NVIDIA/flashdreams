@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -407,6 +408,45 @@ def test_grand_prix_hairpin_gate_is_at_the_course_entry(tmp_path: Path) -> None:
     assert controller._gates[checkpoint_id].distance(
         controller._surfaces[previous_id]
     ) < controller._gates[checkpoint_id].distance(controller._surfaces[following_id])
+
+
+def test_gate_endpoints_and_target_follow_the_local_sloped_surface(
+    tmp_path: Path,
+) -> None:
+    game_map = load_game_map(_MAP)
+
+    def sloped(points: np.ndarray) -> np.ndarray:
+        result = points.copy()
+        result[:, 2] = 5 + 0.02 * result[:, 0] + 0.01 * result[:, 1]
+        return result
+
+    game_map = replace(
+        game_map,
+        ground_vertices=sloped(game_map.ground_vertices),
+        elements=tuple(
+            replace(e, surface_world=sloped(e.surface_world)) for e in game_map.elements
+        ),
+        lanes=tuple(
+            replace(lane, centerline_world=sloped(lane.centerline_world))
+            for lane in game_map.lanes
+        ),
+    )
+    course = game_map.race_courses[0]
+    for element_id in (course.start_element_id, *course.checkpoint_element_ids):
+        controller = RaceController(
+            game_map,
+            replace(course, start_element_id=element_id),
+            _state(0, 0),
+            RaceTimeStore(tmp_path / "times.csv"),
+        )
+        snapshot = controller.snapshot(_state(0, 0))
+        assert snapshot.target_element_id == element_id
+        for x, y, z in (
+            snapshot.gate_start_xyz_m,
+            snapshot.gate_end_xyz_m,
+            snapshot.target_xyz_m,
+        ):
+            assert z == pytest.approx(5 + 0.02 * x + 0.01 * y, abs=1e-5)
 
 
 def test_race_times_are_isolated_by_map_and_course(tmp_path: Path) -> None:

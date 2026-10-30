@@ -500,6 +500,14 @@ weather and style and therefore disable native DiT.
 
 ## Authored maps
 
+YAML maps with `schema_version: 2` support optional node `pose.z_m` heights.
+Schema-v1 flat maps remain supported. Roads
+transition smoothly between level node surfaces; paint, curbs, collision and
+checkpoints follow the resulting ground mesh. See
+[Road elevation](../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md#road-elevation)
+for authoring rules. FlashDreams Raceway demonstrates hills after its flat
+starting section.
+
 Maps are strict semantic `.robotaxi.yaml` documents. See the
 [map format guide](../omnidreams_game_engine/NODE_GRAPH_MAP_FORMAT.md) for
 nodes, roads, profiles, traffic, spawns, and race courses. The map menu discovers
