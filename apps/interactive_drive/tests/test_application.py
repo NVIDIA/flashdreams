@@ -76,7 +76,9 @@ class _FakeUI:
         self.images: list[str] = []
         self.progress: list[float] = []
         self.checkbox_labels: list[str] = []
-        self.style = SimpleNamespace(font_scale_main=1.0)
+        self.style = SimpleNamespace(
+            font_scale_main=1.0, item_spacing=SimpleNamespace(x=8.0)
+        )
         self.window_sizes: list[tuple[float, float]] = []
         self.windows: list[str] = []
 
@@ -86,6 +88,9 @@ class _FakeUI:
 
     def get_style(self) -> SimpleNamespace:
         return self.style
+
+    def get_content_region_avail(self) -> SimpleNamespace:
+        return SimpleNamespace(x=300.0, y=180.0)
 
     def set_next_window_pos(self, position: Any, condition: Any) -> None:
         del position, condition
