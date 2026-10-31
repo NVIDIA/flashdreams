@@ -96,6 +96,7 @@ class MultiviewDriveUILoop(MultiviewUILoop):
         imgui.text(f"Steer  {command.steer:+.2f}")
         self._progress(imgui, "Throttle", command.throttle)
         self._progress(imgui, "Brake", command.brake)
+        self._draw_wheel_and_pedals(imgui, command)
 
     def _draw_help(self, imgui: Any) -> None:
         imgui.text_wrapped(
