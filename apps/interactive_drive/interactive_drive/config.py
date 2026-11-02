@@ -199,6 +199,9 @@ class AppConfig:
     presenter_adapter: str | None = None
     # None follows game_mode; an explicit bool remains a fine-grained override.
     visual_flare_enabled: bool | None = None
+    # Stream pre-decode latents to the client for client-side VAE decode,
+    # instead of decoding to RGB on the server (the token-streaming path).
+    enable_token_stream: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(

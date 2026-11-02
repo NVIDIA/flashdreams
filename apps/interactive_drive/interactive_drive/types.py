@@ -6,12 +6,15 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
 
 from flashdreams.serving.realtime.timing import VideoModelTimings
+
+if TYPE_CHECKING:
+    from torch import Tensor
 
 FloatArray = npt.NDArray[np.float32]
 UInt8Array = npt.NDArray[np.uint8]
@@ -396,6 +399,13 @@ class FrameChunk:
     video_model_timings: VideoModelTimings | None = None
     warning: str | None = None
     """Backend guidance for the current chunk; ``None`` clears prior guidance."""
+
+    latent: Tensor | None = None
+    """Pre-decode latent ``[B, V, T, Cl, Hl, Wl]`` for the token-stream path.
+
+    Set (with ``frames`` empty) when the backend runs in token mode: the server
+    skips the VAE decode and streams latents for the client to decode.
+    """
 
 
 @dataclass(frozen=True)

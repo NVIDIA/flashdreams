@@ -96,6 +96,10 @@ class StreamInferencePipelineCache(
     """Diffusion-model state from the most recent ``generate``, consumed
     by ``finalize``."""
 
+    clean_latent: Tensor | None = None
+    """Pre-decode latent from the most recent ``generate`` (before the VAE
+    decoder), exposed for consumers that stream latents instead of pixels."""
+
     autoregressive_index: int | None = None
     """AR step index of the most recent ``generate``."""
 
@@ -193,6 +197,7 @@ class StreamInferencePipeline(
             StreamingEncoderCacheT, TransformerCacheT, StreamingDecoderCacheT
         ],
         input: Any = None,
+        decode_output: bool = True,
     ) -> Tensor:
         """Generate one chunk for this AR step.
 
@@ -204,15 +209,21 @@ class StreamInferencePipeline(
                 is configured, must be ``None`` otherwise. Use
                 ``NullEncoderConfig`` to pass an already-encoded tensor
                 straight through.
+            decode_output: When ``False``, skip the VAE decoder and return the
+                unpatchified clean latent instead of decoded pixels (for
+                consumers that stream latents). ``cache.clean_latent`` is set
+                either way.
 
         Returns:
-            Decoded tensor (e.g. RGB video) when a decoder is configured;
-            otherwise the unpatchified clean latent from the diffusion model.
+            Decoded tensor (e.g. RGB video) when a decoder is configured and
+            ``decode_output`` is set; otherwise the unpatchified clean latent
+            from the diffusion model.
         """
         return self._generate(
             autoregressive_index,
             cache,
             input=input,
+            decode_output=decode_output,
         )
 
     def _generate(
@@ -224,8 +235,14 @@ class StreamInferencePipeline(
         input: Any = None,
         *,
         on_diffusion_complete: Callable[[], None] | None = None,
+        decode_output: bool = True,
     ) -> Tensor:
-        """Run the shared stages with an optional pre-decode completion hook."""
+        """Run the shared stages with an optional pre-decode completion hook.
+
+        When ``decode_output`` is ``False`` the decoder is skipped and the
+        unpatchified clean latent is returned; ``cache.clean_latent`` is set
+        either way for consumers that stream latents instead of pixels.
+        """
         prev = cache.autoregressive_index
         expected = (prev + 1) if prev is not None else 0
         assert autoregressive_index == expected, (
@@ -261,6 +278,7 @@ class StreamInferencePipeline(
                 input=input,
             )
         cache.final_state = final_state
+        cache.clean_latent = clean_latent
 
         # A caller hook, not a pipeline stage, so it sits outside both ranges.
         if on_diffusion_complete is not None:
@@ -268,7 +286,7 @@ class StreamInferencePipeline(
 
         # Opened even with no decoder, so the stage is timed either way.
         with profiler.stage_scope(cache), profiler.range("pipeline.decode"):
-            if self.decoder is not None:
+            if self.decoder is not None and decode_output:
                 assert cache.decoder_cache is not None  # invariant: paired with decoder
                 output = self.decoder(
                     input=clean_latent,

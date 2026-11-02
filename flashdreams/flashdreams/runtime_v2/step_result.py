@@ -35,6 +35,15 @@ class StepResult:
     metrics: dict[str, float | int] | None = field(default_factory=dict)
     """Measurements for this step, or ``None`` when profiling is disabled."""
 
+    is_latent: bool = False
+    """Whether ``output`` is a pre-decode latent chunk rather than RGB frames.
+
+    A latent result is streamed to a token-streaming client that decodes it
+    itself; it is never presented or encoded as pixels. ``read_output`` still
+    returns it with the same CUDA-readiness guarantees, but RGB consumers --
+    ``_frame_at`` and the video encoder -- reject it loudly.
+    """
+
     _output: Tensor = field(init=False, repr=False)
     """Generated frames, laid out as ``output_layout`` says. Floating-point
     values are read as ``[-1, 1]`` and integer values as ``[0, 255]``."""
@@ -83,3 +92,29 @@ class StepResult:
             consumer.wait_event(self._output_ready_event)
         output.record_stream(consumer)
         return output
+
+    @classmethod
+    def latent(
+        cls,
+        *,
+        step_index: int,
+        output: Tensor,
+        frame_count: int,
+        output_layout: VideoTensorLayout = VideoTensorLayout.bvtchw,
+        metrics: dict[str, float | int] | None = None,
+    ) -> "StepResult":
+        """Build a latent (pre-decode) result for the token-streaming path.
+
+        ``output`` is the clean latent chunk and ``output_layout`` names its
+        axis order (``bvtchw`` = ``[B, V, T, Cl, Hl, Wl]``), not an RGB layout.
+        The result is marked :attr:`is_latent`, so it streams to the token
+        client and is never composited or encoded as pixels.
+        """
+        return cls(
+            step_index=step_index,
+            output=output,
+            frame_count=frame_count,
+            output_layout=output_layout,
+            metrics=metrics,
+            is_latent=True,
+        )

@@ -806,6 +806,7 @@ serving = [
     { name = "aiohttp" },
     { name = "aiortc" },
     { name = "multidict" },
+    { name = "onnx" },
 ]
 
 [package.dev-dependencies]
@@ -841,6 +842,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.24,<2.5" },
     { name = "nvidia-ml-py", specifier = ">=12.0" },
     { name = "nvidia-vfx", marker = "extra == 'rtx-postprocess'", specifier = "==0.1.0.1" },
+    { name = "onnx", marker = "extra == 'serving'", specifier = ">=1.16" },
     { name = "opencv-python-headless", marker = "extra == 'examples'", specifier = ">=4.5" },
     { name = "opencv-python-headless", marker = "extra == 'runners'", specifier = ">=4.5" },
     { name = "psutil", specifier = ">=7.0" },

@@ -61,6 +61,13 @@ class SessionDesc:
     video_height: int = 720
     """Initial output video height in pixels for ClientWindow."""
 
+    token_stream: bool = False
+    """Whether this session streams pre-decode latent tokens instead of RGB.
+
+    Declared statically at session open. When set, the runtime routes a latent
+    result to the token-stream transport instead of the pixel presentation path.
+    """
+
     metadata: dict[str, Any] = field(default_factory=dict)
     """Runtime and application extension values, including reserved runtime keys."""
 

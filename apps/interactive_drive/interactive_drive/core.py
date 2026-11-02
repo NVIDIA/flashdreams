@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import math
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
@@ -77,6 +77,14 @@ from interactive_drive.types import (
 BackendFactory = Callable[[AppConfig], RenderBackend]
 SceneLoader = Callable[..., SceneBundle]
 ViewMode = Literal["rgb", "hdmap", "physx"]
+TokenStreamPreparer = Callable[..., Mapping[str, Any]]
+"""Provisions the client-side VAE decoder for a token-stream run.
+
+Called ``(pipeline_config, *, video_width, video_height, device)`` in
+:meth:`init` on rank zero; returns the ``SessionDesc.metadata`` entries to merge
+(the ``token_stream_extra_header`` the emitter advertises and the
+``token_stream_assets`` the server serves the artifacts from), or raises to abort
+the launch."""
 
 HUD_DESIGN_SIZE = (1280.0, 704.0)
 """The viewport the HUD's panel sizes were chosen against."""
@@ -192,6 +200,17 @@ class InteractiveDriveApplicationDefaults:
     of saying which model runs, and two answers to that has no sensible meaning.
     Whatever a factory needs beyond the scene is its own to close over, which is
     what the default does with the pipeline config.
+    """
+
+    token_stream_preparer: TokenStreamPreparer | None = None
+    """Provisions the client-side VAE decoder when ``--enable-token-stream`` is set.
+
+    Token streaming moves the VAE decode to the browser, which needs the exact
+    decoder the model generates with, exported to ONNX. An integration whose
+    latents are client-decodable supplies a preparer that exports (or reuses) it
+    and returns the session metadata the server advertises and serves; ``None``
+    leaves the stream carrying latents with no decoder descriptor. See
+    :class:`TokenStreamPreparer`.
     """
 
     parallel_context: ParallelContext | None = None
@@ -548,7 +567,7 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
         state.first_chunk = False
         state.blocks_generated += 1
         finished = self.is_finished()
-        if finished:
+        if finished and not state.desc.token_stream:
             chunk = replace(
                 chunk,
                 frames=(*chunk.frames, *state.backend.finish()),
@@ -566,32 +585,61 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
             if finished
             else _telemetry_status(state.vehicle, state.blocks_generated)
         )
-        results = []
-        for output in self._frame_chunk_tensors(chunk):
-            if output.shape[0]:
+        if state.desc.token_stream:
+            results = self._token_step_results(chunk, step_index, finalize_metrics)
+        else:
+            results = []
+            for output in self._frame_chunk_tensors(chunk):
+                if output.shape[0]:
+                    results.append(
+                        StepResult(
+                            step_index=step_index,
+                            output=output,
+                            frame_count=int(output.shape[0]),
+                            output_layout=state.desc.output_layout,
+                            metrics=finalize_metrics,
+                        )
+                    )
+            bev_output = self._bev_chunk_tensor(chunk)
+            if bev_output is not None:
                 results.append(
                     StepResult(
                         step_index=step_index,
-                        output=output,
-                        frame_count=int(output.shape[0]),
+                        output=bev_output,
+                        frame_count=int(bev_output.shape[0]),
                         output_layout=state.desc.output_layout,
                         metrics=finalize_metrics,
                     )
                 )
-        bev_output = self._bev_chunk_tensor(chunk)
-        if bev_output is not None:
-            results.append(
-                StepResult(
-                    step_index=step_index,
-                    output=bev_output,
-                    frame_count=int(bev_output.shape[0]),
-                    output_layout=state.desc.output_layout,
-                    metrics=finalize_metrics,
-                )
-            )
         model_loop_ms = (time.perf_counter() - step_started_at) * 1000.0
         state._publish_drive_telemetry(chunk, model_loop_ms)
         return results
+
+    def _token_step_results(
+        self,
+        chunk: FrameChunk,
+        step_index: int,
+        finalize_metrics: dict[str, float] | None,
+    ) -> list[StepResult]:
+        """One latent StepResult per step for the token-streaming path.
+
+        The backend produced a pre-decode latent ``[B, V, T, Cl, Hl, Wl]``;
+        ``frame_count`` is the latent frame count ``T`` the emitter streams.
+        """
+        latent = chunk.latent
+        if latent is None:
+            raise RuntimeError(
+                "token-stream mode expected a latent chunk from the backend, "
+                "but render produced none."
+            )
+        return [
+            StepResult.latent(
+                step_index=step_index,
+                output=latent,
+                frame_count=int(latent.shape[2]),
+                metrics=finalize_metrics,
+            )
+        ]
 
     def _frame_chunk_tensors(self, chunk: FrameChunk) -> list[Tensor]:
         """Return synchronized presentation channels for an emitted chunk."""
@@ -825,6 +873,9 @@ class _InteractiveDriveApplicationBase(IApplication):
         self._full_size_hud = defaults.full_size_hud
         self._parallel_context = defaults.parallel_context
         self._initial_session_video_size = (defaults.width, defaults.height)
+        self._pipeline_config = defaults.pipeline_config
+        self._token_stream_preparer = defaults.token_stream_preparer
+        self._token_stream_metadata: Mapping[str, Any] = {}
         self._backend_factory: BackendFactory = defaults.backend_factory or partial(
             _build_backend,
             pipeline_config=defaults.pipeline_config,
@@ -914,6 +965,14 @@ class _InteractiveDriveApplicationBase(IApplication):
             help="Disable the application UI and present model output directly.",
         )
         parser.add_argument(
+            "--enable-token-stream",
+            action="store_true",
+            help=(
+                "Stream pre-decode latent tokens to the client over WebSocket for "
+                "client-side VAE decode, instead of decoding to RGB on the server."
+            ),
+        )
+        parser.add_argument(
             "--game-mode",
             action="store_true",
             help=("Enable the vehicle speed limit and actor/static collisions."),
@@ -991,6 +1050,7 @@ class _InteractiveDriveApplicationBase(IApplication):
             postprocess=postprocess,
             bev=BevConfig(enabled=False),
             vehicle=VehicleConfig(),
+            enable_token_stream=args.enable_token_stream,
         )
         mesh = self._parallel_context
         self._config = InteractiveDriveConfig(
@@ -1026,6 +1086,32 @@ class _InteractiveDriveApplicationBase(IApplication):
             frames_per_second_for_step=app_config.chunk.fps,
             video_width=width,
             video_height=height,
+            token_stream=app_config.enable_token_stream,
+        )
+        self._maybe_prepare_token_stream(app_config)
+
+    def _maybe_prepare_token_stream(self, app_config: AppConfig) -> None:
+        """Export/reuse the client-side VAE decoder for a token-stream run.
+
+        Runs in the preparation phase (``init``) on rank zero only, before the
+        subclass builds the heavy backend, so an inability to provision the
+        decoder aborts the launch early rather than after loading the model.
+        Uses the raster dimensions the model generates at -- not the presented
+        session size, which a postprocess preset or a camera grid can inflate --
+        so the exported latent shape matches the frames on the wire.
+        """
+        if not app_config.enable_token_stream or self._token_stream_preparer is None:
+            return
+        mesh = self._parallel_context
+        if mesh is not None and not mesh.is_main:
+            return
+        self._token_stream_metadata = dict(
+            self._token_stream_preparer(
+                self._pipeline_config,
+                video_width=app_config.raster.width,
+                video_height=app_config.raster.height,
+                device=app_config.world_model_device,
+            )
         )
 
     def session_desc(self) -> SessionDesc:
@@ -1060,6 +1146,7 @@ def _build_backend(
         vehicle=config.vehicle,
         postprocess=config.postprocess,
         debug_condition_frame_dir=config.world_model_debug_condition_frame_dir,
+        token_mode=config.enable_token_stream,
     )
 
 

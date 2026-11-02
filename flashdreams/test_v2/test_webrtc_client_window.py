@@ -7,11 +7,13 @@
 
 import asyncio
 import concurrent.futures
+import gzip
 import json
 import threading
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, TypeVar, cast
 from unittest.mock import AsyncMock, Mock
 
@@ -156,6 +158,102 @@ async def test_file_upload_accepts_multiple_files() -> None:
         assert [chosen.data for chosen in event.files] == [b"one", b"two"]
     finally:
         await peer.close()
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_token_stream_asset_route_serves_published_keys_with_types(
+    tmp_path: Path,
+) -> None:
+    """The asset route serves a file only for a key the session published, with
+    the right Content-Type for the runtime files.
+
+    The matched path is a dict key, never joined onto a directory, so an unknown
+    path (including a traversal-shaped one) is simply absent and returns 404 --
+    no file the application did not publish is reachable. ``.wasm`` must be
+    ``application/wasm`` (else ``instantiateStreaming`` fails) and ``.mjs``
+    ``text/javascript`` (else the module load fails).
+    """
+    onnx = tmp_path / "taehv_decoder.fp32.onnx"
+    onnx.write_bytes(b"onnx-bytes")
+    wasm = tmp_path / "rt.wasm"
+    wasm_body = b"\x00asm\x01\x00\x00\x00" * 64
+    wasm.write_bytes(wasm_body)
+    # A pre-gzipped sibling, as ensure_ort_runtime writes alongside each file.
+    (tmp_path / "rt.wasm.gz").write_bytes(gzip.compress(wasm_body))
+    mjs = tmp_path / "rt.mjs"
+    mjs.write_bytes(b"export const ok = 1\n")
+    assets = {
+        "vae-model/deadbeef/fp32.onnx": str(onnx),
+        "ort/1.20.1/ort-wasm-simd-threaded.jsep.wasm": str(wasm),
+        "ort/1.20.1/ort-wasm-simd-threaded.jsep.mjs": str(mjs),
+    }
+    wasm_path = "api/token-stream/assets/ort/1.20.1/ort-wasm-simd-threaded.jsep.wasm"
+    window = WebRTCClientWindow()
+    window.open(replace(_session_desc(), metadata={"token_stream_assets": assets}))
+    try:
+        base = window.server.url
+        async with ClientSession() as client:
+            async with client.get(
+                f"{base}api/token-stream/assets/vae-model/deadbeef/fp32.onnx"
+            ) as ok:
+                assert ok.status == 200
+                assert await ok.read() == b"onnx-bytes"
+                # Versioned URLs are immutable, so they carry a long cache header.
+                assert "immutable" in ok.headers["Cache-Control"]
+            # WASM with a .gz sibling is served gzip-compressed, typed app/wasm.
+            async with client.get(
+                f"{base}{wasm_path}",
+                headers={"Accept-Encoding": "gzip"},
+                auto_decompress=False,
+            ) as served_wasm:
+                assert served_wasm.status == 200
+                assert served_wasm.headers["Content-Encoding"] == "gzip"
+                assert served_wasm.headers["Content-Type"] == "application/wasm"
+                assert gzip.decompress(await served_wasm.read()) == wasm_body
+            # A client that does not accept gzip gets the raw bytes.
+            async with client.get(
+                f"{base}{wasm_path}", headers={"Accept-Encoding": "identity"}
+            ) as raw_wasm:
+                assert raw_wasm.status == 200
+                assert "Content-Encoding" not in raw_wasm.headers
+                assert await raw_wasm.read() == wasm_body
+            # MJS has no .gz sibling: served raw, typed text/javascript.
+            async with client.get(
+                f"{base}api/token-stream/assets/"
+                "ort/1.20.1/ort-wasm-simd-threaded.jsep.mjs"
+            ) as served_mjs:
+                assert served_mjs.status == 200
+                assert served_mjs.headers["Content-Type"] == "text/javascript"
+            async with client.get(
+                f"{base}api/token-stream/assets/ort/1.20.1/absent.wasm"
+            ) as missing:
+                assert missing.status == 404
+    finally:
+        window.close()
+
+
+@pytest.mark.asyncio
+async def test_token_stream_modules_served_and_healthz_advertises_token_mode() -> None:
+    """The client ES modules are served as JavaScript and /healthz flags token mode."""
+    window = WebRTCClientWindow()
+    window.open(replace(_session_desc(), token_stream=True))
+    try:
+        base = window.server.url
+        async with ClientSession() as client:
+            async with client.get(f"{base}healthz") as health:
+                assert (await health.json())["token_stream"] is True
+            async with client.get(f"{base}token_stream/framing.js") as framing:
+                assert framing.status == 200
+                assert framing.headers["Content-Type"].startswith("text/javascript")
+                assert "parseHeader" in await framing.text()
+            # A nested module resolves through the same route.
+            async with client.get(f"{base}token_stream/codec/registry.js") as nested:
+                assert nested.status == 200
+            # An unknown module is a 404, not a server error.
+            async with client.get(f"{base}token_stream/does-not-exist.js") as missing:
+                assert missing.status == 404
+    finally:
         window.close()
 
 
@@ -752,6 +850,7 @@ async def test_window_buffers_browser_events_until_drained() -> None:
                     "client_connected": False,
                     "hide_cursor": False,
                     "lock_cursor_to_window": False,
+                    "token_stream": False,
                 }
             async with client.get(window.server.url) as response:
                 browser_page = await response.text()

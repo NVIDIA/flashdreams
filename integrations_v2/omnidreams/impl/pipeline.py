@@ -468,8 +468,9 @@ class OmnidreamsPipeline(
         autoregressive_index: int,
         cache: OmnidreamsPipelineCache,
         input: Tensor,
+        decode_output: bool = True,
     ) -> Tensor:
-        """Generate one decoded video chunk.
+        """Generate one decoded video chunk, or the pre-decode latent.
 
         Args:
             autoregressive_index: AR step index (0-based).
@@ -477,9 +478,15 @@ class OmnidreamsPipeline(
             input: Per-AR-step control pixels ``[B, V, T, 3, H, W]`` in
                 ``[-1, 1]``. ``T`` must equal
                 ``get_num_output_frames(autoregressive_index)``.
+            decode_output: When ``False``, skip the VAE decoder and return the
+                clean latent ``[B, V, T, Cl, Hl, Wl]`` instead of pixels, for
+                the token-streaming path. The view dimension is gathered across
+                context-parallel ranks either way.
 
         Returns:
-            Decoded video chunk ``[B, V, T, 3, H, W]`` in ``[-1, 1]``.
+            Decoded video chunk ``[B, V, T, 3, H, W]`` in ``[-1, 1]`` when
+            ``decode_output`` is set, otherwise the clean latent
+            ``[B, V, T, Cl, Hl, Wl]``.
         """
         input = split_inputs_cp(input, seq_dim=1, cp_group=self.V_group)
 
@@ -487,6 +494,7 @@ class OmnidreamsPipeline(
             autoregressive_index=autoregressive_index,
             cache=cache,
             input=input,
+            decode_output=decode_output,
         )
 
         output = cat_outputs_cp(output, seq_dim=1, cp_group=self.V_group)

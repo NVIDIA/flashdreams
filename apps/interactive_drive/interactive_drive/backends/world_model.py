@@ -51,8 +51,10 @@ class WorldModelRenderBackend(RenderBackend):
         vehicle: VehicleConfig | None = None,
         postprocess: VideoPostprocessChainConfig | None = None,
         debug_condition_frame_dir: Path | None = None,
+        token_mode: bool = False,
     ) -> None:
         super().__init__(chunk=chunk, raster=raster)
+        self._token_mode = token_mode
         self._debug_condition_frame_dir = debug_condition_frame_dir
         vehicle = vehicle or VehicleConfig()
         self._rasterizer = LudusConditionRasterizer(
@@ -187,6 +189,14 @@ class WorldModelRenderBackend(RenderBackend):
                 f"dir={self._debug_condition_frame_dir}",
             )
         _log_prompt_handoff("first_chunk.start", scene)
+        if self._token_mode:
+            latent = self._start_pipeline_latent(
+                scene.initial_rgbs, condition_views, scene.prompt
+            )
+            model_end = time.perf_counter()
+            return self._latent_frame_chunk(
+                latent, trajectory, chunk_start, raster_end, model_end
+            )
         model_views = self._start_pipeline(
             scene.initial_rgbs, condition_views, scene.prompt
         )
@@ -230,6 +240,13 @@ class WorldModelRenderBackend(RenderBackend):
         )
         raster_end = time.perf_counter()
         condition_views = _condition_views(raster_chunk.frames)
+        if self._token_mode:
+            latent = self._continue_pipeline_latent(condition_views)
+            model_end = time.perf_counter()
+            self._next_chunk_count += 1
+            return self._latent_frame_chunk(
+                latent, trajectory, chunk_start, raster_end, model_end
+            )
         model_views = self._continue_pipeline(condition_views)
         model_end = time.perf_counter()
         merged_frames = self._merge_frames(raster_chunk.frames, model_views)
@@ -341,6 +358,41 @@ class WorldModelRenderBackend(RenderBackend):
         self._cache = self._initialize_cache(initial_rgbs, prompt)
         return self._step_pipeline(condition_views)
 
+    def _start_pipeline_latent(
+        self,
+        initial_rgbs: Sequence[object],
+        condition_views: Sequence[Sequence[object]],
+        prompt: str,
+    ) -> torch.Tensor:
+        """First-chunk token path: initialize the cache, return the latent."""
+        self._clear_pipeline(finalize_pending=False)
+        self._cache = self._initialize_cache(initial_rgbs, prompt)
+        return self._step_pipeline_latent(condition_views)
+
+    def _latent_frame_chunk(
+        self,
+        latent: torch.Tensor,
+        trajectory: TrajectoryChunk,
+        chunk_start: float,
+        raster_end: float,
+        model_end: float,
+    ) -> FrameChunk:
+        """Package a token-mode latent chunk: no RGB frames, no merge."""
+        return FrameChunk(
+            frames=(),
+            latent=latent,
+            boundary_state_after_chunk=trajectory.boundary_state_after_chunk,
+            source_name="world_model",
+            video_model_timings=VideoModelTimings(
+                condition_start_time=chunk_start,
+                condition_ready_time=raster_end,
+                model_start_time=raster_end,
+                model_ready_time=model_end,
+                merge_start_time=model_end,
+                merge_ready_time=model_end,
+            ),
+        )
+
     def _continue_pipeline(
         self, condition_views: Sequence[Sequence[object]]
     ) -> list[list[LazyCudaFrame]]:
@@ -350,9 +402,25 @@ class WorldModelRenderBackend(RenderBackend):
             )
         return self._step_pipeline(condition_views)
 
-    def _step_pipeline(
+    def _continue_pipeline_latent(
         self, condition_views: Sequence[Sequence[object]]
-    ) -> list[list[LazyCudaFrame]]:
+    ) -> torch.Tensor:
+        """Steady-state token path: return the pre-decode latent for the chunk."""
+        if self._cache is None:
+            raise RuntimeError(
+                "render_first_chunk() must run before render_next_chunk()."
+            )
+        return self._step_pipeline_latent(condition_views)
+
+    def _prepare_step(
+        self, condition_views: Sequence[Sequence[object]]
+    ) -> tuple[int, Any]:
+        """Finalize the previous step and validate the chunk.
+
+        Returns the AR step index and the (non-``None``) pipeline cache, shared
+        by the pixel (:meth:`_step_pipeline`) and latent
+        (:meth:`_step_pipeline_latent`) step paths.
+        """
         if self._cache is None:
             raise RuntimeError("The stream pipeline cache has not been initialized.")
         self._finalize_pending()
@@ -372,11 +440,16 @@ class WorldModelRenderBackend(RenderBackend):
                     "Condition chunk length does not match the demo chunk size: "
                     f"{len(frames)} vs {expected_frames} for view {view_name!r}."
                 )
-        step_index = self._step_index
+        return self._step_index, self._cache
+
+    def _step_pipeline(
+        self, condition_views: Sequence[Sequence[object]]
+    ) -> list[list[LazyCudaFrame]]:
+        step_index, cache = self._prepare_step(condition_views)
         with torch.cuda.device(self._pipeline.device):
             video_chunk = self._pipeline.generate(
                 autoregressive_index=step_index,
-                cache=self._cache,
+                cache=cache,
                 input=self._condition_tensor(condition_views),
             )
         self._pending_finalization_index = step_index
@@ -390,6 +463,26 @@ class WorldModelRenderBackend(RenderBackend):
         )
         self._step_index += 1
         return _model_view_frames(output.detach())
+
+    def _step_pipeline_latent(
+        self, condition_views: Sequence[Sequence[object]]
+    ) -> torch.Tensor:
+        """Run one step for the token path, returning the pre-decode latent.
+
+        Skips the VAE decode and post-processing; the client decodes the latent
+        ``[B, V, T, Cl, Hl, Wl]`` itself.
+        """
+        step_index, cache = self._prepare_step(condition_views)
+        with torch.cuda.device(self._pipeline.device):
+            latent = self._pipeline.generate(
+                autoregressive_index=step_index,
+                cache=cache,
+                input=self._condition_tensor(condition_views),
+                decode_output=False,
+            )
+        self._pending_finalization_index = step_index
+        self._step_index += 1
+        return latent
 
     def _initialize_cache(self, initial_rgbs: Sequence[object], prompt: str) -> Any:
         with torch.cuda.device(self._pipeline.device):

@@ -785,6 +785,16 @@ class IUILoop(ILoop[StateT], ABC):
         """Return whether another model frame is ready to present."""
         return self._presentation_manager.has_pending_frames()
 
+    @final
+    def presented_latent_result(self) -> StepResult | None:
+        """Return the current presented latent chunk's result, if any.
+
+        The token-stream UI loop reads this instead of
+        :meth:`presented_model_frames`, which composites RGB. Returns ``None``
+        on a normal RGB session or before the first latent chunk is presented.
+        """
+        return self._presentation_manager.presented_latent_result()
+
 
 def _parse_lifecycle_events(
     events: list[UserInputEvent],

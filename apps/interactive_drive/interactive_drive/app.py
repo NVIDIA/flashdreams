@@ -413,7 +413,10 @@ class InteractiveDriveSession(ISession):
             postprocess_enabled=self._config.app.postprocess.is_enabled(),
         )
         model_loop = self.register_model_loop(self.model_loop_type, state=model_state)
-        if self._config.no_ui:
+        if self._config.no_ui or self._config.app.enable_token_stream:
+            # Token streaming has no composited HUD (the client decodes latents),
+            # so, like --no-ui, it registers no app UI loop; the runtime selects
+            # the token UI loop from SessionDesc.token_stream.
             return
         ui_loop = self.register_ui_loop(
             self.ui_loop_type,
@@ -548,6 +551,16 @@ class InteractiveDriveApplication(_InteractiveDriveApplicationBase):
             raise RuntimeError("init() must start backend preparation.")
         if session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("Interactive Drive requires tchw output.")
+        # The runtime reads session_desc() before init() parses this
+        # application's own arguments, so --enable-token-stream and the decoder
+        # metadata prepared in init() are re-applied here, after init, where the
+        # resolved config is known. Merge (not overwrite) metadata so reserved
+        # runtime keys survive.
+        session_desc = replace(
+            session_desc,
+            token_stream=self._config.app.enable_token_stream,
+            metadata={**session_desc.metadata, **self._token_stream_metadata},
+        )
         if (
             session_desc.video_width,
             session_desc.video_height,

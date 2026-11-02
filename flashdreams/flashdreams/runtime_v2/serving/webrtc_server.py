@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import os
 import secrets
 import socket
 import threading
@@ -37,6 +38,17 @@ from flashdreams.runtime_v2.selected_file import (
     selected_file_suffix_allowed,
     selected_files_policy_status,
 )
+from flashdreams.runtime_v2.serving.token_stream import (
+    RawFloat16TokenCodecConfig,
+    TokenFrameEmitter,
+)
+from flashdreams.runtime_v2.serving.token_stream.config import (
+    ASSET_CACHE_CONTROL,
+    ASSET_CONTENT_TYPES,
+    ASSET_METADATA_KEY,
+    ASSET_URL_PREFIX,
+    EXTRA_HEADER_METADATA_KEY,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -61,6 +73,18 @@ _BROWSER_SCRIPT = _WEB_RESOURCES.joinpath("app.js").read_text(encoding="utf-8")
 
 _INTERACTIVE_FRAME_QUEUE_SIZE = 2
 """Send-ready frames retained while the media sender is temporarily busy."""
+
+_TOKEN_FLOW_WINDOW = 4
+"""Latent chunks in flight to a token client before the ack window blocks."""
+
+_TOKEN_ATTACH_POLL_SECONDS = 0.5
+"""How long a latent write waits for a client to attach before rechecking close."""
+
+_TOKEN_EMIT_POLL_SECONDS = 0.5
+"""How long a latent write waits on the emit (ack window) before rechecking close."""
+
+_TOKEN_ACK_MESSAGE_TYPE = "token_frame_ack"
+"""Client -> server message type acknowledging one latent chunk."""
 
 _TRANSFER_STREAM_PRIORITY = -1
 """Portable high-priority CUDA stream request for interactive output copies."""
@@ -392,6 +416,14 @@ class WebRTCServer:
         self._materialization_count = 0
         self._closed = False
         self._client_connected = False
+        # Token streaming (--enable-token-stream): one latent WebSocket at a time,
+        # driven from the UI thread via the serving loop.
+        self._token_emitter: TokenFrameEmitter | None = None
+        self._token_emitter_ready = threading.Event()
+        self._token_lock = threading.Lock()
+        self._token_chunk_counter = 0
+        self._token_epoch = 0
+        self._token_last_step_index: int | None = None
         self._hide_cursor = False
         self._lock_cursor_to_window = False
         # Upload tokens, touched only on the event loop once it runs.
@@ -782,6 +814,9 @@ class WebRTCServer:
         window_size = self._window_size
         if session_desc is None or window_size is None:
             raise RuntimeError("Open the WebRTC server before writing.")
+        if result.is_latent:
+            self._emit_latent_chunk(result)
+            return
         frames = _validated_result_frames(
             result,
             session_desc,
@@ -800,6 +835,122 @@ class WebRTCServer:
             window_size,
         )
         track.enqueue(queued_frame)
+
+    def _emit_latent_chunk(self, result: StepResult) -> None:
+        """Stream one pre-decode latent chunk to the attached token client.
+
+        Called on the UI thread. Blocks until a client is attached, so the first
+        chunk a browser receives is AR step 0 (the one-chunk presentation queue
+        holds the model at AR 0 until a client connects). The latent is moved to
+        the host here, where its producer stream is already synced, then handed
+        to the serving loop's emitter, waiting on the ack window for
+        backpressure. Every wait is bounded by ``self._closed`` so a close() on
+        this same thread is never wedged.
+
+        ponytail: a reconnect mid-rollout gives the new client a cold decoder
+        cache at a non-zero AR step; a full fix resets the rollout on (re)attach
+        so the client always starts at AR 0.
+        """
+        emitter = self._wait_for_token_emitter()
+        if emitter is None:
+            return
+        last = self._token_last_step_index
+        if last is not None and result.step_index <= last:
+            # A reset restarted the AR index: bump the epoch so the client
+            # flushes its decoder cache and decodes the new rollout from scratch.
+            self._token_epoch += 1
+        self._token_last_step_index = result.step_index
+        chunk_id = self._token_chunk_counter
+        self._token_chunk_counter += 1
+        latent = result.read_output().detach().cpu()
+        loop = self._loop
+        if loop is None:
+            return
+        future = asyncio.run_coroutine_threadsafe(
+            emitter.emit_chunk(latent, chunk_index=chunk_id, epoch=self._token_epoch),
+            loop,
+        )
+        while not self._closed:
+            try:
+                future.result(timeout=_TOKEN_EMIT_POLL_SECONDS)
+                return
+            except TimeoutError:
+                continue
+            except (ConnectionError, RuntimeError) as error:
+                # The token client went away mid-send; stop streaming to it rather
+                # than crashing the model/UI loop. A reconnect attaches a new emitter.
+                logger.info("token emit aborted (client gone): {}", error)
+                return
+        future.cancel()
+
+    def _wait_for_token_emitter(self) -> TokenFrameEmitter | None:
+        """Block until a token client attaches; ``None`` if the server closes."""
+        while not self._closed:
+            if self._token_emitter_ready.wait(timeout=_TOKEN_ATTACH_POLL_SECONDS):
+                with self._token_lock:
+                    emitter = self._token_emitter
+                if emitter is not None:
+                    return emitter
+        return None
+
+    async def _token_stream_ws(self, request: web.Request) -> web.WebSocketResponse:
+        """Serve the latent token stream to one browser client over a WebSocket."""
+        if self._closed:
+            raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
+        session_desc = self._session_desc
+        if session_desc is None or not session_desc.token_stream:
+            raise web.HTTPNotFound(
+                reason="Token streaming is not enabled for this session."
+            )
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        emitter = TokenFrameEmitter(
+            ws,
+            codec=RawFloat16TokenCodecConfig().setup(),
+            # Per-frame display rate (the video-track cadence) -- the client paces
+            # decoded frames at this rate, so it is the display fps, not the model
+            # step/chunk rate frames_per_second_for_step.
+            fps=session_desc.frames_per_second_for_ui,
+            flow_window_size=_TOKEN_FLOW_WINDOW,
+            extra_header=session_desc.metadata.get(EXTRA_HEADER_METADATA_KEY),
+        )
+        with self._token_lock:
+            # One token client at a time; a new connection replaces the old.
+            previous = self._token_emitter
+            self._token_emitter = emitter
+            self._token_emitter_ready.set()
+        if previous is not None:
+            previous.close()
+        try:
+            async for message in ws:
+                if message.type == web.WSMsgType.TEXT:
+                    self._handle_token_ack(emitter, message.data)
+                elif message.type == web.WSMsgType.ERROR:
+                    break
+        finally:
+            with self._token_lock:
+                if self._token_emitter is emitter:
+                    self._token_emitter = None
+                    self._token_emitter_ready.clear()
+            emitter.close()
+        return ws
+
+    def _handle_token_ack(self, emitter: TokenFrameEmitter, data: object) -> None:
+        """Route one ``token_frame_ack`` message to the emitter's flow control."""
+        if not isinstance(data, str):
+            return
+        try:
+            message = json.loads(data)
+        except (ValueError, TypeError):
+            return
+        if (
+            not isinstance(message, dict)
+            or message.get("type") != _TOKEN_ACK_MESSAGE_TYPE
+        ):
+            return
+        chunk_id = message.get("chunk_id")
+        if isinstance(chunk_id, int) and not isinstance(chunk_id, bool):
+            emitter.handle_ack(chunk_id)
 
     def close(self) -> None:
         """Close the peer connection and stop the WebRTC server."""
@@ -935,8 +1086,13 @@ class WebRTCServer:
         app = web.Application()
         app.router.add_get("/", self._serve_browser)
         app.router.add_get("/app.js", self._serve_browser_script)
+        app.router.add_get("/token_stream/{path:.+}", self._serve_token_stream_module)
         app.router.add_get("/healthz", self._health)
         app.router.add_post("/api/webrtc/offer", self._offer)
+        app.router.add_get("/api/token-stream", self._token_stream_ws)
+        app.router.add_get(
+            ASSET_URL_PREFIX + "/{path:.+}", self._serve_token_stream_asset
+        )
         app.router.add_post("/api/files", self._upload_selected_file)
         runner = web.AppRunner(app)
         await runner.setup()
@@ -964,6 +1120,59 @@ class WebRTCServer:
         """Return the browser client's JavaScript."""
         return web.Response(text=_BROWSER_SCRIPT, content_type="text/javascript")
 
+    async def _serve_token_stream_module(self, request: web.Request) -> web.Response:
+        """Serve one token-stream client ES module from the packaged web dir.
+
+        The browser dynamically imports these when the server advertises token
+        mode. The matched path is split into plain segments and rejoined under
+        the web-resources root; empty / "." / ".." segments are refused, so the
+        route cannot read outside the token_stream module tree.
+        """
+        segments = request.match_info["path"].split("/")
+        if any(segment in ("", ".", "..") for segment in segments):
+            raise web.HTTPNotFound()
+        resource = _WEB_RESOURCES.joinpath("token_stream", *segments)
+        try:
+            source = resource.read_text(encoding="utf-8")
+        except (FileNotFoundError, IsADirectoryError, OSError):
+            raise web.HTTPNotFound() from None
+        return web.Response(text=source, content_type="text/javascript")
+
+    async def _serve_token_stream_asset(
+        self, request: web.Request
+    ) -> web.StreamResponse:
+        """Serve one per-session token-stream asset (the client-side VAE-decoder
+        ONNX, later the onnxruntime-web dist) by exact path.
+
+        The matched path is a key into the session's published asset map, never
+        joined onto a directory, so only a file the application explicitly
+        published is reachable -- there is no path-traversal surface.
+        """
+        session_desc = self._session_desc
+        if session_desc is None:
+            raise web.HTTPNotFound()
+        assets = session_desc.metadata.get(ASSET_METADATA_KEY) or {}
+        local = assets.get(request.match_info["path"])
+        if local is None:
+            raise web.HTTPNotFound()
+        # The URL is version-stamped, so its bytes never change: cache forever.
+        headers = {"Cache-Control": ASSET_CACHE_CONTROL}
+        # Set a correct type for assets the stdlib mimetypes table serves wrong
+        # (.wasm/.mjs/.js); also required to label a pre-gzipped .gz sibling.
+        suffix = local[local.rfind(".") :] if "." in local else ""
+        content_type = ASSET_CONTENT_TYPES.get(suffix)
+        if content_type:
+            headers["Content-Type"] = content_type
+        # Serve the pre-gzipped sibling when the client accepts it: a same-origin
+        # host has no CDN compression, and the ORT wasm is ~22 MB raw.
+        gzipped = f"{local}.gz"
+        if "gzip" in request.headers.get("Accept-Encoding", "") and os.path.exists(
+            gzipped
+        ):
+            headers["Content-Encoding"] = "gzip"
+            return web.FileResponse(gzipped, headers=headers)
+        return web.FileResponse(local, headers=headers)
+
     async def _health(self, _: web.Request) -> web.Response:
         """Report whether the server has an open session and client."""
         return web.json_response(
@@ -972,6 +1181,9 @@ class WebRTCServer:
                 "client_connected": self._client_connected,
                 "hide_cursor": self._hide_cursor,
                 "lock_cursor_to_window": self._lock_cursor_to_window,
+                "token_stream": (
+                    self._session_desc is not None and self._session_desc.token_stream
+                ),
             }
         )
 
