@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 import build_backend
 
-
 if __name__ == "__main__":
     for platform in ("win32", "linux"):
         for hook in (
