@@ -72,12 +72,11 @@ class WebmClientWindow(IClientWindow):
 
     def open(self, session_desc: SessionDesc) -> None:
         """Configure recording; an empty run creates no file."""
-        if self._session_desc is not None:
-            raise RuntimeError("WebmClientWindow is already open.")
         fps = session_desc.frames_per_second_for_step
         if not math.isfinite(fps) or not 0 < fps <= 240:
             raise ValueError("WebM frame rate must be finite and in (0, 240].")
         self._validate_size((session_desc.video_width, session_desc.video_height))
+        self.close()
         self._session_desc = session_desc
         self._canvas_size = (session_desc.video_width, session_desc.video_height)
         self._presentation_size = self._canvas_size
