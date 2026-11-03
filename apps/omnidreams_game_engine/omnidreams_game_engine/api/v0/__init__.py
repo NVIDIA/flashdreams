@@ -1,17 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""External-engine API, version 0.
-
-Every name exported here is stable within version 0 (``api/STABILITY.md``).
-It combines the existing in-process engine contract (the rollout, the engine
-step and the scene, trajectory and command types, re-exported unchanged) with
-the external-engine layer: the wire messages and framing (``PROTOCOL.md``),
-the tick and chunk timeline, decoded engine state, chunk assembly, the
-``RolloutEngine`` for an external engine, the host-side session driver, the
-TCP link, and the packet recorder and replay. The stub engine is in
-:mod:`omnidreams_game_engine.api.v0.stub_engine`.
-"""
+"""Game-engine API version 0: the in-process contract and the external-engine layer."""
 
 from __future__ import annotations
 

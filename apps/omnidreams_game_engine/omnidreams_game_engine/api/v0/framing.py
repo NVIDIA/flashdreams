@@ -135,12 +135,10 @@ def send_message(
 
 
 __all__ = [
-    "HEADER_LENGTH",
     "MAX_HEADER_BYTES",
     "MAX_PAYLOAD_BYTES",
     "FramingError",
     "MessageDecoder",
-    "decode_header",
     "encode_message",
     "recv_message",
     "send_message",

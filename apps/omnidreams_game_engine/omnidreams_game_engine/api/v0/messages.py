@@ -1,14 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Message types of the external-engine protocol, version 0.
-
-Each message is a dataclass whose fields are the JSON header keys. Unknown
-header keys are kept in ``extra`` and written back unchanged, so a receiver
-never drops fields a newer sender adds. ``PROTOCOL.md`` beside this module is
-the wire specification; ``schema.json`` is generated from these classes by
-:func:`json_schema`. The module imports neither torch nor a renderer.
-"""
+"""Message types of the external-engine protocol ``omnidreams-engine/0``."""
 
 from __future__ import annotations
 

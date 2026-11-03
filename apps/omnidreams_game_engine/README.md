@@ -30,13 +30,9 @@ owns the model and UI loops, threads, client windows, and presentation.
 ## Versioned API and external engines
 
 `omnidreams_game_engine.api.v0` is the versioned public API: the contract
-above (re-exported unchanged) plus the external-engine layer, which connects a
-game engine running outside FlashDreams, such as an Unreal build, through the
-same `WorldModelRollout`. It defines the wire protocol, a TCP link, the
-host-side session flow, a packet recorder with replay, and a stub engine. Its
-names are stable within version 0. See the [API README](omnidreams_game_engine/api/README.md),
-the [protocol](omnidreams_game_engine/api/v0/PROTOCOL.md) and the
-[stability rule](omnidreams_game_engine/api/STABILITY.md).
+above, re-exported unchanged, and a layer that connects a game engine running
+outside FlashDreams through the same `WorldModelRollout`. See
+[External game engines](https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/external_engine/).
 
 ## Shared implementation
 

@@ -184,7 +184,7 @@ class StubScript:
     silent_s: float = 0.0
     """Stop reading and answering for ``silent_s`` once at this tick."""
     views_at_ticks: tuple[tuple[int, tuple[str, ...]], ...] = ()
-    """Send ``views`` with these host views at these ticks (API 0.2)."""
+    """Send ``views`` with these host views at these ticks (after the start tick)."""
 
 
 @dataclass(slots=True)

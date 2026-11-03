@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU tests for ticks, frames and chunks (PROTOCOL.md, worked example)."""
+"""CPU tests for ticks, frames and chunks (the protocol's worked example)."""
 
 from __future__ import annotations
 

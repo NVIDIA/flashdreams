@@ -1,14 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU stand-ins for tests and for engine development without a GPU.
-
-:class:`FakePipeline` has the pipeline methods ``WorldModelRollout`` calls
-and returns the condition as the "generated" video; :class:`PoseConditionRenderer`
-fills each condition frame from its pose. With :class:`SeedSceneProvider`
-they let an external engine run the whole protocol against a host on any
-machine. Not part of the stable API (see ``api/STABILITY.md``).
-"""
+"""CPU stand-ins for tests and for engine development without a GPU."""
 
 from __future__ import annotations
 
