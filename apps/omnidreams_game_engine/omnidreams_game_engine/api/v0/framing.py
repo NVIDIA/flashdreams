@@ -39,9 +39,13 @@ def encode_message(header: Mapping[str, Any], payload: bytes = b"") -> bytes:
         raise FramingError(f"Payload of {len(payload)} bytes exceeds the limit")
     body = dict(header)
     body["bytes"] = len(payload)
-    data = json.dumps(
-        body, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    ).encode("utf-8")
+    try:
+        text = json.dumps(
+            body, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        )
+    except (TypeError, ValueError) as error:
+        raise FramingError(f"Unencodable header: {error}") from error
+    data = text.encode("utf-8")
     if len(data) > MAX_HEADER_BYTES:
         raise FramingError(f"Header of {len(data)} bytes exceeds the limit")
     return HEADER_LENGTH.pack(len(data)) + data + bytes(payload)

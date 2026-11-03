@@ -8,9 +8,11 @@ through the same :class:`~.external.EngineSource` interface as the live link.
 A message is delivered once the replaying host has sent as many messages as
 the live host had when it consumed the message (``host_sends`` in the log):
 a seed after its ``seed_req``, a frame after its grant, a restart or an end
-between the same chunks. The host's behavior depends only on what it has
-received, so the replay generates the same chunks of the same epochs. What the host sends is
-kept in :attr:`PacketLogSource.sent` for comparison with the recording.
+between the same chunks. The driver reacts only to what it receives, so the
+replay generates the same chunks of the same epochs; a log with a
+host-initiated restart (``request_refresh``) is refused, because a replay
+cannot reproduce it. What the host sends is kept in
+:attr:`PacketLogSource.sent` for comparison with the recording.
 """
 
 from __future__ import annotations
@@ -39,6 +41,11 @@ class PacketLogSource(MessageEngineSource):
     ) -> None:
         super().__init__(decoder, recorder=recorder)
         self.log = log if isinstance(log, PacketLogReader) else PacketLogReader(log)
+        if any(record.header.get("type") == "restart" for record in self.log.sent()):
+            raise ValueError(
+                f"{self.log.directory} has a host-initiated restart "
+                "(request_refresh), which a replay cannot reproduce"
+            )
         self._pending = deque(self.log.received())
         self.sent: list[tuple[dict[str, Any], int]] = []
         """Every header the host sent, with its payload length."""

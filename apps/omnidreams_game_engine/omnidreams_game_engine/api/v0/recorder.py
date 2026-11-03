@@ -15,6 +15,7 @@ replay reproduces the session's chunks and epochs exactly.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from collections.abc import Iterator, Mapping
@@ -23,6 +24,8 @@ from pathlib import Path
 from typing import Any
 
 from omnidreams_game_engine.api.v0.messages import PROTOCOL
+
+_LOGGER = logging.getLogger(__name__)
 
 RX = "rx"
 """Engine to host."""
@@ -53,7 +56,11 @@ class PacketRecorder:
         self.directory.mkdir(parents=True, exist_ok=True)
         self.record_tx_payloads = record_tx_payloads
         self._lock = threading.Lock()
-        self._index = (self.directory / INDEX_NAME).open("w", encoding="utf-8")
+        # Line-buffered, and each payload is flushed before the line that points
+        # into it, so a host that exits without close() leaves a readable log.
+        self._index = (self.directory / INDEX_NAME).open(
+            "w", encoding="utf-8", buffering=1
+        )
         self._payloads = (self.directory / PAYLOAD_NAME).open("wb")
         self._offset = 0
         self._seq = 0
@@ -92,6 +99,7 @@ class PacketRecorder:
             length = 0
             if payload and keep_payload:
                 self._payloads.write(payload)
+                self._payloads.flush()
                 length = len(payload)
                 self._offset += length
             record: dict[str, Any] = {
@@ -154,7 +162,14 @@ class PacketLogReader:
         if meta.get("kind") != "meta" or meta.get("format") != LOG_FORMAT:
             raise ValueError(f"{index} is not a {LOG_FORMAT} packet log")
         self.meta: dict[str, Any] = meta
-        self._lines = [json.loads(line) for line in lines[1:] if line.strip()]
+        self._lines: list[dict[str, Any]] = []
+        for number, line in enumerate(lines[1:], start=2):
+            try:
+                self._lines.append(json.loads(line))
+            except json.JSONDecodeError:
+                if number < len(lines):
+                    raise
+                _LOGGER.warning("%s: skipped the unfinished last line", index)
         payload_path = self.directory / PAYLOAD_NAME
         self._payloads = payload_path.read_bytes() if payload_path.exists() else b""
 

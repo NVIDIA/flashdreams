@@ -10,10 +10,12 @@ ExternalEngineSession, WorldModelRollout) with a CPU pipeline and renderer.
 from __future__ import annotations
 
 import socket
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from typing import Any
 
 import pytest
 from omnidreams_game_engine.api import v0
@@ -53,14 +55,8 @@ class Host:
 
 
 @contextmanager
-def _host(ping_interval_s: float = 0.5, silence_s: float = 10.0) -> Iterator[Host]:
-    link = v0.TcpEngineLink(
-        v0.FluStateCodec(),
-        host="127.0.0.1",
-        port=0,
-        ping_interval_s=ping_interval_s,
-        silence_s=silence_s,
-    )
+def _host(**link_options: Any) -> Iterator[Host]:
+    link = v0.TcpEngineLink(v0.FluStateCodec(), port=0, **link_options)
     pipeline = FakePipeline()
     driver = v0.ExternalSessionDriver(
         source=link,
@@ -204,6 +200,12 @@ def test_the_link_listens_on_loopback_by_default() -> None:
         link.close()
 
 
+def _connect(host: Host) -> socket.socket:
+    sock = socket.create_connection(host.link.address, timeout=5.0)
+    sock.settimeout(5.0)
+    return sock
+
+
 def _raw_hello(address: tuple[str, int], **fields: object) -> dict[str, object]:
     with socket.create_connection(address, timeout=5.0) as sock:
         sock.settimeout(5.0)
@@ -212,9 +214,18 @@ def _raw_hello(address: tuple[str, int], **fields: object) -> dict[str, object]:
         return header
 
 
+def _read_to_eof(sock: socket.socket) -> None:
+    while sock.recv(1 << 16):
+        pass
+
+
 def test_wrong_version_state_format_and_a_second_engine_are_refused() -> None:
     with _host() as host:
         address = host.link.address
+        with socket.create_connection(address, timeout=5.0) as sock:
+            sock.settimeout(5.0)
+            framing.send_message(sock, {"type": "start", "tick": 0})
+            assert framing.recv_message(sock)[0]["code"] == "protocol"
         assert _raw_hello(address, api="omnidreams-engine/1")["code"] == "version"
         assert _raw_hello(address)["code"] == "version"  # a hello without api
         refused = _raw_hello(address, api=v0.PROTOCOL, state_format="other/6")
@@ -225,7 +236,74 @@ def test_wrong_version_state_format_and_a_second_engine_are_refused() -> None:
             )
             busy = _raw_hello(address, api=v0.PROTOCOL, session="another-engine")
             assert busy["type"] == "error" and busy["code"] == "busy"
-        assert host.link.refusals == ["version", "version", "state_format", "busy"]
+        assert host.link.refusals == [
+            "protocol",
+            "version",
+            "version",
+            "state_format",
+            "busy",
+        ]
+
+
+def test_a_timing_refusal_closes_the_connection() -> None:
+    # No pings, so only the refusal can end the connection.
+    with _host(ping_interval_s=60.0) as host:
+        with _connect(host) as sock:
+            hello = {
+                "type": "hello",
+                "session": "raw",
+                "api": v0.PROTOCOL,
+                "sim_hz": 50,
+            }
+            framing.send_message(sock, hello)
+            host.run(lambda: host.link.refusals == ["timing"])
+            assert framing.recv_message(sock)[0]["code"] == "timing"
+            _read_to_eof(sock)
+        with _stub(host, StubScript()) as stub:
+            host.run(lambda: stub.summary.seeds != [])
+        assert stub.summary.errors == []
+
+
+def test_the_same_session_replaces_its_open_connection() -> None:
+    hello = {"type": "hello", "session": "s", "api": v0.PROTOCOL}
+    with _host() as host, _connect(host) as first, _connect(host) as second:
+        framing.send_message(first, hello)
+        host.run(lambda: host.driver.stats.connects == 1)
+        assert framing.recv_message(first)[0]["type"] == "config"
+        framing.send_message(second, hello)
+        host.run(lambda: host.driver.stats.connects == 2)
+        assert framing.recv_message(second)[0]["type"] == "config"
+        _read_to_eof(first)
+        host.run(lambda: True)
+        assert host.link.connects == 2
+        assert host.driver.stats.lost_reasons == []
+        assert host.driver.state == IDLE
+
+
+def test_a_hello_after_close_is_not_accepted() -> None:
+    link = v0.TcpEngineLink(v0.FluStateCodec(), port=0)
+    with socket.create_connection(link.address, timeout=5.0) as sock:
+        sock.settimeout(5.0)
+        deadline = time.monotonic() + 5.0
+        while not any(t.name == "engine-link-reader" for t in threading.enumerate()):
+            assert time.monotonic() < deadline, "the link did not accept"
+            time.sleep(0.01)
+        link.close()
+        framing.send_message(
+            sock, {"type": "hello", "session": "s", "api": v0.PROTOCOL}
+        )
+        _read_to_eof(sock)
+
+
+def test_a_status_that_cannot_be_encoded_is_skipped() -> None:
+    statuses = iter([{"x": float("nan")}])
+    options = {"ping_interval_s": 0.02, "status_interval_s": 0.02}
+    with (
+        _host(status_provider=lambda: next(statuses, {"x": 1}), **options) as host,
+        _stub(host, StubScript(realtime=True)) as stub,
+    ):
+        host.run(lambda: stub.summary.host_messages.get("status", 0) >= 2)
+    assert host.driver.stats.lost_reasons == []
 
 
 def test_host_refresh_and_forwarded_input_reach_the_engine() -> None:

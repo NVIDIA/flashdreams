@@ -25,11 +25,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from omnidreams_game_engine.api.v0.framing import (
-    FramingError,
+    encode_message,
     recv_message,
     send_message,
 )
 from omnidreams_game_engine.api.v0.messages import (
+    REFUSAL_CODES,
     Error,
     Hello,
     Message,
@@ -210,19 +211,19 @@ class TcpEngineLink(MessageEngineSource):
                 header, payload = recv_message(connection.sock)
                 connection.last_rx = time.monotonic()
                 self._inbox.put(Inbound(header, payload, now_us()))
-        except (ConnectionError, FramingError, OSError) as error:
+        except Exception as error:  # noqa: BLE001 - any read failure ends the connection
             reason = connection.close_reason or f"connection: {error}"
         else:
             reason = connection.close_reason or "closed"
         connection.close(reason)
+        # Under the lock, so that a reconnect's hello never precedes this LOST.
         with self._lock:
-            current = self._connection is connection
-            if current:
+            if self._connection is connection:
                 self._connection = None
-        if current and not self._stop.is_set():
-            self._inbox.put(
-                Inbound({"type": LOST_TYPE, "reason": reason}, b"", now_us())
-            )
+                if not self._stop.is_set():
+                    self._inbox.put(
+                        Inbound({"type": LOST_TYPE, "reason": reason}, b"", now_us())
+                    )
 
     def _handshake(self, sock: socket.socket, peer: str) -> _Connection | None:
         sock.settimeout(HELLO_TIMEOUT_S)
@@ -242,7 +243,7 @@ class TcpEngineLink(MessageEngineSource):
         except ProtocolError as error:
             self._refuse(sock, error.code, str(error))
             return None
-        except (ConnectionError, FramingError, OSError) as error:
+        except Exception as error:  # noqa: BLE001 - a failed handshake drops the socket
             _LOGGER.warning("Engine handshake from %s failed: %s", peer, error)
             _close_quietly(sock)
             return None
@@ -255,14 +256,19 @@ class TcpEngineLink(MessageEngineSource):
                 and not previous.closed.is_set()
                 and previous.session != message.session
             )
-            if not busy:
+            accepted = not busy and not self._stop.is_set()
+            if accepted:
                 self._connection = connection
                 self.connects += 1
+                self._inbox.put(Inbound(header, payload, arrived))
         if busy:
             assert previous is not None
             self._refuse(
                 sock, "busy", f"Engine session {previous.session!r} is connected"
             )
+            return None
+        if not accepted:
+            _close_quietly(sock)
             return None
         if previous is not None:
             previous.close("replaced by a reconnect")
@@ -274,7 +280,6 @@ class TcpEngineLink(MessageEngineSource):
         )
         connection.threads.append(writer)
         writer.start()
-        self._inbox.put(Inbound(header, payload, arrived))
         return connection
 
     def _refuse(self, sock: socket.socket, code: str, text: str) -> None:
@@ -297,11 +302,15 @@ class TcpEngineLink(MessageEngineSource):
             header, payload = item
             try:
                 send_message(connection.sock, header, payload)
-            except (OSError, FramingError) as error:
+            except Exception as error:  # noqa: BLE001 - a failed send ends the connection
                 connection.close(f"send failed: {error}")
                 return
             if self.recorder is not None:
                 self.recorder.record(TX, header, payload)
+            if header["type"] == "error" and header.get("code") in REFUSAL_CODES:
+                self.refusals.append(header["code"])
+                connection.close(f"refused: {header['code']}")
+                return
 
     def _monitor_loop(self) -> None:
         next_status = time.monotonic() + self.status_interval_s
@@ -323,11 +332,12 @@ class TcpEngineLink(MessageEngineSource):
             if self.status_provider is not None and now >= next_status:
                 next_status = now + self.status_interval_s
                 try:
-                    fields = dict(self.status_provider())
+                    header = Status(extra=dict(self.status_provider())).to_header()
+                    encode_message(header)
                 except Exception:  # noqa: BLE001 - a status callback must not stop pings
                     _LOGGER.exception("Host status provider failed")
                     continue
-                connection.outbox.put((Status(extra=fields).to_header(), b""))
+                connection.outbox.put((header, b""))
 
 
 def _close_quietly(sock: socket.socket) -> None:

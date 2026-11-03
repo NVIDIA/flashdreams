@@ -132,6 +132,26 @@ def test_replay_reproduces_the_live_session_without_the_engine(tmp_path: Path) -
     assert replay_sent[: len(live_sent)] == live_sent
 
 
+def test_a_log_is_readable_before_close_and_skips_an_unfinished_line(
+    tmp_path: Path,
+) -> None:
+    recorder = v0.PacketRecorder(tmp_path)
+    recorder.record(RX, {"type": "frame"}, b"seed", host_sends=0)
+    with (tmp_path / "packets.jsonl").open("a", encoding="utf-8") as index:
+        index.write('{"seq": 1, "dir": "rx", "hea')
+    records = list(v0.PacketLogReader(tmp_path))
+    assert [(r.header["type"], r.payload) for r in records] == [("frame", b"seed")]
+    recorder.close()
+
+
+def test_replay_refuses_a_log_with_a_host_initiated_restart(tmp_path: Path) -> None:
+    recorder = v0.PacketRecorder(tmp_path)
+    recorder.record(TX, {"type": "restart", "reason": "refresh"})
+    recorder.close()
+    with pytest.raises(ValueError, match="request_refresh"):
+        v0.PacketLogSource(tmp_path, v0.FluStateCodec())
+
+
 def test_recorder_writes_both_directions_and_omits_tx_payloads_by_default(
     tmp_path: Path,
 ) -> None:

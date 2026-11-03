@@ -29,6 +29,7 @@ from omnidreams_game_engine.api.v0.external import (
     END,
     ERROR,
     HOLD,
+    INVALID,
     LOST,
     RELEASE,
     RESTART,
@@ -45,6 +46,7 @@ from omnidreams_game_engine.api.v0.messages import (
     Cancel,
     Config,
     Error,
+    Frame,
     FrameReq,
     GenFrame,
     Hello,
@@ -159,8 +161,8 @@ class DriverConfig:
     config_extra: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.lead_chunks < 0:
-            raise ValueError("lead_chunks must not be negative")
+        if self.lead_chunks < 1:
+            raise ValueError("lead_chunks must be at least 1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,15 +245,19 @@ class ExternalSessionDriver:
         chunk = self.source.wait_chunk(self.epoch, self.ar_index, timeout_s)
         if chunk is None:
             return None
-        return self._generate(chunk)
+        try:
+            return self._generate(chunk)
+        except Exception:
+            # The chunk is consumed: a new seed restarts the session.
+            self._reanchor("error")
+            raise
 
     def request_refresh(self, reason: str = "refresh") -> bool:
         """Re-anchor on a new seed at the engine's current pose (drift refresh)."""
-        if self.state != RUNNING or self.timeline is None:
+        if self.state != RUNNING:
             return False
         self.source.send(Restart(reason=reason, epoch=self.epoch + 1))
-        tick = (self.last_tick or 0) + self.timeline.frame_ticks
-        self._begin_epoch(tick, reason)
+        self._reanchor(reason)
         return True
 
     def forward_input(self, action: str, phase: str) -> None:
@@ -306,6 +312,7 @@ class ExternalSessionDriver:
                 self.state = IDLE
         elif kind == LOST:
             self.stats.lost_reasons.append(event.reason or "")
+            self._end_session()
             self.state = DISCONNECTED
             self.engine_held = False
             self.views = frozenset()
@@ -315,8 +322,14 @@ class ExternalSessionDriver:
                 self.views = frozenset(message.views) & HOST_VIEWS
         elif kind == ERROR:
             _LOGGER.warning("Engine reported an error: %s", event.message)
+        elif kind == INVALID:
+            frame = event.message
+            stale = isinstance(frame, Frame) and frame.epoch != self.epoch
+            if self.state in (RUNNING, SEEDING) and not stale:
+                self._reanchor("invalid")
 
     def _on_connected(self, hello: Hello) -> None:
+        self._end_session()
         self.stats.connects += 1
         self.hello = hello
         self.engine_held = False
@@ -353,6 +366,10 @@ class ExternalSessionDriver:
         # A (re)connected engine starts or resumes its session with ``start``.
         self.state = IDLE
 
+    def _reanchor(self, reason: str) -> None:
+        assert self.timeline is not None
+        self._begin_epoch((self.last_tick or 0) + self.timeline.frame_ticks, reason)
+
     def _begin_epoch(self, tick: int, reason: str) -> None:
         if self.timeline is None:
             return
@@ -381,11 +398,17 @@ class ExternalSessionDriver:
         if self.state != SEEDING or seed.epoch != self.epoch or self.hello is None:
             return
         self.stats.seeds += 1
-        scene = self.scene_provider.scene_for_seed(self.hello, seed)
-        key = (str(scene.scene_path), scene.scene_id)
-        if key != self._loaded_scene_key:
-            self.condition_renderer.load_scene(scene)
-            self._loaded_scene_key = key
+        try:
+            scene = self.scene_provider.scene_for_seed(self.hello, seed)
+            key = (str(scene.scene_path), scene.scene_id)
+            if key != self._loaded_scene_key:
+                self.condition_renderer.load_scene(scene)
+                self._loaded_scene_key = key
+        except Exception as error:
+            _LOGGER.exception("Seed of epoch %d is unusable", seed.epoch)
+            self.source.send(Error(code="protocol", message=f"Unusable seed: {error}"))
+            self._reanchor("invalid")
+            return
         self._scene = scene
         self._seed = seed
         self.t0_tick = seed.tick

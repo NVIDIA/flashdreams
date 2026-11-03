@@ -39,10 +39,12 @@ END = "end"
 LOST = "lost"
 ERROR = "error"
 VIEWS = "views"
-"""The engine changed the host views it shows (API 0.2)."""
+"""The engine changed the host views it shows."""
+INVALID = "invalid"
+"""The host dropped a frame it cannot use; the epoch must be re-anchored."""
 
-CONTROL_EVENTS = frozenset({CONNECTED, START, SEED, RESTART, END, LOST})
-"""Events that change the epoch or the session: chunk waits return early."""
+CONTROL_EVENTS = frozenset({CONNECTED, START, SEED, RESTART, END, LOST, VIEWS, INVALID})
+"""Events the driver handles before the next chunk: chunk waits return early."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +122,8 @@ class ExternalEngineSession:
 
     One instance serves one epoch. ``step`` uses a chunk handed over with
     :meth:`supply` (a driver that already waited for it) or waits on the
-    source itself, up to ``chunk_timeout_s``. The commands passed by the
+    source itself, up to ``chunk_timeout_s``; a pending control event ends
+    that wait early, so such a caller polls events first. The commands passed by the
     rollout only fix the frame count: the engine applies its own inputs and
     reports them per frame. The condition renderer is shared across epochs
     and owned by the caller; :meth:`close` leaves it open.
@@ -187,8 +190,9 @@ class ExternalEngineSession:
             )
             if chunk is None:
                 raise ChunkTimeoutError(
-                    f"Epoch {self.epoch} chunk {self._ar_index} incomplete after "
-                    f"{self.chunk_timeout_s:.1f} s"
+                    f"Epoch {self.epoch} chunk {self._ar_index} is not complete "
+                    f"within {self.chunk_timeout_s:.1f} s, or a control event "
+                    "is pending; poll the source's events first"
                 )
         waited_ms = (time.perf_counter() - wall_started) * 1000.0
         if len(chunk.frames) != len(commands):
@@ -236,6 +240,7 @@ __all__ = [
     "END",
     "ERROR",
     "HOLD",
+    "INVALID",
     "LOST",
     "RELEASE",
     "RESTART",

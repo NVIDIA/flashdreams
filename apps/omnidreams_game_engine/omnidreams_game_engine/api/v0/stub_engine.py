@@ -35,6 +35,7 @@ import numpy as np
 from omnidreams_game_engine.api.v0.framing import MessageDecoder, encode_message
 from omnidreams_game_engine.api.v0.messages import (
     PROTOCOL,
+    REFUSAL_CODES,
     Cancel,
     Config,
     End,
@@ -448,7 +449,7 @@ class StubEngine:
             self._host_held = False
         elif isinstance(message, Error):
             self.summary.errors.append(message.to_header())
-            if message.code in ("version", "busy", "state_format", "timing"):
+            if message.code in REFUSAL_CODES:
                 self._stop.set()
         return False
 

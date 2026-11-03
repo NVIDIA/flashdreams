@@ -26,6 +26,9 @@ PROTOCOL = "omnidreams-engine/0"
 _RESERVED = ("type", "bytes")
 """Header keys owned by the framing; never message fields or ``extra``."""
 
+REFUSAL_CODES = frozenset({"version", "state_format", "busy", "timing"})
+"""``error`` codes that refuse an engine; the host then closes the connection."""
+
 
 class ProtocolError(ValueError):
     """A message that violates the protocol; ``code`` goes into an ``error``."""
@@ -556,6 +559,7 @@ def write_schema() -> None:
 __all__ = [
     "MESSAGE_TYPES",
     "PROTOCOL",
+    "REFUSAL_CODES",
     "Cancel",
     "Config",
     "End",

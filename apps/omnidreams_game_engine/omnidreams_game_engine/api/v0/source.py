@@ -26,6 +26,7 @@ from omnidreams_game_engine.api.v0.external import (
     END,
     ERROR,
     HOLD,
+    INVALID,
     LOST,
     RELEASE,
     RESTART,
@@ -41,6 +42,7 @@ from omnidreams_game_engine.api.v0.messages import (
     Frame,
     Hello,
     Hold,
+    Input,
     Message,
     ProtocolError,
     Release,
@@ -57,6 +59,18 @@ _LOGGER = logging.getLogger(__name__)
 
 LOST_TYPE = "_lost"
 """Header type of the synthetic message a transport queues when the engine is gone."""
+
+_EVENT_KINDS: dict[type[Message], str] = {
+    Hello: CONNECTED,
+    Start: START,
+    Restart: RESTART,
+    Hold: HOLD,
+    Release: RELEASE,
+    End: END,
+    Error: ERROR,
+    Views: VIEWS,
+}
+"""Event kind of every message type other than ``frame`` that the host handles."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +125,11 @@ class MessageEngineSource:
 
     @property
     def sends(self) -> int:
-        """Messages the host has sent so far, delivered or not."""
+        """Messages the host has sent in reaction to the engine, delivered or not.
+
+        Every message but ``input`` counts; a replay delivers each recorded
+        engine message at the same count.
+        """
         return self._sends
 
     def poll_events(self, timeout_s: float = 0.0) -> list[SourceEvent]:
@@ -144,7 +162,8 @@ class MessageEngineSource:
             self._consume(received)
 
     def send(self, message: Message, payload: bytes = b"") -> None:
-        self._sends += 1
+        if not isinstance(message, Input):
+            self._sends += 1
         self._transmit(message, payload)
 
     def send_frames(self, frames: Sequence[tuple[Message, bytes]]) -> None:
@@ -176,56 +195,29 @@ class MessageEngineSource:
                 message = from_header(item.header)
             except ProtocolError as error:
                 self.stats.bad_messages += 1
-                _LOGGER.warning("Dropped a malformed engine message: %s", error)
+                self._reject(str(error), dropped=item.header.get("type") == "frame")
                 continue
-            self._dispatch(message, item)
-
-    def _dispatch(self, message: Message, item: Inbound) -> None:
-        if isinstance(message, Frame):
-            self._on_frame(message, item.payload)
-        elif isinstance(message, Hello):
-            self._events.append(SourceEvent(CONNECTED, message=message))
-        elif isinstance(message, Start):
-            self._events.append(
-                SourceEvent(START, message=message, reason=message.reason)
-            )
-        elif isinstance(message, Restart):
-            self._events.append(
-                SourceEvent(RESTART, message=message, reason=message.reason)
-            )
-        elif isinstance(message, Hold):
-            self._events.append(
-                SourceEvent(HOLD, message=message, reason=message.reason)
-            )
-        elif isinstance(message, Release):
-            self._events.append(
-                SourceEvent(RELEASE, message=message, reason=message.reason)
-            )
-        elif isinstance(message, End):
-            self._events.append(
-                SourceEvent(END, message=message, reason=message.reason)
-            )
-        elif isinstance(message, Error):
-            self._events.append(
-                SourceEvent(ERROR, message=message, reason=message.code)
-            )
-        elif isinstance(message, Views):
-            self._events.append(SourceEvent(VIEWS, message=message))
+            if isinstance(message, Frame):
+                self._on_frame(message, item.payload)
+            elif type(message) in _EVENT_KINDS:
+                self._events.append(
+                    SourceEvent(
+                        _EVENT_KINDS[type(message)],
+                        message=message,
+                        reason=getattr(message, "reason", None),
+                    )
+                )
 
     def _on_frame(self, frame: Frame, payload: bytes) -> None:
-        if frame.state is None:
-            self.stats.bad_states += 1
-            _LOGGER.warning("Frame %d/%d carries no state", frame.epoch, frame.g)
-            return
         try:
             state = self.decoder.decode(frame.state, g=frame.g, tick=frame.tick)
-        except ValueError as error:
+        except (KeyError, TypeError, ValueError) as error:
             self.stats.bad_states += 1
-            _LOGGER.warning("Frame %d/%d: %s", frame.epoch, frame.g, error)
+            self._reject(f"Frame {frame.epoch}/{frame.g}: {error}", frame=frame)
             return
         if frame.seed and frame.g != 0:
             self.stats.bad_messages += 1
-            _LOGGER.warning("Seed frame with g=%d dropped", frame.g)
+            self._reject(f"Seed frame {frame.epoch}/{frame.g} is not g=0", frame=frame)
             return
         if self._assembler.add(frame.epoch, state) == "added" and frame.seed:
             self._events.append(
@@ -243,6 +235,19 @@ class MessageEngineSource:
                     ),
                 )
             )
+
+    def _reject(
+        self, reason: str, *, dropped: bool = True, frame: Frame | None = None
+    ) -> None:
+        """Answer an unusable engine message with ``error{code: "protocol"}``.
+
+        A dropped frame leaves its chunk incomplete, so it also becomes an
+        ``invalid`` event, on which the driver re-anchors the epoch.
+        """
+        _LOGGER.warning("Dropped an engine message: %s", reason)
+        self.send(Error(code="protocol", message=reason))
+        if dropped:
+            self._events.append(SourceEvent(INVALID, message=frame, reason=reason))
 
 
 __all__ = ["LOST_TYPE", "Inbound", "MessageEngineSource", "SourceStats"]

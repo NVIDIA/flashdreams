@@ -10,6 +10,7 @@ import socket
 import struct
 import threading
 
+import numpy as np
 import pytest
 from omnidreams_game_engine.api.v0 import framing
 
@@ -77,6 +78,12 @@ def test_size_limits_are_enforced() -> None:
         framing.MessageDecoder().feed(
             struct.pack(">I", len(oversized_payload)) + oversized_payload
         )
+
+
+@pytest.mark.parametrize("value", [float("nan"), np.float32(1.0)])
+def test_an_unencodable_header_is_a_framing_error(value: object) -> None:
+    with pytest.raises(framing.FramingError, match="Unencodable"):
+        framing.encode_message({"type": "status", "value": value})
 
 
 @pytest.mark.parametrize(
