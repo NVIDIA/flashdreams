@@ -59,6 +59,8 @@ jobs:
 
       - name: Install CPU dependencies
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends yasm
           uv venv --clear
           uv sync --locked --extra dev --no-install-package transformer-engine-torch
 

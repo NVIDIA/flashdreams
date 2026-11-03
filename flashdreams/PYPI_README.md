@@ -30,6 +30,11 @@ Wan 2.1/2.2, Cosmos Predict2, and more via first-party integration packages.
 pip install flashdreams
 ```
 
+FlashDreams includes the required `flashdreams-webm` dependency. Source installs
+automatically build its native WebM bindings and require a C/C++ toolchain, plus
+YASM on x86 Linux/macOS. Windows requires the Visual Studio C++ build tools and
+a Windows SDK.
+
 ## Documentation
 
 <https://github.com/NVIDIA/flashdreams>
