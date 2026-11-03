@@ -23,6 +23,14 @@ side. The message classes are in `omnidreams_game_engine.api.v0.messages`, and
 - One TCP connection, opened by the engine. The host serves one engine at a
   time; a different engine session is refused with `error{code: "busy"}`.
   The same session name connecting again replaces its old connection.
+- The engine sends `hello` within 10 s of connecting, or the host closes the
+  connection. While 4 connections wait for their `hello`, the host closes
+  further ones at once.
+- The host holds at most 64 MiB of engine messages (headers and payloads)
+  that it has not handled yet, for example while it generates a chunk. It
+  closes the connection of an engine that sends more; the engine reconnects
+  as after any lost connection. `TcpEngineLink` sets the 10 s and the 64 MiB
+  with `hello_timeout_s` and `max_inbox_bytes`.
 - The protocol has no authentication and no encryption. `TcpEngineLink`
   listens on `127.0.0.1` unless the host passes another address, which it
   does only on a trusted network.

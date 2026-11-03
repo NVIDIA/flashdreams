@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from omnidreams_game_engine.api.v0.framing import (
+    _recv_framed,
     encode_message,
-    recv_message,
     send_message,
 )
 from omnidreams_game_engine.api.v0.messages import (
@@ -42,6 +42,14 @@ from omnidreams_game_engine.api.v0.state import StateDecoder
 _LOGGER = logging.getLogger(__name__)
 
 HELLO_TIMEOUT_S = 10.0
+"""Time a new connection has to deliver its whole ``hello``."""
+
+MAX_PENDING_HELLOS = 4
+"""Connections that may wait for their ``hello`` at once; further ones are closed."""
+
+MAX_INBOX_BYTES = 64 << 20
+"""Engine messages, in bytes on the wire, held until the host handles them (64 MiB)."""
+
 _ACCEPT_POLL_S = 0.2
 _JOIN_TIMEOUT_S = 2.0
 
@@ -82,6 +90,12 @@ class TcpEngineLink(MessageEngineSource):
     writer thread; a monitor thread pings the engine every
     ``ping_interval_s``, sends the host's status and drops an engine that has
     been silent for ``silence_s``.
+
+    A new connection has ``hello_timeout_s`` to deliver its ``hello``, and at
+    most :data:`MAX_PENDING_HELLOS` connections wait for one at a time. The
+    link holds at most ``max_inbox_bytes`` of engine messages that the host
+    has not handled yet, and closes the connection of an engine that sends
+    more.
     """
 
     def __init__(
@@ -95,15 +109,21 @@ class TcpEngineLink(MessageEngineSource):
         silence_s: float = 10.0,
         status_interval_s: float = 1.0,
         status_provider: Callable[[], Mapping[str, Any]] | None = None,
+        hello_timeout_s: float = HELLO_TIMEOUT_S,
+        max_inbox_bytes: int = MAX_INBOX_BYTES,
     ) -> None:
         super().__init__(decoder, recorder=recorder)
         self.ping_interval_s = float(ping_interval_s)
         self.silence_s = float(silence_s)
         self.status_interval_s = float(status_interval_s)
         self.status_provider = status_provider
+        self.hello_timeout_s = float(hello_timeout_s)
+        self.max_inbox_bytes = int(max_inbox_bytes)
         self.connects = 0
         self.refusals: list[str] = []
-        self._inbox: queue.Queue[Inbound] = queue.Queue()
+        self._inbox: queue.Queue[tuple[Inbound, int]] = queue.Queue()
+        self._inbox_bytes = 0
+        self._pending: dict[socket.socket, tuple[float, threading.Thread]] = {}
         self._lock = threading.Lock()
         self._connection: _Connection | None = None
         self._stop = threading.Event()
@@ -141,6 +161,10 @@ class TcpEngineLink(MessageEngineSource):
             thread.join(timeout=_JOIN_TIMEOUT_S)
         with self._lock:
             connection = self._connection
+            pending = list(self._pending.items())
+        for sock, (_deadline, thread) in pending:
+            _shutdown_quietly(sock)
+            thread.join(timeout=_JOIN_TIMEOUT_S)
         if connection is not None:
             for thread in connection.threads:
                 thread.join(timeout=_JOIN_TIMEOUT_S)
@@ -149,19 +173,16 @@ class TcpEngineLink(MessageEngineSource):
     ## Transport
 
     def _fetch(self, timeout_s: float) -> list[Inbound]:
-        items: list[Inbound] = []
-        try:
+        queued: list[tuple[Inbound, int]] = []
+        with contextlib.suppress(queue.Empty):
             if timeout_s > 0.0:
-                items.append(self._inbox.get(timeout=timeout_s))
-            else:
-                items.append(self._inbox.get_nowait())
-        except queue.Empty:
-            return items
-        while True:
-            try:
-                items.append(self._inbox.get_nowait())
-            except queue.Empty:
-                return items
+                queued.append(self._inbox.get(timeout=timeout_s))
+            while True:
+                queued.append(self._inbox.get_nowait())
+        if queued:
+            with self._lock:
+                self._inbox_bytes -= sum(size for _item, size in queued)
+        return [item for item, _size in queued]
 
     def _transmit(self, message: Message, payload: bytes) -> None:
         with self._lock:
@@ -173,6 +194,7 @@ class TcpEngineLink(MessageEngineSource):
 
     def _accept_loop(self) -> None:
         while not self._stop.is_set():
+            self._expire_handshakes()
             try:
                 sock, peer = self._listener.accept()
             except TimeoutError:
@@ -188,19 +210,53 @@ class TcpEngineLink(MessageEngineSource):
                 name="engine-link-reader",
                 daemon=True,
             )
+            with self._lock:
+                full = len(self._pending) >= MAX_PENDING_HELLOS
+                if not full:
+                    deadline = time.monotonic() + self.hello_timeout_s
+                    self._pending[sock] = (deadline, thread)
+            if full:
+                _LOGGER.warning(
+                    "Closed a connection from %s: %d others wait for their hello",
+                    peer[0],
+                    MAX_PENDING_HELLOS,
+                )
+                _close_quietly(sock)
+                continue
             thread.start()
 
+    def _expire_handshakes(self) -> None:
+        now = time.monotonic()
+        with self._lock:
+            expired = [
+                sock
+                for sock, (deadline, _thread) in self._pending.items()
+                if deadline <= now
+            ]
+            for sock in expired:
+                del self._pending[sock]
+        for sock in expired:
+            _LOGGER.warning("No hello within %.1f s; closing", self.hello_timeout_s)
+            _shutdown_quietly(sock)
+
     def _serve(self, sock: socket.socket, peer: str) -> None:
-        connection = self._handshake(sock, peer)
+        try:
+            connection = self._handshake(sock, peer)
+        finally:
+            with self._lock:
+                self._pending.pop(sock, None)
         if connection is None:
             return
         try:
             while not connection.closed.is_set():
-                header, payload = recv_message(connection.sock)
+                header, payload, size = _recv_framed(connection.sock)
                 connection.last_rx = time.monotonic()
                 # An engine cannot fake a lost connection: LOST_TYPE is the link's.
-                if header["type"] != LOST_TYPE:
-                    self._inbox.put(Inbound(header, payload, now_us()))
+                if header["type"] == LOST_TYPE:
+                    continue
+                item = Inbound(header, payload, now_us())
+                if not self._admit(connection, item, size):
+                    break
         except Exception as error:  # any read error ends the connection
             reason = connection.close_reason or f"connection: {error}"
         else:
@@ -211,14 +267,30 @@ class TcpEngineLink(MessageEngineSource):
             if self._connection is connection:
                 self._connection = None
                 if not self._stop.is_set():
-                    self._inbox.put(
-                        Inbound({"type": LOST_TYPE, "reason": reason}, b"", now_us())
-                    )
+                    lost = Inbound({"type": LOST_TYPE, "reason": reason}, b"", now_us())
+                    self._inbox.put((lost, 0))
+
+    def _admit(self, connection: _Connection, item: Inbound, size: int) -> bool:
+        """Queue one message of ``connection``; return whether to keep reading."""
+        with self._lock:
+            # A replaced connection's messages must not follow the new hello.
+            if self._connection is not connection:
+                return False
+            if self._inbox_bytes + size <= self.max_inbox_bytes:
+                self._queue(item, size)
+                return True
+        connection.close(f"inbox full: {self.max_inbox_bytes} bytes not handled")
+        return False
+
+    def _queue(self, item: Inbound, size: int) -> None:
+        """Queue a received message; the caller holds the lock."""
+        self._inbox_bytes += size
+        self._inbox.put((item, size))
 
     def _handshake(self, sock: socket.socket, peer: str) -> _Connection | None:
-        sock.settimeout(HELLO_TIMEOUT_S)
+        sock.settimeout(self.hello_timeout_s)
         try:
-            header, payload = recv_message(sock)
+            header, payload, size = _recv_framed(sock)
             arrived = now_us()
             message = from_header(header)
             if not isinstance(message, Hello):
@@ -240,17 +312,23 @@ class TcpEngineLink(MessageEngineSource):
         sock.settimeout(None)
         connection = _Connection(sock=sock, session=message.session)
         with self._lock:
+            # Past its hello deadline, or after close(), a connection is dropped.
+            alive = (
+                self._pending.pop(sock, None) is not None and not self._stop.is_set()
+            )
             previous = self._connection
             busy = (
-                previous is not None
+                alive
+                and previous is not None
                 and not previous.closed.is_set()
                 and previous.session != message.session
             )
-            accepted = not busy and not self._stop.is_set()
+            full = alive and self._inbox_bytes + size > self.max_inbox_bytes
+            accepted = alive and not busy and not full
             if accepted:
                 self._connection = connection
                 self.connects += 1
-                self._inbox.put(Inbound(header, payload, arrived))
+                self._queue(Inbound(header, payload, arrived), size)
         if busy:
             assert previous is not None
             self._refuse(
@@ -258,6 +336,8 @@ class TcpEngineLink(MessageEngineSource):
             )
             return None
         if not accepted:
+            if full:
+                _LOGGER.warning("Closed %s: the host has not handled its inbox", peer)
             _close_quietly(sock)
             return None
         if previous is not None:
@@ -333,4 +413,10 @@ def _close_quietly(sock: socket.socket) -> None:
         sock.close()
 
 
-__all__ = ["HELLO_TIMEOUT_S", "TcpEngineLink"]
+def _shutdown_quietly(sock: socket.socket) -> None:
+    """Wake the thread blocked reading ``sock``, which then closes it."""
+    with contextlib.suppress(OSError):
+        sock.shutdown(socket.SHUT_RDWR)
+
+
+__all__ = ["HELLO_TIMEOUT_S", "MAX_INBOX_BYTES", "MAX_PENDING_HELLOS", "TcpEngineLink"]

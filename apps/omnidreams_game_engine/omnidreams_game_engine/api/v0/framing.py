@@ -111,13 +111,19 @@ def _recv_exact(sock: socket.socket, size: int) -> bytes:
 
 def recv_message(sock: socket.socket) -> tuple[dict[str, Any], bytes]:
     """Block until one complete message is read from ``sock``."""
+    header, payload, _size = _recv_framed(sock)
+    return header, payload
+
+
+def _recv_framed(sock: socket.socket) -> tuple[dict[str, Any], bytes, int]:
+    """Read one message like :func:`recv_message`; also return its size on the wire."""
     (size,) = HEADER_LENGTH.unpack(_recv_exact(sock, HEADER_LENGTH.size))
     if size > MAX_HEADER_BYTES:
         raise FramingError(f"Header of {size} bytes exceeds the limit")
     header = decode_header(_recv_exact(sock, size))
     length = int(header.get("bytes", 0))
     payload = _recv_exact(sock, length) if length else b""
-    return header, payload
+    return header, payload, HEADER_LENGTH.size + size + length
 
 
 def send_message(

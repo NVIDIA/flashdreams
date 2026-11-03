@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import socket
+import struct
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -18,7 +20,7 @@ from typing import Any
 import pytest
 import torch
 from omnidreams_game_engine.api import v0
-from omnidreams_game_engine.api.v0 import framing, stub_engine
+from omnidreams_game_engine.api.v0 import framing, link_tcp, stub_engine
 from omnidreams_game_engine.api.v0.driver import DISCONNECTED, IDLE, SEEDING
 from omnidreams_game_engine.api.v0.recorder import TX
 from omnidreams_game_engine.api.v0.source import LOST_TYPE
@@ -222,6 +224,13 @@ def _read_to_eof(sock: socket.socket) -> None:
         pass
 
 
+def _wait_until(condition: Callable[[], bool]) -> None:
+    deadline = time.monotonic() + DEADLINE_S
+    while not condition():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.01)
+
+
 def test_wrong_version_state_format_and_a_second_engine_are_refused() -> None:
     with _host() as host:
         address = host.link.address
@@ -283,19 +292,83 @@ def test_the_same_session_replaces_its_open_connection() -> None:
         assert host.driver.state == IDLE
 
 
-def test_a_hello_after_close_is_not_accepted() -> None:
+def test_close_closes_a_connection_that_waits_for_its_hello() -> None:
     link = v0.TcpEngineLink(v0.FluStateCodec(), port=0)
     with socket.create_connection(link.address, timeout=5.0) as sock:
         sock.settimeout(5.0)
-        deadline = time.monotonic() + 5.0
-        while not any(t.name == "engine-link-reader" for t in threading.enumerate()):
-            assert time.monotonic() < deadline, "the link did not accept"
-            time.sleep(0.01)
+        _wait_until(lambda: len(link._pending) == 1)
         link.close()
-        framing.send_message(
-            sock, {"type": "hello", "session": "s", "api": v0.PROTOCOL}
-        )
         _read_to_eof(sock)
+    assert link.connects == 0
+
+
+def test_a_hello_that_does_not_arrive_in_time_is_dropped() -> None:
+    with _host(hello_timeout_s=0.3) as host, _connect(host) as sock:
+        # A header that never completes, sent a byte at a time, each in time
+        # for the next read: only a deadline for the whole hello ends it.
+        sock.sendall(struct.pack(">I", 1000))
+        with pytest.raises((BrokenPipeError, ConnectionResetError)):
+            for _ in range(100):
+                sock.sendall(b" ")
+                time.sleep(0.05)
+    assert host.link.connects == 0
+
+
+def test_connections_that_wait_for_their_hello_are_limited() -> None:
+    with _host() as host, contextlib.ExitStack() as sockets:
+        waiting = [
+            sockets.enter_context(_connect(host))
+            for _ in range(link_tcp.MAX_PENDING_HELLOS)
+        ]
+        _read_to_eof(sockets.enter_context(_connect(host)))
+        for sock in waiting:
+            sock.settimeout(0.1)
+            with pytest.raises(TimeoutError):
+                sock.recv(1)
+
+
+def test_an_engine_that_floods_a_busy_host_is_dropped() -> None:
+    hello = {"type": "hello", "session": "s", "api": v0.PROTOCOL}
+    with _host(max_inbox_bytes=4096) as host, _connect(host) as sock:
+        # The host does not poll while the engine sends.
+        with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+            framing.send_message(sock, hello)
+            for _ in range(10):
+                framing.send_message(sock, {"type": "status"}, bytes(1000))
+            _read_to_eof(sock)
+        host.run(lambda: host.driver.stats.lost_reasons != [])
+    assert host.driver.stats.lost_reasons[0].startswith("inbox full")
+
+
+def test_messages_of_a_replaced_connection_are_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The old connection's reader holds its `end` until the replacement runs.
+    read = link_tcp._recv_framed
+    release = threading.Event()
+    holders: list[threading.Thread] = []
+
+    def read_end_late(sock: socket.socket) -> tuple[dict[str, Any], bytes, int]:
+        message = read(sock)
+        if message[0]["type"] == "end":
+            holders.append(threading.current_thread())
+            release.wait(DEADLINE_S)
+        return message
+
+    monkeypatch.setattr(link_tcp, "_recv_framed", read_end_late)
+    hello = {"type": "hello", "session": "s", "api": v0.PROTOCOL}
+    with _host() as host, _connect(host) as first, _connect(host) as second:
+        framing.send_message(first, hello)
+        host.run(lambda: host.driver.stats.connects == 1)
+        framing.send_message(first, {"type": "end"})
+        _wait_until(lambda: holders != [])
+        framing.send_message(second, hello)
+        framing.send_message(second, {"type": "start", "tick": 0})
+        host.run(lambda: host.driver.state == SEEDING)
+        release.set()
+        holders[0].join(5.0)
+        host.run(lambda: True)
+        assert (host.driver.state, host.driver.stats.ends) == (SEEDING, 0)
 
 
 def test_an_engine_message_of_the_lost_type_is_ignored() -> None:
