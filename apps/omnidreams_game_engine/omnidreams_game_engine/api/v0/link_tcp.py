@@ -199,7 +199,7 @@ class TcpEngineLink(MessageEngineSource):
                 header, payload = recv_message(connection.sock)
                 connection.last_rx = time.monotonic()
                 self._inbox.put(Inbound(header, payload, now_us()))
-        except Exception as error:  # noqa: BLE001 - any read error ends the connection
+        except Exception as error:  # any read error ends the connection
             reason = connection.close_reason or f"connection: {error}"
         else:
             reason = connection.close_reason or "closed"
@@ -231,7 +231,7 @@ class TcpEngineLink(MessageEngineSource):
         except ProtocolError as error:
             self._refuse(sock, error.code, str(error))
             return None
-        except Exception as error:  # noqa: BLE001 - a failed handshake drops the socket
+        except Exception as error:  # a failed handshake drops the socket
             _LOGGER.warning("Engine handshake from %s failed: %s", peer, error)
             _close_quietly(sock)
             return None
@@ -288,7 +288,7 @@ class TcpEngineLink(MessageEngineSource):
             header, payload = item
             try:
                 send_message(connection.sock, header, payload)
-            except Exception as error:  # noqa: BLE001 - a send error ends it
+            except Exception as error:  # a send error ends the connection
                 connection.close(f"send failed: {error}")
                 return
             if self.recorder is not None:
@@ -320,7 +320,7 @@ class TcpEngineLink(MessageEngineSource):
                 try:
                     header = Status(extra=dict(self.status_provider())).to_header()
                     encode_message(header)
-                except Exception:  # noqa: BLE001 - a bad status must not stop pings
+                except Exception:  # a bad status must not stop pings
                     _LOGGER.exception("Host status provider failed")
                     continue
                 connection.outbox.put((header, b""))

@@ -1,11 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""A session driven by the stub external engine over TCP on localhost.
-
-The host side is the real layer (TcpEngineLink, ExternalSessionDriver,
-ExternalEngineSession, WorldModelRollout) with a CPU pipeline and renderer.
-"""
+"""CPU tests for a host session driven by the stub engine over TCP on localhost."""
 
 from __future__ import annotations
 

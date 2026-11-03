@@ -77,25 +77,35 @@ class Hello(Message):
 
     session: str
     """Engine session name; a reconnect sends the same name."""
+
     api: str | None = None
     """Protocol the engine speaks (``omnidreams-engine/0``). Required on the wire;
     optional here so that a hello without it is refused with code ``version``."""
+
     state_format: str | None = None
     """Vocabulary of ``frame.state``; the host's state decoder must accept it."""
+
     level: str | None = None
     """Name of the engine's map or level, for the host's scene provider and logs."""
+
     layout_crc32: int | None = None
     """Identifies the map; a host's scene provider may refuse one it cannot draw."""
+
     driver: str | None = None
     """``human`` or ``autopilot``."""
+
     sim_hz: int = 60
     """Fixed simulation rate of the engine."""
+
     tick: int = 0
     """Engine tick when the hello was sent."""
+
     front_mount: dict[str, Any] | None = None
     """Mount of the engine's front camera on the vehicle, free-form."""
+
     wide_seed: dict[str, Any] | None = None
     """Size and field of view of the engine's seed camera, free-form."""
+
     engine_build: str | None = None
     t_engine_us: int | None = None
 
@@ -122,14 +132,19 @@ class Frame(Message):
     epoch: int
     g: int
     """Model frame index within the epoch; 0 is the seed frame."""
+
     tick: int
     """Engine tick the state belongs to."""
+
     state: dict[str, Any]
     """Per-frame state in the vocabulary named by ``hello.state_format``."""
+
     seed: bool = False
     """True on the answer to a ``seed_req``; the payload is the seed image."""
+
     encoding: str | None = None
     """Payload encoding: ``jpeg``, ``png`` or ``raw`` (RGB24); absent without image."""
+
     width: int | None = None
     height: int | None = None
     t_engine_us: int | None = None
@@ -176,19 +191,25 @@ class Config(Message):
     model_fps: int
     frame_ticks: int
     """Engine ticks per model frame (``sim_hz / model_fps``)."""
+
     chunk_plan: list[int]
     """Frames per chunk; the last entry repeats (``[5, 8]``)."""
+
     lead_chunks: int
     """How many chunks beyond the one being generated the host grants."""
+
     display_delay_ticks: int
     """Default presentation delay of a generated frame after its tick."""
+
     return_encoding: str
-    """Encoding of ``gen_frame`` payloads: ``jpeg`` or ``raw``."""
+    """Encoding of the host's image payloads: ``jpeg``, ``png`` or ``raw``."""
+
     return_width: int | None = None
     return_height: int | None = None
     return_quality: int | None = None
     render: str = "off"
     """Engine world rendering between seeds: ``off`` or ``always``."""
+
     preset: str | None = None
     host_build: str | None = None
 
@@ -203,6 +224,7 @@ class SeedReq(Message):
     epoch: int
     tick: int
     """Earliest tick; an engine already past it answers at its current tick."""
+
     reason: str = "start"
     width: int | None = None
     height: int | None = None
@@ -235,6 +257,7 @@ class GenFrame(Message):
     g: int
     tick: int
     """Engine tick whose state produced the frame."""
+
     encoding: str
     width: int
     height: int
@@ -258,6 +281,7 @@ class ViewFrame(Message):
     g: int
     tick: int
     """Engine tick whose state produced the frame."""
+
     encoding: str
     width: int
     height: int
@@ -274,6 +298,7 @@ class Input(Message):
     action: str
     phase: str
     """``down`` or ``up``."""
+
     t_host_us: int | None = None
 
 
@@ -395,6 +420,7 @@ class _FieldSpec:
     kind: type
     item: type | None
     """Element type of a list field."""
+
     required: bool
     default: Any
 

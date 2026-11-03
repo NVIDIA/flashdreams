@@ -24,10 +24,13 @@ class ActorState:
     entity_id: str
     object_type: str
     """Renderer class, such as ``Car`` or ``Pedestrian``."""
+
     position_world: FloatArray
     """Box center, shape ``(3,)``."""
+
     orientation_xyzw: FloatArray
     """Unit quaternion, shape ``(4,)``."""
+
     dimensions_lwh: FloatArray
     """Length, width and height, shape ``(3,)``."""
 
@@ -38,13 +41,17 @@ class FrameState:
 
     g: int
     """Model frame index within the epoch."""
+
     tick: int
     """Engine tick of the state."""
+
     rig_to_world: FloatArray
     """4x4 pose the condition renderer draws from (``rig_poses_world``)."""
+
     vehicle: VehicleState
     command: DriverCommand = field(default_factory=DriverCommand)
     """Controls the engine applied on this frame."""
+
     actors: tuple[ActorState, ...] = ()
     events: tuple[str, ...] = ()
     raw: Mapping[str, Any] | None = None

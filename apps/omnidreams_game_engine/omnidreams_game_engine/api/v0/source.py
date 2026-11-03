@@ -82,6 +82,7 @@ class SourceStats:
 
     bad_messages: int = 0
     """Messages that are not valid version-0 messages."""
+
     bad_states: int = 0
     """Frames whose state the decoder cannot read."""
 

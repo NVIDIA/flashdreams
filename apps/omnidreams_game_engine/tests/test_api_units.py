@@ -1,10 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CPU tests for the Unreal-to-FLU conversions.
-
-The expected values follow Unreal's ``FRotationMatrix`` convention.
-"""
+"""CPU tests for the Unreal-to-FLU conversions."""
 
 from __future__ import annotations
 

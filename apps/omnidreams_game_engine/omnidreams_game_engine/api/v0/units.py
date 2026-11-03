@@ -47,19 +47,14 @@ def ue_rot_to_flu(rot_pyr_deg: Sequence[float]) -> Float64Array:
     return _S @ ue_rotator_matrix(pitch, yaw, roll) @ _S
 
 
-def pose(rotation: npt.ArrayLike, translation: npt.ArrayLike) -> Float64Array:
-    """Return the 4x4 homogeneous transform of a rotation and a translation."""
-    transform = np.eye(4)
-    transform[:3, :3] = rotation
-    transform[:3, 3] = translation
-    return transform
-
-
 def ue_transform_to_flu(
     position_cm: Sequence[float], rot_pyr_deg: Sequence[float]
 ) -> Float64Array:
     """Convert an Unreal location and rotator to the 4x4 FLU body-to-world transform."""
-    return pose(ue_rot_to_flu(rot_pyr_deg), ue_pos_to_flu(position_cm))
+    transform = np.eye(4)
+    transform[:3, :3] = ue_rot_to_flu(rot_pyr_deg)
+    transform[:3, 3] = ue_pos_to_flu(position_cm)
+    return transform
 
 
 def ue_yaw_to_flu_rad(yaw_deg: float) -> float:
@@ -111,7 +106,6 @@ def rotation_to_quat_xyzw(rotation: npt.ArrayLike) -> Float64Array:
 
 
 __all__ = [
-    "pose",
     "rotation_to_quat_xyzw",
     "ue_pos_to_flu",
     "ue_rot_to_flu",

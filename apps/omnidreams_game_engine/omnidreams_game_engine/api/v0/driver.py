@@ -72,10 +72,13 @@ DriverState = Literal["disconnected", "idle", "seeding", "running"]
 
 DISCONNECTED: Final = "disconnected"
 """No engine connected."""
+
 IDLE: Final = "idle"
 """An engine is connected and has no driving session (title screen)."""
+
 SEEDING: Final = "seeding"
 """A seed was requested for the current epoch."""
+
 RUNNING: Final = "running"
 """Chunks of the current epoch are generated as the engine completes them."""
 
@@ -146,26 +149,37 @@ class DriverConfig:
 
     model_fps: int = 30
     """Frames the model generates per second; ``sim_hz`` must be a multiple."""
+
     lead_chunks: int = 2
     """Chunks granted beyond the one being generated; at least 1."""
+
     display_delay_ticks: int = 28
     """Presentation delay of a generated frame after its tick (0.47 s at 60 Hz)."""
+
     render: str = "off"
     """Engine world rendering between seeds: ``off`` or ``always``."""
+
     seed_width: int | None = None
     """Seed image width asked for in ``seed_req``; ``None`` leaves it to the engine."""
+
     seed_height: int | None = None
     """Seed image height asked for in ``seed_req``; ``None`` leaves it to the engine."""
+
     seed_fov_deg: float | None = None
     """Seed camera field of view; ``None`` leaves it to the engine."""
+
     return_width: int | None = None
     """Width of the frames the encoder produces, announced in ``config``."""
+
     return_height: int | None = None
     """Height of the frames the encoder produces, announced in ``config``."""
+
     preset: str | None = None
     """Name of the host's model preset, for the engine's logs."""
+
     host_build: str | None = None
     """Build of the host, for the engine's logs."""
+
     config_extra: Mapping[str, Any] = field(default_factory=dict)
     """Further ``config`` fields, sent as given."""
 

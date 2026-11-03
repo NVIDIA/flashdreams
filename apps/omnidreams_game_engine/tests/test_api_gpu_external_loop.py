@@ -7,7 +7,7 @@ Manual tier (needs CUDA and the Ludus renderer; no model weights). A Crazy
 Robotaxi authored map is compiled and drawn by two ``LudusConditionRenderer``
 instances. The in-process ``GameEngine`` drives a taxi with a car ahead; the
 stub engine then sends the same states in ``flu/0`` over TCP to the
-``ExternalSessionDriver``. Every chunk's conditioning must be bit-identical.
+``ExternalSessionDriver``. Every chunk's conditioning must be bit-identical. Run with::
 
     uv run pytest -p no:manual_marker -m manual \
         apps/omnidreams_game_engine/tests/test_api_gpu_external_loop.py

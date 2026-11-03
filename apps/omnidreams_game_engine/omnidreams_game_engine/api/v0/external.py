@@ -46,6 +46,7 @@ RELEASE: Final = "release"
 END: Final = "end"
 LOST: Final = "lost"
 """The connection to the engine is gone."""
+
 ERROR: Final = "error"
 VIEWS: Final = "views"
 INVALID: Final = "invalid"

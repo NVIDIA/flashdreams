@@ -162,16 +162,20 @@ class StubScript:
 
     end_after_frames: int | None = None
     """Send ``end`` after answering this many granted frames in total."""
+
     realtime: bool = False
     """Pace ticks to wall time at ``sim_hz`` (else run as fast as granted)."""
+
     restart_at_ticks: tuple[int, ...] = ()
     hold_at_tick: int | None = None
     hold_s: float = 0.0
     drop_at_tick: int | None = None
     """Close the connection abruptly once at this tick, then reconnect."""
+
     silent_at_tick: int | None = None
     silent_s: float = 0.0
     """Stop reading and answering for ``silent_s`` once at this tick."""
+
     views_at_ticks: tuple[tuple[int, tuple[str, ...]], ...] = ()
     """Send ``views`` with these host views at these ticks (after the start tick)."""
 
@@ -185,17 +189,21 @@ class StubSummary:
     errors: list[dict[str, Any]] = field(default_factory=list)
     seeds: list[tuple[int, int]] = field(default_factory=list)
     """``(epoch, tick)`` of every seed sent."""
+
     frames_sent: int = 0
     grants: list[tuple[int, int, int, int, int]] = field(default_factory=list)
     """``(epoch, chunk, g, tick, chunks fully received in that epoch)`` per grant."""
+
     gen_frames: list[tuple[int, int, int, int, int]] = field(default_factory=list)
     """``(epoch, chunk, g, tick, payload bytes)`` per generated frame received."""
+
     cancels: list[int | None] = field(default_factory=list)
     holds: list[int] = field(default_factory=list)
     restarts: list[int] = field(default_factory=list)
     host_messages: dict[str, int] = field(default_factory=dict)
     view_frames: list[tuple[str, int, int, int, int]] = field(default_factory=list)
     """``(view, epoch, g, tick, payload bytes)`` per host view frame received."""
+
     ended: bool = False
     final_tick: int = 0
 
@@ -288,7 +296,7 @@ class StubEngine:
     def _run_safely(self) -> None:
         try:
             self.run()
-        except BaseException as error:  # noqa: BLE001 - reported through ``failure``
+        except BaseException as error:  # reported through ``failure``
             self.failure = error
             self._close()
 

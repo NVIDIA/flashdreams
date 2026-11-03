@@ -26,6 +26,7 @@ class ExternalChunk:
     ar_index: int
     t0_tick: int
     """Seed tick of the epoch."""
+
     frames: tuple[FrameState, ...]
 
     @property
@@ -126,6 +127,7 @@ class AssemblerStats:
     duplicates: int = 0
     stale: int = 0
     """Frames of another epoch or of a chunk already taken."""
+
     chunks: int = 0
 
 

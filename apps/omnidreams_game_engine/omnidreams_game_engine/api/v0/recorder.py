@@ -20,13 +20,16 @@ _LOGGER = logging.getLogger(__name__)
 
 RX = "rx"
 """Engine to host."""
+
 TX = "tx"
 """Host to engine."""
 
 INDEX_NAME = "packets.jsonl"
 """One JSON line per message: a ``meta`` line, then direction, stamps and header."""
+
 PAYLOAD_NAME = "packets.bin"
 """The payloads back to back; each index line names its offset and length."""
+
 LOG_FORMAT = "omnidreams-packet-log/0"
 
 

@@ -18,8 +18,10 @@ class ChunkTimeline:
 
     plan: tuple[int, ...] = (5, 8)
     """Frames per chunk; the last entry repeats for every later chunk."""
+
     sim_hz: int = 60
     """Engine ticks per second."""
+
     model_fps: int = 30
     """Model frames per second; ``sim_hz`` must be a multiple."""
 
