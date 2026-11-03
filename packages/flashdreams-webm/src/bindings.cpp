@@ -369,7 +369,7 @@ public:
         dav1d_data_unref(&decoder_.data);
         if (decoder_.handle) dav1d_close(&decoder_.handle);
         segment_.reset();
-        reader_.Close();
+        // MkvReader::Close closes even a borrowed FILE; file_ owns this handle.
         file_.reset();
     }
 };

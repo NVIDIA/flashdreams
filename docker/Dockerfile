@@ -12,7 +12,7 @@ RUN apt-get update -qq \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
         python3 python3-dev python3-venv \
         ffmpeg \
-        gcc g++ ninja-build \
+        gcc g++ ninja-build yasm \
         libnccl-dev \
         bash \
         bash-completion \
