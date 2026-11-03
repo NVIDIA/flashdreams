@@ -56,7 +56,12 @@ def write_timing_report(directory: Path) -> dict[str, Any]:
             ]
         elif status == "generation_delay":
             delays.append(event)
-        elif event.get("id") is not None and status != "rejected":
+        elif event.get("id") is not None and status in {
+            "accepted",
+            "dispatched",
+            "consumed",
+            "cancelled",
+        }:
             identifier = event["id"]
             row = inputs.setdefault(identifier, {"id": identifier})
             for key in (
