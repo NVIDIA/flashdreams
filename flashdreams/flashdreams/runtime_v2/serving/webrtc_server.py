@@ -378,6 +378,7 @@ class WebRTCServer:
         self._peer_connection: RTCPeerConnection | None = None
         self._control_channel: Any | None = None
         self._sent_cursor_options: tuple[bool, bool] | None = None
+        self._browser_focus: tuple[int, bool] | None = None
         self._link_lock = threading.Lock()
         self._links: tuple[ClientWindowLink, ...] = ()
         self._pressed_link: tuple[str, int, ClientWindowLink] | None = None
@@ -427,6 +428,12 @@ class WebRTCServer:
     def url(self) -> str:
         """Return the browser URL for this server."""
         return f"http://{self._host}:{self._port}/"
+
+    @property
+    def browser_focused(self) -> bool | None:
+        """Return the last known viewport focus, or ``None`` before it is reported."""
+        context = self._browser_focus
+        return None if context is None else context[1]
 
     def metrics_snapshot(self) -> dict[str, float | int]:
         """Return non-blocking sender diagnostics."""
@@ -1198,6 +1205,7 @@ class WebRTCServer:
 
             self._media_connected.clear()
             self._final_video_track_metrics = None
+            self._browser_focus = None
             self._peer_connection = peer_connection
             self._video_track = video_track
             self._client_connected = has_reliable_control
@@ -1241,6 +1249,29 @@ class WebRTCServer:
         if timestamp_us is None:
             return
 
+        focus_context = None
+        if "focus_context" in payload:
+            context = payload["focus_context"]
+            if not isinstance(context, dict):
+                raise ValueError("Focus context must be an object.")
+            generation = _nonnegative_int(
+                context.get("generation"), label="Focus generation"
+            )
+            focused = context.get("focused")
+            if not isinstance(focused, bool):
+                raise ValueError("Focus context requires a boolean focused value.")
+            previous = self._browser_focus
+            if previous is not None:
+                if generation < previous[0]:
+                    return
+                if generation == previous[0] and focused != previous[1]:
+                    raise ValueError(
+                        "A focus generation cannot change its focused value."
+                    )
+            if event_type == "focus" and payload.get("focused") is not focused:
+                raise ValueError("Focus event and focus context must agree.")
+            focus_context = (generation, focused)
+
         if event_type == "keyboard":
             key = payload.get("key")
             pressed = payload.get("pressed")
@@ -1278,6 +1309,7 @@ class WebRTCServer:
                 in_content = payload.get("in_content", True)
                 if not isinstance(cancelled, bool) or not isinstance(in_content, bool):
                     raise ValueError("Mouse cancelled and in_content must be booleans.")
+                self._apply_browser_focus(focus_context, timestamp_us)
                 if button == 0 and self._consume_link_pointer(
                     ("mouse", 0),
                     "cancel" if cancelled else "start" if pressed else "end",
@@ -1437,7 +1469,30 @@ class WebRTCServer:
             return
         else:
             raise ValueError("Unsupported browser event type.")
+        self._apply_browser_focus(focus_context, timestamp_us)
+        if focus_context is not None and isinstance(event, FocusUserInputEvent):
+            return
         self._append_event(event)
+
+    def _apply_browser_focus(
+        self, context: tuple[int, bool] | None, timestamp_us: np.uint64
+    ) -> None:
+        """Publish a generation's focus before any input that depends on it."""
+        previous = self._browser_focus
+        if context is None or context == previous:
+            return
+        self._browser_focus = context
+        if previous is not None and previous[1] and context[1]:
+            # A faster channel can skip the intervening blur; release old holds.
+            self._cancel_link_press()
+            self._append_event(
+                FocusUserInputEvent(timestamp=timestamp_us, focused=False)
+            )
+        if not context[1]:
+            self._cancel_link_press()
+        self._append_event(
+            FocusUserInputEvent(timestamp=timestamp_us, focused=context[1])
+        )
 
     def _append_event(self, event: UserInputEvent) -> None:
         """Buffer one validated browser event."""

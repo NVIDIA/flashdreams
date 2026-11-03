@@ -21,6 +21,7 @@ let hideCursor = false;
 let lockCursorToWindow = false;
 let pointerLocked = false;
 let pointerLockPending = false;
+let inputFocusContext = null;
 
 const MAX_NONCRITICAL_BUFFER_BYTES = 4 * 1024;
 
@@ -35,6 +36,15 @@ const cancelPendingPointerMove = () => {
     pointerMoveHandle = null;
   }
   pendingPointerMove = null;
+};
+
+const cancelPendingPointerInput = () => {
+  cancelPendingPointerMove();
+  if (wheelHandle !== null) {
+    window.cancelAnimationFrame(wheelHandle);
+    wheelHandle = null;
+  }
+  pendingWheel = null;
 };
 
 const showStatus = (message, isError = false) => {
@@ -66,7 +76,8 @@ const sendInput = (
   if (dropIfCongested && channel.bufferedAmount > MAX_NONCRITICAL_BUFFER_BYTES) {
     return false;
   }
-  return send(payload, channel);
+  const input = inputFocusContext === null ? payload : {...payload, focus_context: inputFocusContext};
+  return send(input, channel);
 };
 
 const updateCursorVisibility = () => {
@@ -735,13 +746,17 @@ video.addEventListener("wheel", event => {
   event.preventDefault();
 }, {passive: false});
 
-video.addEventListener("focus", () => {
-  sendInput({type: "focus", focused: true});
-});
-video.addEventListener("blur", () => {
-  releasePressedInputs();
-  sendInput({type: "focus", focused: false});
-});
+const reportInputFocus = focused => {
+  inputFocusContext = {generation: (inputFocusContext?.generation ?? 0) + 1, focused};
+  if (!focused) {
+    releasePressedInputs();
+  } else {
+    cancelPendingPointerInput();
+  }
+  sendInput({type: "focus", focused});
+};
+video.addEventListener("focus", () => reportInputFocus(true));
+video.addEventListener("blur", () => reportInputFocus(false));
 
 const touchPayload = (event, touch, action) => {
   return {
@@ -806,12 +821,7 @@ const pollGamepads = () => {
 window.requestAnimationFrame(pollGamepads);
 
 const releasePressedInputs = () => {
-  cancelPendingPointerMove();
-  if (wheelHandle !== null) {
-    window.cancelAnimationFrame(wheelHandle);
-    wheelHandle = null;
-  }
-  pendingWheel = null;
+  cancelPendingPointerInput();
   for (const [keyId, key] of [...pressedKeys]) {
     const wasSent = sendInput({
       type: "keyboard",

@@ -41,7 +41,13 @@ class Peer extends Element {
     const channel = new Element();
     channel.readyState = "open";
     channel.sent = [];
-    channel.send = payload => channel.sent.push(JSON.parse(payload));
+    channel.wire = [];
+    channel.send = payload => {
+      const packet = JSON.parse(payload);
+      channel.wire.push(packet);
+      const {focus_context, ...input} = packet;
+      channel.sent.push(input);
+    };
     channels.push(channel);
     return channel;
   }
@@ -222,7 +228,11 @@ assert.deepEqual(channels[0].sent.slice(-2), [
   assert.equal(channels[0].sent.length, keyboardStart + 2, "Do not duplicate releases");
 
   // An unchanged app request still supports click-to-recapture.
+  video.emit("pointermove", pointer(510, 270));
+  video.emit("wheel", {...pointer(510, 270), deltaX: 0, deltaY: 1});
+  const unfocusedFrames = frames.size;
   video.emit("pointerdown", pointer(510, 270));
+  assert.equal(frames.size, unfocusedFrames - 2, "Do not relabel queued unfocused motion as recapture input");
   assert.equal(requests, 2);
   finishRequest();
   assert.equal(document.pointerLockElement, video);
@@ -260,4 +270,18 @@ assert.deepEqual(channels[0].sent.slice(-2), [
   assert.equal(channels.flatMap(channel => channel.sent).some(
     event => event.type === "keyboard" && event.key === "Escape",
   ), false, "Never synthesize an app-specific Escape action");
+  const reports = channels[0].wire.filter(event => event.type === "focus");
+  for (const channel of channels) {
+    for (const packet of channel.wire.filter(event => event.focus_context)) {
+      const report = reports.find(event => event.focus_context.generation === packet.focus_context.generation);
+      assert.ok(report, "Every input carries the context of a real viewport focus transition");
+      assert.deepEqual(packet.focus_context, report.focus_context);
+      if (packet.type === "focus") assert.equal(packet.focused, packet.focus_context.focused);
+    }
+  }
+  const click = channels[1].wire.filter(event => event.action === "button" && event.pressed).at(-1);
+  const key = channels[0].wire.find(event => event.type === "keyboard" && event.key === "w");
+  assert.equal(click.focus_context.focused, true);
+  assert.equal(key.focus_context.focused, true);
+  assert.ok(click.focus_context.generation > key.focus_context.generation, "Recapture starts a new input generation");
 })().catch(error => { console.error(error); process.exitCode = 1; });
