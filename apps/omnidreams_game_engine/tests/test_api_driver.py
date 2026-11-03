@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -197,6 +198,37 @@ def test_a_failed_model_cache_raises_and_re_anchors(
         driver.poll(0.0)
     assert script.types()[-3:] == ["restart", "cancel", "seed_req"]
     assert (driver.state, driver.epoch, driver.rollout) == (SEEDING, 3, None)
+
+
+def test_a_seed_with_another_camera_of_the_same_map_reloads_the_scene() -> None:
+    script = _Script()
+    scenes = SeedSceneProvider()
+    renderer = PoseConditionRenderer()
+    driver = v0.ExternalSessionDriver(
+        source=script,
+        pipeline=FakePipeline(),
+        scene_provider=scenes,
+        condition_renderer=renderer,
+    )
+    script.feed(
+        {"type": "hello", "session": "s", "api": PROTOCOL}, {"type": "start", "tick": 0}
+    )
+    driver.poll(0.0)
+    camera = scenes.template.selected_camera
+    rear = "camera:rear:wide:120fov"
+    for epoch, name in enumerate((camera.clipgt_name, camera.clipgt_name, rear), 1):
+        t0 = 10 * (epoch - 1)
+        scenes.template = replace(
+            scenes.template, selected_camera=replace(camera, clipgt_name=name)
+        )
+        if epoch > 1:
+            script.feed({"type": "restart", "tick": t0})
+            driver.poll(0.0)
+        script.feed(_seed(epoch, t0=t0))
+        driver.poll(0.0)
+        assert (driver.state, driver.epoch) == (RUNNING, epoch)
+    # The same map and camera keep the loaded scene; another camera reloads it.
+    assert renderer.scenes == ["external-test", "external-test"]
 
 
 def test_a_lost_engine_releases_the_rollout() -> None:

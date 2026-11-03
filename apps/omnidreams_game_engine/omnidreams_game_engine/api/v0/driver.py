@@ -254,7 +254,7 @@ class ExternalSessionDriver:
         self._scene: SceneDefinition | None = None
         self._seed: SeedFrame | None = None
         self._session: ExternalEngineSession | None = None
-        self._loaded_scene_key: tuple[str, str] | None = None
+        self._loaded_scene_key: tuple[str, str, str] | None = None
 
     ## API
 
@@ -427,7 +427,9 @@ class ExternalSessionDriver:
         self.stats.seeds += 1
         try:
             scene = self.scene_provider.scene_for_seed(self.hello, seed)
-            key = (str(scene.scene_path), scene.scene_id)
+            # The renderer draws the map from the scene's selected camera.
+            camera = scene.selected_camera.clipgt_name
+            key = (str(scene.scene_path), scene.scene_id, camera)
             if key != self._loaded_scene_key:
                 self.condition_renderer.load_scene(scene)
                 self._loaded_scene_key = key
