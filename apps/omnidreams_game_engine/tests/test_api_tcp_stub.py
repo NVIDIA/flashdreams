@@ -121,7 +121,7 @@ def test_stub_session_config_grants_and_frames_in_order() -> None:
     assert config["return_encoding"] == "raw"
     assert stub.summary.seeds == [(1, 0)]
     _assert_grants_within_lead(stub)
-    # Every generated frame comes back once, in order, with its id and the tick of its state.
+    # Every generated frame comes back once, in order, with its id and its tick.
     ids = _frame_ids(stub)
     assert list(ids) == [1]
     assert ids[1] == list(range(len(ids[1])))

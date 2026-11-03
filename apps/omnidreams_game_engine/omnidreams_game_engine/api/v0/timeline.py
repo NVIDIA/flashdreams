@@ -1,14 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Ticks, model frames and chunks of one epoch.
-
-An epoch starts at its seed tick ``t0``. Model frame ``g`` belongs to engine
-tick ``t0 + frame_ticks * g``; frame 0 is the seed. Chunk ``k`` holds the
-frames the pipeline generates in autoregressive step ``k``: with OmniDreams
-5 frames in chunk 0 (the seed included) and 8 in every later chunk. The plan
-is taken from the pipeline (``get_num_output_frames``), not hard-coded.
-"""
+"""Ticks, model frames and chunks of one epoch."""
 
 from __future__ import annotations
 
@@ -26,7 +19,9 @@ class ChunkTimeline:
     plan: tuple[int, ...] = (5, 8)
     """Frames per chunk; the last entry repeats for every later chunk."""
     sim_hz: int = 60
+    """Engine ticks per second."""
     model_fps: int = 30
+    """Model frames per second; ``sim_hz`` must be a multiple."""
 
     def __post_init__(self) -> None:
         if not self.plan or any(int(n) <= 0 for n in self.plan):
@@ -50,7 +45,11 @@ class ChunkTimeline:
         """Build the plan from a pipeline's ``get_num_output_frames``.
 
         The counts of the first chunks are probed; they must settle on one
-        repeating count, as every autoregressive pipeline in the repository does.
+        repeating count, as every autoregressive pipeline in the repository
+        does.
+
+        Raises:
+            ValueError: The counts do not settle, or the rates do not fit.
         """
         counts = [int(frame_count(k)) for k in range(_PROBE_CHUNKS)]
         if counts[-2] != counts[-1]:
@@ -74,12 +73,13 @@ class ChunkTimeline:
         return list(self.plan)
 
     def frames_in_chunk(self, chunk: int) -> int:
+        """Return the number of model frames in ``chunk``."""
         if chunk < 0:
             raise ValueError("Chunk indices start at 0")
         return self.plan[min(chunk, len(self.plan) - 1)]
 
     def first_frame(self, chunk: int) -> int:
-        """Model frame index of the first frame of ``chunk``."""
+        """Return the model frame index of the first frame of ``chunk``."""
         if chunk < 0:
             raise ValueError("Chunk indices start at 0")
         if chunk < len(self.plan):
@@ -88,14 +88,16 @@ class ChunkTimeline:
         return head + (chunk - len(self.plan)) * self.plan[-1]
 
     def last_frame(self, chunk: int) -> int:
+        """Return the model frame index of the last frame of ``chunk``."""
         return self.first_frame(chunk) + self.frames_in_chunk(chunk) - 1
 
     def chunk_frames(self, chunk: int) -> range:
+        """Return the model frame indices of ``chunk``."""
         first = self.first_frame(chunk)
         return range(first, first + self.frames_in_chunk(chunk))
 
     def chunk_of(self, g: int) -> int:
-        """Chunk that contains model frame ``g``."""
+        """Return the chunk that contains model frame ``g``."""
         if g < 0:
             raise ValueError("Frame indices start at 0")
         start = 0
@@ -106,11 +108,11 @@ class ChunkTimeline:
         return len(self.plan) + (g - start) // self.plan[-1]
 
     def tick_of(self, g: int, t0: int) -> int:
-        """Engine tick of model frame ``g`` in an epoch seeded at ``t0``."""
+        """Return the engine tick of model frame ``g`` in an epoch seeded at ``t0``."""
         return t0 + self.frame_ticks * g
 
     def seal_tick(self, chunk: int, t0: int) -> int:
-        """Tick whose state completes ``chunk``."""
+        """Return the tick whose state completes ``chunk``."""
         return self.tick_of(self.last_frame(chunk), t0)
 
     @property
@@ -119,7 +121,7 @@ class ChunkTimeline:
         return round(1_000_000 / self.model_fps)
 
     def timestamp_us(self, tick: int, *, t0: int, base_us: int) -> int:
-        """Model timestamp of an engine tick: ``base_us`` at the seed tick.
+        """Return the model timestamp of an engine tick: ``base_us`` at the seed tick.
 
         Frame ``g`` (tick ``t0 + frame_ticks * g``) is at
         ``base_us + g * frame_interval_us``, the convention of the in-process
@@ -129,7 +131,7 @@ class ChunkTimeline:
         return base_us + round((tick - t0) * self.frame_interval_us / self.frame_ticks)
 
     def grant_frames(self, through_chunk: int, *, after_g: int) -> Sequence[int]:
-        """Model frames up to the end of ``through_chunk`` not yet granted."""
+        """Return the frames up to the end of ``through_chunk`` not granted yet."""
         return range(after_g + 1, self.last_frame(through_chunk) + 1)
 
 

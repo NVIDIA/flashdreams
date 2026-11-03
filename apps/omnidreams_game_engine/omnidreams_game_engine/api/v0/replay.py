@@ -1,19 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Replay a recorded session without the engine.
-
-:class:`PacketLogSource` feeds the engine's recorded messages to the host
-through the same :class:`~.external.EngineSource` interface as the live link.
-A message is delivered once the replaying host has sent as many messages as
-the live host had when it consumed the message (``host_sends`` in the log):
-a seed after its ``seed_req``, a frame after its grant, a restart or an end
-between the same chunks. The driver reacts only to what it receives, so the
-replay generates the same chunks of the same epochs; a log with a
-host-initiated restart (``request_refresh``) is refused, because a replay
-cannot reproduce it. What the host sends is kept in
-:attr:`PacketLogSource.sent` for comparison with the recording.
-"""
+"""Replay of a recorded session without the engine."""
 
 from __future__ import annotations
 
@@ -28,7 +16,14 @@ from omnidreams_game_engine.api.v0.state import StateDecoder
 
 
 class PacketLogSource(MessageEngineSource):
-    """An :class:`~.external.EngineSource` that replays a packet log."""
+    """An :class:`~.external.EngineSource` that replays a packet log.
+
+    A recorded engine message is delivered once the host has sent as many
+    messages as the live host had when it consumed it (``host_sends``), so
+    the host generates the same chunks of the same epochs. A log with a
+    host-initiated restart (``request_refresh``) is refused, because a replay
+    cannot reproduce it.
+    """
 
     _fetch_blocks = False
 

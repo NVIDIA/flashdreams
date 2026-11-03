@@ -1,16 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Host-side session flow for one external engine.
-
-:class:`ExternalSessionDriver` runs the protocol's session flow on the model
-thread: it answers ``hello`` with ``config``, asks for a seed at ``start`` and
-at every restart, builds or resets the
-:class:`~omnidreams_game_engine.model.WorldModelRollout` from the seed, grants
-frames ``lead_chunks`` chunks ahead, generates each chunk once the engine has
-completed it, and sends the frames back. A model host calls :meth:`poll`
-from its model loop; nothing here depends on the FlashDreams runtime.
-"""
+"""Host-side session flow for one external engine, run from the model loop."""
 
 from __future__ import annotations
 
@@ -18,7 +9,7 @@ import logging
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Final, Literal, Protocol
 
 import torch
 from torch import Tensor
@@ -76,13 +67,16 @@ MAP_VIEW = "map"
 HOST_VIEWS = frozenset({MAP_VIEW})
 """Host views this driver serves."""
 
-DISCONNECTED = "disconnected"
+DriverState = Literal["disconnected", "idle", "seeding", "running"]
+"""Session state of :class:`ExternalSessionDriver`."""
+
+DISCONNECTED: Final = "disconnected"
 """No engine connected."""
-IDLE = "idle"
+IDLE: Final = "idle"
 """An engine is connected and has no driving session (title screen)."""
-SEEDING = "seeding"
+SEEDING: Final = "seeding"
 """A seed was requested for the current epoch."""
-RUNNING = "running"
+RUNNING: Final = "running"
 """Chunks of the current epoch are generated as the engine completes them."""
 
 
@@ -94,6 +88,8 @@ class SceneProvider(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class EncodedFrame:
+    """One encoded image and its size."""
+
     data: bytes
     width: int
     height: int
@@ -109,7 +105,7 @@ class FrameEncoder(Protocol):
     def quality(self) -> int | None: ...
 
     def encode(self, video_bvtchw: Tensor) -> list[EncodedFrame]:
-        """One encoded frame per generated frame, in order."""
+        """Encode each frame of ``video_bvtchw``, in order."""
         ...
 
 
@@ -134,7 +130,7 @@ class RawRgbEncoder:
 
 
 def video_to_uint8_thwc(video_bvtchw: Tensor) -> Tensor:
-    """``[1, 1, T, C, H, W]`` video in ``[-1, 1]`` to uint8 ``[T, H, W, C]`` on the CPU."""
+    """Convert ``[1, 1, T, C, H, W]`` video in ``[-1, 1]`` to uint8 ``[T, H, W, C]``."""
     if video_bvtchw.ndim != 6 or tuple(video_bvtchw.shape[:2]) != (1, 1):
         raise ValueError(
             f"Expected [1, 1, T, C, H, W]; got {tuple(video_bvtchw.shape)}"
@@ -146,19 +142,32 @@ def video_to_uint8_thwc(video_bvtchw: Tensor) -> Tensor:
 
 @dataclass(frozen=True, slots=True)
 class DriverConfig:
+    """Settings of :class:`ExternalSessionDriver`; most are sent in ``config``."""
+
     model_fps: int = 30
+    """Frames the model generates per second; ``sim_hz`` must be a multiple."""
     lead_chunks: int = 2
-    """Chunks granted beyond the one being generated."""
+    """Chunks granted beyond the one being generated; at least 1."""
     display_delay_ticks: int = 28
+    """Presentation delay of a generated frame after its tick (0.47 s at 60 Hz)."""
     render: str = "off"
+    """Engine world rendering between seeds: ``off`` or ``always``."""
     seed_width: int | None = None
+    """Seed image width asked for in ``seed_req``; ``None`` leaves it to the engine."""
     seed_height: int | None = None
+    """Seed image height asked for in ``seed_req``; ``None`` leaves it to the engine."""
     seed_fov_deg: float | None = None
+    """Seed camera field of view; ``None`` leaves it to the engine."""
     return_width: int | None = None
+    """Width of the frames the encoder produces, announced in ``config``."""
     return_height: int | None = None
+    """Height of the frames the encoder produces, announced in ``config``."""
     preset: str | None = None
+    """Name of the host's model preset, for the engine's logs."""
     host_build: str | None = None
+    """Build of the host, for the engine's logs."""
     config_extra: Mapping[str, Any] = field(default_factory=dict)
+    """Further ``config`` fields, sent as given."""
 
     def __post_init__(self) -> None:
         if self.lead_chunks < 1:
@@ -215,7 +224,7 @@ class ExternalSessionDriver:
         self.config = config
         self.postprocess = postprocess
         self.trace_chunk_lifecycle = trace_chunk_lifecycle
-        self.state = DISCONNECTED
+        self.state: DriverState = DISCONNECTED
         self.hello: Hello | None = None
         self.timeline: ChunkTimeline | None = None
         self.rollout: WorldModelRollout | None = None
@@ -226,17 +235,17 @@ class ExternalSessionDriver:
         self.last_tick: int | None = None
         self.engine_held = False
         self.views: frozenset[str] = frozenset()
-        """Host views the engine shows now (``views``); their frames follow each chunk."""
+        """Host views the engine shows; their frames follow each chunk."""
         self.stats = DriverStats()
         self._scene: SceneDefinition | None = None
         self._seed: SeedFrame | None = None
         self._session: ExternalEngineSession | None = None
         self._loaded_scene_key: tuple[str, str] | None = None
 
-    # ------------------------------------------------------------------ API
+    ## API
 
     def poll(self, timeout_s: float = 0.1) -> DriverStep | None:
-        """Handle the engine's events, then generate the next chunk if it is complete."""
+        """Handle the engine's events; generate the next chunk once it is complete."""
         wait = 0.0 if self.state == RUNNING else timeout_s
         for event in self.source.poll_events(wait):
             self._handle(event)
@@ -265,7 +274,7 @@ class ExternalSessionDriver:
         self.source.send(Input(action=action, phase=phase, t_host_us=now_us()))
 
     def status(self) -> dict[str, Any]:
-        """Fields for the host's periodic ``status`` message."""
+        """Return the fields of the host's periodic ``status`` message."""
         return {
             "state": self.state,
             "epoch": self.epoch,
@@ -275,10 +284,10 @@ class ExternalSessionDriver:
         }
 
     def close(self) -> None:
-        """Close the rollout; the pipeline, renderer and source stay with their owner."""
+        """Close the rollout; the pipeline, renderer and source stay open."""
         self._end_session()
 
-    # ------------------------------------------------------------- handling
+    ## Handling
 
     def _handle(self, event: SourceEvent) -> None:
         kind = event.kind
@@ -502,37 +511,26 @@ class ExternalSessionDriver:
         return result
 
     def _send_views(self, chunk: ExternalChunk, step: WorldModelStep) -> float:
-        """Send the frames of the host views the engine shows; return the time it took (ms)."""
+        """Send the map view's frames; return the time it took in ms."""
         started = time.perf_counter()
-        if MAP_VIEW in self.views:
-            condition = getattr(step.engine, "condition", None)
-            hdmap = getattr(condition, "hdmap_bvtchw", None)
-            if hdmap is not None:
-                encoded = self.encoder.encode(hdmap)
-                if len(encoded) == len(chunk.frames):
-                    sent_us = now_us()
-                    for state, item in zip(chunk.frames, encoded, strict=True):
-                        self.source.send(
-                            ViewFrame(
-                                view=MAP_VIEW,
-                                epoch=self.epoch,
-                                chunk=self.ar_index,
-                                g=state.g,
-                                tick=state.tick,
-                                encoding=self.encoder.encoding,
-                                width=item.width,
-                                height=item.height,
-                                t_host_us=sent_us,
-                            ),
-                            item.data,
-                        )
-                    self.stats.view_frames_sent += len(encoded)
-                else:
-                    _LOGGER.warning(
-                        "Map view: %d frames for a chunk of %d; not sent",
-                        len(encoded),
-                        len(chunk.frames),
-                    )
+        encoded = self.encoder.encode(step.engine.condition.hdmap_bvtchw)
+        sent_us = now_us()
+        for state, item in zip(chunk.frames, encoded, strict=True):
+            self.source.send(
+                ViewFrame(
+                    view=MAP_VIEW,
+                    epoch=self.epoch,
+                    chunk=self.ar_index,
+                    g=state.g,
+                    tick=state.tick,
+                    encoding=self.encoder.encoding,
+                    width=item.width,
+                    height=item.height,
+                    t_host_us=sent_us,
+                ),
+                item.data,
+            )
+        self.stats.view_frames_sent += len(encoded)
         return (time.perf_counter() - started) * 1000.0
 
     def _end_session(self) -> None:
@@ -544,17 +542,18 @@ class ExternalSessionDriver:
 
 __all__ = [
     "DISCONNECTED",
+    "HOST_VIEWS",
     "IDLE",
+    "MAP_VIEW",
     "RUNNING",
     "SEEDING",
     "DriverConfig",
+    "DriverState",
     "DriverStats",
     "DriverStep",
     "EncodedFrame",
     "ExternalSessionDriver",
     "FrameEncoder",
-    "HOST_VIEWS",
-    "MAP_VIEW",
     "RawRgbEncoder",
     "SceneProvider",
     "video_to_uint8_thwc",

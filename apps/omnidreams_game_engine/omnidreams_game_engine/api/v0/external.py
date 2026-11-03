@@ -1,14 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""An external engine as the rollout's engine.
-
-:class:`ExternalEngineSession` implements the ``RolloutEngine`` protocol that
-:class:`~omnidreams_game_engine.model.WorldModelRollout` drives, exactly as
-the in-process :class:`~omnidreams_game_engine.engine.GameEngine` does. Its
-``step`` does not simulate: it takes the chunk of states the engine sent and
-renders the condition from it. Everything here runs on the model thread.
-"""
+"""The ``RolloutEngine`` of an external engine and the interface of its source."""
 
 from __future__ import annotations
 
@@ -16,7 +9,7 @@ import io
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Final, Literal, Protocol
 
 import numpy as np
 from PIL import Image
@@ -29,18 +22,33 @@ from omnidreams_game_engine.contracts import ConditionRenderer
 from omnidreams_game_engine.engine import EngineStep
 from omnidreams_game_engine.types import DriverCommand
 
-CONNECTED = "connected"
-START = "start"
-SEED = "seed"
-RESTART = "restart"
-HOLD = "hold"
-RELEASE = "release"
-END = "end"
-LOST = "lost"
-ERROR = "error"
-VIEWS = "views"
-"""The engine changed the host views it shows."""
-INVALID = "invalid"
+SourceEventKind = Literal[
+    "connected",
+    "start",
+    "seed",
+    "restart",
+    "hold",
+    "release",
+    "end",
+    "lost",
+    "error",
+    "views",
+    "invalid",
+]
+"""Kind of a :class:`SourceEvent`; most are named after the engine message."""
+
+CONNECTED: Final = "connected"
+START: Final = "start"
+SEED: Final = "seed"
+RESTART: Final = "restart"
+HOLD: Final = "hold"
+RELEASE: Final = "release"
+END: Final = "end"
+LOST: Final = "lost"
+"""The connection to the engine is gone."""
+ERROR: Final = "error"
+VIEWS: Final = "views"
+INVALID: Final = "invalid"
 """The host dropped a frame it cannot use; the epoch must be re-anchored."""
 
 CONTROL_EVENTS = frozenset({CONNECTED, START, SEED, RESTART, END, LOST, VIEWS, INVALID})
@@ -74,7 +82,7 @@ class SeedFrame:
 class SourceEvent:
     """Something the engine did, delivered on the model thread."""
 
-    kind: str
+    kind: SourceEventKind
     message: Message | None = None
     seed: SeedFrame | None = None
     reason: str | None = None
@@ -83,13 +91,13 @@ class SourceEvent:
 class EngineSource(Protocol):
     """Where an external engine's states come from and its frames go.
 
-    Implementations: :class:`~.link_tcp.TcpEngineLink` (a live engine),
-    :class:`~.replay.PacketLogSource` (a recorded session), and recorded-capture
-    readers in model hosts. Every method is called on the model thread.
+    Implementations: :class:`~.link_tcp.TcpEngineLink` (a live engine) and
+    :class:`~.replay.PacketLogSource` (a recorded session). Every method is
+    called on the model thread.
     """
 
     def poll_events(self, timeout_s: float = 0.0) -> list[SourceEvent]:
-        """Return the events received since the last call, waiting up to ``timeout_s``."""
+        """Return the events received since the last call; wait up to ``timeout_s``."""
         ...
 
     def begin_epoch(self, epoch: int, timeline: ChunkTimeline) -> None:
@@ -99,7 +107,7 @@ class EngineSource(Protocol):
     def wait_chunk(
         self, epoch: int, ar_index: int, timeout_s: float
     ) -> ExternalChunk | None:
-        """Return the complete chunk, or ``None`` on timeout or a pending control event."""
+        """Return the complete chunk; ``None`` on timeout or a pending control event."""
         ...
 
     def send(self, message: Message, payload: bytes = b"") -> None:
@@ -123,10 +131,10 @@ class ExternalEngineSession:
     One instance serves one epoch. ``step`` uses a chunk handed over with
     :meth:`supply` (a driver that already waited for it) or waits on the
     source itself, up to ``chunk_timeout_s``; a pending control event ends
-    that wait early, so such a caller polls events first. The commands passed by the
-    rollout only fix the frame count: the engine applies its own inputs and
-    reports them per frame. The condition renderer is shared across epochs
-    and owned by the caller; :meth:`close` leaves it open.
+    that wait early, so such a caller polls events first. The commands passed
+    by the rollout only fix the frame count: the engine applies its own inputs
+    and reports them per frame. The condition renderer is shared across
+    epochs and owned by the caller; :meth:`close` leaves it open.
     """
 
     def __init__(
@@ -170,7 +178,7 @@ class ExternalEngineSession:
         self._supplied = chunk
 
     def submit_text(self, value: str) -> object:
-        """External engines take text through their own UI."""
+        """Ignore text; an external engine takes it through its own UI."""
         del value
         return None
 
@@ -252,4 +260,5 @@ __all__ = [
     "ExternalEngineSession",
     "SeedFrame",
     "SourceEvent",
+    "SourceEventKind",
 ]

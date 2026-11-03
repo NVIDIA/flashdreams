@@ -1,23 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""A Python external engine for protocol tests and host bring-up.
-
-The stub connects to a host, sends ``hello`` and ``start``, answers
-``seed_req`` with a small synthetic image and ``frame_req`` with the state of
-the granted tick, never simulating past the newest grant. Its states come
-from a scripted drive in the ``flu/0`` vocabulary, or from a recorded
-``state.jsonl`` in an engine's own vocabulary (sent verbatim with
-``--state-format``, for a host with a matching decoder).
-A script can pause, restart, drop the connection or go silent at given
-ticks, which exercises every session path of the protocol.
-
-    python -m omnidreams_game_engine.api.v0.stub_engine --port 8095 --frames 600
-"""
+"""A Python external engine for protocol tests and host bring-up."""
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import select
@@ -146,7 +135,7 @@ class ScriptedDrive:
 
 
 def jsonl_states(path: str | Path) -> StateFn:
-    """States of a recorded ``state.jsonl``, by tick (``tick``, else ``frame``)."""
+    """Return the states of a ``state.jsonl`` by nearest ``tick`` (or ``frame``)."""
     by_tick: dict[int, dict[str, Any]] = {}
     with Path(path).open(encoding="utf-8") as lines:
         for line in lines:
@@ -189,6 +178,8 @@ class StubScript:
 
 @dataclass(slots=True)
 class StubSummary:
+    """What the stub sent and received, for tests and the command line."""
+
     connects: int = 0
     configs: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
@@ -214,7 +205,12 @@ class _Reconnect(Exception):
 
 
 class StubEngine:
-    """Run with :meth:`run` (blocking) or :meth:`start` (a daemon thread)."""
+    """An engine that answers grants with scripted ``flu/0`` or recorded states.
+
+    It never simulates past the newest grant, and its script can pause,
+    restart, drop the connection or go silent. Run it with :meth:`run`
+    (blocking) or :meth:`start` (a daemon thread).
+    """
 
     def __init__(
         self,
@@ -259,7 +255,7 @@ class StubEngine:
         self._tick_t0 = 0
         self.failure: BaseException | None = None
 
-    # ---------------------------------------------------------------- control
+    ## Control
 
     def start(self) -> StubEngine:
         self._thread = threading.Thread(
@@ -296,7 +292,7 @@ class StubEngine:
             self.failure = error
             self._close()
 
-    # ------------------------------------------------------------- connection
+    ## Connection
 
     def _connect(self, reason: str) -> None:
         sock = socket.create_connection(self.address, timeout=5.0)
@@ -350,19 +346,15 @@ class StubEngine:
         if graceful:
             # Half-close and drain, so the last messages are not lost to a reset
             # while the host is still sending frames.
-            try:
+            with contextlib.suppress(OSError):
                 sock.shutdown(socket.SHUT_WR)
                 deadline = time.monotonic() + 2.0
                 while time.monotonic() < deadline:
                     ready, _, _ = select.select([sock], [], [], 0.05)
                     if ready and not sock.recv(1 << 16):
                         break
-            except OSError:
-                pass
-        try:
+        with contextlib.suppress(OSError):
             sock.close()
-        except OSError:
-            pass
 
     def _send(self, message: Message, payload: bytes = b"") -> None:
         if self._sock is None:
@@ -394,7 +386,7 @@ class StubEngine:
             got_config |= self._handle(header, payload)
         return got_config
 
-    # -------------------------------------------------------------- messages
+    ## Messages
 
     def _handle(self, header: dict[str, Any], payload: bytes) -> bool:
         try:
@@ -465,7 +457,7 @@ class StubEngine:
             complete += 1
         self._complete[message.epoch] = complete
 
-    # ------------------------------------------------------------ simulation
+    ## Simulation
 
     def _loop_once(self) -> None:
         now = time.monotonic()
@@ -557,7 +549,7 @@ class StubEngine:
                 return
 
     def _run_script(self) -> bool:
-        """Apply the script's action at this tick; return True when it pauses the tick."""
+        """Apply the script's action at this tick; return whether it pauses the tick."""
         script = self.script
         for at_tick, views in script.views_at_ticks:
             key = f"views@{at_tick}"
@@ -647,10 +639,6 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if not summary.errors else 1
 
 
-if __name__ == "__main__":
-    sys.exit(main())
-
-
 __all__ = [
     "ScriptedDrive",
     "StubEngine",
@@ -659,3 +647,6 @@ __all__ = [
     "jsonl_states",
     "main",
 ]
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,14 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Model-thread half of a message-based :class:`~.external.EngineSource`.
-
-A transport (the TCP link, a packet-log replay) only fetches raw messages and
-transmits outgoing ones. Parsing, state decoding, chunk assembly, event
-generation and recording of consumed messages happen here, on the thread
-that calls :meth:`poll_events` and :meth:`wait_chunk`: the model thread. A
-transport's own threads never touch the assembler or the events.
-"""
+"""Model-thread half of a message-based :class:`~.external.EngineSource`."""
 
 from __future__ import annotations
 
@@ -35,6 +28,7 @@ from omnidreams_game_engine.api.v0.external import (
     VIEWS,
     SeedFrame,
     SourceEvent,
+    SourceEventKind,
 )
 from omnidreams_game_engine.api.v0.messages import (
     End,
@@ -60,7 +54,7 @@ _LOGGER = logging.getLogger(__name__)
 LOST_TYPE = "_lost"
 """Header type of the synthetic message a transport queues when the engine is gone."""
 
-_EVENT_KINDS: dict[type[Message], str] = {
+_EVENT_KINDS: dict[type[Message], SourceEventKind] = {
     Hello: CONNECTED,
     Start: START,
     Restart: RESTART,
@@ -93,7 +87,12 @@ class SourceStats:
 
 
 class MessageEngineSource:
-    """Shared ``EngineSource`` logic over a stream of protocol messages."""
+    """Shared ``EngineSource`` logic over a stream of protocol messages.
+
+    A transport only fetches and transmits messages. Parsing, decoding,
+    chunk assembly, events and recording run here, on the thread that calls
+    :meth:`poll_events` and :meth:`wait_chunk`.
+    """
 
     _fetch_blocks = True
     """Whether ``_fetch`` with a timeout waits for new messages."""
@@ -111,7 +110,7 @@ class MessageEngineSource:
         self._events: deque[SourceEvent] = deque()
         self._sends = 0
 
-    # ------------------------------------------------------------------ hooks
+    ## Hooks
 
     def _fetch(self, timeout_s: float) -> list[Inbound]:
         """Return the messages available now, waiting up to ``timeout_s`` for one."""
@@ -121,7 +120,7 @@ class MessageEngineSource:
         """Send one message, or drop it when no engine is connected."""
         raise NotImplementedError
 
-    # ------------------------------------------------------------ EngineSource
+    ## EngineSource
 
     @property
     def sends(self) -> int:
@@ -174,7 +173,7 @@ class MessageEngineSource:
         if self.recorder is not None:
             self.recorder.flush()
 
-    # -------------------------------------------------------------- internals
+    ## Internals
 
     def _consume(self, inbound: Sequence[Inbound]) -> None:
         for item in inbound:

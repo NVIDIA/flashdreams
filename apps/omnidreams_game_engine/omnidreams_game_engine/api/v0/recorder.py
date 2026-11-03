@@ -1,16 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Packet log of an external-engine session.
-
-A session folder holds ``packets.jsonl`` (one JSON line per message: its
-direction, stamps and header) and ``packets.bin`` (the payloads, back to
-back; each line names its offset and length). The first line is a ``meta``
-record. Messages from the engine are written when the model thread consumes
-them, with ``host_sends``, the number of messages the host had sent by then;
-:class:`~.replay.PacketLogSource` delivers them at the same points, so a
-replay reproduces the session's chunks and epochs exactly.
-"""
+"""Packet log of an external-engine session (``packets.jsonl``, ``packets.bin``)."""
 
 from __future__ import annotations
 
@@ -33,12 +24,14 @@ TX = "tx"
 """Host to engine."""
 
 INDEX_NAME = "packets.jsonl"
+"""One JSON line per message: a ``meta`` line, then direction, stamps and header."""
 PAYLOAD_NAME = "packets.bin"
+"""The payloads back to back; each index line names its offset and length."""
 LOG_FORMAT = "omnidreams-packet-log/0"
 
 
 def now_us() -> int:
-    """Wall-clock microseconds, the time base of every stamp on the wire."""
+    """Return wall-clock microseconds, the time base of every stamp on the wire."""
     return time.time_ns() // 1000
 
 
@@ -77,6 +70,7 @@ class PacketRecorder:
 
     @property
     def records(self) -> int:
+        """Messages recorded so far."""
         return self._seq
 
     def record(
@@ -120,6 +114,7 @@ class PacketRecorder:
             self._write_line(record)
 
     def flush(self) -> None:
+        """Write buffered data to the files."""
         with self._lock:
             if not self._closed:
                 self._index.flush()
@@ -139,6 +134,8 @@ class PacketRecorder:
 
 @dataclass(frozen=True, slots=True)
 class PacketRecord:
+    """One recorded message."""
+
     seq: int
     direction: str
     header: dict[str, Any]
@@ -188,10 +185,11 @@ class PacketLogReader:
             )
 
     def received(self) -> list[PacketRecord]:
-        """Engine-to-host records in the order the host consumed them."""
+        """Return the engine-to-host records in the order the host consumed them."""
         return [record for record in self if record.direction == RX]
 
     def sent(self) -> list[PacketRecord]:
+        """Return the host-to-engine records in the order they were sent."""
         return [record for record in self if record.direction == TX]
 
 

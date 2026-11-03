@@ -1,16 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Decoded per-frame engine state and the state decoders.
-
-``frame.state`` on the wire is in an engine's own vocabulary (named by
-``hello.state_format``). A :class:`StateDecoder` turns it into a
-:class:`FrameState` in FLU metres, the frame of the scene and the renderer.
-Engine-specific decoders (such as a state line in Unreal units) live with
-their model host and use :mod:`~omnidreams_game_engine.api.v0.units`. This
-module defines one engine-neutral vocabulary, ``flu/0``, with an exact
-round trip; the stub engine and in-process engines use it.
-"""
+"""Decoded per-frame engine state and the ``flu/0`` state vocabulary."""
 
 from __future__ import annotations
 
@@ -28,13 +19,13 @@ FloatArray = npt.NDArray[np.float32]
 
 @dataclass(frozen=True, slots=True)
 class ActorState:
-    """One dynamic actor's box at one frame, in FLU world metres."""
+    """One dynamic actor's box at one frame, in FLU world meters."""
 
     entity_id: str
     object_type: str
     """Renderer class, such as ``Car`` or ``Pedestrian``."""
     position_world: FloatArray
-    """Box centre, shape ``(3,)``."""
+    """Box center, shape ``(3,)``."""
     orientation_xyzw: FloatArray
     """Unit quaternion, shape ``(4,)``."""
     dimensions_lwh: FloatArray
@@ -46,7 +37,9 @@ class FrameState:
     """The engine's state at one model frame, decoded to FLU."""
 
     g: int
+    """Model frame index within the epoch."""
     tick: int
+    """Engine tick of the state."""
     rig_to_world: FloatArray
     """4x4 pose the condition renderer draws from (``rig_poses_world``)."""
     vehicle: VehicleState
@@ -72,6 +65,7 @@ class StateDecoder(Protocol):
 
 
 FLU_STATE_FORMAT = "flu/0"
+"""``hello.state_format`` of the engine-neutral vocabulary of :class:`FluStateCodec`."""
 
 _VEHICLE_FIELDS = (
     "x_m",
@@ -104,7 +98,7 @@ _COMMAND_FIELDS = (
 
 
 class FluStateCodec:
-    """The engine-neutral ``flu/0`` vocabulary: FLU metres and radians.
+    """The engine-neutral ``flu/0`` vocabulary: FLU meters and radians.
 
     ``{"rig_to_world": [16 row-major floats], "vehicle": {VehicleState
     fields}, "command": {DriverCommand fields}, "actors": [{ActorState
@@ -120,6 +114,7 @@ class FluStateCodec:
         return FLU_STATE_FORMAT
 
     def encode(self, frame: FrameState) -> dict[str, Any]:
+        """Return the wire state of ``frame``."""
         vehicle = {
             name: getattr(frame.vehicle, name)
             for name in _VEHICLE_FIELDS

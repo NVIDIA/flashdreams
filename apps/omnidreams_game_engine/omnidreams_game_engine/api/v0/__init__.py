@@ -9,6 +9,7 @@ from omnidreams_game_engine.api.v0 import framing, messages, units
 from omnidreams_game_engine.api.v0.assembly import ChunkAssembler, ExternalChunk
 from omnidreams_game_engine.api.v0.driver import (
     DriverConfig,
+    DriverState,
     DriverStep,
     EncodedFrame,
     ExternalSessionDriver,
@@ -22,6 +23,7 @@ from omnidreams_game_engine.api.v0.external import (
     ExternalEngineSession,
     SeedFrame,
     SourceEvent,
+    SourceEventKind,
 )
 from omnidreams_game_engine.api.v0.link_tcp import TcpEngineLink
 from omnidreams_game_engine.api.v0.messages import PROTOCOL, ProtocolError
@@ -75,6 +77,7 @@ __all__ = [
     "ConditionRenderer",
     "DriverCommand",
     "DriverConfig",
+    "DriverState",
     "DriverStep",
     "DynamicActorTrajectory",
     "EncodedFrame",
@@ -102,6 +105,7 @@ __all__ = [
     "SeedFrame",
     "SimulationWorld",
     "SourceEvent",
+    "SourceEventKind",
     "StateDecoder",
     "TcpEngineLink",
     "TrajectoryChunk",

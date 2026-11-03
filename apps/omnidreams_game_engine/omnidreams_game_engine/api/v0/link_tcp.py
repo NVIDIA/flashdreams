@@ -1,20 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""TCP transport: the host listens, one engine connects out.
-
-Threads: one acceptor; per connection a reader and a writer; one monitor
-that pings the engine every ``ping_interval_s``, sends the host's status and
-drops a connection on which the engine has said nothing for ``silence_s``.
-The reader only queues messages (and answers nothing but the handshake);
-everything else happens on the model thread through
-:class:`~.source.MessageEngineSource`. A second engine is refused with
-``error{code: busy}`` while one is connected; the same engine session
-connecting again replaces its old connection (a reconnect).
-"""
+"""TCP transport: the host listens, one engine connects out."""
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import queue
 import socket
@@ -73,14 +64,9 @@ class _Connection:
         self.close_reason = self.close_reason or reason
         self.closed.set()
         self.outbox.put(None)
-        try:
+        with contextlib.suppress(OSError):
             self.sock.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        try:
-            self.sock.close()
-        except OSError:
-            pass
+        _close_quietly(self.sock)
 
 
 class TcpEngineLink(MessageEngineSource):
@@ -91,6 +77,11 @@ class TcpEngineLink(MessageEngineSource):
     protocol has no authentication: pass ``host`` explicitly (for example
     ``"0.0.0.0"``) to accept an engine on another machine, and only on a
     trusted network. ``port=0`` picks a free port; :attr:`address` reports it.
+
+    Each connection has a reader thread, which only queues messages, and a
+    writer thread; a monitor thread pings the engine every
+    ``ping_interval_s``, sends the host's status and drops an engine that has
+    been silent for ``silence_s``.
     """
 
     def __init__(
@@ -116,7 +107,7 @@ class TcpEngineLink(MessageEngineSource):
         self._lock = threading.Lock()
         self._connection: _Connection | None = None
         self._stop = threading.Event()
-        self._listener = socket.create_server((host, port), reuse_port=False)
+        self._listener = socket.create_server((host, port))
         self._listener.settimeout(_ACCEPT_POLL_S)
         self._threads = [
             threading.Thread(
@@ -145,10 +136,7 @@ class TcpEngineLink(MessageEngineSource):
     def close(self) -> None:
         self._stop.set()
         self.drop_connection("host closed")
-        try:
-            self._listener.close()
-        except OSError:
-            pass
+        _close_quietly(self._listener)
         for thread in self._threads:
             thread.join(timeout=_JOIN_TIMEOUT_S)
         with self._lock:
@@ -158,7 +146,7 @@ class TcpEngineLink(MessageEngineSource):
                 thread.join(timeout=_JOIN_TIMEOUT_S)
         super().close()
 
-    # -------------------------------------------------------------- transport
+    ## Transport
 
     def _fetch(self, timeout_s: float) -> list[Inbound]:
         items: list[Inbound] = []
@@ -181,7 +169,7 @@ class TcpEngineLink(MessageEngineSource):
         if connection is not None and not connection.closed.is_set():
             connection.outbox.put((message.to_header(), payload))
 
-    # ---------------------------------------------------------------- threads
+    ## Threads
 
     def _accept_loop(self) -> None:
         while not self._stop.is_set():
@@ -211,7 +199,7 @@ class TcpEngineLink(MessageEngineSource):
                 header, payload = recv_message(connection.sock)
                 connection.last_rx = time.monotonic()
                 self._inbox.put(Inbound(header, payload, now_us()))
-        except Exception as error:  # noqa: BLE001 - any read failure ends the connection
+        except Exception as error:  # noqa: BLE001 - any read error ends the connection
             reason = connection.close_reason or f"connection: {error}"
         else:
             reason = connection.close_reason or "closed"
@@ -286,12 +274,10 @@ class TcpEngineLink(MessageEngineSource):
         self.refusals.append(code)
         _LOGGER.warning("Refused an engine (%s): %s", code, text)
         header = Error(code=code, message=text).to_header()
-        try:
+        with contextlib.suppress(OSError):
             send_message(sock, header)
             if self.recorder is not None:
                 self.recorder.record(TX, header)
-        except OSError:
-            pass
         _close_quietly(sock)
 
     def _write_loop(self, connection: _Connection) -> None:
@@ -302,7 +288,7 @@ class TcpEngineLink(MessageEngineSource):
             header, payload = item
             try:
                 send_message(connection.sock, header, payload)
-            except Exception as error:  # noqa: BLE001 - a failed send ends the connection
+            except Exception as error:  # noqa: BLE001 - a send error ends it
                 connection.close(f"send failed: {error}")
                 return
             if self.recorder is not None:
@@ -334,17 +320,15 @@ class TcpEngineLink(MessageEngineSource):
                 try:
                     header = Status(extra=dict(self.status_provider())).to_header()
                     encode_message(header)
-                except Exception:  # noqa: BLE001 - a status callback must not stop pings
+                except Exception:  # noqa: BLE001 - a bad status must not stop pings
                     _LOGGER.exception("Host status provider failed")
                     continue
                 connection.outbox.put((header, b""))
 
 
 def _close_quietly(sock: socket.socket) -> None:
-    try:
+    with contextlib.suppress(OSError):
         sock.close()
-    except OSError:
-        pass
 
 
 __all__ = ["HELLO_TIMEOUT_S", "TcpEngineLink"]

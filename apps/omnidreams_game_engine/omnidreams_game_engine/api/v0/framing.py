@@ -1,12 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Wire framing of the external-engine protocol.
-
-Every message is a 4-byte big-endian header length, a UTF-8 JSON object with
-a string ``type`` and an integer ``bytes``, then ``bytes`` bytes of binary
-payload (0 when absent). The module imports neither torch nor a renderer.
-"""
+"""Wire framing: a 4-byte length, a JSON header and a binary payload."""
 
 from __future__ import annotations
 

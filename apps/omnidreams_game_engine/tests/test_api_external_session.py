@@ -125,7 +125,7 @@ def test_external_session_drives_the_rollout_and_video_aligns_with_frames() -> N
     ]
     assert source.waits == [(1, 0), (1, 1), (1, 2)]
     assert [a for a, _ in pipeline.generated] == [0, 1, 2]
-    # The "generated" video is the condition, so frame i of a chunk shows frame i's pose.
+    # The "generated" video is the condition: frame i of a chunk shows frame i's pose.
     for result in results:
         np.testing.assert_array_equal(
             result.video_bvtchw.float().numpy(),
@@ -185,7 +185,7 @@ class _FreeDriveRules:
 
 
 def test_external_engine_reproduces_the_in_process_engine_bit_for_bit() -> None:
-    """An engine that sends the in-process engine's states gets the same model input and video."""
+    """An engine sending the in-process engine's states gets the same model input."""
     scene = minimal_scene()
     plan = (5, 8)
     chunks = 4

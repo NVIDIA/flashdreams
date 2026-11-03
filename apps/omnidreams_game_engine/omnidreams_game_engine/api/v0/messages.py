@@ -78,7 +78,8 @@ class Hello(Message):
     session: str
     """Engine session name; a reconnect sends the same name."""
     api: str | None = None
-    """Protocol the engine speaks, ``omnidreams-engine/0``; a hello without it is refused."""
+    """Protocol the engine speaks (``omnidreams-engine/0``). Required on the wire;
+    optional here so that a hello without it is refused with code ``version``."""
     state_format: str | None = None
     """Vocabulary of ``frame.state``; the host's state decoder must accept it."""
     level: str | None = None

@@ -182,8 +182,8 @@ def test_version_check_accepts_v0_and_refuses_others() -> None:
 def test_schema_json_matches_the_message_classes() -> None:
     schema = m.json_schema()
     assert json.loads(m.SCHEMA_PATH.read_text(encoding="utf-8")) == schema, (
-        "Regenerate with: uv run python -c "
-        '"from omnidreams_game_engine.api.v0.messages import write_schema; write_schema()"'
+        "Regenerate with: uv run python -c 'from omnidreams_game_engine.api.v0."
+        "messages import write_schema; write_schema()'"
     )
     assert set(schema["$defs"]) == {cls.TYPE for cls in m.MESSAGE_TYPES}
     frame = schema["$defs"]["frame"]
@@ -211,6 +211,7 @@ def test_the_stable_names_of_v0() -> None:
         "ConditionRenderer",
         "DriverCommand",
         "DriverConfig",
+        "DriverState",
         "DriverStep",
         "DynamicActorTrajectory",
         "EncodedFrame",
@@ -240,6 +241,7 @@ def test_the_stable_names_of_v0() -> None:
         "SeedFrame",
         "SimulationWorld",
         "SourceEvent",
+        "SourceEventKind",
         "StateDecoder",
         "TcpEngineLink",
         "TrajectoryChunk",

@@ -17,7 +17,7 @@ from omnidreams_game_engine.api.v0 import units
 pytestmark = pytest.mark.ci_cpu
 
 
-def test_position_cm_to_flu_metres() -> None:
+def test_position_cm_to_flu_meters() -> None:
     np.testing.assert_allclose(
         units.ue_pos_to_flu([12345.6, -789.1, 23.4]),
         [123.456, 7.891, 0.23399999999999999],

@@ -1,15 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Collect per-frame engine states into the chunks the model generates.
-
-The assembler is single-threaded by design: a source's model-thread side
-feeds it and takes chunks from it (see :mod:`.source`).
-"""
+"""Per-frame engine states collected into the chunks the model generates."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 
@@ -33,15 +30,18 @@ class ExternalChunk:
 
     @property
     def g_range(self) -> range:
+        """Model frame indices of the chunk."""
         return range(self.frames[0].g, self.frames[-1].g + 1)
 
     @property
     def ticks(self) -> tuple[int, ...]:
+        """Engine tick of every frame."""
         return tuple(frame.tick for frame in self.frames)
 
     def timestamps_us(
         self, timeline: ChunkTimeline, *, base_timestamp_us: int
     ) -> np.ndarray:
+        """Return the model timestamp of every frame."""
         return np.asarray(
             [
                 timeline.timestamp_us(
@@ -73,7 +73,7 @@ class ExternalChunk:
 def actor_tracks(
     frames: tuple[FrameState, ...], timestamps_us: np.ndarray
 ) -> tuple[DynamicActorTrajectory, ...]:
-    """One trajectory per actor and contiguous run of frames.
+    """Return one trajectory per actor and contiguous run of frames.
 
     An actor missing from some frames of a chunk is split at the gap; the
     second and later runs get ``<id>~<n>``. Tracks are marked simulated so the
@@ -120,6 +120,8 @@ def actor_tracks(
 
 @dataclass(slots=True)
 class AssemblerStats:
+    """Counts of the frames the assembler received."""
+
     added: int = 0
     duplicates: int = 0
     stale: int = 0
@@ -148,7 +150,9 @@ class ChunkAssembler:
         self._frames.clear()
         self._taken_through = -1
 
-    def add(self, epoch: int, frame: FrameState) -> str:
+    def add(
+        self, epoch: int, frame: FrameState
+    ) -> Literal["added", "duplicate", "stale"]:
         """Store one frame; return ``added``, ``duplicate`` or ``stale``."""
         if epoch != self.epoch:
             self.stats.stale += 1
@@ -166,11 +170,13 @@ class ChunkAssembler:
         return "added"
 
     def missing(self, ar_index: int) -> list[int]:
+        """Return the frames of chunk ``ar_index`` not received yet."""
         return [
             g for g in self.timeline.chunk_frames(ar_index) if g not in self._frames
         ]
 
     def ready(self, ar_index: int) -> bool:
+        """Return whether chunk ``ar_index`` is complete and not yet taken."""
         return (
             self.epoch is not None
             and self.t0_tick is not None

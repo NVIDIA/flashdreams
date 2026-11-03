@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""GPU check: an external engine over TCP gets the same Ludus conditioning as in-process.
+"""GPU check: an external engine over TCP gets the in-process Ludus conditioning.
 
 Manual tier (needs CUDA and the Ludus renderer; no model weights). A Crazy
 Robotaxi authored map is compiled and drawn by two ``LudusConditionRenderer``

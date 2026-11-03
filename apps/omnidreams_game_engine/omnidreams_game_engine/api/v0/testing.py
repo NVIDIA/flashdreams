@@ -101,7 +101,7 @@ class PoseConditionRenderer:
 def minimal_scene(
     *, width: int = 8, height: int = 4, scene_id: str = "external-test"
 ) -> SceneDefinition:
-    """A scene without geometry for CPU sessions."""
+    """Return a scene without geometry for CPU sessions."""
     calibration = CameraCalibration(
         clipgt_name="camera:front:wide:120fov",
         logical_name="camera_front_wide_120fov",
