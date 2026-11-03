@@ -14,8 +14,13 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import numpy.typing as npt
+from omnidreams_game_engine.api.v0 import (
+    CameraCalibration,
+    GameUpdate,
+    TrajectoryChunk,
+    VehicleState,
+)
 from omnidreams_game_engine.camera import FThetaCameraModel
-from omnidreams_game_engine.contracts import GameUpdate
 from omnidreams_game_engine.game_map.vicinity import (
     GameMapVicinity,
     GameMapVicinityResolver,
@@ -26,11 +31,6 @@ from omnidreams_game_engine.math3d import (
     level_rig_pose_from_vehicle_state,
     rig_pose_from_state,
     rig_pose_from_vehicle_state,
-)
-from omnidreams_game_engine.types import (
-    CameraCalibration,
-    TrajectoryChunk,
-    VehicleState,
 )
 
 from crazy_robotaxi.dynamics import (

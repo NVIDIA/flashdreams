@@ -11,10 +11,9 @@ from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
+from omnidreams_game_engine.api.v0 import GameUpdate, TrajectoryChunk, VehicleState
 from omnidreams_game_engine.camera import FThetaCameraModel
-from omnidreams_game_engine.contracts import GameUpdate
 from omnidreams_game_engine.game_map import GameMapRaceCourse, ResolvedGameMap
-from omnidreams_game_engine.types import TrajectoryChunk, VehicleState
 from shapely.geometry import LineString, Point, Polygon
 
 from crazy_robotaxi.high_scores import (

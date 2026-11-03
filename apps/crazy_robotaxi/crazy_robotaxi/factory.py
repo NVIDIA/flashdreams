@@ -9,9 +9,14 @@ from dataclasses import replace
 from functools import partial
 from pathlib import Path
 
+from omnidreams_game_engine.api.v0 import (
+    DriverCommand,
+    GameEngine,
+    SceneDefinition,
+    VehicleState,
+)
 from omnidreams_game_engine.conditioning import LudusConditionRenderer
 from omnidreams_game_engine.config import BevConfig, RasterConfig, VehicleConfig
-from omnidreams_game_engine.engine import GameEngine
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinityResolver
 from omnidreams_game_engine.simulation.actor_controller import PhysicsActorController
 from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
@@ -19,7 +24,6 @@ from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
     state_from_initial_pose,
 )
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
-from omnidreams_game_engine.types import DriverCommand, SceneDefinition, VehicleState
 
 from crazy_robotaxi.dynamics import TaxiVehicleConfig, integrate_taxi_vehicle
 from crazy_robotaxi.free_roam import FreeRoamGameRules
