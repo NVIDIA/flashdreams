@@ -9,12 +9,10 @@ import sys
 from pathlib import Path
 
 # These dependencies are installed in the isolated build environment.
-from mesonbuild import mesonmain  # ty: ignore[unresolved-import]
-from mesonbuild.utils.universal import (
-    set_meson_command,  # ty: ignore[unresolved-import]
-)
-from mesonbuild.utils.vsenv import setup_vsenv  # ty: ignore[unresolved-import]
-from scikit_build_core import build  # ty: ignore[unresolved-import]
+from mesonbuild import mesonmain
+from mesonbuild.utils.universal import set_meson_command
+from mesonbuild.utils.vsenv import setup_vsenv
+from scikit_build_core import build
 
 
 def _setup_windows_env():

@@ -176,6 +176,12 @@ exclude = [
 # signatures (violates Liskov but is the established design in this codebase).
 invalid-method-override = "ignore"
 
+# Native extension and build-backend imports depend on the build environment.
+[[tool.ty.overrides]]
+include = ["packages/flashdreams-webm/**"]
+[tool.ty.overrides.rules]
+unresolved-import = "ignore"
+
 [tool.ty.analysis]
 # These packages have no useful type stubs (Triton kernels rewrite their
 # call signatures via ``@triton.jit``) or are unavailable in CI; treat
