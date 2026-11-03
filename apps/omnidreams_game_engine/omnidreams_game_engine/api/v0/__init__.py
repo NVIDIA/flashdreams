@@ -74,7 +74,7 @@ from omnidreams_game_engine.types import (
     VehicleState,
 )
 
-API_VERSION = "0.1"
+API_VERSION = "0.2"
 """Version of this API: the major is the protocol major, the minor counts additions."""
 
 __all__ = [

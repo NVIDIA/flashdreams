@@ -14,8 +14,9 @@ layer. Version 0 is `omnidreams_game_engine.api.v0` with the wire protocol
 - Additions are allowed: new optional fields with defaults, new message types,
   new optional keyword arguments, new names. Receivers ignore fields and
   message types they do not know, so an older peer keeps working.
-- Nothing is removed, renamed or changed in meaning. `API_VERSION` (`0.1`)
-  counts additions in its minor number.
+- Nothing is removed, renamed or changed in meaning. `API_VERSION` counts
+  additions in its minor number (`0.1`: the first message set; `0.2`: the
+  host views `views` and `view_frame`).
 
 ## Breaking changes
 

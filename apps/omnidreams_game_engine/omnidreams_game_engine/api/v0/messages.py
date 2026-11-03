@@ -255,6 +255,45 @@ class GenFrame(Message):
 
 
 @dataclass(kw_only=True, slots=True)
+class Views(Message):
+    """The host views the engine shows now; the host sends their frames (``view_frame``) while they are listed.
+
+    Added in API 0.2. An empty list stops them; a new connection starts with
+    none. A host that does not serve a view ignores it.
+    """
+
+    TYPE: ClassVar[str] = "views"
+    SENDER: ClassVar[str] = ENGINE
+
+    views: list[str] = field(default_factory=list)
+    t_engine_us: int | None = None
+
+
+@dataclass(kw_only=True, slots=True)
+class ViewFrame(Message):
+    """One frame of a host view the engine asked for with ``views``; the payload is the image.
+
+    ``view`` names it (``map``: the conditioning frame the model generated
+    the frame ``g`` from). Added in API 0.2; sent only to an engine that
+    listed the view.
+    """
+
+    TYPE: ClassVar[str] = "view_frame"
+    SENDER: ClassVar[str] = HOST
+
+    view: str
+    epoch: int
+    chunk: int
+    g: int
+    tick: int
+    """Engine tick whose state produced the frame."""
+    encoding: str
+    width: int
+    height: int
+    t_host_us: int | None = None
+
+
+@dataclass(kw_only=True, slots=True)
 class Input(Message):
     """A key edge forwarded from a host-side view."""
 
@@ -368,6 +407,8 @@ MESSAGE_TYPES: tuple[type[Message], ...] = (
     End,
     Status,
     Error,
+    Views,
+    ViewFrame,
 )
 """Every message type of version 0."""
 
@@ -592,6 +633,8 @@ __all__ = [
     "Start",
     "Status",
     "Unknown",
+    "ViewFrame",
+    "Views",
     "check_api",
     "from_header",
     "json_schema",

@@ -31,6 +31,7 @@ from omnidreams_game_engine.api.v0.external import (
     RESTART,
     SEED,
     START,
+    VIEWS,
     SeedFrame,
     SourceEvent,
 )
@@ -46,6 +47,7 @@ from omnidreams_game_engine.api.v0.messages import (
     Restart,
     Start,
     Status,
+    Views,
     from_header,
 )
 from omnidreams_game_engine.api.v0.recorder import RX, PacketRecorder
@@ -242,6 +244,8 @@ class MessageEngineSource:
             )
         elif isinstance(message, Status):
             self.last_status = message
+        elif isinstance(message, Views):
+            self._events.append(SourceEvent(VIEWS, message=message))
         elif message.TYPE in ("pong", "ping"):
             pass
         else:

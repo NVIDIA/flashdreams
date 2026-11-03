@@ -63,6 +63,18 @@ def _examples() -> list[m.Message]:
             epoch=4, chunk=1, g=5, tick=110, encoding="jpeg", width=1024, height=560
         ),
         m.Input(action="throttle", phase="down", t_host_us=3),
+        m.Views(views=["map"], t_engine_us=4),
+        m.ViewFrame(
+            view="map",
+            epoch=1,
+            chunk=0,
+            g=3,
+            tick=6,
+            encoding="jpeg",
+            width=1024,
+            height=560,
+            t_host_us=5,
+        ),
         m.Cancel(epoch=4),
         m.Ping(t_host_us=11),
         m.Hold(reason="pause", tick=200),

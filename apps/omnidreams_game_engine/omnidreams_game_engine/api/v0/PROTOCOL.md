@@ -33,6 +33,7 @@ Engine to host:
 | `start` | `tick` | `reason` (`start`, `reconnect`) | A driving session begins, or resumes after a reconnect |
 | `frame` | `epoch`, `g`, `tick` | `state`, `chunk`, `index`, `req_tick`, `seed`, `encoding`, `width`, `height`, `t_engine_us` | The state of one granted model frame; with `seed: true` the payload is the seed image |
 | `pong` | `t_host_us` | `t_engine_us` | Answer to `ping` |
+| `views` | | `views` (list), `t_engine_us` | The host views the engine shows now (API 0.2); the host sends their frames while they are listed |
 
 Host to engine:
 
@@ -42,6 +43,7 @@ Host to engine:
 | `seed_req` | `epoch`, `tick` | `reason`, `width`, `height`, `fov_deg`, `warmup_renders` | Ask for the seed image and state that start an epoch |
 | `frame_req` | `epoch`, `chunk`, `index`, `g`, `tick` | `condition`, `keys` | Grant: the engine may simulate up to `tick` and answers with `frame` |
 | `gen_frame` | `epoch`, `chunk`, `g`, `tick`, `encoding`, `width`, `height` | `t_host_us`, `camera` | One generated frame; the payload is the image |
+| `view_frame` | `view`, `epoch`, `chunk`, `g`, `tick`, `encoding`, `width`, `height` | `t_host_us` | One frame of a host view the engine listed in `views` (API 0.2); the payload is the image |
 | `input` | `action`, `phase` | `t_host_us` | A key edge from a host-side view |
 | `cancel` | | `epoch` | Drop the outstanding grants |
 | `ping` | `t_host_us` | | Liveness and clock offset; every 0.5 s by default |
@@ -113,6 +115,16 @@ Worked example, `t0` = seed tick, plan `[5, 8]`, `lead_chunks = 2`:
 8. **End.** The engine sends `end` (back to the title screen) or closes the
    connection. The host closes the session and keeps the model loaded; a
    later `start` on the same connection opens a new epoch.
+
+**Host views (API 0.2, optional).** An engine that shows a host view sends
+`views{views: [...]}` with the views it shows, and again with an empty list
+when it stops; a new connection starts with none. The host serves `map`: after
+the `gen_frame` messages of a chunk it sends one `view_frame{view: "map"}` per
+generated frame, with the same `epoch`, `g` and `tick`, whose image is the
+conditioning frame (the world-scenario map) the model generated that frame
+from, encoded like the generated frames. The engine can show both at the same
+display tick. A host ignores views it does not serve, and an engine that never
+sends `views` never receives `view_frame`.
 
 The host drops a connection on which the engine has said nothing for 10 s
 (the engine answers every `ping`). An engine should half-close (shut down its

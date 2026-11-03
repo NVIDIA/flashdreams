@@ -52,6 +52,8 @@ from omnidreams_game_engine.api.v0.messages import (
     Restart,
     SeedReq,
     Start,
+    ViewFrame,
+    Views,
     from_header,
 )
 from omnidreams_game_engine.api.v0.recorder import now_us
@@ -180,6 +182,8 @@ class StubScript:
     silent_at_tick: int | None = None
     silent_s: float = 0.0
     """Stop reading and answering for ``silent_s`` once at this tick."""
+    views_at_ticks: tuple[tuple[int, tuple[str, ...]], ...] = ()
+    """Send ``views`` with these host views at these ticks (API 0.2)."""
 
 
 @dataclass(slots=True)
@@ -198,6 +202,8 @@ class StubSummary:
     holds: list[int] = field(default_factory=list)
     restarts: list[int] = field(default_factory=list)
     host_messages: dict[str, int] = field(default_factory=dict)
+    view_frames: list[tuple[str, int, int, int, int]] = field(default_factory=list)
+    """``(view, epoch, g, tick, payload bytes)`` per host view frame received."""
     ended: bool = False
     final_tick: int = 0
 
@@ -429,6 +435,10 @@ class StubEngine:
                 (message.epoch, message.chunk, message.g, message.tick, len(payload))
             )
             self._count_generated(message)
+        elif isinstance(message, ViewFrame):
+            self.summary.view_frames.append(
+                (message.view, message.epoch, message.g, message.tick, len(payload))
+            )
         elif isinstance(message, Cancel):
             self.summary.cancels.append(message.epoch)
             self._requests.clear()
@@ -551,6 +561,11 @@ class StubEngine:
     def _run_script(self) -> bool:
         """Apply the script's action at this tick; return True when it pauses the tick."""
         script = self.script
+        for at_tick, views in script.views_at_ticks:
+            key = f"views@{at_tick}"
+            if at_tick == self.tick and key not in self._script_done:
+                self._script_done.add(key)
+                self._send(Views(views=list(views), t_engine_us=now_us()))
         if self.tick in self._restart_ticks:
             self._restart_ticks.discard(self.tick)
             self._epoch = None

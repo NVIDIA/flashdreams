@@ -34,6 +34,7 @@ from omnidreams_game_engine.api.v0.external import (
     RESTART,
     SEED,
     START,
+    VIEWS,
     EngineSource,
     ExternalEngineSession,
     SeedFrame,
@@ -51,6 +52,8 @@ from omnidreams_game_engine.api.v0.messages import (
     Restart,
     SeedReq,
     Start,
+    ViewFrame,
+    Views,
 )
 from omnidreams_game_engine.api.v0.recorder import now_us
 from omnidreams_game_engine.api.v0.timeline import ChunkTimeline
@@ -63,6 +66,12 @@ from omnidreams_game_engine.model import (
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 
 _LOGGER = logging.getLogger(__name__)
+
+MAP_VIEW = "map"
+"""Host view of the conditioning frames (``view_frame{view: "map"}``)."""
+
+HOST_VIEWS = frozenset({MAP_VIEW})
+"""Host views this driver serves."""
 
 DISCONNECTED = "disconnected"
 """No engine connected."""
@@ -167,6 +176,8 @@ class DriverStep:
     chunk: ExternalChunk
     step: WorldModelStep
     encode_ms: float
+    views_ms: float = 0.0
+    """Encoding and sending the host views' frames (``view_frame``)."""
 
 
 @dataclass(slots=True)
@@ -181,6 +192,7 @@ class DriverStats:
     lost_reasons: list[str] = field(default_factory=list)
     ends: int = 0
     engine_errors: list[str] = field(default_factory=list)
+    view_frames_sent: int = 0
 
 
 class ExternalSessionDriver:
@@ -216,6 +228,8 @@ class ExternalSessionDriver:
         self.t0_tick: int | None = None
         self.last_tick: int | None = None
         self.engine_held = False
+        self.views: frozenset[str] = frozenset()
+        """Host views the engine shows now (``views``); their frames follow each chunk."""
         self.stats = DriverStats()
         self._scene: SceneDefinition | None = None
         self._seed: SeedFrame | None = None
@@ -303,6 +317,11 @@ class ExternalSessionDriver:
             self.stats.lost_reasons.append(event.reason or "")
             self.state = DISCONNECTED
             self.engine_held = False
+            self.views = frozenset()
+        elif kind == VIEWS:
+            message = event.message
+            if isinstance(message, Views):
+                self.views = frozenset(message.views) & HOST_VIEWS
         elif kind == ERROR:
             self.stats.engine_errors.append(event.reason or "")
             _LOGGER.warning("Engine reported an error: %s", event.message)
@@ -311,6 +330,7 @@ class ExternalSessionDriver:
         self.stats.connects += 1
         self.hello = hello
         self.engine_held = False
+        self.views = frozenset()
         try:
             self.timeline = ChunkTimeline.from_frame_count(
                 self.pipeline.get_num_output_frames,
@@ -460,18 +480,54 @@ class ExternalSessionDriver:
             for state, item in zip(chunk.frames, encoded, strict=True)
         ]
         self.source.send_frames(frames)
+        views_ms = self._send_views(chunk, step) if self.views else 0.0
         result = DriverStep(
             epoch=self.epoch,
             ar_index=self.ar_index,
             chunk=chunk,
             step=step,
             encode_ms=encode_ms,
+            views_ms=views_ms,
         )
         self.ar_index += 1
         self.last_tick = chunk.frames[-1].tick
         self.stats.chunks += 1
         self.stats.frames_sent += len(frames)
         return result
+
+    def _send_views(self, chunk: ExternalChunk, step: WorldModelStep) -> float:
+        """Send the frames of the host views the engine shows; return the time it took (ms)."""
+        started = time.perf_counter()
+        if MAP_VIEW in self.views:
+            condition = getattr(step.engine, "condition", None)
+            hdmap = getattr(condition, "hdmap_bvtchw", None)
+            if hdmap is not None:
+                encoded = self.encoder.encode(hdmap)
+                if len(encoded) == len(chunk.frames):
+                    sent_us = now_us()
+                    for state, item in zip(chunk.frames, encoded, strict=True):
+                        self.source.send(
+                            ViewFrame(
+                                view=MAP_VIEW,
+                                epoch=self.epoch,
+                                chunk=self.ar_index,
+                                g=state.g,
+                                tick=state.tick,
+                                encoding=self.encoder.encoding,
+                                width=item.width,
+                                height=item.height,
+                                t_host_us=sent_us,
+                            ),
+                            item.data,
+                        )
+                    self.stats.view_frames_sent += len(encoded)
+                else:
+                    _LOGGER.warning(
+                        "Map view: %d frames for a chunk of %d; not sent",
+                        len(encoded),
+                        len(chunk.frames),
+                    )
+        return (time.perf_counter() - started) * 1000.0
 
     def _end_session(self) -> None:
         if self.rollout is not None:
@@ -491,6 +547,8 @@ __all__ = [
     "EncodedFrame",
     "ExternalSessionDriver",
     "FrameEncoder",
+    "HOST_VIEWS",
+    "MAP_VIEW",
     "RawRgbEncoder",
     "SceneProvider",
     "video_to_uint8_thwc",

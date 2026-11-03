@@ -53,6 +53,12 @@
     },
     {
       "$ref": "#/$defs/error"
+    },
+    {
+      "$ref": "#/$defs/views"
+    },
+    {
+      "$ref": "#/$defs/view_frame"
     }
   ],
   "$defs": {
@@ -754,6 +760,87 @@
       "required": [
         "type",
         "code"
+      ],
+      "additionalProperties": true
+    },
+    "views": {
+      "type": "object",
+      "description": "Sent by: engine.",
+      "properties": {
+        "type": {
+          "const": "views"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "views": {
+          "type": "array"
+        },
+        "t_engine_us": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": true
+    },
+    "view_frame": {
+      "type": "object",
+      "description": "Sent by: host.",
+      "properties": {
+        "type": {
+          "const": "view_frame"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "view": {
+          "type": "string"
+        },
+        "epoch": {
+          "type": "integer"
+        },
+        "chunk": {
+          "type": "integer"
+        },
+        "g": {
+          "type": "integer"
+        },
+        "tick": {
+          "type": "integer"
+        },
+        "encoding": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "t_host_us": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "view",
+        "epoch",
+        "chunk",
+        "g",
+        "tick",
+        "encoding",
+        "width",
+        "height"
       ],
       "additionalProperties": true
     }

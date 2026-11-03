@@ -34,8 +34,10 @@ RELEASE = "release"
 END = "end"
 LOST = "lost"
 ERROR = "error"
+VIEWS = "views"
+"""The engine changed the host views it shows (API 0.2)."""
 
-EVENT_KINDS = (CONNECTED, START, SEED, RESTART, HOLD, RELEASE, END, LOST, ERROR)
+EVENT_KINDS = (CONNECTED, START, SEED, RESTART, HOLD, RELEASE, END, LOST, ERROR, VIEWS)
 """Kinds of :class:`SourceEvent`."""
 
 CONTROL_EVENTS = frozenset({CONNECTED, START, SEED, RESTART, END, LOST})
@@ -238,6 +240,7 @@ __all__ = [
     "RESTART",
     "SEED",
     "START",
+    "VIEWS",
     "ChunkTimeoutError",
     "EngineSource",
     "ExternalEngineSession",

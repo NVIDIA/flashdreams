@@ -243,3 +243,31 @@ def test_host_refresh_and_forwarded_input_reach_the_engine() -> None:
     assert 1 in stub.summary.cancels
     epoch_two = [step for step in host.steps if step.epoch == 2]
     assert epoch_two and epoch_two[0].chunk.ticks[0] == stub.summary.seeds[1][1]
+
+
+def test_map_view_frames_follow_views_and_match_the_generated_frames() -> None:
+    script = StubScript(end_after_frames=80, views_at_ticks=((20, ("map",)), (90, ())))
+    with _host() as host, _stub(host, script) as stub:
+        host.run(_finished(host, stub))
+    views = stub.summary.view_frames
+    assert views, "no map frames"
+    assert {view for view, *_ in views} == {"map"}
+    generated = {
+        (epoch, g): tick for epoch, _chunk, g, tick, _size in stub.summary.gen_frames
+    }
+    for _view, epoch, g, tick, size in views:
+        # Each map frame names the generated frame it conditioned, with the same tick.
+        assert generated[(epoch, g)] == tick
+        assert size == 8 * 4 * 3
+    # Asked for at tick 20 and stopped at tick 90: only the chunks generated in between carry map frames.
+    assert len(views) < len(stub.summary.gen_frames)
+    assert host.driver.stats.view_frames_sent == len(views)
+    assert sum(step.views_ms > 0.0 for step in host.steps) >= 1
+
+
+def test_unknown_host_views_are_ignored() -> None:
+    script = StubScript(end_after_frames=40, views_at_ticks=((0, ("thermal",)),))
+    with _host() as host, _stub(host, script) as stub:
+        host.run(_finished(host, stub))
+    assert stub.summary.view_frames == []
+    assert host.driver.views == frozenset()
