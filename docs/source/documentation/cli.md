@@ -21,14 +21,14 @@ uv run flashdreams-run-v2 <Demo Preset> <System Arguments> -- <Demo Arguments>
 | --- | --- |
 | `--timeout {SECONDS,unbound}` | Bound the whole application run, including initialization and replacement sessions. |
 | `--total-model-steps {N,unbound}` | Bound model steps across the whole application run, including replacement sessions. |
-| `--mode {mp4,webrtc,native-window}` | Select file, browser, or local-window presentation. Default: `mp4`. |
+| `--mode {mp4,webm,webrtc,native-window}` | Select file, browser, or local-window presentation. Default: `mp4`. |
 | `--stats-path PATH` | Write JSON model-step measurements and enable synchronized per-stage pipeline profiling. |
 
-### MP4 Specific
+### MP4 and WebM
 
 | Argument | Description |
 | --- | --- |
-| `--output-path PATH` | MP4 destination. Required in MP4 mode. |
+| `--output-path PATH` | Video destination. Required in MP4 and WebM modes. |
 
 ### WebRTC Specific
 
@@ -64,14 +64,14 @@ Stream to a browser:
 uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode webrtc --host 0.0.0.0 --port 8089
 ```
 
-Write every generated frame in order to an MP4:
+Write every generated frame in order to a WebM file:
 
 ```bash
-uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode mp4 --output-path output.mp4 \
+uv run flashdreams-run-v2 DEMO_MODEL_SLUG --mode webm --output-path output.webm \
   --timeout unbound --backpressure-mode block --presentation-mode on_demand
 ```
 
-MP4 mode requires `--timeout` and/or `--total-model-steps`; pass `unbound` to
+MP4 and WebM modes require `--timeout` and/or `--total-model-steps`; pass `unbound` to
 name an explicit unlimited policy. WebRTC and native-window modes may omit both
 limits. When a session is replaced, it receives the time and model steps left
 for the whole run.
