@@ -133,6 +133,11 @@ def test_live_headless_input_queues_rejects_late_and_acknowledges_consumption(
         window.get_user_input_events()
         consumed = reply()
         assert consumed["status"] == "consumed" and consumed["consumed_us"] == 125_000
+        # Clock queries must not create inputs or overwrite a consumed command.
+        for identifier in ("clock-ready", "press"):
+            send({"id": identifier, "type": "status"})
+            assert window.get_user_input_events().get_events() == []
+            assert reply()["status"] == "ready"
         send({"id": "late", "timestamp_us": 124_999, "type": "close"})
         assert window.get_user_input_events().get_events() == []
         assert reply()["reason"] == "late"
@@ -184,6 +189,14 @@ def test_live_headless_input_queues_rejects_late_and_acknowledges_consumption(
     manifest = json.loads((window.directory / "manifest.json").read_text())
     assert manifest["views"] == ["presentation"]
     assert manifest["coverage"]["presentations"]["saved"] == 1
+    assert manifest["pending_input_ids"] == []
+    assert manifest["complete"]
+    report = json.loads((window.directory / "timing_summary.json").read_text())
+    assert {row["id"]: row["status"] for row in report["inputs"]} == {
+        "press": "consumed",
+        "release": "consumed",
+    }
+    assert report["run_complete"]
 
 
 @pytest.mark.parametrize(

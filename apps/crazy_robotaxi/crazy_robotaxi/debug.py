@@ -258,7 +258,12 @@ class RobotaxiDebugWindow(IClientWindow):
                 peer, message = self.control.messages.get_nowait()
             except Empty:
                 break
-            if message.get("id") and message["status"] != "rejected":
+            if message.get("id") and message["status"] in {
+                "accepted",
+                "dispatched",
+                "consumed",
+                "cancelled",
+            }:
                 self._input_status[message["id"]] = message["status"]
             encoded = json.dumps(message, default=_json_value, allow_nan=False)
             log = (
