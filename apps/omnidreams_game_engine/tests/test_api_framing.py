@@ -65,12 +65,19 @@ def test_large_payload_round_trips_through_a_socket() -> None:
 
 def test_size_limits_are_enforced() -> None:
     with pytest.raises(framing.FramingError):
+        framing.encode_message({"bytes": 0})
+    with pytest.raises(framing.FramingError):
         framing.encode_message({"type": "x"}, b"\x00" * (framing.MAX_PAYLOAD_BYTES + 1))
     with pytest.raises(framing.FramingError):
         framing.encode_message({"type": "x", "pad": "a" * framing.MAX_HEADER_BYTES})
     oversized_header = struct.pack(">I", framing.MAX_HEADER_BYTES + 1)
     with pytest.raises(framing.FramingError):
         framing.MessageDecoder().feed(oversized_header)
+    left, right = socket.socketpair()
+    with left, right:
+        left.sendall(oversized_header)
+        with pytest.raises(framing.FramingError):
+            framing.recv_message(right)
     oversized_payload = json.dumps(
         {"type": "x", "bytes": framing.MAX_PAYLOAD_BYTES + 1}
     ).encode()

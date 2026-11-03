@@ -16,7 +16,6 @@ stub engine then sends the same states in ``flu/0`` over TCP to the
 from __future__ import annotations
 
 import time
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -95,6 +94,8 @@ class _SameScene:
 def test_external_engine_matches_in_process_conditioning_on_gpu() -> None:
     if not torch.cuda.is_available():
         pytest.skip("CUDA is required")
+    if not MAP.is_file():
+        pytest.skip("needs the Crazy Robotaxi boulevard map")
     from omnidreams_game_engine.conditioning import LudusConditionRenderer
     from omnidreams_game_engine.scene import SceneRequest, load_scene
 
@@ -174,7 +175,7 @@ def test_external_engine_matches_in_process_conditioning_on_gpu() -> None:
     )
     stub = StubEngine(
         *link.address,
-        state_fn=lambda tick: codec.encode(replace(states[tick], g=tick // 2)),
+        state_fn=lambda tick: codec.encode(states[tick]),
         script=StubScript(),
     ).start()
     started = time.monotonic()

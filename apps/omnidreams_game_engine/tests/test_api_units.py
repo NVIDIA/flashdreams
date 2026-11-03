@@ -77,7 +77,13 @@ def test_transform_matches_unreal() -> None:
 
 @pytest.mark.parametrize(
     "rotator",
-    [(0.0, 0.0, 0.0), (3.5, -47.25, 1.75), (0.0, 180.0, 0.0), (80.0, 10.0, -170.0)],
+    [
+        (0.0, 0.0, 0.0),
+        (3.5, -47.25, 1.75),
+        (0.0, 180.0, 0.0),
+        (180.0, 0.0, 0.0),
+        (80.0, 10.0, -170.0),
+    ],
 )
 def test_quaternion_reproduces_the_rotation(
     rotator: tuple[float, float, float],

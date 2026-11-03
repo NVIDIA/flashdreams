@@ -9,17 +9,20 @@ ExternalEngineSession, WorldModelRollout) with a CPU pipeline and renderer.
 
 from __future__ import annotations
 
+import json
 import socket
 import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pytest
+import torch
 from omnidreams_game_engine.api import v0
-from omnidreams_game_engine.api.v0 import framing
+from omnidreams_game_engine.api.v0 import framing, stub_engine
 from omnidreams_game_engine.api.v0.driver import DISCONNECTED, IDLE
 from omnidreams_game_engine.api.v0.stub_engine import StubEngine, StubScript
 from omnidreams_game_engine.api.v0.testing import (
@@ -34,11 +37,20 @@ LEAD = 2
 DEADLINE_S = 20.0
 
 
+def _driver(source: v0.EngineSource) -> v0.ExternalSessionDriver:
+    return v0.ExternalSessionDriver(
+        source=source,
+        pipeline=FakePipeline(),
+        scene_provider=SeedSceneProvider(),
+        condition_renderer=PoseConditionRenderer(),
+        config=v0.DriverConfig(lead_chunks=LEAD),
+    )
+
+
 @dataclass
 class Host:
     link: v0.TcpEngineLink
     driver: v0.ExternalSessionDriver
-    pipeline: FakePipeline
     steps: list[v0.DriverStep] = field(default_factory=list)
     held_seen: bool = False
 
@@ -57,16 +69,9 @@ class Host:
 @contextmanager
 def _host(**link_options: Any) -> Iterator[Host]:
     link = v0.TcpEngineLink(v0.FluStateCodec(), port=0, **link_options)
-    pipeline = FakePipeline()
-    driver = v0.ExternalSessionDriver(
-        source=link,
-        pipeline=pipeline,
-        scene_provider=SeedSceneProvider(),
-        condition_renderer=PoseConditionRenderer(),
-        config=v0.DriverConfig(lead_chunks=LEAD),
-    )
+    driver = _driver(link)
     try:
-        yield Host(link=link, driver=driver, pipeline=pipeline)
+        yield Host(link=link, driver=driver)
     finally:
         driver.close()
         link.close()
@@ -161,7 +166,7 @@ def test_restart_starts_a_new_epoch_with_a_new_seed() -> None:
     assert ids[2] == list(range(len(ids[2])))
     assert host.driver.stats.seeds == 2
     # One model cache per seed; the pipeline stays loaded.
-    assert host.pipeline.caches == 2
+    assert host.driver.pipeline.caches == 2
     _assert_grants_within_lead(stub)
 
 
@@ -337,15 +342,94 @@ def test_map_view_frames_follow_views_and_match_the_generated_frames() -> None:
         # Each map frame names the generated frame it conditioned, with the same tick.
         assert generated[(epoch, g)] == tick
         assert size == 8 * 4 * 3
-    # Asked for at tick 20 and stopped at tick 90: only the chunks generated in between carry map frames.
-    assert len(views) < len(stub.summary.gen_frames)
+    # Asked for at tick 20 and stopped at tick 90: later chunks carry no map frames.
+    assert max(g for _v, _e, g, _t, _s in views) < max(
+        g for _e, _c, g, _t, _s in stub.summary.gen_frames
+    )
     assert host.driver.stats.view_frames_sent == len(views)
     assert sum(step.views_ms > 0.0 for step in host.steps) >= 1
 
 
 def test_unknown_host_views_are_ignored() -> None:
-    script = StubScript(end_after_frames=40, views_at_ticks=((0, ("thermal",)),))
+    script = StubScript(end_after_frames=60, views_at_ticks=((20, ("thermal", "map")),))
     with _host() as host, _stub(host, script) as stub:
         host.run(_finished(host, stub))
-    assert stub.summary.view_frames == []
-    assert host.driver.views == frozenset()
+    assert {view for view, *_ in stub.summary.view_frames} == {"map"}
+
+
+def _without_stamps(header: dict) -> dict:
+    return {k: v for k, v in header.items() if k not in ("t_host_us", "bytes")}
+
+
+def test_a_recorded_session_replays_without_the_engine(tmp_path: Path) -> None:
+    recorder = v0.PacketRecorder(tmp_path, meta={"test": "replay"})
+    script = StubScript(
+        end_after_frames=110, restart_at_ticks=(44,), hold_at_tick=90, hold_s=0.2
+    )
+    with _host(recorder=recorder) as live, _stub(live, script) as stub:
+        live.run(_finished(live, stub))
+    recorder.close()
+    assert {step.epoch for step in live.steps} == {1, 2}
+
+    log = v0.PacketLogReader(tmp_path)
+    assert log.meta["protocol"] == v0.PROTOCOL and log.meta["test"] == "replay"
+    received = log.received()
+    assert [r.header["type"] for r in received[:2]] == ["hello", "start"]
+    seeds = [r for r in received if r.header.get("seed")]
+    assert [len(r.payload) for r in seeds] == [8 * 4 * 3, 8 * 4 * 3]
+    assert all(r.host_sends is not None for r in received)
+    assert any(r.header["type"] == "hold" for r in received)
+
+    replay = v0.PacketLogSource(log, v0.FluStateCodec())
+    driver = _driver(replay)
+    steps: list[v0.DriverStep] = []
+    for _ in range(10_000):
+        step = driver.poll(0.0)
+        if step is not None:
+            steps.append(step)
+        elif replay.exhausted:
+            break
+    driver.close()
+    assert replay.exhausted, "the replay stalled"
+
+    # Same chunks of the same epochs, from the same frames and ticks.
+    def boundaries(steps: list[v0.DriverStep]) -> list[tuple]:
+        return [(s.epoch, s.ar_index, s.chunk.ticks) for s in steps]
+
+    assert boundaries(steps) == boundaries(live.steps)
+    # The model received the same conditioning.
+    inputs = driver.pipeline.inputs
+    assert len(inputs) == len(live.driver.pipeline.inputs)
+    for got, want in zip(inputs, live.driver.pipeline.inputs, strict=True):
+        assert torch.equal(got, want)
+    # And the host sent the same config, grants, seed requests and frames.
+    kept = ("frame_req", "seed_req", "gen_frame", "cancel", "config")
+    live_sent = [
+        _without_stamps(r.header) for r in log.sent() if r.header["type"] in kept
+    ]
+    replay_sent = [_without_stamps(h) for h, _size in replay.sent if h["type"] in kept]
+    # The live link stops sending once the engine has gone; the replay sends everything.
+    assert len(live_sent) > 100
+    assert replay_sent[: len(live_sent)] == live_sent
+
+
+def test_recorded_states_are_looked_up_by_the_nearest_tick(tmp_path: Path) -> None:
+    path = tmp_path / "state.jsonl"
+    lines = ['{"tick": 0, "v": 0}', "", '{"frame": 10, "v": 1}', '{"tick": 20, "v": 2}']
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    state = stub_engine.jsonl_states(path)
+    assert [state(tick)["v"] for tick in (0, 4, 6, 10, 19, 99)] == [0, 0, 1, 1, 2, 2]
+
+
+def test_the_stub_command_line_runs_a_session(tmp_path: Path) -> None:
+    summary = tmp_path / "summary.json"
+    with _host() as host:
+        args = ["--port", str(host.link.address[1]), "--frames", "20"]
+        thread = threading.Thread(
+            target=stub_engine.main,
+            args=([*args, "--summary-json", str(summary)],),
+            daemon=True,
+        )
+        thread.start()
+        host.run(lambda: not thread.is_alive())
+    assert json.loads(summary.read_text(encoding="utf-8"))["ended"]

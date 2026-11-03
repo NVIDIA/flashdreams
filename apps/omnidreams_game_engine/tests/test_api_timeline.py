@@ -56,12 +56,8 @@ def test_grants_cover_whole_chunks_after_the_last_grant() -> None:
 
 
 def test_plan_is_taken_from_the_pipeline() -> None:
-    assert ChunkTimeline.from_frame_count(
-        FakePipeline((5, 8)).get_num_output_frames
-    ).plan == (
-        5,
-        8,
-    )
+    plan = ChunkTimeline.from_frame_count(FakePipeline().get_num_output_frames).plan
+    assert plan == (5, 8)
     assert ChunkTimeline.from_frame_count(lambda k: 2).plan == (2,)
     irregular = ChunkTimeline.from_frame_count(
         lambda k: (9, 4, 6, 8)[min(k, 3)], sim_hz=48, model_fps=24
