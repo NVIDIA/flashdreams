@@ -8,7 +8,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from omnidreams_game_engine.api.v0 import GameUpdate, TrajectoryChunk, VehicleState
+from omnidreams_game_engine.contracts import GameUpdate
+from omnidreams_game_engine.types import TrajectoryChunk, VehicleState
 
 
 @dataclass(frozen=True, slots=True)

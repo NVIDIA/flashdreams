@@ -41,7 +41,6 @@ from omnidreams_game_engine.api.v0.recorder import (
     PacketRecorder,
 )
 from omnidreams_game_engine.api.v0.replay import PacketLogSource
-from omnidreams_game_engine.api.v0.source import MessageEngineSource
 from omnidreams_game_engine.api.v0.state import (
     FLU_STATE_FORMAT,
     ActorState,
@@ -74,11 +73,7 @@ from omnidreams_game_engine.types import (
     VehicleState,
 )
 
-API_VERSION = "0.2"
-"""Version of this API: the major is the protocol major, the minor counts additions."""
-
 __all__ = [
-    "API_VERSION",
     "FLU_STATE_FORMAT",
     "PROTOCOL",
     "ActorState",
@@ -105,7 +100,6 @@ __all__ = [
     "GameEngine",
     "GameRules",
     "GameUpdate",
-    "MessageEngineSource",
     "PacketLogReader",
     "PacketLogSource",
     "PacketRecord",

@@ -36,7 +36,6 @@ def test_decoder_handles_byte_by_byte_partial_reads() -> None:
         ({"type": "a", "bytes": 3}, b"\x00\x01\x02"),
         ({"type": "b", "n": 1, "bytes": 0}, b""),
     ]
-    assert decoder.buffered_bytes == 0
 
 
 def test_large_payload_round_trips_through_a_socket() -> None:

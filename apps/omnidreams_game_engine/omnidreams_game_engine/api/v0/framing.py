@@ -73,11 +73,6 @@ class MessageDecoder:
         self._buffer = bytearray()
         self._header: dict[str, Any] | None = None
 
-    @property
-    def buffered_bytes(self) -> int:
-        """Bytes received but not yet returned as a message."""
-        return len(self._buffer)
-
     def feed(self, data: bytes) -> list[tuple[dict[str, Any], bytes]]:
         """Append ``data`` and return every message it completes."""
         self._buffer.extend(data)

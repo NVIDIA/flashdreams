@@ -220,19 +220,12 @@ class WorldModelRollout:
             _trace=trace,
         )
 
-    def reset(self, *, scene: SceneDefinition | None = None) -> None:
-        """Recreate all mutable rollout state while retaining model weights.
-
-        ``scene`` replaces the rollout's scene first, so a new seed image or
-        start pose takes effect without rebuilding the pipeline; by default
-        the current scene is kept.
-        """
+    def reset(self) -> None:
+        """Recreate all mutable rollout state while retaining model weights."""
         if self._closed:
             raise RuntimeError("WorldModelRollout is closed")
         previous_live_edit = getattr(self.engine, "live_edit", None)
         self.engine.close()
-        if scene is not None:
-            self.scene = scene
         self.engine = self._engine_factory()
         self.cache = self._new_cache()
         self._attach_live_edit(previous_live_edit)

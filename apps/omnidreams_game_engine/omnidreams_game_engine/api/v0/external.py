@@ -12,13 +12,17 @@ renders the condition from it. Everything here runs on the model thread.
 
 from __future__ import annotations
 
+import io
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+import numpy as np
+from PIL import Image
+
 from omnidreams_game_engine.api.v0.assembly import ExternalChunk
-from omnidreams_game_engine.api.v0.messages import Frame, Hello, Message
+from omnidreams_game_engine.api.v0.messages import Message
 from omnidreams_game_engine.api.v0.state import FrameState
 from omnidreams_game_engine.api.v0.timeline import ChunkTimeline
 from omnidreams_game_engine.contracts import ConditionRenderer
@@ -37,9 +41,6 @@ ERROR = "error"
 VIEWS = "views"
 """The engine changed the host views it shows (API 0.2)."""
 
-EVENT_KINDS = (CONNECTED, START, SEED, RESTART, HOLD, RELEASE, END, LOST, ERROR, VIEWS)
-"""Kinds of :class:`SourceEvent`."""
-
 CONTROL_EVENTS = frozenset({CONNECTED, START, SEED, RESTART, END, LOST})
 """Events that change the epoch or the session: chunk waits return early."""
 
@@ -55,7 +56,16 @@ class SeedFrame:
     encoding: str | None
     width: int | None
     height: int | None
-    message: Frame
+
+    def rgb(self) -> np.ndarray:
+        """Decode the image to ``[H, W, 3]`` uint8 (``raw``, ``png`` or ``jpeg``)."""
+        if self.encoding == "raw":
+            if self.width is None or self.height is None:
+                raise ValueError("A raw seed needs width and height")
+            pixels = np.frombuffer(self.image, dtype=np.uint8)
+            return pixels.reshape(self.height, self.width, 3).copy()
+        with Image.open(io.BytesIO(self.image)) as image:
+            return np.asarray(image.convert("RGB"), dtype=np.uint8).copy()
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,10 +74,6 @@ class SourceEvent:
 
     kind: str
     message: Message | None = None
-    hello: Hello | None = None
-    """For ``connected``: the engine's hello."""
-    reconnect: bool = False
-    """For ``connected``: the same engine session connected again."""
     seed: SeedFrame | None = None
     reason: str | None = None
 
@@ -151,10 +157,6 @@ class ExternalEngineSession:
         """The newest engine state this session consumed."""
         return self._last_frame
 
-    @property
-    def next_ar_index(self) -> int:
-        return self._ar_index
-
     def supply(self, chunk: ExternalChunk) -> None:
         """Hand over the chunk the next ``step`` generates."""
         if chunk.epoch != self.epoch or chunk.ar_index != self._ar_index:
@@ -233,7 +235,6 @@ __all__ = [
     "CONTROL_EVENTS",
     "END",
     "ERROR",
-    "EVENT_KINDS",
     "HOLD",
     "LOST",
     "RELEASE",

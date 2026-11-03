@@ -165,26 +165,6 @@ def test_step_rejects_a_frame_count_mismatch_and_a_foreign_chunk() -> None:
         engine.step(())
 
 
-def test_reset_with_a_new_scene_uses_the_new_seed() -> None:
-    rollout, pipeline, *_ = _session_rollout(_drive_frames(5))
-    first_cache = rollout.cache
-    assert first_cache is not None
-    bright = replace(
-        minimal_scene(), initial_rgb=np.full((4, 8, 3), 255, dtype=np.uint8)
-    )
-    old_engine = rollout.engine
-    rollout.reset(scene=bright)
-    assert rollout.scene is bright
-    assert rollout.engine is not old_engine and not old_engine.is_running
-    second_cache = rollout.cache
-    assert second_cache is not None
-    assert first_cache["seed_mean"] == pytest.approx(-1.0)
-    assert second_cache["seed_mean"] == pytest.approx(1.0)
-    rollout.reset()
-    assert rollout.scene is bright
-    assert pipeline.caches == 3
-
-
 class _FreeDriveRules:
     """Minimal GameRules: one snapshot per frame, no actors."""
 

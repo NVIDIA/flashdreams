@@ -197,10 +197,6 @@ class ChunkAssembler:
             frames=frames,
         )
 
-    @property
-    def buffered_frames(self) -> int:
-        return len(self._frames)
-
 
 __all__ = [
     "TRACK_SEPARATOR",

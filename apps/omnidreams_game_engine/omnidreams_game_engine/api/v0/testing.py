@@ -12,7 +12,6 @@ machine. Not part of the stable API (see ``api/STABILITY.md``).
 
 from __future__ import annotations
 
-import io
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
@@ -138,22 +137,6 @@ def minimal_scene(
     )
 
 
-def decode_seed_image(seed: SeedFrame) -> np.ndarray:
-    """The seed image as ``HxWx3`` uint8 (``raw``, ``png`` or ``jpeg``)."""
-    if seed.encoding == "raw":
-        if seed.width is None or seed.height is None:
-            raise ValueError("A raw seed needs width and height")
-        return (
-            np.frombuffer(seed.image, dtype=np.uint8)
-            .reshape(seed.height, seed.width, 3)
-            .copy()
-        )
-    from PIL import Image
-
-    with Image.open(io.BytesIO(seed.image)) as image:
-        return np.asarray(image.convert("RGB"), dtype=np.uint8).copy()
-
-
 @dataclass
 class SeedSceneProvider:
     """``SceneProvider`` that puts the seed image and pose into a template scene."""
@@ -164,10 +147,9 @@ class SeedSceneProvider:
     def scene_for_seed(self, hello: Hello, seed: SeedFrame) -> SceneDefinition:
         del hello
         self.seeds.append(seed)
-        image = decode_seed_image(seed)
         return replace(
             self.template,
-            initial_rgb=image,
+            initial_rgb=seed.rgb(),
             initial_rig_to_world=np.asarray(seed.state.rig_to_world, dtype=np.float32),
             initial_yaw_rad=float(seed.state.vehicle.yaw_rad),
             initial_speed_mps=float(seed.state.vehicle.speed_mps),
@@ -178,6 +160,5 @@ __all__ = [
     "FakePipeline",
     "PoseConditionRenderer",
     "SeedSceneProvider",
-    "decode_seed_image",
     "minimal_scene",
 ]

@@ -37,8 +37,6 @@ def test_worked_example_omnidreams_5_8_at_60_hz() -> None:
         assert timeline.seal_tick(k, t0) == t0 + 24 + 16 * (k - 1)
         for g in timeline.chunk_frames(k):
             assert timeline.chunk_of(g) == k
-            assert timeline.index_in_chunk(g) == g - first
-    assert timeline.display_tick(13, t0=t0, delay_ticks=28) == t0 + 26 + 28
 
 
 def test_timestamps_follow_ticks_from_the_seed() -> None:

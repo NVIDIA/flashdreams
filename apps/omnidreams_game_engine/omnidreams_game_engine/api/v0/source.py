@@ -16,7 +16,7 @@ import logging
 import time
 from collections import deque
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from omnidreams_game_engine.api.v0.assembly import ChunkAssembler, ExternalChunk
@@ -46,7 +46,6 @@ from omnidreams_game_engine.api.v0.messages import (
     Release,
     Restart,
     Start,
-    Status,
     Views,
     from_header,
 )
@@ -67,23 +66,16 @@ class Inbound:
     header: dict[str, Any]
     payload: bytes = b""
     t_arrive_us: int = 0
-    meta: dict[str, Any] = field(default_factory=dict)
-    """Transport facts about the message, such as ``reconnect`` on a hello."""
 
 
 @dataclass(slots=True)
 class SourceStats:
-    consumed: int = 0
-    frames: int = 0
-    seeds: int = 0
-    stale_frames: int = 0
-    duplicate_frames: int = 0
+    """Engine messages the source dropped."""
+
     bad_messages: int = 0
+    """Messages that are not valid version-0 messages."""
     bad_states: int = 0
-    unknown_messages: int = 0
-    sent: int = 0
-    dropped_sends: int = 0
-    frames_out: int = 0
+    """Frames whose state the decoder cannot read."""
 
 
 class MessageEngineSource:
@@ -100,8 +92,6 @@ class MessageEngineSource:
     ) -> None:
         self.decoder = decoder
         self.recorder = recorder
-        self.hello: Hello | None = None
-        self.last_status: Status | None = None
         self.stats = SourceStats()
         self._assembler = ChunkAssembler(ChunkTimeline())
         self._events: deque[SourceEvent] = deque()
@@ -113,25 +103,16 @@ class MessageEngineSource:
         """Return the messages available now, waiting up to ``timeout_s`` for one."""
         raise NotImplementedError
 
-    def _transmit(self, message: Message, payload: bytes) -> bool:
-        """Send one message; return whether it went to a connected engine."""
+    def _transmit(self, message: Message, payload: bytes) -> None:
+        """Send one message, or drop it when no engine is connected."""
         raise NotImplementedError
 
     # ------------------------------------------------------------ EngineSource
 
     @property
-    def frames_out(self) -> int:
-        """Generated frames handed to :meth:`send_frames` so far."""
-        return self.stats.frames_out
-
-    @property
     def sends(self) -> int:
         """Messages the host has sent so far, delivered or not."""
         return self._sends
-
-    @property
-    def assembler(self) -> ChunkAssembler:
-        return self._assembler
 
     def poll_events(self, timeout_s: float = 0.0) -> list[SourceEvent]:
         self._consume(self._fetch(0.0 if self._events else max(0.0, timeout_s)))
@@ -164,15 +145,11 @@ class MessageEngineSource:
 
     def send(self, message: Message, payload: bytes = b"") -> None:
         self._sends += 1
-        if self._transmit(message, payload):
-            self.stats.sent += 1
-        else:
-            self.stats.dropped_sends += 1
+        self._transmit(message, payload)
 
     def send_frames(self, frames: Sequence[tuple[Message, bytes]]) -> None:
         for message, payload in frames:
             self.send(message, payload)
-        self.stats.frames_out += len(frames)
 
     def close(self) -> None:
         if self.recorder is not None:
@@ -182,7 +159,6 @@ class MessageEngineSource:
 
     def _consume(self, inbound: Sequence[Inbound]) -> None:
         for item in inbound:
-            self.stats.consumed += 1
             if self.recorder is not None:
                 self.recorder.record(
                     RX,
@@ -190,7 +166,6 @@ class MessageEngineSource:
                     item.payload,
                     t_arrive_us=item.t_arrive_us,
                     host_sends=self._sends,
-                    meta=item.meta,
                 )
             if item.header.get("type") == LOST_TYPE:
                 self._events.append(
@@ -209,15 +184,7 @@ class MessageEngineSource:
         if isinstance(message, Frame):
             self._on_frame(message, item.payload)
         elif isinstance(message, Hello):
-            self.hello = message
-            self._events.append(
-                SourceEvent(
-                    CONNECTED,
-                    message=message,
-                    hello=message,
-                    reconnect=bool(item.meta.get("reconnect", False)),
-                )
-            )
+            self._events.append(SourceEvent(CONNECTED, message=message))
         elif isinstance(message, Start):
             self._events.append(
                 SourceEvent(START, message=message, reason=message.reason)
@@ -242,14 +209,8 @@ class MessageEngineSource:
             self._events.append(
                 SourceEvent(ERROR, message=message, reason=message.code)
             )
-        elif isinstance(message, Status):
-            self.last_status = message
         elif isinstance(message, Views):
             self._events.append(SourceEvent(VIEWS, message=message))
-        elif message.TYPE in ("pong", "ping"):
-            pass
-        else:
-            self.stats.unknown_messages += 1
 
     def _on_frame(self, frame: Frame, payload: bytes) -> None:
         if frame.state is None:
@@ -266,16 +227,7 @@ class MessageEngineSource:
             self.stats.bad_messages += 1
             _LOGGER.warning("Seed frame with g=%d dropped", frame.g)
             return
-        outcome = self._assembler.add(frame.epoch, state)
-        if outcome == "stale":
-            self.stats.stale_frames += 1
-            return
-        if outcome == "duplicate":
-            self.stats.duplicate_frames += 1
-            return
-        self.stats.frames += 1
-        if frame.seed:
-            self.stats.seeds += 1
+        if self._assembler.add(frame.epoch, state) == "added" and frame.seed:
             self._events.append(
                 SourceEvent(
                     SEED,
@@ -288,7 +240,6 @@ class MessageEngineSource:
                         encoding=frame.encoding,
                         width=frame.width,
                         height=frame.height,
-                        message=frame,
                     ),
                 )
             )

@@ -11,14 +11,9 @@ from typing import Any, Literal
 
 import numpy as np
 import torch
-from omnidreams_game_engine.api.v0 import (
-    GameRules,
-    GameUpdate,
-    SceneDefinition,
-    TrajectoryChunk,
-    VehicleState,
-)
 from omnidreams_game_engine.camera import FThetaCameraModel
+from omnidreams_game_engine.contracts import GameRules, GameUpdate
+from omnidreams_game_engine.types import SceneDefinition, TrajectoryChunk, VehicleState
 from PIL import Image, ImageDraw
 from torch import Tensor
 

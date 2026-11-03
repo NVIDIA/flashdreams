@@ -155,6 +155,56 @@ def test_schema_json_matches_the_message_classes() -> None:
     assert schema["$defs"]["frame"]["required"] == ["type", "epoch", "g", "tick"]
 
 
-def test_package_exports_the_api_version() -> None:
-    assert v0.API_VERSION.startswith(f"{m.PROTOCOL_MAJOR}.")
+def test_the_stable_names_of_v0() -> None:
     assert v0.PROTOCOL == "omnidreams-engine/0"
+    # Removing or renaming a name here breaks version 0.
+    assert sorted(v0.__all__) == [
+        "ActorState",
+        "CameraCalibration",
+        "ChunkAssembler",
+        "ChunkTimeline",
+        "ChunkTimeoutError",
+        "ConditionBatch",
+        "ConditionRenderer",
+        "DriverCommand",
+        "DriverConfig",
+        "DriverStep",
+        "DynamicActorTrajectory",
+        "EncodedFrame",
+        "EngineFactory",
+        "EngineSource",
+        "EngineStep",
+        "ExternalChunk",
+        "ExternalEngineSession",
+        "ExternalSessionDriver",
+        "FLU_STATE_FORMAT",
+        "FluStateCodec",
+        "FrameEncoder",
+        "FrameState",
+        "GameEngine",
+        "GameRules",
+        "GameUpdate",
+        "PROTOCOL",
+        "PacketLogReader",
+        "PacketLogSource",
+        "PacketRecord",
+        "PacketRecorder",
+        "ProtocolError",
+        "RawRgbEncoder",
+        "RolloutEngine",
+        "SceneDefinition",
+        "SceneProvider",
+        "SeedFrame",
+        "SimulationWorld",
+        "SourceEvent",
+        "StateDecoder",
+        "TcpEngineLink",
+        "TrajectoryChunk",
+        "VehicleState",
+        "VideoPostprocessor",
+        "WorldModelRollout",
+        "WorldModelStep",
+        "framing",
+        "messages",
+        "units",
+    ]

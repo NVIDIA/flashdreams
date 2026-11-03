@@ -148,8 +148,6 @@ class DriverConfig:
     """Chunks granted beyond the one being generated."""
     display_delay_ticks: int = 28
     render: str | None = "off"
-    chunk_timeout_s: float = 5.0
-    """Wait of :class:`ExternalEngineSession` when used without a driver."""
     seed_width: int | None = None
     seed_height: int | None = None
     seed_fov_deg: float | None = None
@@ -182,17 +180,16 @@ class DriverStep:
 
 @dataclass(slots=True)
 class DriverStats:
-    epochs: int = 0
-    chunks: int = 0
-    frames_sent: int = 0
-    seeds: int = 0
-    stale_seeds: int = 0
+    """Counts of the driver's session events."""
+
     connects: int = 0
-    lost: int = 0
-    lost_reasons: list[str] = field(default_factory=list)
-    ends: int = 0
-    engine_errors: list[str] = field(default_factory=list)
+    epochs: int = 0
+    seeds: int = 0
+    chunks: int = 0
     view_frames_sent: int = 0
+    ends: int = 0
+    lost_reasons: list[str] = field(default_factory=list)
+    """Reason of every lost connection."""
 
 
 class ExternalSessionDriver:
@@ -275,18 +272,15 @@ class ExternalSessionDriver:
 
     def close(self) -> None:
         """Close the rollout; the pipeline, renderer and source stay with their owner."""
-        if self.rollout is not None:
-            self.rollout.close()
-            self.rollout = None
-        self._session = None
+        self._end_session()
 
     # ------------------------------------------------------------- handling
 
     def _handle(self, event: SourceEvent) -> None:
         kind = event.kind
         if kind == CONNECTED:
-            assert event.hello is not None
-            self._on_connected(event.hello)
+            assert isinstance(event.message, Hello)
+            self._on_connected(event.message)
         elif kind == START:
             message = event.message
             if self.state == DISCONNECTED or not isinstance(message, Start):
@@ -313,7 +307,6 @@ class ExternalSessionDriver:
             if self.state != DISCONNECTED:
                 self.state = IDLE
         elif kind == LOST:
-            self.stats.lost += 1
             self.stats.lost_reasons.append(event.reason or "")
             self.state = DISCONNECTED
             self.engine_held = False
@@ -323,7 +316,6 @@ class ExternalSessionDriver:
             if isinstance(message, Views):
                 self.views = frozenset(message.views) & HOST_VIEWS
         elif kind == ERROR:
-            self.stats.engine_errors.append(event.reason or "")
             _LOGGER.warning("Engine reported an error: %s", event.message)
 
     def _on_connected(self, hello: Hello) -> None:
@@ -391,7 +383,6 @@ class ExternalSessionDriver:
 
     def _on_seed(self, seed: SeedFrame) -> None:
         if self.state != SEEDING or seed.epoch != self.epoch or self.hello is None:
-            self.stats.stale_seeds += 1
             return
         self.stats.seeds += 1
         scene = self.scene_provider.scene_for_seed(self.hello, seed)
@@ -403,16 +394,14 @@ class ExternalSessionDriver:
         self._seed = seed
         self.t0_tick = seed.tick
         self.last_tick = seed.tick
-        if self.rollout is None:
-            self.rollout = WorldModelRollout(
-                pipeline=self.pipeline,
-                scene=scene,
-                engine_factory=self._new_engine,
-                postprocess=self.postprocess,
-                trace_chunk_lifecycle=self.trace_chunk_lifecycle,
-            )
-        else:
-            self.rollout.reset(scene=scene)
+        self._end_session()
+        self.rollout = WorldModelRollout(
+            pipeline=self.pipeline,
+            scene=scene,
+            engine_factory=self._new_engine,
+            postprocess=self.postprocess,
+            trace_chunk_lifecycle=self.trace_chunk_lifecycle,
+        )
         self.state = RUNNING
         self._grant_through(self.config.lead_chunks)
 
@@ -426,7 +415,6 @@ class ExternalSessionDriver:
             timeline=self.timeline,
             base_timestamp_us=self._scene.initial_timestamp_us,
             initial_frame=None if self._seed is None else self._seed.state,
-            chunk_timeout_s=self.config.chunk_timeout_s,
         )
         return self._session
 
@@ -492,7 +480,6 @@ class ExternalSessionDriver:
         self.ar_index += 1
         self.last_tick = chunk.frames[-1].tick
         self.stats.chunks += 1
-        self.stats.frames_sent += len(frames)
         return result
 
     def _send_views(self, chunk: ExternalChunk, step: WorldModelStep) -> float:

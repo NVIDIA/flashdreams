@@ -11,6 +11,5 @@ Core modules of the package never import from ``api``.
 from __future__ import annotations
 
 from omnidreams_game_engine.api import v0
-from omnidreams_game_engine.api.v0 import API_VERSION
 
-__all__ = ["API_VERSION", "v0"]
+__all__ = ["v0"]

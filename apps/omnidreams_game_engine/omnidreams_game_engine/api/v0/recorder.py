@@ -80,7 +80,6 @@ class PacketRecorder:
         *,
         t_arrive_us: int | None = None,
         host_sends: int | None = None,
-        meta: Mapping[str, Any] | None = None,
     ) -> None:
         """Append one message; ``host_sends`` marks when the host consumed it."""
         if direction not in (RX, TX):
@@ -109,8 +108,6 @@ class PacketRecorder:
                 record["t_arrive_us"] = t_arrive_us
             if host_sends is not None:
                 record["host_sends"] = host_sends
-            if meta:
-                record["meta"] = dict(meta)
             self._seq += 1
             self._write_line(record)
 
@@ -142,7 +139,6 @@ class PacketRecord:
     t_arrive_us: int | None
     host_sends: int | None
     """Messages the host had sent when it consumed this one (engine messages)."""
-    meta: dict[str, Any]
 
 
 class PacketLogReader:
@@ -174,7 +170,6 @@ class PacketLogReader:
                 t_us=int(line["t_us"]),
                 t_arrive_us=line.get("t_arrive_us"),
                 host_sends=line.get("host_sends"),
-                meta=dict(line.get("meta") or {}),
             )
 
     def received(self) -> list[PacketRecord]:

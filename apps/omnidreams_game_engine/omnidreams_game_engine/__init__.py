@@ -6,7 +6,4 @@
 from omnidreams_game_engine.engine import EngineStep, GameEngine
 from omnidreams_game_engine.model import WorldModelRollout
 
-# The versioned API re-exports the modules above, so it is imported last.
-from omnidreams_game_engine import api  # noqa: E402  isort: skip
-
-__all__ = ["EngineStep", "GameEngine", "WorldModelRollout", "api"]
+__all__ = ["EngineStep", "GameEngine", "WorldModelRollout"]

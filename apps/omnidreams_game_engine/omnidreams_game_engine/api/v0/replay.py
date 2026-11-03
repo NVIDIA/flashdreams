@@ -39,11 +39,7 @@ class PacketLogSource(MessageEngineSource):
     ) -> None:
         super().__init__(decoder, recorder=recorder)
         self.log = log if isinstance(log, PacketLogReader) else PacketLogReader(log)
-        self._pending = deque(
-            record
-            for record in self.log.received()
-            if record.header.get("type") not in ("pong", "ping")
-        )
+        self._pending = deque(self.log.received())
         self.sent: list[tuple[dict[str, Any], int]] = []
         """Every header the host sent, with its payload length."""
 
@@ -65,14 +61,12 @@ class PacketLogSource(MessageEngineSource):
                     header=record.header,
                     payload=record.payload,
                     t_arrive_us=record.t_arrive_us or record.t_us,
-                    meta=dict(record.meta),
                 )
             )
         return delivered
 
-    def _transmit(self, message: Message, payload: bytes) -> bool:
+    def _transmit(self, message: Message, payload: bytes) -> None:
         self.sent.append((message.to_header(), len(payload)))
-        return True
 
 
 __all__ = ["PacketLogSource"]

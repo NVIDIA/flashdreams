@@ -164,7 +164,7 @@ def test_restart_starts_a_new_epoch_with_a_new_seed() -> None:
     ids = _frame_ids(stub)
     assert ids[2] == list(range(len(ids[2])))
     assert host.driver.stats.seeds == 2
-    # The rollout was reset with the new seed rather than rebuilt.
+    # One model cache per seed; the pipeline stays loaded.
     assert host.pipeline.caches == 2
     _assert_grants_within_lead(stub)
 

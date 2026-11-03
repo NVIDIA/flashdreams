@@ -34,7 +34,6 @@ from omnidreams_game_engine.api.v0.messages import (
     Hello,
     Message,
     Ping,
-    Pong,
     ProtocolError,
     Status,
     check_api,
@@ -58,9 +57,7 @@ _JOIN_TIMEOUT_S = 2.0
 @dataclass(slots=True)
 class _Connection:
     sock: socket.socket
-    peer: str
     session: str
-    generation: int
     last_rx: float = field(default_factory=time.monotonic)
     outbox: queue.Queue[tuple[dict[str, Any], bytes] | None] = field(
         default_factory=queue.Queue
@@ -112,16 +109,11 @@ class TcpEngineLink(MessageEngineSource):
         self.silence_s = float(silence_s)
         self.status_interval_s = float(status_interval_s)
         self.status_provider = status_provider
-        self.clock_offset_us: int | None = None
-        """Engine clock minus host clock, from the newest pong."""
-        self.rtt_us: int | None = None
         self.connects = 0
         self.refusals: list[str] = []
         self._inbox: queue.Queue[Inbound] = queue.Queue()
         self._lock = threading.Lock()
         self._connection: _Connection | None = None
-        self._generation = 0
-        self._last_session: str | None = None
         self._stop = threading.Event()
         self._listener = socket.create_server((host, port), reuse_port=False)
         self._listener.settimeout(_ACCEPT_POLL_S)
@@ -141,11 +133,6 @@ class TcpEngineLink(MessageEngineSource):
         """Host and port the link listens on."""
         host, port = self._listener.getsockname()[:2]
         return str(host), int(port)
-
-    @property
-    def connected(self) -> bool:
-        with self._lock:
-            return self._connection is not None
 
     def drop_connection(self, reason: str = "host") -> None:
         """Close the engine's connection, as a network failure would."""
@@ -187,13 +174,11 @@ class TcpEngineLink(MessageEngineSource):
             except queue.Empty:
                 return items
 
-    def _transmit(self, message: Message, payload: bytes) -> bool:
+    def _transmit(self, message: Message, payload: bytes) -> None:
         with self._lock:
             connection = self._connection
-        if connection is None or connection.closed.is_set():
-            return False
-        connection.outbox.put((message.to_header(), payload))
-        return True
+        if connection is not None and not connection.closed.is_set():
+            connection.outbox.put((message.to_header(), payload))
 
     # ---------------------------------------------------------------- threads
 
@@ -224,12 +209,7 @@ class TcpEngineLink(MessageEngineSource):
             while not connection.closed.is_set():
                 header, payload = recv_message(connection.sock)
                 connection.last_rx = time.monotonic()
-                arrived = now_us()
-                if header.get("type") == "pong":
-                    self._on_pong(header, arrived)
-                    self._record_rx_now(header, arrived)
-                    continue
-                self._inbox.put(Inbound(header, payload, arrived))
+                self._inbox.put(Inbound(header, payload, now_us()))
         except (ConnectionError, FramingError, OSError) as error:
             reason = connection.close_reason or f"connection: {error}"
         else:
@@ -267,9 +247,7 @@ class TcpEngineLink(MessageEngineSource):
             _close_quietly(sock)
             return None
         sock.settimeout(None)
-        connection = _Connection(
-            sock=sock, peer=peer, session=message.session, generation=0
-        )
+        connection = _Connection(sock=sock, session=message.session)
         with self._lock:
             previous = self._connection
             busy = (
@@ -277,12 +255,8 @@ class TcpEngineLink(MessageEngineSource):
                 and not previous.closed.is_set()
                 and previous.session != message.session
             )
-            reconnect = self._last_session == message.session
             if not busy:
-                self._generation += 1
-                connection.generation = self._generation
                 self._connection = connection
-                self._last_session = message.session
                 self.connects += 1
         if busy:
             assert previous is not None
@@ -300,11 +274,7 @@ class TcpEngineLink(MessageEngineSource):
         )
         connection.threads.append(writer)
         writer.start()
-        self._inbox.put(
-            Inbound(
-                header, payload, arrived, meta={"reconnect": reconnect, "peer": peer}
-            )
-        )
+        self._inbox.put(Inbound(header, payload, arrived))
         return connection
 
     def _refuse(self, sock: socket.socket, code: str, text: str) -> None:
@@ -358,24 +328,6 @@ class TcpEngineLink(MessageEngineSource):
                     _LOGGER.exception("Host status provider failed")
                     continue
                 connection.outbox.put((Status(extra=fields).to_header(), b""))
-
-    def _on_pong(self, header: dict[str, Any], arrived_us: int) -> None:
-        try:
-            pong = from_header(header)
-        except ProtocolError:
-            return
-        if not isinstance(pong, Pong):
-            return
-        rtt = arrived_us - pong.t_host_us
-        if rtt < 0:
-            return
-        self.rtt_us = rtt
-        if pong.t_engine_us is not None:
-            self.clock_offset_us = pong.t_engine_us - (pong.t_host_us + rtt // 2)
-
-    def _record_rx_now(self, header: dict[str, Any], arrived_us: int) -> None:
-        if self.recorder is not None:
-            self.recorder.record("rx", header, t_arrive_us=arrived_us)
 
 
 def _close_quietly(sock: socket.socket) -> None:

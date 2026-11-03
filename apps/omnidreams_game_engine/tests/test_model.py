@@ -5,9 +5,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -182,42 +181,6 @@ def test_rollout_attaches_live_edit_style_without_removed_timing_argument() -> N
     )
 
     assert attached == [(pipeline, rollout.cache, "a yellow taxi")]
-    rollout.close()
-
-
-def test_reset_with_a_scene_replaces_the_seed_before_rebuilding() -> None:
-    pipeline = _Pipeline()
-    engines: list[_Engine] = []
-    scenes_at_factory: list[SceneDefinition] = []
-
-    def engine_factory() -> _Engine:
-        scenes_at_factory.append(rollout.scene if engines else _scene())
-        engine = _Engine()
-        engines.append(engine)
-        return engine
-
-    first = _scene()
-    rollout = WorldModelRollout(
-        pipeline=pipeline, scene=first, engine_factory=engine_factory
-    )
-    second = replace(
-        first, initial_rgb=np.full((4, 8, 3), 255, dtype=np.uint8), prompt="night"
-    )
-    rollout.reset(scene=second)
-
-    assert rollout.scene is second
-    assert engines[0].closed and len(engines) == 2
-    assert scenes_at_factory[1] is second
-    caches = [
-        cast(dict[str, Any], kwargs)
-        for name, kwargs in pipeline.calls
-        if name == "initialize_cache"
-    ]
-    assert len(caches) == 2
-    assert caches[1]["text"] == [["night"]]
-    assert float(caches[1]["image"].float().mean()) == pytest.approx(1.0)
-    rollout.reset()
-    assert rollout.scene is second
     rollout.close()
 
 

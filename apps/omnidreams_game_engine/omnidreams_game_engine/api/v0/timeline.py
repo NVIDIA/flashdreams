@@ -100,9 +100,6 @@ class ChunkTimeline:
             start += count
         return len(self.plan) + (g - start) // self.plan[-1]
 
-    def index_in_chunk(self, g: int) -> int:
-        return g - self.first_frame(self.chunk_of(g))
-
     def tick_of(self, g: int, t0: int) -> int:
         """Engine tick of model frame ``g`` in an epoch seeded at ``t0``."""
         return t0 + self.frame_ticks * g
@@ -125,10 +122,6 @@ class ChunkTimeline:
         interpolated.
         """
         return base_us + round((tick - t0) * self.frame_interval_us / self.frame_ticks)
-
-    def display_tick(self, g: int, *, t0: int, delay_ticks: int) -> int:
-        """Engine tick at which frame ``g`` is presented."""
-        return self.tick_of(g, t0) + delay_ticks
 
     def grant_frames(self, through_chunk: int, *, after_g: int) -> Sequence[int]:
         """Model frames up to the end of ``through_chunk`` not yet granted."""

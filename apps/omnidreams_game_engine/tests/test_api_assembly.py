@@ -84,7 +84,7 @@ def test_a_new_epoch_is_a_discontinuity() -> None:
     for g in range(3):
         assembler.add(1, _frame(g))
     assembler.begin_epoch(2)
-    assert assembler.buffered_frames == 0
+    assert assembler.missing(0) == [0, 1, 2, 3, 4]
     assert assembler.t0_tick is None
     assert assembler.add(1, _frame(3)) == "stale"
     assert not assembler.ready(0)
