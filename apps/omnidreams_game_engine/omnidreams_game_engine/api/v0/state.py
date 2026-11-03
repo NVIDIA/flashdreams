@@ -192,7 +192,7 @@ class FluStateCodec:
                 events=tuple(str(event) for event in state.get("events") or ()),
                 raw=state,
             )
-        except (KeyError, TypeError, ValueError) as error:
+        except (KeyError, OverflowError, TypeError, ValueError) as error:
             raise ValueError(
                 f"Unreadable {FLU_STATE_FORMAT} state: {error!r}"
             ) from error

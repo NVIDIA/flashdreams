@@ -152,6 +152,7 @@ def test_required_fields_are_enforced() -> None:
         ({"type": "hello", "session": 5}, "must be str"),
         ({"type": "views", "views": [["map"]]}, "must be str"),
         ({"type": "views", "views": [{}]}, "must be str"),
+        ({"type": "seed_req", "epoch": 1, "tick": 0, "fov_deg": 10**400}, "too large"),
     ],
 )
 def test_field_and_element_types_are_checked(header: dict, error: str) -> None:

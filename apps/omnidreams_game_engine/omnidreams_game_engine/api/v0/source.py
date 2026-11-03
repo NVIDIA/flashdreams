@@ -215,9 +215,11 @@ class MessageEngineSource:
             self.stats.bad_states += 1
             self._reject(f"Frame {frame.epoch}/{frame.g}: {error}", frame=frame)
             return
-        if frame.seed and frame.g != 0:
+        if frame.seed != (frame.g == 0):
             self.stats.bad_messages += 1
-            self._reject(f"Seed frame {frame.epoch}/{frame.g} is not g=0", frame=frame)
+            self._reject(
+                f"Frame {frame.epoch}/{frame.g}: only the seed is g=0", frame=frame
+            )
             return
         if self._assembler.add(frame.epoch, state) == "added" and frame.seed:
             self._events.append(

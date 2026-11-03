@@ -21,8 +21,8 @@ class PacketLogSource(MessageEngineSource):
     A recorded engine message is delivered once the host has sent as many
     messages as the live host had when it consumed it (``host_sends``), so
     the host generates the same chunks of the same epochs. A log with a
-    host-initiated restart (``request_refresh``) is refused, because a replay
-    cannot reproduce it.
+    host-initiated restart (``request_refresh`` or a model failure) is refused,
+    because a replay cannot reproduce it.
     """
 
     _fetch_blocks = False
@@ -39,7 +39,8 @@ class PacketLogSource(MessageEngineSource):
         if any(record.header.get("type") == "restart" for record in self.log.sent()):
             raise ValueError(
                 f"{self.log.directory} has a host-initiated restart "
-                "(request_refresh), which a replay cannot reproduce"
+                "(request_refresh or a model failure), which a replay cannot "
+                "reproduce"
             )
         self._pending = deque(self.log.received())
         self.sent: list[tuple[dict[str, Any], int]] = []

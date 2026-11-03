@@ -171,6 +171,7 @@ POSE = [float(v) for v in np.eye(4).reshape(16)]
         {"rig_to_world": POSE, "vehicle": {}, "command": {"throttle": None}},
         {"rig_to_world": POSE, "vehicle": {}, "command": [1, 2]},
         {"rig_to_world": POSE, "vehicle": {"x_m": [1.0]}},
+        {"rig_to_world": POSE, "vehicle": {"x_m": 10**400}},
         {"rig_to_world": POSE, "vehicle": {}, "actors": [{}]},
         {
             "rig_to_world": POSE,

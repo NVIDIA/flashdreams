@@ -117,9 +117,9 @@ Worked example, `t0` = seed tick, plan `[5, 8]`, `lead_chunks = 2`:
 5. **Pause.** The engine sends `hold` and stops ticking; `release` resumes the
    same epoch. The host keeps its model cache.
 6. **Restart.** The engine sends `restart{tick}` (reset, respawn, teleport,
-   player restart), or the host restarts by itself: a drift refresh (it
-   sends `restart`), a frame or seed it cannot use (it sends
-   `error{code: "protocol"}`), or a failed generation. The host sends
+   player restart), or the host restarts by itself: a drift refresh or a
+   model failure (it sends `restart`), or a frame or seed it cannot use (it
+   sends `error{code: "protocol"}`). The host sends
    `cancel{epoch: e}` and then `seed_req{epoch: e + 1}`; the flow continues
    at step 3.
 7. **Reconnect.** After a lost connection the engine connects again with the

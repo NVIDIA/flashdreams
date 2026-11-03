@@ -500,7 +500,7 @@ def from_header(header: Mapping[str, Any]) -> Message:
             value = _coerce(spec.kind, value)
             if spec.item is not None:
                 value = [_coerce(spec.item, element) for element in value]
-        except TypeError as error:
+        except (OverflowError, TypeError) as error:
             raise ProtocolError(f"{message_type}.{spec.name} {error}") from error
         values[spec.name] = value
     return cls(extra=extra, **values)

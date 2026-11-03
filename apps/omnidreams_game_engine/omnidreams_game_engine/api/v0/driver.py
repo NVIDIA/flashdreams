@@ -272,15 +272,14 @@ class ExternalSessionDriver:
             return self._generate(chunk)
         except Exception:
             # The chunk is consumed: a new seed restarts the session.
-            self._reanchor("error")
+            self._restart("error")
             raise
 
     def request_refresh(self, reason: str = "refresh") -> bool:
         """Re-anchor on a new seed at the engine's current pose (drift refresh)."""
         if self.state != RUNNING:
             return False
-        self.source.send(Restart(reason=reason, epoch=self.epoch + 1))
-        self._reanchor(reason)
+        self._restart(reason)
         return True
 
     def forward_input(self, action: str, phase: str) -> None:
@@ -389,6 +388,11 @@ class ExternalSessionDriver:
         # A (re)connected engine starts or resumes its session with ``start``.
         self.state = IDLE
 
+    def _restart(self, reason: str) -> None:
+        """Start a new epoch on the host's own initiative and tell the engine."""
+        self.source.send(Restart(reason=reason, epoch=self.epoch + 1))
+        self._reanchor(reason)
+
     def _reanchor(self, reason: str) -> None:
         assert self.timeline is not None
         self._begin_epoch((self.last_tick or 0) + self.timeline.frame_ticks, reason)
@@ -437,13 +441,18 @@ class ExternalSessionDriver:
         self.t0_tick = seed.tick
         self.last_tick = seed.tick
         self._end_session()
-        self.rollout = WorldModelRollout(
-            pipeline=self.pipeline,
-            scene=scene,
-            engine_factory=self._new_engine,
-            postprocess=self.postprocess,
-            trace_chunk_lifecycle=self.trace_chunk_lifecycle,
-        )
+        try:
+            self.rollout = WorldModelRollout(
+                pipeline=self.pipeline,
+                scene=scene,
+                engine_factory=self._new_engine,
+                postprocess=self.postprocess,
+                trace_chunk_lifecycle=self.trace_chunk_lifecycle,
+            )
+        except Exception:
+            # The seed is consumed, as a chunk is after a failed generation.
+            self._restart("error")
+            raise
         self.state = RUNNING
         self._grant_through(self.config.lead_chunks)
 

@@ -138,7 +138,10 @@ def test_a_malformed_message_or_stale_frame_is_answered_without_re_anchoring() -
     _complete_chunk_0(script, driver)
 
 
-def test_an_unusable_seed_is_answered_and_requested_again() -> None:
+@pytest.mark.parametrize("seed", [_seed(1, image=b"short"), (_frame(1, 0), b"")])
+def test_an_unusable_seed_or_frame_0_is_answered_and_requested_again(
+    seed: tuple[dict, bytes],
+) -> None:
     script = _Script()
     driver = v0.ExternalSessionDriver(
         source=script,
@@ -150,7 +153,7 @@ def test_an_unusable_seed_is_answered_and_requested_again() -> None:
         {"type": "hello", "session": "s", "api": PROTOCOL}, {"type": "start", "tick": 0}
     )
     driver.poll(0.0)
-    script.feed(_seed(1, image=b"short"))
+    script.feed(seed)
     driver.poll(0.0)
     assert script.types()[-3:] == ["error", "cancel", "seed_req"]
     assert (driver.state, driver.epoch, driver.rollout) == (SEEDING, 2, None)
@@ -168,7 +171,7 @@ def test_a_failed_generation_raises_and_re_anchors(
     script.feed(*(_frame(1, g) for g in range(1, 5)))
     with pytest.raises(RuntimeError, match="generation failed"):
         driver.poll(0.0)
-    assert script.types()[-2:] == ["cancel", "seed_req"]
+    assert script.types()[-3:] == ["restart", "cancel", "seed_req"]
     assert (driver.state, driver.epoch) == (SEEDING, 2)
     monkeypatch.undo()
     script.feed(_seed(2, t0=10))
@@ -176,6 +179,24 @@ def test_a_failed_generation_raises_and_re_anchors(
     script.feed(*(_frame(2, g, t0=10) for g in range(1, 5)))
     step = driver.poll(0.0)
     assert step is not None and (step.epoch, step.ar_index) == (2, 0)
+
+
+def test_a_failed_model_cache_raises_and_re_anchors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script, driver, pipeline = _running()
+    script.feed({"type": "restart", "tick": 10})
+    driver.poll(0.0)
+
+    def fail(**kwargs: Any) -> None:
+        raise RuntimeError("cache failed")
+
+    monkeypatch.setattr(pipeline, "initialize_cache", fail)
+    script.feed(_seed(2, t0=10))
+    with pytest.raises(RuntimeError, match="cache failed"):
+        driver.poll(0.0)
+    assert script.types()[-3:] == ["restart", "cancel", "seed_req"]
+    assert (driver.state, driver.epoch, driver.rollout) == (SEEDING, 3, None)
 
 
 def test_a_lost_engine_releases_the_rollout() -> None:

@@ -43,8 +43,9 @@ the thread that calls `poll`.
 so pass `host=` to accept an engine on another machine only on a trusted
 network.
 
-When generation fails, `poll` raises after it has asked the engine for a new
-seed, so a host can log the error and keep polling.
+When the model fails to start an epoch or to generate a chunk, `poll` sends
+`restart`, asks the engine for a new seed and raises, so a host can log the
+error and keep polling.
 `driver.request_refresh()` re-anchors on a new seed at the engine's current
 pose, and `driver.forward_input(action, phase)` forwards a key edge from a
 host-side view.
@@ -62,8 +63,8 @@ while (step := driver.poll(0.0)) is not None or not source.exhausted:
     ...
 ```
 
-A recording with a `request_refresh()` is refused, because a replay cannot
-reproduce when the host asked for it.
+A recording with a restart the host started (`request_refresh()` or a model
+failure) is refused, because a replay cannot reproduce it.
 
 ## Engine bring-up
 

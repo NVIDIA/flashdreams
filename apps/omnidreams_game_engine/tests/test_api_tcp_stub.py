@@ -19,7 +19,9 @@ import pytest
 import torch
 from omnidreams_game_engine.api import v0
 from omnidreams_game_engine.api.v0 import framing, stub_engine
-from omnidreams_game_engine.api.v0.driver import DISCONNECTED, IDLE
+from omnidreams_game_engine.api.v0.driver import DISCONNECTED, IDLE, SEEDING
+from omnidreams_game_engine.api.v0.recorder import TX
+from omnidreams_game_engine.api.v0.source import LOST_TYPE
 from omnidreams_game_engine.api.v0.stub_engine import StubEngine, StubScript
 from omnidreams_game_engine.api.v0.testing import (
     FakePipeline,
@@ -294,6 +296,34 @@ def test_a_hello_after_close_is_not_accepted() -> None:
             sock, {"type": "hello", "session": "s", "api": v0.PROTOCOL}
         )
         _read_to_eof(sock)
+
+
+def test_an_engine_message_of_the_lost_type_is_ignored() -> None:
+    hello = {"type": "hello", "session": "s", "api": v0.PROTOCOL}
+    with _host() as host, _connect(host) as sock:
+        for header in (hello, {"type": LOST_TYPE}, {"type": "start", "tick": 0}):
+            framing.send_message(sock, header)
+        host.run(lambda: host.driver.state == SEEDING)
+    assert host.driver.stats.lost_reasons == []
+
+
+def test_a_failed_recording_closes_the_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder = v0.PacketRecorder(tmp_path)
+    record = recorder.record
+
+    def record_engine_messages_only(direction: str, *args: Any, **kwargs: Any) -> None:
+        if direction == TX:
+            raise OSError("disk full")
+        record(direction, *args, **kwargs)
+
+    monkeypatch.setattr(recorder, "record", record_engine_messages_only)
+    hello = {"type": "hello", "session": "s", "api": v0.PROTOCOL}
+    with _host(recorder=recorder) as host, _connect(host) as sock:
+        framing.send_message(sock, hello)
+        host.run(lambda: host.driver.stats.lost_reasons != [])
+    assert "disk full" in host.driver.stats.lost_reasons[0]
 
 
 def test_a_status_that_cannot_be_encoded_is_skipped() -> None:

@@ -198,7 +198,9 @@ class TcpEngineLink(MessageEngineSource):
             while not connection.closed.is_set():
                 header, payload = recv_message(connection.sock)
                 connection.last_rx = time.monotonic()
-                self._inbox.put(Inbound(header, payload, now_us()))
+                # An engine cannot fake a lost connection: LOST_TYPE is the link's.
+                if header["type"] != LOST_TYPE:
+                    self._inbox.put(Inbound(header, payload, now_us()))
         except Exception as error:  # any read error ends the connection
             reason = connection.close_reason or f"connection: {error}"
         else:
@@ -288,11 +290,11 @@ class TcpEngineLink(MessageEngineSource):
             header, payload = item
             try:
                 send_message(connection.sock, header, payload)
-            except Exception as error:  # a send error ends the connection
-                connection.close(f"send failed: {error}")
+                if self.recorder is not None:
+                    self.recorder.record(TX, header, payload)
+            except Exception as error:  # a failed send or record ends the connection
+                connection.close(f"write failed: {error}")
                 return
-            if self.recorder is not None:
-                self.recorder.record(TX, header, payload)
             if header["type"] == "error" and header.get("code") in REFUSAL_CODES:
                 self.refusals.append(header["code"])
                 connection.close(f"refused: {header['code']}")
