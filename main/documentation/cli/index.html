@@ -1796,10 +1796,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#mp4-specific" class="md-nav__link">
+  <a href="#mp4-and-webm" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        MP4 Specific
+        MP4 and WebM
       </span>
     </span>
   </a>
@@ -2964,10 +2964,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#mp4-specific" class="md-nav__link">
+  <a href="#mp4-and-webm" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        MP4 Specific
+        MP4 and WebM
       </span>
     </span>
   </a>
@@ -3087,7 +3087,7 @@
 <td>Bound model steps across the whole application run, including replacement sessions.</td>
 </tr>
 <tr>
-<td><code>--mode {mp4,webrtc,native-window}</code></td>
+<td><code>--mode {mp4,webm,webrtc,native-window}</code></td>
 <td>Select file, browser, or local-window presentation. Default: <code>mp4</code>.</td>
 </tr>
 <tr>
@@ -3096,7 +3096,7 @@
 </tr>
 </tbody>
 </table>
-<h3 id="mp4-specific">MP4 Specific</h3>
+<h3 id="mp4-and-webm">MP4 and WebM</h3>
 <table>
 <thead>
 <tr>
@@ -3107,7 +3107,7 @@
 <tbody>
 <tr>
 <td><code>--output-path PATH</code></td>
-<td>MP4 destination. Required in MP4 mode.</td>
+<td>Video destination. Required in MP4 and WebM modes.</td>
 </tr>
 </tbody>
 </table>
@@ -3185,11 +3185,11 @@
 <p>Stream to a browser:</p>
 <div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>DEMO_MODEL_SLUG<span class="w"> </span>--mode<span class="w"> </span>webrtc<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8089</span>
 </code></pre></div>
-<p>Write every generated frame in order to an MP4:</p>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>DEMO_MODEL_SLUG<span class="w"> </span>--mode<span class="w"> </span>mp4<span class="w"> </span>--output-path<span class="w"> </span>output.mp4<span class="w"> </span><span class="se">\</span>
+<p>Write every generated frame in order to a WebM file:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>flashdreams-run-v2<span class="w"> </span>DEMO_MODEL_SLUG<span class="w"> </span>--mode<span class="w"> </span>webm<span class="w"> </span>--output-path<span class="w"> </span>output.webm<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--timeout<span class="w"> </span>unbound<span class="w"> </span>--backpressure-mode<span class="w"> </span>block<span class="w"> </span>--presentation-mode<span class="w"> </span>on_demand
 </code></pre></div>
-<p>MP4 mode requires <code>--timeout</code> and/or <code>--total-model-steps</code>; pass <code>unbound</code> to
+<p>MP4 and WebM modes require <code>--timeout</code> and/or <code>--total-model-steps</code>; pass <code>unbound</code> to
 name an explicit unlimited policy. WebRTC and native-window modes may omit both
 limits. When a session is replaced, it receives the time and model steps left
 for the whole run.</p>
