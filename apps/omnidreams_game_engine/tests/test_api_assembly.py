@@ -159,9 +159,45 @@ def test_flu_state_codec_round_trips_exactly_through_json() -> None:
         np.testing.assert_array_equal(got.dimensions_lwh, want.dimensions_lwh)
 
 
-def test_flu_state_codec_rejects_unreadable_states() -> None:
-    codec = FluStateCodec()
-    with pytest.raises(ValueError):
-        codec.decode({"vehicle": {}}, g=0, tick=0)
-    with pytest.raises(ValueError):
-        codec.decode({"rig_to_world": [0.0] * 16, "vehicle": {"speed": 1}}, g=0, tick=0)
+POSE = [float(v) for v in np.eye(4).reshape(16)]
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"vehicle": {}},
+        {"rig_to_world": [0.0] * 15, "vehicle": {}},
+        {"rig_to_world": POSE, "vehicle": [1, 2]},
+        {"rig_to_world": POSE, "vehicle": {}, "command": {"throttle": None}},
+        {"rig_to_world": POSE, "vehicle": {}, "command": [1, 2]},
+        {"rig_to_world": POSE, "vehicle": {"x_m": [1.0]}},
+        {"rig_to_world": POSE, "vehicle": {}, "actors": [{}]},
+        {
+            "rig_to_world": POSE,
+            "vehicle": {},
+            "actors": [
+                {
+                    "entity_id": "a",
+                    "position_world": [1, 2],
+                    "dimensions_lwh": [1, 1, 1],
+                }
+            ],
+        },
+    ],
+)
+def test_flu_state_codec_raises_value_error_on_unreadable_states(state: dict) -> None:
+    with pytest.raises(ValueError, match="Unreadable flu/0 state"):
+        FluStateCodec().decode(state, g=0, tick=0)
+
+
+def test_flu_state_codec_ignores_unknown_keys_and_defaults_from_the_pose() -> None:
+    pose = np.eye(4, dtype=np.float32)
+    pose[:3, 3] = (1.0, 2.0, 3.0)
+    state = {
+        "rig_to_world": [float(v) for v in pose.reshape(16)],
+        "vehicle": {"speed_mps": 4.0, "velocity_x_mps": None, "gear": 3},
+    }
+    decoded = FluStateCodec().decode(state, g=0, tick=0)
+    assert (decoded.vehicle.x_m, decoded.vehicle.y_m, decoded.vehicle.z_m) == (1, 2, 3)
+    assert decoded.vehicle.speed_mps == 4.0
+    assert decoded.vehicle.velocity_x_mps is None

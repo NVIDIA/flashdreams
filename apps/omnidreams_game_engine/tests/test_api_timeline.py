@@ -82,3 +82,5 @@ def test_invalid_timelines_are_refused() -> None:
         ChunkTimeline(sim_hz=50, model_fps=30)
     with pytest.raises(ValueError):
         ChunkTimeline().chunk_of(-1)
+    with pytest.raises(ValueError, match="do not settle"):
+        ChunkTimeline.from_frame_count(lambda k: k + 1)

@@ -95,7 +95,7 @@ class ScriptedDrive:
         pose[0, 0] = pose[1, 1] = math.cos(yaw)
         pose[0, 1] = -math.sin(yaw)
         pose[1, 0] = math.sin(yaw)
-        pose[:3, 3] = (x, y, 1.5)
+        pose[:3, 3] = (x, y, 0.0)
         vehicle = VehicleState(
             x_m=x,
             y_m=y,
@@ -543,9 +543,6 @@ class StubEngine:
                     epoch=request.epoch,
                     g=request.g,
                     tick=request.tick,
-                    chunk=request.chunk,
-                    index=request.index,
-                    req_tick=request.tick,
                     state=dict(self.state_fn(request.tick)),
                     t_engine_us=now_us(),
                 )

@@ -15,7 +15,7 @@ round trip; the stub engine and in-process engines use it.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import numpy as np
@@ -73,7 +73,24 @@ class StateDecoder(Protocol):
 
 FLU_STATE_FORMAT = "flu/0"
 
-_VEHICLE_FIELDS = tuple(item.name for item in fields(VehicleState))
+_VEHICLE_FIELDS = (
+    "x_m",
+    "y_m",
+    "z_m",
+    "yaw_rad",
+    "speed_mps",
+    "steer_rad",
+    "pitch_rad",
+    "roll_rad",
+    "velocity_x_mps",
+    "velocity_y_mps",
+    "yaw_rate_radps",
+    "suspension_pitch_rad",
+    "suspension_roll_rad",
+    "suspension_pitch_rate_radps",
+    "suspension_roll_rate_radps",
+    "ragdoll_active",
+)
 _COMMAND_FIELDS = (
     "throttle",
     "brake",
@@ -89,10 +106,11 @@ _COMMAND_FIELDS = (
 class FluStateCodec:
     """The engine-neutral ``flu/0`` vocabulary: FLU metres and radians.
 
-    ``{"rig_to_world": [16 row-major floats], "vehicle": {every VehicleState
-    field}, "command": {every DriverCommand field}, "actors": [{"id", "type",
-    "position", "orientation_xyzw", "size_lwh"}], "events": [...]}``.
-    Floats are written with Python's shortest round-trip repr, so
+    ``{"rig_to_world": [16 row-major floats], "vehicle": {VehicleState
+    fields}, "command": {DriverCommand fields}, "actors": [{ActorState
+    fields}], "events": [...]}``. A missing vehicle position is the rig
+    position; other missing fields take their defaults, and unknown keys are
+    ignored. Floats are written with Python's shortest round-trip repr, so
     ``decode(encode(s))`` reproduces float32 poses and float64 vehicle state
     exactly.
     """
@@ -116,11 +134,11 @@ class FluStateCodec:
             "command": command,
             "actors": [
                 {
-                    "id": actor.entity_id,
-                    "type": actor.object_type,
-                    "position": [float(v) for v in actor.position_world],
+                    "entity_id": actor.entity_id,
+                    "object_type": actor.object_type,
+                    "position_world": [float(v) for v in actor.position_world],
                     "orientation_xyzw": [float(v) for v in actor.orientation_xyzw],
-                    "size_lwh": [float(v) for v in actor.dimensions_lwh],
+                    "dimensions_lwh": [float(v) for v in actor.dimensions_lwh],
                 }
                 for actor in frame.actors
             ],
@@ -129,62 +147,57 @@ class FluStateCodec:
 
     def decode(self, state: Mapping[str, Any], *, g: int, tick: int) -> FrameState:
         try:
-            pose = np.asarray(state["rig_to_world"], dtype=np.float32).reshape(4, 4)
-            vehicle_fields = dict(state["vehicle"])
-        except (KeyError, TypeError, ValueError) as error:
-            raise ValueError(f"Unreadable {FLU_STATE_FORMAT} state: {error}") from error
-        unknown = set(vehicle_fields) - set(_VEHICLE_FIELDS)
-        if unknown:
-            raise ValueError(f"Unknown vehicle fields {sorted(unknown)}")
-        vehicle_fields.setdefault("x_m", float(pose[0, 3]))
-        vehicle_fields.setdefault("y_m", float(pose[1, 3]))
-        vehicle_fields.setdefault("z_m", float(pose[2, 3]))
-        vehicle_fields.setdefault("yaw_rad", 0.0)
-        vehicle_fields.setdefault("speed_mps", 0.0)
-        vehicle_fields.setdefault("steer_rad", 0.0)
-        values: dict[str, Any] = {
-            name: bool(value) if name == "ragdoll_active" else _optional_float(value)
-            for name, value in vehicle_fields.items()
-        }
-        vehicle = VehicleState(**values)
-        command_fields = dict(state.get("command") or {})
-        command = DriverCommand(
-            throttle=float(command_fields.get("throttle", 0.0)),
-            brake=float(command_fields.get("brake", 0.0)),
-            steer=float(command_fields.get("steer", 0.0)),
-            stop=bool(command_fields.get("stop", False)),
-            handbrake=bool(command_fields.get("handbrake", False)),
-            reverse=bool(command_fields.get("reverse", False)),
-            steer_is_direct=bool(command_fields.get("steer_is_direct", False)),
-            manual_control=bool(command_fields.get("manual_control", False)),
-        )
-        actors = tuple(
-            ActorState(
-                entity_id=str(actor["id"]),
-                object_type=str(actor.get("type", "Others")),
-                position_world=np.asarray(actor["position"], dtype=np.float32),
-                orientation_xyzw=np.asarray(
-                    actor.get("orientation_xyzw", (0.0, 0.0, 0.0, 1.0)),
-                    dtype=np.float32,
+            pose = _floats(state["rig_to_world"], (4, 4))
+            vehicle: dict[str, Any] = {
+                name: bool(value) if name == "ragdoll_active" else float(value)
+                for name, value in dict(state["vehicle"]).items()
+                if name in _VEHICLE_FIELDS and value is not None
+            }
+            vehicle.setdefault("x_m", float(pose[0, 3]))
+            vehicle.setdefault("y_m", float(pose[1, 3]))
+            vehicle.setdefault("z_m", float(pose[2, 3]))
+            vehicle.setdefault("yaw_rad", 0.0)
+            vehicle.setdefault("speed_mps", 0.0)
+            vehicle.setdefault("steer_rad", 0.0)
+            command = dict(state.get("command") or {})
+            return FrameState(
+                g=g,
+                tick=tick,
+                rig_to_world=pose,
+                vehicle=VehicleState(**vehicle),
+                command=DriverCommand(
+                    throttle=float(command.get("throttle", 0.0)),
+                    brake=float(command.get("brake", 0.0)),
+                    steer=float(command.get("steer", 0.0)),
+                    stop=bool(command.get("stop", False)),
+                    handbrake=bool(command.get("handbrake", False)),
+                    reverse=bool(command.get("reverse", False)),
+                    steer_is_direct=bool(command.get("steer_is_direct", False)),
+                    manual_control=bool(command.get("manual_control", False)),
                 ),
-                dimensions_lwh=np.asarray(actor["size_lwh"], dtype=np.float32),
+                actors=tuple(
+                    ActorState(
+                        entity_id=str(actor["entity_id"]),
+                        object_type=str(actor.get("object_type", "Others")),
+                        position_world=_floats(actor["position_world"], (3,)),
+                        orientation_xyzw=_floats(
+                            actor.get("orientation_xyzw", (0.0, 0.0, 0.0, 1.0)), (4,)
+                        ),
+                        dimensions_lwh=_floats(actor["dimensions_lwh"], (3,)),
+                    )
+                    for actor in state.get("actors") or ()
+                ),
+                events=tuple(str(event) for event in state.get("events") or ()),
+                raw=state,
             )
-            for actor in state.get("actors") or ()
-        )
-        return FrameState(
-            g=g,
-            tick=tick,
-            rig_to_world=pose,
-            vehicle=vehicle,
-            command=command,
-            actors=actors,
-            events=tuple(str(event) for event in state.get("events") or ()),
-            raw=state,
-        )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(
+                f"Unreadable {FLU_STATE_FORMAT} state: {error!r}"
+            ) from error
 
 
-def _optional_float(value: Any) -> float | None:
-    return None if value is None else float(value)
+def _floats(values: Any, shape: tuple[int, ...]) -> FloatArray:
+    return np.asarray(values, dtype=np.float32).reshape(shape)
 
 
 __all__ = [

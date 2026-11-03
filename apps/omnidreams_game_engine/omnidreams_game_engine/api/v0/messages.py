@@ -20,18 +20,11 @@ from dataclasses import MISSING, dataclass, field, fields
 from pathlib import Path
 from typing import Any, ClassVar, Union
 
-PROTOCOL_NAME = "omnidreams-engine"
-"""Protocol family named in ``hello.api`` and ``config.api``."""
-
-PROTOCOL_MAJOR = 0
-"""Major protocol version served by this module."""
-
-PROTOCOL = f"{PROTOCOL_NAME}/{PROTOCOL_MAJOR}"
+PROTOCOL = "omnidreams-engine/0"
 """Value of ``hello.api`` and ``config.api`` for this version."""
 
-ENGINE = "engine"
-HOST = "host"
-BOTH = "both"
+_RESERVED = ("type", "bytes")
+"""Header keys owned by the framing; never message fields or ``extra``."""
 
 
 class ProtocolError(ValueError):
@@ -47,7 +40,7 @@ class Message:
     """Base of every protocol message."""
 
     TYPE: ClassVar[str] = ""
-    SENDER: ClassVar[str] = BOTH
+    SENDER: ClassVar[str] = "both"
     """Who sends it: ``engine``, ``host`` or ``both``."""
 
     extra: dict[str, Any] = field(default_factory=dict)
@@ -57,7 +50,7 @@ class Message:
         """Return the JSON header (without ``bytes``; framing adds it)."""
         header: dict[str, Any] = {"type": self.TYPE}
         for name, value in self.extra.items():
-            if name not in ("type", "bytes"):
+            if name not in _RESERVED:
                 header[name] = value
         for item in fields(self):
             if item.name == "extra":
@@ -75,17 +68,8 @@ class Unknown(Message):
 
     type: str
 
-    def to_header(self) -> dict[str, Any]:
-        header = {"type": self.type}
-        header.update(
-            {k: v for k, v in self.extra.items() if k not in ("type", "bytes")}
-        )
-        return header
 
-
-# --------------------------------------------------------------------------
-# Engine to host
-# --------------------------------------------------------------------------
+## Engine to host
 
 
 @dataclass(kw_only=True, slots=True)
@@ -93,7 +77,7 @@ class Hello(Message):
     """First message of every connection, sent by the engine."""
 
     TYPE: ClassVar[str] = "hello"
-    SENDER: ClassVar[str] = ENGINE
+    SENDER: ClassVar[str] = "engine"
 
     session: str
     """Engine session name; a reconnect sends the same name."""
@@ -124,7 +108,7 @@ class Start(Message):
     """The engine begins (or, after a reconnect, resumes) a driving session."""
 
     TYPE: ClassVar[str] = "start"
-    SENDER: ClassVar[str] = ENGINE
+    SENDER: ClassVar[str] = "engine"
 
     tick: int
     reason: str = "start"
@@ -136,18 +120,15 @@ class Frame(Message):
     """The engine's state at one granted model frame; the seed carries an image."""
 
     TYPE: ClassVar[str] = "frame"
-    SENDER: ClassVar[str] = ENGINE
+    SENDER: ClassVar[str] = "engine"
 
     epoch: int
     g: int
     """Model frame index within the epoch; 0 is the seed frame."""
     tick: int
     """Engine tick the state belongs to."""
-    state: dict[str, Any] | None = None
+    state: dict[str, Any]
     """Per-frame state in the vocabulary named by ``hello.state_format``."""
-    chunk: int | None = None
-    index: int | None = None
-    req_tick: int | None = None
     seed: bool = False
     """True on the answer to a ``seed_req``; the payload is the seed image."""
     encoding: str | None = None
@@ -159,16 +140,31 @@ class Frame(Message):
 
 @dataclass(kw_only=True, slots=True)
 class Pong(Message):
+    """Answer to ``ping``."""
+
     TYPE: ClassVar[str] = "pong"
-    SENDER: ClassVar[str] = ENGINE
+    SENDER: ClassVar[str] = "engine"
 
     t_host_us: int
     t_engine_us: int | None = None
 
 
-# --------------------------------------------------------------------------
-# Host to engine
-# --------------------------------------------------------------------------
+@dataclass(kw_only=True, slots=True)
+class Views(Message):
+    """The host views the engine shows; the host sends their ``view_frame``s.
+
+    An empty list stops them; a new connection starts with none. A host
+    ignores a view it does not serve.
+    """
+
+    TYPE: ClassVar[str] = "views"
+    SENDER: ClassVar[str] = "engine"
+
+    views: list[str] = field(default_factory=list)
+    t_engine_us: int | None = None
+
+
+## Host to engine
 
 
 @dataclass(kw_only=True, slots=True)
@@ -176,10 +172,10 @@ class Config(Message):
     """The host's answer to ``hello``: the session's timing and frame return."""
 
     TYPE: ClassVar[str] = "config"
-    SENDER: ClassVar[str] = HOST
+    SENDER: ClassVar[str] = "host"
 
     session: str
-    api: str = PROTOCOL
+    api: str
     model_fps: int
     frame_ticks: int
     """Engine ticks per model frame (``sim_hz / model_fps``)."""
@@ -194,10 +190,8 @@ class Config(Message):
     return_width: int | None = None
     return_height: int | None = None
     return_quality: int | None = None
-    render: str | None = "off"
+    render: str = "off"
     """Engine world rendering between seeds: ``off`` or ``always``."""
-    checkpoint: str | None = None
-    profile: str | None = None
     preset: str | None = None
     host_build: str | None = None
 
@@ -207,7 +201,7 @@ class SeedReq(Message):
     """Ask the engine for the seed image and state that start an epoch."""
 
     TYPE: ClassVar[str] = "seed_req"
-    SENDER: ClassVar[str] = HOST
+    SENDER: ClassVar[str] = "host"
 
     epoch: int
     tick: int
@@ -216,7 +210,6 @@ class SeedReq(Message):
     width: int | None = None
     height: int | None = None
     fov_deg: float | None = None
-    warmup_renders: int | None = None
 
 
 @dataclass(kw_only=True, slots=True)
@@ -224,15 +217,13 @@ class FrameReq(Message):
     """Grant: the engine may simulate up to ``tick`` and answers with its state."""
 
     TYPE: ClassVar[str] = "frame_req"
-    SENDER: ClassVar[str] = HOST
+    SENDER: ClassVar[str] = "host"
 
     epoch: int
     chunk: int
     index: int
     g: int
     tick: int
-    condition: bool = False
-    keys: list[Any] = field(default_factory=list)
 
 
 @dataclass(kw_only=True, slots=True)
@@ -240,7 +231,7 @@ class GenFrame(Message):
     """One generated frame; the payload is the encoded image."""
 
     TYPE: ClassVar[str] = "gen_frame"
-    SENDER: ClassVar[str] = HOST
+    SENDER: ClassVar[str] = "host"
 
     epoch: int
     chunk: int
@@ -251,35 +242,18 @@ class GenFrame(Message):
     width: int
     height: int
     t_host_us: int | None = None
-    camera: dict[str, Any] | None = None
-
-
-@dataclass(kw_only=True, slots=True)
-class Views(Message):
-    """The host views the engine shows now; the host sends their frames (``view_frame``) while they are listed.
-
-    Added in API 0.2. An empty list stops them; a new connection starts with
-    none. A host that does not serve a view ignores it.
-    """
-
-    TYPE: ClassVar[str] = "views"
-    SENDER: ClassVar[str] = ENGINE
-
-    views: list[str] = field(default_factory=list)
-    t_engine_us: int | None = None
 
 
 @dataclass(kw_only=True, slots=True)
 class ViewFrame(Message):
-    """One frame of a host view the engine asked for with ``views``; the payload is the image.
+    """One frame of a host view the engine listed; the payload is the image.
 
     ``view`` names it (``map``: the conditioning frame the model generated
-    the frame ``g`` from). Added in API 0.2; sent only to an engine that
-    listed the view.
+    the frame ``g`` from).
     """
 
     TYPE: ClassVar[str] = "view_frame"
-    SENDER: ClassVar[str] = HOST
+    SENDER: ClassVar[str] = "host"
 
     view: str
     epoch: int
@@ -298,7 +272,7 @@ class Input(Message):
     """A key edge forwarded from a host-side view."""
 
     TYPE: ClassVar[str] = "input"
-    SENDER: ClassVar[str] = HOST
+    SENDER: ClassVar[str] = "host"
 
     action: str
     phase: str
@@ -311,22 +285,22 @@ class Cancel(Message):
     """Drop the outstanding grants (of ``epoch`` when given)."""
 
     TYPE: ClassVar[str] = "cancel"
-    SENDER: ClassVar[str] = HOST
+    SENDER: ClassVar[str] = "host"
 
     epoch: int | None = None
 
 
 @dataclass(kw_only=True, slots=True)
 class Ping(Message):
+    """Liveness check; the engine answers with ``pong``."""
+
     TYPE: ClassVar[str] = "ping"
-    SENDER: ClassVar[str] = HOST
+    SENDER: ClassVar[str] = "host"
 
     t_host_us: int
 
 
-# --------------------------------------------------------------------------
-# Both directions
-# --------------------------------------------------------------------------
+## Both directions
 
 
 @dataclass(kw_only=True, slots=True)
@@ -412,20 +386,20 @@ MESSAGE_TYPES: tuple[type[Message], ...] = (
 )
 """Every message type of version 0."""
 
-REGISTRY: dict[str, type[Message]] = {cls.TYPE: cls for cls in MESSAGE_TYPES}
+_REGISTRY: dict[str, type[Message]] = {cls.TYPE: cls for cls in MESSAGE_TYPES}
 
 
-# --------------------------------------------------------------------------
-# Parsing
-# --------------------------------------------------------------------------
+## Parsing
 
 
 @dataclass(frozen=True, slots=True)
 class _FieldSpec:
     name: str
-    kinds: tuple[type, ...]
-    optional: bool
+    kind: type
+    item: type | None
+    """Element type of a list field."""
     required: bool
+    default: Any
 
 
 _SPECS: dict[type[Message], tuple[_FieldSpec, ...]] = {}
@@ -441,106 +415,84 @@ def _field_specs(cls: type[Message]) -> tuple[_FieldSpec, ...]:
         if item.name == "extra":
             continue
         annotation = hints[item.name]
+        if typing.get_origin(annotation) is Union or isinstance(
+            annotation, types.UnionType
+        ):
+            (annotation,) = [
+                a for a in typing.get_args(annotation) if a is not type(None)
+            ]
+        kind = typing.get_origin(annotation) or annotation
         args = typing.get_args(annotation)
-        origin = typing.get_origin(annotation)
-        optional = False
-        if origin is Union or isinstance(annotation, types.UnionType):
-            optional = type(None) in args
-            members = [arg for arg in args if arg is not type(None)]
-            if len(members) != 1:
-                raise TypeError(f"{cls.__name__}.{item.name}: unsupported union")
-            annotation = members[0]
-            origin = typing.get_origin(annotation)
-        base = origin if origin is not None else annotation
-        if base is Any:
-            kinds: tuple[type, ...] = (object,)
+        if item.default is not MISSING:
+            default = item.default
+        elif item.default_factory is not MISSING:
+            default = item.default_factory()
         else:
-            kinds = (base,)
-        required = item.default is MISSING and item.default_factory is MISSING
-        specs.append(_FieldSpec(item.name, kinds, optional, required))
+            default = MISSING
+        specs.append(
+            _FieldSpec(
+                name=item.name,
+                kind=kind,
+                item=args[0] if kind is list else None,
+                required=default is MISSING,
+                default=default,
+            )
+        )
     result = tuple(specs)
     _SPECS[cls] = result
     return result
 
 
-def _coerce(cls: type[Message], spec: _FieldSpec, value: Any) -> Any:
-    if value is None:
-        if spec.optional:
-            return None
-        raise ProtocolError(f"{cls.TYPE}.{spec.name} must not be null")
-    kind = spec.kinds[0]
-    if kind is object:
+def _coerce(kind: type, value: Any) -> Any:
+    """Return ``value`` as ``kind``; ints pass as floats, integral floats as ints."""
+    if isinstance(value, kind) and not (kind is int and isinstance(value, bool)):
         return value
-    if kind is bool:
-        if isinstance(value, bool):
-            return value
-    elif kind is int:
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value
-        if isinstance(value, float) and value.is_integer():
-            return int(value)
-    elif kind is float:
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return float(value)
-    elif isinstance(value, kind):
-        return value
-    raise ProtocolError(
-        f"{cls.TYPE}.{spec.name} must be {kind.__name__}, got {type(value).__name__}"
-    )
+    if kind is float and isinstance(value, int) and not isinstance(value, bool):
+        return float(value)
+    if kind is int and isinstance(value, float) and value.is_integer():
+        return int(value)
+    raise TypeError(f"must be {kind.__name__}, got {type(value).__name__}")
 
 
 def from_header(header: Mapping[str, Any]) -> Message:
-    """Build the message for one JSON header; unknown types give :class:`Unknown`."""
+    """Build the message for one JSON header; unknown types give :class:`Unknown`.
+
+    ``null`` counts as absent: an optional field keeps its default.
+    """
     message_type = header.get("type")
     if not isinstance(message_type, str):
         raise ProtocolError("A message needs a string 'type'")
-    cls = REGISTRY.get(message_type)
+    extra = {k: v for k, v in header.items() if k not in _RESERVED}
+    cls = _REGISTRY.get(message_type)
     if cls is None:
-        return Unknown(
-            type=message_type,
-            extra={k: v for k, v in header.items() if k not in ("type", "bytes")},
-        )
-    specs = _field_specs(cls)
-    known = {spec.name for spec in specs}
+        return Unknown(type=message_type, extra=extra)
     values: dict[str, Any] = {}
-    for spec in specs:
-        if spec.name in header:
-            values[spec.name] = _coerce(cls, spec, header[spec.name])
-        elif spec.required:
-            raise ProtocolError(f"{message_type} needs '{spec.name}'")
-    extra = {
-        k: v for k, v in header.items() if k not in known and k not in ("type", "bytes")
-    }
+    for spec in _field_specs(cls):
+        value = extra.pop(spec.name, None)
+        if value is None:
+            if spec.required:
+                raise ProtocolError(f"{message_type} needs '{spec.name}'")
+            continue
+        try:
+            value = _coerce(spec.kind, value)
+            if spec.item is not None:
+                value = [_coerce(spec.item, element) for element in value]
+        except TypeError as error:
+            raise ProtocolError(f"{message_type}.{spec.name} {error}") from error
+        values[spec.name] = value
     return cls(extra=extra, **values)
 
 
-def parse_api(api: str | None) -> tuple[str, int]:
-    """Return the protocol family and major version of an ``api`` value."""
-    if not api or "/" not in api:
-        raise ProtocolError(
-            f"Unsupported protocol {api!r}; this host speaks {PROTOCOL}",
-            code="version",
-        )
-    family, _, version = api.partition("/")
-    major_text = version.split(".", 1)[0]
-    if not major_text.isdigit():
-        raise ProtocolError(f"Unreadable protocol version {api!r}", code="version")
-    return family, int(major_text)
-
-
 def check_api(api: str | None) -> None:
-    """Raise a ``version`` :class:`ProtocolError` unless ``api`` is version 0."""
-    family, major = parse_api(api)
-    if family != PROTOCOL_NAME or major != PROTOCOL_MAJOR:
+    """Raise a ``version`` :class:`ProtocolError` unless ``api`` is :data:`PROTOCOL`."""
+    if api != PROTOCOL:
         raise ProtocolError(
             f"Unsupported protocol {api!r}; this host speaks {PROTOCOL}",
             code="version",
         )
 
 
-# --------------------------------------------------------------------------
-# JSON Schema (schema.json beside this module is generated from here)
-# --------------------------------------------------------------------------
+## JSON Schema (schema.json beside this module is generated from here)
 
 _JSON_TYPES: dict[type, str] = {
     bool: "boolean",
@@ -550,6 +502,8 @@ _JSON_TYPES: dict[type, str] = {
     list: "array",
     dict: "object",
 }
+
+SCHEMA_PATH = Path(__file__).with_name("schema.json")
 
 
 def json_schema() -> dict[str, Any]:
@@ -562,17 +516,16 @@ def json_schema() -> dict[str, Any]:
         }
         required = ["type"]
         for spec in _field_specs(cls):
-            kind = spec.kinds[0]
-            if kind is object:
-                schema: dict[str, Any] = {}
-            else:
-                names = [_JSON_TYPES[kind]]
-                if spec.optional:
-                    names.append("null")
-                schema = {"type": names[0] if len(names) == 1 else names}
-            properties[spec.name] = schema
+            schema: dict[str, Any] = {"type": _JSON_TYPES[spec.kind]}
+            if spec.item is not None:
+                schema["items"] = {"type": _JSON_TYPES[spec.item]}
             if spec.required:
                 required.append(spec.name)
+            else:
+                schema["type"] = [schema["type"], "null"]
+                if spec.default is not None:
+                    schema["default"] = spec.default
+            properties[spec.name] = schema
         definitions[cls.TYPE] = {
             "type": "object",
             "description": f"Sent by: {cls.SENDER}.",
@@ -580,39 +533,29 @@ def json_schema() -> dict[str, Any]:
             "required": required,
             "additionalProperties": True,
         }
+    unknown = {
+        "type": "object",
+        "description": "A type this version does not define; receivers ignore it.",
+        "properties": {"type": {"type": "string", "not": {"enum": list(definitions)}}},
+        "required": ["type"],
+    }
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": f"{PROTOCOL}/schema.json",
         "title": f"External-engine protocol {PROTOCOL}: message headers",
-        "oneOf": [{"$ref": f"#/$defs/{name}"} for name in definitions],
+        "oneOf": [{"$ref": f"#/$defs/{name}"} for name in definitions] + [unknown],
         "$defs": definitions,
     }
 
 
-SCHEMA_PATH = Path(__file__).with_name("schema.json")
-
-
-def schema_text() -> str:
-    """Return the text of ``schema.json`` as generated from this module."""
-    return json.dumps(json_schema(), indent=2) + "\n"
-
-
-def write_schema(path: Path = SCHEMA_PATH) -> Path:
+def write_schema() -> None:
     """Regenerate ``schema.json`` after a message type changes."""
-    path.write_text(schema_text(), encoding="utf-8")
-    return path
+    SCHEMA_PATH.write_text(json.dumps(json_schema(), indent=2) + "\n", encoding="utf-8")
 
 
 __all__ = [
-    "BOTH",
-    "ENGINE",
-    "HOST",
     "MESSAGE_TYPES",
     "PROTOCOL",
-    "PROTOCOL_MAJOR",
-    "PROTOCOL_NAME",
-    "REGISTRY",
-    "SCHEMA_PATH",
     "Cancel",
     "Config",
     "End",
@@ -638,7 +581,4 @@ __all__ = [
     "check_api",
     "from_header",
     "json_schema",
-    "parse_api",
-    "schema_text",
-    "write_schema",
 ]

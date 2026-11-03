@@ -59,6 +59,41 @@
     },
     {
       "$ref": "#/$defs/view_frame"
+    },
+    {
+      "type": "object",
+      "description": "A type this version does not define; receivers ignore it.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "not": {
+            "enum": [
+              "hello",
+              "start",
+              "frame",
+              "pong",
+              "config",
+              "seed_req",
+              "frame_req",
+              "gen_frame",
+              "input",
+              "cancel",
+              "ping",
+              "hold",
+              "release",
+              "restart",
+              "end",
+              "status",
+              "error",
+              "views",
+              "view_frame"
+            ]
+          }
+        }
+      },
+      "required": [
+        "type"
+      ]
     }
   ],
   "$defs": {
@@ -107,10 +142,18 @@
           ]
         },
         "sim_hz": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": 60
         },
         "tick": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": 0
         },
         "front_mount": {
           "type": [
@@ -158,7 +201,11 @@
           "type": "integer"
         },
         "reason": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "start"
         }
       },
       "required": [
@@ -188,31 +235,14 @@
           "type": "integer"
         },
         "state": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "chunk": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "index": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "req_tick": {
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": "object"
         },
         "seed": {
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": false
         },
         "encoding": {
           "type": [
@@ -243,7 +273,8 @@
         "type",
         "epoch",
         "g",
-        "tick"
+        "tick",
+        "state"
       ],
       "additionalProperties": true
     },
@@ -298,7 +329,10 @@
           "type": "integer"
         },
         "chunk_plan": {
-          "type": "array"
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
         },
         "lead_chunks": {
           "type": "integer"
@@ -331,19 +365,8 @@
           "type": [
             "string",
             "null"
-          ]
-        },
-        "checkpoint": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "profile": {
-          "type": [
-            "string",
-            "null"
-          ]
+          ],
+          "default": "off"
         },
         "preset": {
           "type": [
@@ -361,6 +384,7 @@
       "required": [
         "type",
         "session",
+        "api",
         "model_fps",
         "frame_ticks",
         "chunk_plan",
@@ -388,7 +412,11 @@
           "type": "integer"
         },
         "reason": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "start"
         },
         "width": {
           "type": [
@@ -405,12 +433,6 @@
         "fov_deg": {
           "type": [
             "number",
-            "null"
-          ]
-        },
-        "warmup_renders": {
-          "type": [
-            "integer",
             "null"
           ]
         }
@@ -447,12 +469,6 @@
         },
         "tick": {
           "type": "integer"
-        },
-        "condition": {
-          "type": "boolean"
-        },
-        "keys": {
-          "type": "array"
         }
       },
       "required": [
@@ -500,12 +516,6 @@
         "t_host_us": {
           "type": [
             "integer",
-            "null"
-          ]
-        },
-        "camera": {
-          "type": [
-            "object",
             "null"
           ]
         }
@@ -667,7 +677,11 @@
           "minimum": 0
         },
         "reason": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "restart"
         },
         "tick": {
           "type": [
@@ -754,7 +768,11 @@
           "type": "string"
         },
         "message": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": ""
         }
       },
       "required": [
@@ -775,7 +793,14 @@
           "minimum": 0
         },
         "views": {
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": []
         },
         "t_engine_us": {
           "type": [

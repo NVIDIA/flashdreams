@@ -16,6 +16,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 _PROBE_CHUNKS = 16
+"""Chunks whose frame counts are probed; the plan must settle within them."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +53,10 @@ class ChunkTimeline:
         repeating count, as every autoregressive pipeline in the repository does.
         """
         counts = [int(frame_count(k)) for k in range(_PROBE_CHUNKS)]
+        if counts[-2] != counts[-1]:
+            raise ValueError(
+                f"Frame counts do not settle within {_PROBE_CHUNKS} chunks"
+            )
         last = counts[-1]
         settle = len(counts) - 1
         while settle > 0 and counts[settle - 1] == last:

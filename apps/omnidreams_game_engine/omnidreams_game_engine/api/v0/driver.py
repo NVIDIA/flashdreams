@@ -41,6 +41,7 @@ from omnidreams_game_engine.api.v0.external import (
     SourceEvent,
 )
 from omnidreams_game_engine.api.v0.messages import (
+    PROTOCOL,
     Cancel,
     Config,
     Error,
@@ -147,15 +148,12 @@ class DriverConfig:
     lead_chunks: int = 2
     """Chunks granted beyond the one being generated."""
     display_delay_ticks: int = 28
-    render: str | None = "off"
+    render: str = "off"
     seed_width: int | None = None
     seed_height: int | None = None
     seed_fov_deg: float | None = None
-    seed_warmup_renders: int | None = None
     return_width: int | None = None
     return_height: int | None = None
-    checkpoint: str | None = None
-    profile: str | None = None
     preset: str | None = None
     host_build: str | None = None
     config_extra: Mapping[str, Any] = field(default_factory=dict)
@@ -336,6 +334,7 @@ class ExternalSessionDriver:
         self.source.send(
             Config(
                 session=hello.session,
+                api=PROTOCOL,
                 model_fps=self.config.model_fps,
                 frame_ticks=self.timeline.frame_ticks,
                 chunk_plan=self.timeline.plan_list,
@@ -346,8 +345,6 @@ class ExternalSessionDriver:
                 return_height=self.config.return_height,
                 return_quality=self.encoder.quality,
                 render=self.config.render,
-                checkpoint=self.config.checkpoint,
-                profile=self.config.profile,
                 preset=self.config.preset,
                 host_build=self.config.host_build,
                 extra=dict(self.config.config_extra),
@@ -376,7 +373,6 @@ class ExternalSessionDriver:
                 width=self.config.seed_width,
                 height=self.config.seed_height,
                 fov_deg=self.config.seed_fov_deg,
-                warmup_renders=self.config.seed_warmup_renders,
             )
         )
         self.state = SEEDING

@@ -41,10 +41,11 @@ def _examples() -> list[m.Message]:
             width=1920,
             height=1080,
         ),
-        m.Frame(epoch=3, g=9, tick=30, chunk=1, index=4, req_tick=30, state={"a": 1}),
+        m.Frame(epoch=3, g=9, tick=30, state={"a": 1}),
         m.Pong(t_host_us=5, t_engine_us=9),
         m.Config(
             session="s",
+            api=m.PROTOCOL,
             model_fps=30,
             frame_ticks=2,
             chunk_plan=[5, 8],
@@ -54,11 +55,10 @@ def _examples() -> list[m.Message]:
             return_width=1024,
             return_height=560,
             return_quality=90,
-            checkpoint="stock-omnidreams",
-            profile="fast-perf",
+            render="always",
         ),
         m.SeedReq(epoch=4, tick=100, reason="restart", width=1920, height=1080),
-        m.FrameReq(epoch=4, chunk=1, index=0, g=5, tick=110, keys=[{"action": "x"}]),
+        m.FrameReq(epoch=4, chunk=1, index=0, g=5, tick=110),
         m.GenFrame(
             epoch=4, chunk=1, g=5, tick=110, encoding="jpeg", width=1024, height=560
         ),
@@ -101,6 +101,7 @@ def test_unknown_fields_are_kept_and_written_back() -> None:
         "epoch": 1,
         "g": 2,
         "tick": 4,
+        "state": {},
         "gate_ms": 0.5,
         "bytes": 0,
     }
@@ -124,35 +125,77 @@ def test_required_fields_are_enforced() -> None:
         m.from_header({"type": "hello"})
 
 
-def test_field_types_are_checked_and_integral_floats_accepted() -> None:
-    with pytest.raises(m.ProtocolError, match="must be int"):
-        m.from_header({"type": "frame", "epoch": "1", "g": 2, "tick": 3})
-    with pytest.raises(m.ProtocolError, match="must be int"):
-        m.from_header({"type": "frame", "epoch": True, "g": 2, "tick": 3})
-    with pytest.raises(m.ProtocolError, match="must not be null"):
-        m.from_header({"type": "frame", "epoch": None, "g": 2, "tick": 3})
-    frame = m.from_header({"type": "frame", "epoch": 1.0, "g": 2, "tick": 3})
+@pytest.mark.parametrize(
+    ("header", "error"),
+    [
+        (
+            {"type": "frame", "epoch": "1", "g": 2, "tick": 3, "state": {}},
+            "must be int",
+        ),
+        (
+            {"type": "frame", "epoch": True, "g": 2, "tick": 3, "state": {}},
+            "must be int",
+        ),
+        ({"type": "frame", "epoch": None, "g": 2, "tick": 3, "state": {}}, "needs"),
+        ({"type": "frame", "epoch": 1, "g": 2, "tick": 3, "state": "x"}, "dict"),
+        (
+            {
+                "type": "frame",
+                "epoch": 1,
+                "g": 2,
+                "tick": 3,
+                "state": {},
+                "seed": "yes",
+            },
+            "bool",
+        ),
+        ({"type": "hello", "session": 5}, "must be str"),
+        ({"type": "views", "views": [["map"]]}, "must be str"),
+        ({"type": "views", "views": [{}]}, "must be str"),
+    ],
+)
+def test_field_and_element_types_are_checked(header: dict, error: str) -> None:
+    with pytest.raises(m.ProtocolError, match=error):
+        m.from_header(header)
+
+
+def test_integral_floats_are_ints_and_null_is_absent() -> None:
+    frame = m.from_header(
+        {"type": "frame", "epoch": 1.0, "g": 2, "tick": 3, "state": {}}
+    )
     assert isinstance(frame, m.Frame) and frame.epoch == 1
     seed = m.from_header({"type": "seed_req", "epoch": 1, "tick": 0, "fov_deg": 136})
     assert isinstance(seed, m.SeedReq) and seed.fov_deg == 136.0
+    assert m.from_header({"type": "start", "tick": 0, "reason": None}) == m.Start(
+        tick=0
+    )
 
 
 def test_version_check_accepts_v0_and_refuses_others() -> None:
     m.check_api("omnidreams-engine/0")
-    m.check_api("omnidreams-engine/0.3")
-    for api in (None, "", "omnidreams-engine/1", "other/0", "omnidreams-engine/x"):
+    for api in (None, "", "omnidreams-engine/1", "omnidreams-engine/0.3", "other/0"):
         with pytest.raises(m.ProtocolError) as error:
             m.check_api(api)
         assert error.value.code == "version"
 
 
 def test_schema_json_matches_the_message_classes() -> None:
-    assert m.SCHEMA_PATH.read_text(encoding="utf-8") == m.schema_text(), (
-        'Regenerate with: python -c "from omnidreams_game_engine.api.v0.messages import write_schema; write_schema()"'
-    )
     schema = m.json_schema()
-    assert set(schema["$defs"]) == set(m.REGISTRY)
-    assert schema["$defs"]["frame"]["required"] == ["type", "epoch", "g", "tick"]
+    assert json.loads(m.SCHEMA_PATH.read_text(encoding="utf-8")) == schema, (
+        "Regenerate with: uv run python -c "
+        '"from omnidreams_game_engine.api.v0.messages import write_schema; write_schema()"'
+    )
+    assert set(schema["$defs"]) == {cls.TYPE for cls in m.MESSAGE_TYPES}
+    frame = schema["$defs"]["frame"]
+    assert frame["required"] == ["type", "epoch", "g", "tick", "state"]
+    assert frame["properties"]["seed"] == {
+        "type": ["boolean", "null"],
+        "default": False,
+    }
+    # A type this version does not define matches the last branch only.
+    assert schema["oneOf"][-1]["properties"]["type"]["not"]["enum"] == list(
+        schema["$defs"]
+    )
 
 
 def test_the_stable_names_of_v0() -> None:
