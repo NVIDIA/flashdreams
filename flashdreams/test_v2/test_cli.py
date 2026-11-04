@@ -92,14 +92,18 @@ def _record_run(
     return received
 
 
-def test_mp4_requires_timeout_or_total_model_steps(
+@pytest.mark.parametrize("file_mode", ["mp4", "webm"])
+def test_file_output_requires_timeout_or_total_model_steps(
+    file_mode: str,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Omitting both is the case ``--mode mp4`` refuses."""
+    """File output needs an explicit stopping policy."""
     _record_run(monkeypatch)
     with pytest.raises(SystemExit):
-        cli.entrypoint(["stub", "--mode", "mp4", "--output-path", "out.mp4"])
+        cli.entrypoint(
+            ["stub", "--mode", file_mode, "--output-path", "out." + file_mode]
+        )
 
     assert "requires --timeout and/or --total-model-steps" in capsys.readouterr().err
 

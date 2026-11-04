@@ -35,15 +35,12 @@ def _compiled_fixed_attention(
     """Run fixed-cache GQA through FlexAttention's compiled kernel path."""
     from torch.nn.attention.flex_attention import flex_attention
 
-    return cast(
-        Tensor,
-        flex_attention(
-            query,
-            key,
-            value,
-            block_mask=block_mask,
-            enable_gqa=True,
-        ),
+    return flex_attention(
+        query,
+        key,
+        value,
+        block_mask=block_mask,
+        enable_gqa=True,
     )
 
 

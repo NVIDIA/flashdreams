@@ -36,7 +36,7 @@ presets and the standalone `v2v-swiftvr` application.
 ```bash
 uv sync --package flashdreams-swiftvr --inexact
 uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
-  --mode mp4 --output-path artifacts/swiftvr-2x.mp4 --timeout unbound -- \
+  --mode webm --output-path artifacts/swiftvr-2x.webm --timeout unbound -- \
   --video-path docs/source/_static/model_clips/wan22/wan22-ti2v-5b.avif
 ```
 
