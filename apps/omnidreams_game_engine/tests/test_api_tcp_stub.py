@@ -340,6 +340,56 @@ def test_an_engine_that_floods_a_busy_host_is_dropped() -> None:
     assert host.driver.stats.lost_reasons[0].startswith("inbox full")
 
 
+def _connect_without_reading(address: tuple[str, int]) -> socket.socket:
+    """Connect with a small receive buffer, as an engine that does not read."""
+    sock = socket.socket()
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    sock.settimeout(5.0)
+    sock.connect(address)
+    return sock
+
+
+def test_an_engine_that_does_not_read_is_dropped() -> None:
+    hello = {"type": "hello", "session": "s", "api": v0.PROTOCOL}
+    payload = bytes(1 << 20)
+    # No pings, so only the messages the test sends fill the outbox.
+    with (
+        _host(max_outbox_bytes=4 << 20, ping_interval_s=60.0) as host,
+        _connect_without_reading(host.link.address) as sock,
+    ):
+        framing.send_message(sock, hello)
+        host.run(lambda: host.driver.stats.connects == 1)
+        end = time.monotonic() + 5.0
+        while host.driver.stats.lost_reasons == []:
+            assert time.monotonic() < end, "the host kept an engine that does not read"
+            host.link.send(v0.messages.Status(), payload)
+            host.driver.poll(0.01)
+    assert host.driver.stats.lost_reasons[0].startswith("outbox full")
+
+
+def test_close_ends_a_send_to_an_engine_that_does_not_read() -> None:
+    link = v0.TcpEngineLink(v0.FluStateCodec(), port=0, ping_interval_s=60.0)
+    hello = {"type": "hello", "session": "s", "api": v0.PROTOCOL}
+    payload = bytes(1 << 20)
+    with _connect_without_reading(link.address) as sock:
+        framing.send_message(sock, hello)
+        _wait_until(lambda: link._connection is not None)
+        connection = link._connection
+        assert connection is not None
+        # Once the socket buffers are full, the writer blocks in its send and
+        # the next message stays queued.
+        end = time.monotonic() + DEADLINE_S
+        while connection.outbox.empty():
+            assert time.monotonic() < end, "the writer never blocked"
+            link.send(v0.messages.Status(), payload)
+            time.sleep(0.05)
+        start = time.monotonic()
+        link.close()
+        elapsed = time.monotonic() - start
+    assert not any(thread.is_alive() for thread in connection.threads)
+    assert elapsed < 1.0
+
+
 def test_messages_of_a_replaced_connection_are_dropped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

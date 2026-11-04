@@ -29,8 +29,12 @@ side. The message classes are in `omnidreams_game_engine.api.v0.messages`, and
 - The host holds at most 64 MiB of engine messages (headers and payloads)
   that it has not handled yet, for example while it generates a chunk. It
   closes the connection of an engine that sends more; the engine reconnects
-  as after any lost connection. `TcpEngineLink` sets the 10 s and the 64 MiB
-  with `hello_timeout_s` and `max_inbox_bytes`.
+  as after any lost connection.
+- The host also holds at most 64 MiB of its own messages that the engine has
+  not read yet. It closes the connection of an engine that stops reading,
+  which reconnects in the same way. `TcpEngineLink` sets the 10 s and the two
+  64 MiB limits with `hello_timeout_s`, `max_inbox_bytes` and
+  `max_outbox_bytes`.
 - The protocol has no authentication and no encryption. `TcpEngineLink`
   listens on `127.0.0.1` unless the host passes another address, which it
   does only on a trusted network.

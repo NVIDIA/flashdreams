@@ -50,6 +50,9 @@ MAX_PENDING_HELLOS = 4
 MAX_INBOX_BYTES = 64 << 20
 """Engine messages, in bytes on the wire, held until the host handles them (64 MiB)."""
 
+MAX_OUTBOX_BYTES = 64 << 20
+"""Host messages, in bytes on the wire, held until the engine reads them (64 MiB)."""
+
 _ACCEPT_POLL_S = 0.2
 _JOIN_TIMEOUT_S = 2.0
 
@@ -59,9 +62,10 @@ class _Connection:
     sock: socket.socket
     session: str
     last_rx: float = field(default_factory=time.monotonic)
-    outbox: queue.Queue[tuple[dict[str, Any], bytes] | None] = field(
+    outbox: queue.Queue[tuple[dict[str, Any], bytes, bytes] | None] = field(
         default_factory=queue.Queue
     )
+    outbox_bytes: int = 0
     closed: threading.Event = field(default_factory=threading.Event)
     close_reason: str = ""
     threads: list[threading.Thread] = field(default_factory=list)
@@ -72,6 +76,7 @@ class _Connection:
         self.close_reason = self.close_reason or reason
         self.closed.set()
         self.outbox.put(None)
+        # Also wakes a writer blocked in sendall on an engine that does not read.
         with contextlib.suppress(OSError):
             self.sock.shutdown(socket.SHUT_RDWR)
         _close_quietly(self.sock)
@@ -95,7 +100,9 @@ class TcpEngineLink(MessageEngineSource):
     most :data:`MAX_PENDING_HELLOS` connections wait for one at a time. The
     link holds at most ``max_inbox_bytes`` of engine messages that the host
     has not handled yet, and closes the connection of an engine that sends
-    more.
+    more. It also holds at most ``max_outbox_bytes`` of host messages that
+    the engine has not read yet, and closes the connection of an engine that
+    stops reading.
     """
 
     def __init__(
@@ -111,6 +118,7 @@ class TcpEngineLink(MessageEngineSource):
         status_provider: Callable[[], Mapping[str, Any]] | None = None,
         hello_timeout_s: float = HELLO_TIMEOUT_S,
         max_inbox_bytes: int = MAX_INBOX_BYTES,
+        max_outbox_bytes: int = MAX_OUTBOX_BYTES,
     ) -> None:
         super().__init__(decoder, recorder=recorder)
         self.ping_interval_s = float(ping_interval_s)
@@ -119,6 +127,7 @@ class TcpEngineLink(MessageEngineSource):
         self.status_provider = status_provider
         self.hello_timeout_s = float(hello_timeout_s)
         self.max_inbox_bytes = int(max_inbox_bytes)
+        self.max_outbox_bytes = int(max_outbox_bytes)
         self.connects = 0
         self.refusals: list[str] = []
         self._inbox: queue.Queue[tuple[Inbound, int]] = queue.Queue()
@@ -188,7 +197,7 @@ class TcpEngineLink(MessageEngineSource):
         with self._lock:
             connection = self._connection
         if connection is not None and not connection.closed.is_set():
-            connection.outbox.put((message.to_header(), payload))
+            self._post(connection, message.to_header(), payload)
 
     ## Threads
 
@@ -287,6 +296,22 @@ class TcpEngineLink(MessageEngineSource):
         self._inbox_bytes += size
         self._inbox.put((item, size))
 
+    def _post(
+        self, connection: _Connection, header: dict[str, Any], payload: bytes = b""
+    ) -> None:
+        """Queue one message for ``connection``'s writer."""
+        try:
+            data = encode_message(header, payload)
+        except Exception as error:  # an unencodable message ends the connection
+            connection.close(f"write failed: {error}")
+            return
+        with self._lock:
+            if connection.outbox_bytes + len(data) <= self.max_outbox_bytes:
+                connection.outbox_bytes += len(data)
+                connection.outbox.put((header, payload, data))
+                return
+        connection.close(f"outbox full: {self.max_outbox_bytes} bytes not read")
+
     def _handshake(self, sock: socket.socket, peer: str) -> _Connection | None:
         sock.settimeout(self.hello_timeout_s)
         try:
@@ -367,14 +392,16 @@ class TcpEngineLink(MessageEngineSource):
             item = connection.outbox.get()
             if item is None or connection.closed.is_set():
                 return
-            header, payload = item
+            header, payload, data = item
             try:
-                send_message(connection.sock, header, payload)
+                connection.sock.sendall(data)
                 if self.recorder is not None:
                     self.recorder.record(TX, header, payload)
             except Exception as error:  # a failed send or record ends the connection
                 connection.close(f"write failed: {error}")
                 return
+            with self._lock:
+                connection.outbox_bytes -= len(data)
             if header["type"] == "error" and header.get("code") in REFUSAL_CODES:
                 self.refusals.append(header["code"])
                 connection.close(f"refused: {header['code']}")
@@ -396,7 +423,7 @@ class TcpEngineLink(MessageEngineSource):
                 )
                 connection.close("silence")
                 continue
-            connection.outbox.put((Ping(t_host_us=now_us()).to_header(), b""))
+            self._post(connection, Ping(t_host_us=now_us()).to_header())
             if self.status_provider is not None and now >= next_status:
                 next_status = now + self.status_interval_s
                 try:
@@ -405,7 +432,7 @@ class TcpEngineLink(MessageEngineSource):
                 except Exception:  # a bad status must not stop pings
                     _LOGGER.exception("Host status provider failed")
                     continue
-                connection.outbox.put((header, b""))
+                self._post(connection, header)
 
 
 def _close_quietly(sock: socket.socket) -> None:
@@ -419,4 +446,10 @@ def _shutdown_quietly(sock: socket.socket) -> None:
         sock.shutdown(socket.SHUT_RDWR)
 
 
-__all__ = ["HELLO_TIMEOUT_S", "MAX_INBOX_BYTES", "MAX_PENDING_HELLOS", "TcpEngineLink"]
+__all__ = [
+    "HELLO_TIMEOUT_S",
+    "MAX_INBOX_BYTES",
+    "MAX_OUTBOX_BYTES",
+    "MAX_PENDING_HELLOS",
+    "TcpEngineLink",
+]
