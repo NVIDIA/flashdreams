@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -53,6 +53,8 @@ from crazy_robotaxi.settings import (
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
 from ludus_renderer.physx import PhysXStepTimings, _CompactPhysicsStep
 from omnidreams_game_engine.config import BevConfig, RasterConfig
+from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
+from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.renderer_settings import RendererSettings
 from omnidreams_game_engine.simulation.game_physics import (
@@ -64,6 +66,7 @@ from omnidreams_game_engine.types import (
     CameraCalibration,
     DriverCommand,
     SceneDefinition,
+    VehicleState,
 )
 from torch import Tensor
 
