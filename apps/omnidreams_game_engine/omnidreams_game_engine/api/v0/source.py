@@ -34,6 +34,7 @@ from omnidreams_game_engine.api.v0.messages import (
     End,
     Error,
     Frame,
+    FrameReq,
     Hello,
     Hold,
     Input,
@@ -110,6 +111,7 @@ class MessageEngineSource:
         self._assembler = ChunkAssembler(ChunkTimeline())
         self._events: deque[SourceEvent] = deque()
         self._sends = 0
+        self._granted_g = 0
 
     ## Hooks
 
@@ -140,6 +142,7 @@ class MessageEngineSource:
 
     def begin_epoch(self, epoch: int, timeline: ChunkTimeline) -> None:
         self._assembler.begin_epoch(epoch, timeline)
+        self._granted_g = 0
 
     def wait_chunk(
         self, epoch: int, ar_index: int, timeout_s: float
@@ -164,6 +167,8 @@ class MessageEngineSource:
     def send(self, message: Message, payload: bytes = b"") -> None:
         if not isinstance(message, Input):
             self._sends += 1
+        if isinstance(message, FrameReq) and message.epoch == self._assembler.epoch:
+            self._granted_g = max(self._granted_g, message.g)
         self._transmit(message, payload)
 
     def send_frames(self, frames: Sequence[tuple[Message, bytes]]) -> None:
@@ -209,6 +214,11 @@ class MessageEngineSource:
                 )
 
     def _on_frame(self, frame: Frame, payload: bytes) -> None:
+        # Only granted frames are kept, so an engine cannot grow the assembler.
+        if frame.epoch == self._assembler.epoch and frame.g > self._granted_g:
+            self.stats.bad_messages += 1
+            self._reject(f"Frame {frame.epoch}/{frame.g}: not granted", frame=frame)
+            return
         try:
             state = self.decoder.decode(frame.state, g=frame.g, tick=frame.tick)
         except (KeyError, TypeError, ValueError) as error:

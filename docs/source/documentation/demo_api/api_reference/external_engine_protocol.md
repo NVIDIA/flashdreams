@@ -126,10 +126,10 @@ Worked example, `t0` = seed tick, plan `[5, 8]`, `lead_chunks = 2`:
    same epoch. The host keeps its model cache.
 6. **Restart.** The engine sends `restart{tick}` (reset, respawn, teleport,
    player restart), or the host restarts by itself: a drift refresh or a
-   model failure (it sends `restart`), or a frame or seed it cannot use (it
-   sends `error{code: "protocol"}`). The host sends
-   `cancel{epoch: e}` and then `seed_req{epoch: e + 1}`; the flow continues
-   at step 3.
+   model failure (it sends `restart`), or a frame or seed it cannot use,
+   such as a frame it has not granted (it sends `error{code: "protocol"}`).
+   The host sends `cancel{epoch: e}` and then `seed_req{epoch: e + 1}`; the
+   flow continues at step 3.
 7. **Reconnect.** After a lost connection the engine connects again with the
    same `session`, sends `hello` and `start{reason: "reconnect"}`; a new epoch
    with a new seed follows. Resuming the old epoch is not part of version 0.

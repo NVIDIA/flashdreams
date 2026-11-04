@@ -118,6 +118,7 @@ def test_an_unreadable_frame_is_answered_and_re_anchors_the_epoch() -> None:
     [
         {"type": "frame", "epoch": 1, "g": "x", "tick": 2, "state": {}},
         _frame(1, 5, seed=True),
+        _frame(1, 21),  # beyond the grants of lead_chunks=2 (frame 20)
     ],
 )
 def test_a_malformed_frame_or_seed_re_anchors(header: dict[str, Any]) -> None:
