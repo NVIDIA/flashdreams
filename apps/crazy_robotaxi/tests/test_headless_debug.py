@@ -154,16 +154,16 @@ def test_generation_delay_rejects_invalid_values(tmp_path, value) -> None:
         mode.check_arguments(args)
 
 
-@pytest.mark.parametrize("chunks", [1, 32])
-def test_image_buffer_budget_reaches_recorder_and_manifest(
-    tmp_path, monkeypatch, chunks
+@pytest.mark.parametrize("chunks,events", [(1, 256), (128, 4096)])
+def test_capture_buffer_budgets_reach_recorder_and_manifest(
+    tmp_path, monkeypatch, chunks, events
 ):
     from omnidreams_game_engine.debug_capture import CaptureRecorder
 
     received = []
 
     def record_budget(*args, **kwargs):
-        received.append(kwargs["image_slots"])
+        received.append((kwargs["image_slots"], kwargs["queue_size"]))
         return CaptureRecorder(*args, **kwargs)
 
     monkeypatch.setattr(
@@ -178,6 +178,8 @@ def test_image_buffer_budget_reaches_recorder_and_manifest(
             str(tmp_path / "capture"),
             "--debug-image-buffer-chunks",
             str(chunks),
+            "--debug-record-buffer-events",
+            str(events),
         ]
     )
     window = mode.create(args)
@@ -185,13 +187,15 @@ def test_image_buffer_budget_reaches_recorder_and_manifest(
         SessionDesc(video_width=6, video_height=4, metadata={DEBUG_METADATA_KEY: {}})
     )
     window.close()
-    assert received == [chunks]
+    assert received == [(chunks, events)]
     manifest = json.loads((tmp_path / "capture" / "manifest.json").read_text())
     assert manifest["image_buffer_chunks"] == chunks
+    assert manifest["record_buffer_events"] == events
 
 
 @pytest.mark.parametrize("chunks", [0, -1])
-def test_image_buffer_budget_rejects_nonpositive_values(tmp_path, chunks):
+@pytest.mark.parametrize("option", ["image-buffer-chunks", "record-buffer-events"])
+def test_capture_buffer_budget_rejects_nonpositive_values(tmp_path, chunks, option):
     mode = RobotaxiDebugMode()
     parser = argparse.ArgumentParser()
     mode.add_arguments(parser)
@@ -199,11 +203,9 @@ def test_image_buffer_budget_rejects_nonpositive_values(tmp_path, chunks):
         [
             "--debug-output-dir",
             str(tmp_path / "capture"),
-            "--debug-image-buffer-chunks",
+            f"--debug-{option}",
             str(chunks),
         ]
     )
-    with pytest.raises(
-        ValueError, match="--debug-image-buffer-chunks must be positive"
-    ):
+    with pytest.raises(ValueError, match=f"--debug-{option} must be positive"):
         mode.check_arguments(args)

@@ -60,12 +60,16 @@ class DebugCaptureWindow(IClientWindow):
         clock_ns: Callable[[], int] = time.monotonic_ns,
         capture_images: bool = True,
         image_buffer_chunks: int = 4,
+        record_buffer_events: int = 256,
         strict: bool = False,
         generation_delays_ms: tuple[float, ...] = (0.0,),
     ) -> None:
         if image_buffer_chunks <= 0:
             raise ValueError("image_buffer_chunks must be positive")
+        if record_buffer_events <= 0:
+            raise ValueError("record_buffer_events must be positive")
         self.image_buffer_chunks = image_buffer_chunks
+        self.record_buffer_events = record_buffer_events
         self.capture_images = capture_images
         self.strict = strict
         self.generation_delays_ms = generation_delays_ms
@@ -110,6 +114,7 @@ class DebugCaptureWindow(IClientWindow):
             images=self.capture_images,
             snapshot_every=self.snapshot_every,
             image_slots=self.image_buffer_chunks,
+            queue_size=self.record_buffer_events,
         )
         self.control.capture = self.recorder
         self._started_ns = self._clock_ns()
@@ -303,6 +308,7 @@ class DebugCaptureWindow(IClientWindow):
             "presentation_fps": self._desc.frames_per_second_for_ui,
             "snapshot_every": self.snapshot_every,
             "image_buffer_chunks": self.image_buffer_chunks,
+            "record_buffer_events": self.record_buffer_events,
             "views": ["presentation"]
             if not self._paired_views
             else ["generated", "hdmap", "physics"],
