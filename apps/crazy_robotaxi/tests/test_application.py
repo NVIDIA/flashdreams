@@ -56,6 +56,8 @@ from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
 from ludus_renderer.physx import PhysXStepTimings, _CompactPhysicsStep
 from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.engine import GameEngine
+from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
+from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.model import WorldModelRollout
 from omnidreams_game_engine.renderer_settings import RendererSettings
