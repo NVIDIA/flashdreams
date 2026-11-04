@@ -19,6 +19,7 @@ from omnidreams_game_engine.api.v0.testing import (
     FakePipeline,
     PoseConditionRenderer,
     SeedSceneProvider,
+    minimal_scene,
 )
 
 pytestmark = pytest.mark.ci_cpu
@@ -229,6 +230,35 @@ def test_a_seed_with_another_camera_of_the_same_map_reloads_the_scene() -> None:
         driver.poll(0.0)
         assert (driver.state, driver.epoch) == (RUNNING, epoch)
     # The same map and camera keep the loaded scene; another camera reloads it.
+    assert renderer.scenes == ["external-test", "external-test"]
+
+
+def test_a_scene_is_loaded_again_after_another_failed_to_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script, driver, _ = _running()
+    scenes = driver.scene_provider
+    assert isinstance(scenes, SeedSceneProvider)
+    renderer = driver.condition_renderer
+    assert isinstance(renderer, PoseConditionRenderer)
+    first = scenes.template
+    scenes.template = minimal_scene(scene_id="other")
+
+    def fail(scene: Any) -> None:
+        raise RuntimeError("load failed")
+
+    # A renderer may have dropped its scene by the time a load fails.
+    monkeypatch.setattr(renderer, "load_scene", fail)
+    script.feed({"type": "restart", "tick": 10})
+    driver.poll(0.0)
+    script.feed(_seed(2, t0=10))
+    driver.poll(0.0)
+    assert (driver.state, driver.epoch) == (SEEDING, 3)
+    monkeypatch.undo()
+    scenes.template = first
+    script.feed(_seed(3, t0=12))
+    driver.poll(0.0)
+    assert driver.state == RUNNING
     assert renderer.scenes == ["external-test", "external-test"]
 
 

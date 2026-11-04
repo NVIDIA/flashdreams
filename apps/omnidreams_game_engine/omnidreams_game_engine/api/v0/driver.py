@@ -431,6 +431,8 @@ class ExternalSessionDriver:
             camera = scene.selected_camera.clipgt_name
             key = (str(scene.scene_path), scene.scene_id, camera)
             if key != self._loaded_scene_key:
+                # A load that fails partway leaves no scene to keep.
+                self._loaded_scene_key = None
                 self.condition_renderer.load_scene(scene)
                 self._loaded_scene_key = key
         except Exception as error:
