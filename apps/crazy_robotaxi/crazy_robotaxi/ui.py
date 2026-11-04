@@ -23,6 +23,7 @@ import torch.nn.functional as functional
 from omnidreams_game_engine.camera import FThetaCameraModel
 from omnidreams_game_engine.conditioning import LudusConditionRenderer
 from omnidreams_game_engine.config import BevConfig
+from omnidreams_game_engine.debug_input import HeadlessInput
 from omnidreams_game_engine.timeline import WorldSample
 from omnidreams_game_engine.types import CameraCalibration, TrajectoryChunk
 from PIL import Image
@@ -44,7 +45,6 @@ from crazy_robotaxi.controls import (
     controls_fields,
     update_binding,
 )
-from crazy_robotaxi.debug_input import HeadlessInput
 from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameSelection
 from crazy_robotaxi.high_scores import (

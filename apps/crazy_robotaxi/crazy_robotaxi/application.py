@@ -20,6 +20,8 @@ from omnidreams_game_engine.cli_args import (
     arg_was_explicit,
 )
 from omnidreams_game_engine.config import BevConfig, RasterConfig
+from omnidreams_game_engine.debug_input import DEBUG_CONTROL_KEY, HeadlessInput
+from omnidreams_game_engine.driving_script import DrivingScript, load_driving_script
 from omnidreams_game_engine.game_map import GAME_MAP_SUFFIX, load_game_map_header
 from omnidreams_game_engine.renderer_settings import RendererSettings
 from omnidreams_game_engine.scene import SceneRequest, load_scene
@@ -35,8 +37,6 @@ from crazy_robotaxi.controls import (
     load_controls_documents,
 )
 from crazy_robotaxi.debug import DEBUG_METADATA_KEY
-from crazy_robotaxi.debug_input import DEBUG_CONTROL_KEY, HeadlessInput
-from crazy_robotaxi.driving_script import DrivingScript, load_driving_script
 from crazy_robotaxi.game_selection import GameMapOption, GameMode, GameRaceCourseOption
 from crazy_robotaxi.high_scores import default_high_scores_path, default_race_times_path
 from crazy_robotaxi.live_edit.config import (
@@ -193,9 +193,6 @@ class ApplicationConfig:
 
     debug_engine_only: bool = False
     """Present semantic rendering without loading a world model in robotaxi-debug."""
-
-    debug_capture: bool = False
-    """Capture the ordinary interactive UI offscreen through robotaxi-debug."""
 
     debug_capture: bool = False
     """Capture the ordinary interactive UI offscreen through robotaxi-debug."""
@@ -457,6 +454,9 @@ class CrazyRobotaxiApplication(IApplication):
             native_dit_disabled_for_live_edit=native_dit_disabled_for_live_edit,
             visual_flare_enabled=settings.game.effects.visual_flare,
             no_ui=not args.ui,
+            driving_script=driving_script,
+            debug_capture=self._debug_capture,
+            debug_engine_only=args.debug_engine_only,
         )
         self._map_options = _discover_game_maps(map_path)
         scene_requests = [self._config.scene_request]
@@ -486,7 +486,7 @@ class CrazyRobotaxiApplication(IApplication):
         }
         self._native_preparer()
         if args.debug_engine_only:
-            from crazy_robotaxi.debug_engine import SemanticDebugPipeline
+            from omnidreams_game_engine.debug_engine import SemanticDebugPipeline
 
             self._pipeline = SemanticDebugPipeline(settings.model.device)
         else:

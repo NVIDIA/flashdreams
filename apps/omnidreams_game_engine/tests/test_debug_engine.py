@@ -5,7 +5,7 @@
 
 import pytest
 import torch
-from crazy_robotaxi.debug_engine import SemanticDebugPipeline
+from omnidreams_game_engine.debug_engine import SemanticDebugPipeline
 
 pytestmark = pytest.mark.ci_cpu
 

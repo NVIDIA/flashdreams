@@ -16,7 +16,6 @@ from typing import Any
 
 import numpy as np
 import torch
-from omnidreams_game_engine.math3d import quaternion_to_matrix_xyzw
 from PIL import Image, ImageDraw, ImageFont
 
 from flashdreams.runtime_v2.session_desc import SessionDesc
@@ -24,6 +23,7 @@ from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.webm_client_window import WebmClientWindow
+from omnidreams_game_engine.math3d import quaternion_to_matrix_xyzw
 
 
 def render_physics_view(
@@ -104,7 +104,7 @@ def render_physics_view(
     draw.line(
         pixels([position, position + rotation[:, 0] * 4]), fill=(110, 240, 110), width=3
     )
-    physical = record["physics_vehicle"]
+    physical = record.get("physics_vehicle") or record["vehicle"]
     contact = record["static_barrier_collision"]
     color = (255, 90, 70) if contact else (245, 245, 245)
     draw.rectangle((0, 0, width, min(height, 66)), fill=(18, 22, 30))
@@ -200,6 +200,7 @@ class CaptureRecorder:
         self.desc = desc
         self.images = images
         self.snapshot_every = snapshot_every
+        self.gameplay_ticks = CaptureCoverage()
         self.observations = CaptureCoverage()
         self.media = CaptureCoverage()
         self.presentations = CaptureCoverage()
@@ -225,8 +226,14 @@ class CaptureRecorder:
             name: (directory / f"{name}.jsonl").open("x", encoding="utf-8")
             for name in ("telemetry", "presentation", "media")
         }
-        self._thread = threading.Thread(target=self._run, name="robotaxi-capture")
+        self._thread = threading.Thread(target=self._run, name="engine-capture")
         self._thread.start()
+
+    def gameplay(self, record: dict[str, Any]) -> None:
+        """Enqueue an independent physics tick without waiting for disk writes."""
+        record["capture_tick"] = self.gameplay_ticks.produced
+        self.gameplay_ticks.produced += 1
+        self._submit("gameplay", (record,), ())
 
     def observe(self, records: tuple[dict[str, Any], ...]) -> None:
         """Enqueue simulation observations before generation begins."""
@@ -360,6 +367,16 @@ class CaptureRecorder:
             temporary.replace(self.directory / "latest.png")
 
     def _write(self, kind: str, records: tuple[dict, ...], outputs: tuple) -> None:
+        if kind == "gameplay":
+            for record in records:
+                name = f"gameplay-{record['rollout_epoch']}"
+                if name not in self._logs:
+                    self._logs[name] = (self.directory / f"{name}.jsonl").open(
+                        "x", encoding="utf-8"
+                    )
+                self._log(name, record)
+                self.gameplay_ticks.written(record["capture_tick"])
+            return
         if kind == "presentation":
             record = records[0]
             self._log("presentation", record)
@@ -380,11 +397,11 @@ class CaptureRecorder:
             for record in records:
                 self._log("telemetry", record)
                 self.observations.written(record["capture_frame"])
-                physical = record["physics_vehicle"]
+                physical = record.get("physics_vehicle") or record["vehicle"]
                 if (
                     record["static_barrier_collision"]
                     or record["actor_collision"]
-                    or physical["ragdoll_active"]
+                    or physical.get("ragdoll_active", False)
                 ):
                     self.contact_frames.append(record["capture_frame"])
             return
@@ -402,21 +419,27 @@ class CaptureRecorder:
                 self._contact_active.clear()
                 self._trail.clear()
                 self._epoch = record["rollout_epoch"]
-            physical = record["physics_vehicle"]
+            physical = record.get("physics_vehicle") or record["vehicle"]
             self._trail.append((physical["x_m"], physical["y_m"]))
             contact = (
                 record["static_barrier_collision"]
                 or record["actor_collision"]
-                or physical["ragdoll_active"]
+                or physical.get("ragdoll_active", False)
             )
-            physics = render_physics_view(
-                record, video_frame.shape[1], video_frame.shape[0], list(self._trail)
-            )
-            for name, frame in (
-                ("generated", video_frame),
-                ("hdmap", map_frame),
-                ("physics", physics),
-            ):
+            views = [("generated", video_frame), ("hdmap", map_frame)]
+            if record.get("physics_colliders") is not None:
+                views.append(
+                    (
+                        "physics",
+                        render_physics_view(
+                            record,
+                            video_frame.shape[1],
+                            video_frame.shape[0],
+                            list(self._trail),
+                        ),
+                    )
+                )
+            for name, frame in views:
                 self._save(name, frame, identifier, contact)
             self._log(
                 "media",
@@ -470,6 +493,7 @@ class CaptureRecorder:
         """Report completeness independently of successful file finalization."""
         coverage = {
             "observations": self.observations.summary(),
+            "gameplay_ticks": self.gameplay_ticks.summary(),
             "model_images": self.media.summary(),
             "presentations": self.presentations.summary(),
             "presentation_images": self.presentation_media.summary(),
