@@ -32,12 +32,6 @@ _BOULEVARD_MAP = (
     / "maps"
     / "boulevard_district.robotaxi.yaml"
 )
-_RACEWAY_MAP = (
-    Path(__file__).parents[1]
-    / "crazy_robotaxi"
-    / "maps"
-    / "flashdreams_raceway.robotaxi.yaml"
-)
 
 
 def _state(x_m: float, y_m: float) -> VehicleState:
@@ -390,8 +384,8 @@ def test_boulevard_intersection_gates_span_the_full_arterial(tmp_path: Path) -> 
         assert controller._gates[element_id].length >= 15.5
 
 
-def test_grand_prix_hairpin_gate_is_at_the_course_entry(tmp_path: Path) -> None:
-    game_map = load_game_map(_RACEWAY_MAP)
+def test_hairpin_gate_is_at_the_course_entry(tmp_path: Path) -> None:
+    game_map = load_game_map(Path(__file__).parent / "maps/hairpin.robotaxi.yaml")
     course = game_map.race_courses[0]
     controller = RaceController(
         game_map,
@@ -399,12 +393,12 @@ def test_grand_prix_hairpin_gate_is_at_the_course_entry(tmp_path: Path) -> None:
         _state(-300.0, -300.0),
         RaceTimeStore(tmp_path / "times.csv"),
     )
-    checkpoint_index = 4
+    checkpoint_index = 0
     checkpoint_id = course.checkpoint_element_ids[checkpoint_index]
-    previous_id = course.checkpoint_element_ids[checkpoint_index - 1]
+    previous_id = course.start_element_id
     following_id = course.checkpoint_element_ids[checkpoint_index + 1]
 
-    assert checkpoint_id == "infield_hairpin"
+    assert checkpoint_id == "hairpin"
     assert controller._gates[checkpoint_id].distance(
         controller._surfaces[previous_id]
     ) < controller._gates[checkpoint_id].distance(controller._surfaces[following_id])
