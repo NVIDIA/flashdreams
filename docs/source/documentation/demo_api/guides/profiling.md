@@ -84,6 +84,8 @@ Sources without a shared clock origin leave the two source-input metrics absent.
 | `input.window_write_ms` | The first successful `window.write` return after that claim, within the same reset generation. |
 
 Both metrics average all inputs completed since the previous collection.
+A focus event at timestamp 0 restates focus carried into the session, so it
+has no arrival time and both metrics skip it.
 `_max_ms` and `_count` report that collection's maximum and count. The
 `_avg_ms`, `_session_max_ms` and `_session_count` forms cover the session.
 Integer timestamp sums preserve precision and keep pending storage constant

@@ -235,7 +235,8 @@ then include:
   `input.present_ms`
 - source-input host latency: `input.ui_claim_ms` ends when the UI claims an
   event, and `input.window_write_ms` ends at the next successful window write
-  return. Native-window and WebRTC supply the source clock origin.
+  return. Native-window and WebRTC supply the source clock origin. Focus
+  restated at the session origin carries earlier state and isn't measured.
 
 Each also has a session average (`_avg_fps` or `_avg_ms`). Model-input latency is
 available after frame selection. Source-input latency uses the event's timestamp

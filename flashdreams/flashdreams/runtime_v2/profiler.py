@@ -29,6 +29,7 @@ import torch
 
 from flashdreams.api_v2.profiler import IProfiler
 from flashdreams.infra.profiler import EventProfiler
+from flashdreams.runtime_v2.user_input_event import FocusUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _STAGE_PREFIX = "pipeline."
@@ -300,6 +301,10 @@ class InputLatencyProfiler(IProfiler):
             if input_timestamp_origin_ns is None:
                 return
             for event in events.get_events():
+                if isinstance(event, FocusUserInputEvent) and not int(event.timestamp):
+                    # Opening a session restates the carried focus at its origin.
+                    # That state has no arrival time to measure.
+                    continue
                 input_ns = input_timestamp_origin_ns + int(event.timestamp) * 1_000
                 if input_ns > claimed_ns:
                     raise ValueError("Input timestamp is later than its UI claim.")
