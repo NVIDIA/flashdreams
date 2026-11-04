@@ -282,16 +282,16 @@ OMNIDREAMS_CRAZY_ROBOTAXI_DEFAULTS = CrazyRobotaxiApplicationDefaults(
 OMNIDREAMS_CRAZY_ROBOTAXI_PERF_DEFAULTS = CrazyRobotaxiApplicationDefaults(
     title="Crazy Robotaxi (Perf)",
     slug="crazy-robotaxi-perf",
-    width=1280,
-    height=704,
+    width=1168,
+    height=640,
     preset_documentation=_preset_documentation,
     pipeline_config=OMNIDREAMS_PERF_PIPELINE_CONFIG,
 )
 OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS = CrazyRobotaxiApplicationDefaults(
     title="Crazy Robotaxi (Fast Perf)",
     slug="crazy-robotaxi-fast-perf",
-    width=1280,
-    height=704,
+    width=1168,
+    height=640,
     preset_documentation=_preset_documentation,
     pipeline_config=OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG,
 )
