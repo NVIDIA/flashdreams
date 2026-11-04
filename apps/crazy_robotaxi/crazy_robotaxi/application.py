@@ -185,15 +185,6 @@ class ApplicationConfig:
     no_ui: bool = False
     """Present raw model frames without the ImGui HUD (no graphics device)."""
 
-    driving_script: DrivingScript | None = None
-    """Timestamped events preloaded into the live headless input queue."""
-
-    debug_engine_only: bool = False
-    """Present semantic rendering without loading a world model in robotaxi-debug."""
-
-    debug_capture: bool = False
-    """Capture the ordinary interactive UI offscreen through robotaxi-debug."""
-
 
 PipelineFactory = Callable[[Any, str], Any]
 SceneFactory = Callable[[SceneRequest, Any], SceneDefinition]
@@ -398,9 +389,6 @@ class CrazyRobotaxiApplication(IApplication):
             visual_flare_enabled=settings.game.effects.visual_flare,
             no_ui=not args.ui,
             realtime_gameplay=args.realtime_gameplay,
-            driving_script=driving_script,
-            debug_capture=self._debug_capture,
-            debug_engine_only=args.debug_engine_only,
         )
         self._map_options = _discover_game_maps(map_path)
         scene_requests = [self._config.scene_request]

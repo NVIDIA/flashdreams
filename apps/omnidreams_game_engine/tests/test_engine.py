@@ -225,54 +225,7 @@ def test_trajectory_sampling_aggregates_physics_bridge_timings() -> None:
     assert timings.bridge_other_ms == pytest.approx(6.0)
 
 
-def test_physics_timestamps_exclude_seed_and_measure_each_advance(monkeypatch) -> None:
-    ticks = iter((1000, 2000, 3000, 4000))
-    monkeypatch.setattr(
-        "omnidreams_game_engine.simulation.ego_vehicle_kinematics.time.monotonic_ns",
-        lambda: next(ticks),
-    )
-    frame = PhysicsDebugFrame(
-        ego_position_m=np.zeros(3, dtype=np.float32),
-        ego_orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
-        ego_dimensions_lwh=np.ones(3, dtype=np.float32),
-        actor_positions_m=np.empty((0, 3), dtype=np.float32),
-        actor_orientations_xyzw=np.empty((0, 4), dtype=np.float32),
-        actor_dimensions_lwh=np.empty((0, 3), dtype=np.float32),
-        barrier_segments_xy_m=np.empty((0, 2, 2), dtype=np.float32),
-        barrier_thicknesses_m=np.empty(0, dtype=np.float32),
-        barrier_heights_m=np.empty(0, dtype=np.float32),
-    )
-    physics = SimpleNamespace(
-        entities=(),
-        synchronize_window=lambda *args, **kwargs: None,
-        debug_frame=lambda state: frame,
-        build_trajectories=lambda *args: (),
-    )
-    trajectory = sample_chunk_trajectory(
-        start_state=_state(),
-        start_timestamp_us=0,
-        commands=(DriverCommand(),) * 3,
-        chunk_size=3,
-        chunk_config=ChunkConfig(),
-        vehicle_config=VehicleConfig(),
-        ground_snapper=None,
-        physics_world=cast(GamePhysicsWorld, physics),
-        capture_physics_debug=True,
-        include_start_state=True,
-        physics_step_fn=lambda world, state, *args: (state, ()),
-    )
-    assert [
-        (f.physics_started_ns, f.physics_completed_ns)
-        for f in trajectory.physics_debug_frames
-    ] == [
-        (None, None),
-        (1000, 2000),
-        (3000, 4000),
-    ]
-
-
 def test_camera_keeps_ground_attitude_without_visual_suspension_offsets():
-    from dataclasses import replace
     from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
 
     vehicle = VehicleState(1, 2, 3, 0.3, 5, 0, pitch_rad=0.1, roll_rad=-0.05)
