@@ -8,7 +8,6 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-
 from omnidreams_game_engine.engine import SimulationStep
 from omnidreams_game_engine.timeline import WorldSample, WorldTimeline
 from omnidreams_game_engine.types import (

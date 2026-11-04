@@ -10,23 +10,22 @@ import multiprocessing as mp
 import threading
 import time
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from queue import Empty
-from collections.abc import Callable
 from typing import Protocol
 
-from omnidreams_game_engine.input import DriverInput
-from omnidreams_game_engine.timeline import WorldSample, WorldTimeline
-
-from omnidreams_game_engine.engine import GameEngine
 from flashdreams.api_v2.user_input_event import UserInputEvent
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
-    KeyboardUserInputEvent,
     GamepadUserInputEvent,
     GameWheelUserInputEvent,
+    KeyboardUserInputEvent,
 )
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
+from omnidreams_game_engine.engine import GameEngine
+from omnidreams_game_engine.input import DriverInput
+from omnidreams_game_engine.timeline import WorldSample, WorldTimeline
 
 
 @dataclass
@@ -36,7 +35,7 @@ class SimulationDriver:
     engine: GameEngine
     driver: DriverInput
 
-    def apply(self, events: UserInputEvents) -> list[float]:
+    def apply(self, events: UserInputEvents) -> tuple[float, ...]:
         """Apply due input events and return command transition times."""
         return self.driver.apply(events, record_transitions=False)
 

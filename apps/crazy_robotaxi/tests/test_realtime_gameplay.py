@@ -3,16 +3,17 @@
 
 """Robotaxi presentation while independent gameplay is stationary."""
 
+import threading
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, cast
-import threading
 
 import numpy as np
 import pytest
 from omnidreams_game_engine.engine import SimulationStep
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.types import TrajectoryChunk, VehicleState
+
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 pytestmark = pytest.mark.ci_cpu
@@ -32,6 +33,7 @@ def test_stationary_world_retains_image_and_ar_cursor_until_motion(monkeypatch):
         _stationary_world,
     )
     from omnidreams_game_engine.timeline import WorldSample, WorldTimeline
+
     from flashdreams.runtime_v2.session_desc import SessionDesc
 
     snapshot = FreeRoamSnapshot()

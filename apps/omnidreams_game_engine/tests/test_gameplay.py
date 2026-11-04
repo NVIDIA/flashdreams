@@ -3,31 +3,32 @@
 
 """Gameplay process scheduling and ordinary input dispatch under model stalls."""
 
-from dataclasses import dataclass, replace, asdict
-from functools import partial
-from types import SimpleNamespace
 import sys
 import threading
 import time
+from dataclasses import asdict, dataclass, replace
+from functools import partial
+from types import SimpleNamespace
+from typing import Any, cast
 
 import numpy as np
 import pytest
-
-from omnidreams_game_engine.gameplay import GameplayProcess, SimulationDriver
 from omnidreams_game_engine.engine import SimulationStep
+from omnidreams_game_engine.gameplay import GameplayProcess, SimulationDriver
 from omnidreams_game_engine.input import (
     DriverInput,
-    _keyboard_command,
     _gamepad_command,
-    _wheel_command,
+    _keyboard_command,
     _normalize_drive_key,
+    _wheel_command,
 )
 from omnidreams_game_engine.types import TrajectoryChunk, VehicleState
-from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
 from flashdreams.runtime_v2.user_input_event import (
-    KeyboardUserInputEvent,
     KeyboardInputState,
+    KeyboardUserInputEvent,
 )
+from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -86,7 +87,7 @@ def _driver():
 
 def _simulation(factory=_Engine):
     return SimulationDriver(
-        factory(frame_interval_s=1 / 120, render_conditions=False), _driver()
+        cast(Any, factory(frame_interval_s=1 / 120, render_conditions=False)), _driver()
     )
 
 

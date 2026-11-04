@@ -673,6 +673,7 @@ def test_dynamic_prompts_need_enabled_and_an_included_fragment() -> None:
 
 
 def test_generation_composites_recorded_pickups_without_reading_live_world(monkeypatch):
+    import torch
     from crazy_robotaxi.live_edit.runtime_v2 import LiveEditFrame, LiveEditHudStatus
 
     gameplay = LiveEditGameplay(LiveEditConfig(), _scene(), (), vehicle=VehicleConfig())

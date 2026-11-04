@@ -8,8 +8,8 @@ from __future__ import annotations
 import threading
 from collections import deque
 from dataclasses import dataclass, fields, replace
-from typing import Any
 from itertools import islice
+from typing import Any
 
 import numpy as np
 

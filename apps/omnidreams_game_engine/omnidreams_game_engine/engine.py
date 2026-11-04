@@ -6,10 +6,10 @@
 from __future__ import annotations
 
 import time
-
-import numpy as np
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+
+import numpy as np
 
 from omnidreams_game_engine.contracts import (
     ConditionRenderer,
@@ -40,7 +40,7 @@ class EngineStep:
 
 
 class GameEngine:
-    """Advance one session's mutable game state on the model thread."""
+    """Advance owned simulation state and render recorded world observations."""
 
     def __init__(
         self,

@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from omnidreams_game_engine.engine import EngineStep
+from omnidreams_game_engine.engine import EngineStep, SimulationStep
 from omnidreams_game_engine.model import WorldModelRollout, _initial_image_tensor
 from omnidreams_game_engine.types import (
     CameraCalibration,
@@ -100,10 +100,15 @@ class _Engine:
             boundary_state_after_chunk=state,
             applied_commands=commands,
         )
+        return self.render(SimulationStep(trajectory, tuple(range(count))))
+
+    def render(self, recorded):
         return EngineStep(
-            trajectory=trajectory,
-            game_frames=tuple(range(count)),
-            condition=ConditionBatch(torch.zeros(1, 1, count, 3, 4, 8)),
+            recorded.trajectory,
+            recorded.game_frames,
+            ConditionBatch(
+                torch.zeros(1, 1, len(recorded.trajectory.timestamps_us), 3, 4, 8)
+            ),
         )
 
     def close(self):
