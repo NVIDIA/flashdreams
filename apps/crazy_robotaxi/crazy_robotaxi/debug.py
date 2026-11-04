@@ -167,6 +167,12 @@ class RobotaxiDebugMode(ClientWindowMode):
             help="Maximum image chunks queued for encoding (default: 4). Increase to absorb capture bursts at the cost of GPU memory; sustained encoder overload still drops frames.",
         )
         parser.add_argument(
+            "--debug-record-buffer-events",
+            type=int,
+            default=256,
+            help="Maximum queued telemetry, presentation, and image jobs (default: 256). Increase alongside the image budget when encoding falls behind; overflow remains a capture failure.",
+        )
+        parser.add_argument(
             "--debug-strict-capture",
             action="store_true",
             help="Fail the run if any capture data is missing or could not be written.",
@@ -194,6 +200,8 @@ class RobotaxiDebugMode(ClientWindowMode):
             )
         if parsed_args.debug_image_buffer_chunks <= 0:
             raise ValueError("--debug-image-buffer-chunks must be positive")
+        if parsed_args.debug_record_buffer_events <= 0:
+            raise ValueError("--debug-record-buffer-events must be positive")
         if parsed_args.debug_snapshot_every <= 0:
             raise ValueError("--debug-snapshot-every must be positive")
         if (
@@ -217,6 +225,7 @@ class RobotaxiDebugMode(ClientWindowMode):
             cpu_sample_ms=parsed_args.debug_cpu_sample_ms,
             capture_images=parsed_args.debug_capture_images,
             image_buffer_chunks=parsed_args.debug_image_buffer_chunks,
+            record_buffer_events=parsed_args.debug_record_buffer_events,
             strict=parsed_args.debug_strict_capture,
             generation_delays_ms=tuple(parsed_args.debug_generation_delay_ms),
         )
