@@ -204,13 +204,6 @@ class CosmosTransformerConfig(TransformerConfig):
     w_extrapolation_ratio: float = 3.0
     """RoPE extrapolation along W."""
 
-    spatial_rope_reference_grid: tuple[int, int] | None = None
-    """Reference patch-grid height and width; ``None`` keeps unit coordinates.
-
-    Spatial coordinates scale by reference/current grid size. Temporal
-    coordinates and the number of generated pixels are unchanged.
-    """
-
     window_size_t: int = 8
     """Self-attention sliding window (pre-patchify T)."""
 
@@ -600,13 +593,6 @@ class CosmosTransformer(Transformer[CosmosTransformerCache]):
             "w_extrapolation_ratio": cfg.w_extrapolation_ratio,
             "device": self.device,
         }
-        if cfg.spatial_rope_reference_grid is not None:
-            reference = cfg.spatial_rope_reference_grid
-            if len(reference) != 2 or any(size <= 0 for size in reference):
-                raise ValueError(
-                    "spatial_rope_reference_grid must contain two positive sizes"
-                )
-            rope_kwargs["spatial_scale"] = (reference[0] / pH, reference[1] / pW)
         if cfg.network.apply_rope_before_kvcache:
             rope_adapter = RotaryPositionEmbedding3D(**rope_kwargs)
         else:

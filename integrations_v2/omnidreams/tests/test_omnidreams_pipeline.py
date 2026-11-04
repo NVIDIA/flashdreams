@@ -236,7 +236,6 @@ def test_bidirectional_transformer_requires_and_wires_negative_embeddings(
         early_short_history_block_count=None,
         h_extrapolation_ratio=1.0,
         w_extrapolation_ratio=1.0,
-        spatial_rope_reference_grid=None,
         dtype=torch.float32,
         num_views=1,
     )
@@ -505,53 +504,3 @@ def test_omnidreams_streaming_inference():
 
 if __name__ == "__main__":
     test_omnidreams_streaming_inference()
-
-
-@pytest.mark.ci_cpu
-@pytest.mark.parametrize("relative", [False, True])
-def test_spatial_rope_reference_uses_patch_grid(relative: bool) -> None:
-    transformer = CosmosTransformer(
-        CosmosTransformerConfig(
-            network=CosmosDiTNetworkConfig(
-                in_channels=1,
-                out_channels=1,
-                patch_spatial=2,
-                patch_temporal=1,
-                model_channels=24,
-                num_blocks=0,
-                num_heads=1,
-                use_crossattn_projection=False,
-                apply_rope_before_kvcache=not relative,
-            ),
-            checkpoint_path=None,
-            len_t=2,
-            window_size_t=4,
-            sink_size_t=0,
-            spatial_rope_reference_grid=(8, 12),
-            compile_network=False,
-            use_cuda_graph=False,
-            native_dit_acceleration="disabled",
-            dtype=torch.float32,
-        )
-    )
-    cache = transformer.initialize_autoregressive_cache(
-        height=8,
-        width=12,
-        text_embeddings=torch.zeros(1, 1, 1, 1),
-        image_embeddings=torch.zeros(1, 1, 1, 1, 8, 12),
-    )
-    reference_type = type(cache.rope_adapter)
-    kwargs: dict[str, Any] = dict(sink_size_t=0, window_size_t=4) if relative else {}
-    reference = reference_type(
-        head_dim=24,
-        len_t=2,
-        len_h=8,
-        len_w=12,
-        h_extrapolation_ratio=3.0,
-        w_extrapolation_ratio=3.0,
-        device=torch.device("cpu"),
-        **kwargs,
-    )
-    expected = reference.shift_t(3).reshape(-1, 8, 12, 1, 1, 24)
-    expected = expected[:, ::2, ::2].reshape(-1, 1, 1, 24)
-    torch.testing.assert_close(cache.rope_adapter.shift_t(3), expected, rtol=0, atol=0)

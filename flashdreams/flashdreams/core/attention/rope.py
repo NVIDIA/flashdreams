@@ -8,7 +8,6 @@ Used by DiTs (e.g. Wan, Omnidreams) that patchify into a (T, H, W) sequence.
 
 from __future__ import annotations
 
-import math
 from typing import TypeVar
 
 import torch
@@ -70,8 +69,6 @@ class _RotaryPositionEmbedding3DBase:
         t_extrapolation_ratio: float = 1.0,
         interleaved: bool = False,
         device: torch.device = torch.device("cuda"),
-        *,
-        spatial_scale: tuple[float, float] = (1.0, 1.0),
     ) -> None:
         """Build 3D RoPE for the given sequence lengths and head dimension.
 
@@ -84,14 +81,8 @@ class _RotaryPositionEmbedding3DBase:
             w_extrapolation_ratio: NTK extrapolation ratio for width.
             t_extrapolation_ratio: NTK extrapolation ratio for time.
             interleaved: Whether to interleave the frequency components.
-            spatial_scale: Positive finite coordinate multipliers for H and W.
             device: Device to use for the frequency calculations.
         """
-        if len(spatial_scale) != 2 or any(
-            not math.isfinite(scale) or scale <= 0 for scale in spatial_scale
-        ):
-            raise ValueError("spatial_scale must contain two positive finite values")
-
         self.len_h = len_h
         self.len_w = len_w
         self.len_t = len_t
@@ -104,8 +95,6 @@ class _RotaryPositionEmbedding3DBase:
         self.raw_freqs_h = _compute_freqs(dim_h, h_extrapolation_ratio, device)
         self.raw_freqs_w = _compute_freqs(dim_w, w_extrapolation_ratio, device)
         self.raw_freqs_t = _compute_freqs(dim_t, t_extrapolation_ratio, device)
-        self.raw_freqs_h.mul_(spatial_scale[0])
-        self.raw_freqs_w.mul_(spatial_scale[1])
 
         self.device_mesh: DeviceMesh | None = None
         self.cp_group: ProcessGroup | None = None
@@ -199,7 +188,6 @@ class RotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
         h_extrapolation_ratio: NTK extrapolation ratio for height frequencies.
         w_extrapolation_ratio: NTK extrapolation ratio for width frequencies.
         t_extrapolation_ratio: NTK extrapolation ratio for time frequencies.
-        spatial_scale: Positive finite coordinate multipliers for H and W.
         interleaved: Whether RoPE pairs are stored as ``(2k, 2k+1)`` instead
             of ``(k, k + D/2)``.
         device: Device where frequency buffers are allocated.
@@ -255,8 +243,6 @@ class RotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
         t_extrapolation_ratio: float = 1.0,
         interleaved: bool = False,
         device: torch.device = torch.device("cuda"),
-        *,
-        spatial_scale: tuple[float, float] = (1.0, 1.0),
     ) -> None:
         super().__init__(
             head_dim=head_dim,
@@ -268,7 +254,6 @@ class RotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
             t_extrapolation_ratio=t_extrapolation_ratio,
             interleaved=interleaved,
             device=device,
-            spatial_scale=spatial_scale,
         )
         self.freqs_t, self.freqs_h, self.freqs_w = self._freq_components_for_len(len_t)
 
@@ -328,7 +313,6 @@ class KVCacheRelativeRotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
         h_extrapolation_ratio: NTK extrapolation ratio for height frequencies.
         w_extrapolation_ratio: NTK extrapolation ratio for width frequencies.
         t_extrapolation_ratio: NTK extrapolation ratio for time frequencies.
-        spatial_scale: Positive finite coordinate multipliers for H and W.
         interleaved: Whether RoPE pairs are stored as ``(2k, 2k+1)`` instead
             of ``(k, k + D/2)``.
         device: Device where frequency buffers are allocated.
@@ -391,8 +375,6 @@ class KVCacheRelativeRotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
         t_extrapolation_ratio: float = 1.0,
         interleaved: bool = False,
         device: torch.device = torch.device("cuda"),
-        *,
-        spatial_scale: tuple[float, float] = (1.0, 1.0),
     ) -> None:
         assert sink_size_t >= 0, "sink_size_t must be non-negative"
         assert window_size_t > 0, "window_size_t must be positive"
@@ -409,7 +391,6 @@ class KVCacheRelativeRotaryPositionEmbedding3D(_RotaryPositionEmbedding3DBase):
             t_extrapolation_ratio=t_extrapolation_ratio,
             interleaved=interleaved,
             device=device,
-            spatial_scale=spatial_scale,
         )
         assert self.kvcache_total_size_t % self.len_t == 0, (
             "sink_size_t + window_size_t "
