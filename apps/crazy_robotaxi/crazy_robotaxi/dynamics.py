@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 import numpy as np
 from omnidreams_game_engine.config import VehicleConfig
@@ -373,8 +373,7 @@ def integrate_taxi_vehicle(
         )
     )
 
-    return replace(
-        state,
+    return VehicleState(
         x_m=x_m,
         y_m=y_m,
         z_m=state.z_m,
