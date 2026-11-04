@@ -102,6 +102,11 @@ model generation still needs the OmniDreams GPU runtime.
 
 ## Headless driving and diagnosis
 
+Timestamp scheduling, capture writing, semantic-only output, and timing joins are
+provided by the [engine diagnostics](../omnidreams_game_engine/README.md#headless-diagnostics).
+Robotaxi owns the mode registration, HUD adapters, game outcome summaries, and
+scenario fixtures.
+
 `--mode robotaxi-debug` runs the normal game and input path without a desktop
 window. By default it captures the ordinary UI rendered offscreen. Add
 `--no-ui` after `--` for paired generated, HD-map, and physics views. Select an
