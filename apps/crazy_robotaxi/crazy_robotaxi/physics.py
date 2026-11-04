@@ -15,6 +15,7 @@ from omnidreams_game_engine.simulation.actor_controller import (
     PhysicsActorController,
 )
 from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import (
     DriverCommand,
     PhysicsDebugFrame,
@@ -55,6 +56,7 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
         *,
         curb_segments_world: np.ndarray | None = None,
         actor_controllers: tuple[PhysicsActorController, ...] = (),
+        ground_snapper: GroundSnapper | None = None,
     ) -> None:
         curb_segments = np.asarray(
             curb_segments_world
@@ -75,6 +77,7 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
             ),
             static_barrier_restitution=vehicle.curb_collision_restitution,
             actor_controllers=actor_controllers,
+            ground_snapper=ground_snapper,
         )
         self._has_external_actor_controllers = bool(actor_controllers)
         self._taxi_vehicle = vehicle
