@@ -24,7 +24,7 @@ from omnidreams_game_engine.game_map.types import (
 )
 from omnidreams_game_engine.math3d import rig_pose_from_state
 
-SPAWN_RENDERER_VERSION = "1"
+SPAWN_RENDERER_VERSION = "2"
 """Version included in compiled-map cache keys for fallback rendering."""
 
 _MAX_GROUND_DISTANCE_M = 600.0
@@ -43,8 +43,94 @@ _WHITE_PAINT_RGB = np.asarray([226, 225, 213], dtype=np.uint8)
 _YELLOW_PAINT_RGB = np.asarray([222, 177, 47], dtype=np.uint8)
 
 
+def _camera_mesh_distances(
+    directions: np.ndarray, vertices: np.ndarray, faces: np.ndarray
+) -> np.ndarray:
+    """Return nearest mesh-hit distances for camera-local FLU rays.
+
+    Clip triangle bounds at the camera's forward plane before indexing their
+    perspective projections. Exact ray/triangle tests resolve visibility inside
+    those bounds, including ground rising above the camera's horizon.
+
+    Args:
+        directions: Unit ray directions shaped ``[N, 3]``.
+        vertices: Camera-local mesh vertices shaped ``[V, 3]``.
+        faces: Triangle vertex indices shaped ``[F, 3]``.
+
+    Returns:
+        Distances along each ray, or infinity for rays missing the mesh.
+    """
+    triangles = np.asarray(vertices, dtype=np.float64)[faces]
+    near = 1e-4
+    front = triangles[:, :, 0] >= near
+    visible = front.any(axis=1)
+    triangles = triangles[visible]
+    front = front[visible]
+    distances = np.full(len(directions), np.inf)
+    if not len(triangles):
+        return distances
+
+    bounds = np.empty((len(triangles), 4))
+    whole = front.all(axis=1)
+    projected = triangles[whole, :, 1:] / triangles[whole, :, :1]
+    bounds[whole, :2] = projected.min(axis=1)
+    bounds[whole, 2:] = projected.max(axis=1)
+    for index in np.flatnonzero(~whole):
+        triangle = triangles[index]
+        clipped = list(triangle[front[index]])
+        for start, end in zip(triangle, np.roll(triangle, -1, axis=0), strict=True):
+            if (start[0] >= near) != (end[0] >= near):
+                clipped.append(
+                    start + (end - start) * ((near - start[0]) / (end[0] - start[0]))
+                )
+        polygon = np.asarray(clipped)
+        projected = polygon[:, 1:] / polygon[:, :1]
+        bounds[index, :2] = projected.min(axis=0)
+        bounds[index, 2:] = projected.max(axis=0)
+    index = shapely.STRtree(shapely.box(*bounds.T))
+    starts = triangles[:, 0]
+    edge1 = triangles[:, 1] - starts
+    edge2 = triangles[:, 2] - starts
+    q = np.cross(-starts, edge1)
+    numerators = np.einsum("ij,ij->i", edge2, q)
+    forward = np.flatnonzero(directions[:, 0] > 0)
+    # ponytail: Batch candidate pairs to bound memory at full seed resolution;
+    # a native BVH would be appropriate for substantially denser scene meshes.
+    for begin in range(0, len(forward), 16384):
+        rays = forward[begin : begin + 16384]
+        points = directions[rays, 1:] / directions[rays, :1]
+        ray_ids, triangle_ids = index.query(shapely.points(points))
+        if not len(ray_ids):
+            continue
+        ray_ids = rays[ray_ids]
+        p = np.cross(directions[ray_ids], edge2[triangle_ids])
+        determinant = np.einsum("ij,ij->i", edge1[triangle_ids], p)
+        inverse = np.divide(
+            1.0,
+            determinant,
+            out=np.zeros_like(determinant),
+            where=np.abs(determinant) > 1e-12,
+        )
+        u = np.einsum("ij,ij->i", -starts[triangle_ids], p) * inverse
+        v = np.einsum("ij,ij->i", directions[ray_ids], q[triangle_ids]) * inverse
+        distance = numerators[triangle_ids] * inverse
+        hit = (
+            (np.abs(determinant) > 1e-12)
+            & (u >= -1e-7)
+            & (v >= -1e-7)
+            & (u + v <= 1 + 1e-7)
+            & (distance > 0)
+            & (distance <= _MAX_GROUND_DISTANCE_M)
+        )
+        np.minimum.at(distances, ray_ids[hit], distance[hit])
+    return distances
+
+
 def _camera_ground_intersections(
-    spawn: GameMapSpawn, width: int, height: int
+    spawn: GameMapSpawn,
+    width: int,
+    height: int,
+    game_map: ResolvedGameMap | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     calibration = default_front_camera_calibration()
     u, v = np.meshgrid(
@@ -103,6 +189,7 @@ def _camera_ground_intersections(
         float(spawn.position_world[1]),
         float(spawn.position_world[2]),
         spawn.yaw_rad,
+        pitch_rad=spawn.pitch_rad,
     )
     sensor_to_world = rig_to_world @ calibration.sensor_to_rig_flu
     directions_world = directions_sensor_flu @ sensor_to_world[:3, :3].T
@@ -114,6 +201,16 @@ def _camera_ground_intersections(
         out=np.full(len(directions_world), np.float32(-1.0)),
         where=np.abs(directions_world[:, 2]) > np.float32(1.0e-6),
     )
+    if game_map is not None and np.ptp(game_map.ground_vertices[:, 2]) > 0:
+        vertices_camera = (game_map.ground_vertices - origin_world) @ sensor_to_world[
+            :3, :3
+        ]
+        distance_along_ray = _camera_mesh_distances(
+            directions_sensor_flu, vertices_camera, game_map.ground_faces
+        )
+        distance_along_ray = np.where(
+            np.isfinite(distance_along_ray), distance_along_ray, -1.0
+        )
     valid = (
         (directions_sensor_flu[:, 0] > 0.0)
         & (distance_along_ray > 0.0)
@@ -188,7 +285,7 @@ def render_spawn_first_frame(
     image = np.broadcast_to(sky, (height, width, 3)).copy()
 
     ground_x_all, ground_y_all, distance_all, valid_ground = (
-        _camera_ground_intersections(spawn, width, height)
+        _camera_ground_intersections(spawn, width, height, game_map)
     )
     flat = image.reshape(-1, 3)
     ground_indices = np.flatnonzero(valid_ground)

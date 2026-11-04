@@ -29,6 +29,7 @@ from omnidreams_game_engine import camera_defaults
 from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
 from omnidreams_game_engine.game_map import spawn_render
 from omnidreams_game_engine.game_map._schema import GameMapError, resolve_seed_asset
+from omnidreams_game_engine.game_map.elevation import drape_polyline
 from omnidreams_game_engine.game_map.loader import load_game_map
 from omnidreams_game_engine.game_map.types import (
     GameMapSpawn,
@@ -38,6 +39,7 @@ from omnidreams_game_engine.game_map.types import (
 from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 from omnidreams_game_engine.scene_fixture import _calibration_row
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 
 # Pre-release maps and compiler output stay at version 1. Do not increment this
 # during development; a future release process owns version changes.
@@ -48,6 +50,17 @@ _BOUNDARY_CHUNK_CORE_LENGTH_M = 80.0
 
 _BOUNDARY_CHUNK_OVERLAP_M = 5.0
 """Per-side overlap that hides record endpoints without leaving the perimeter."""
+
+_MAX_POLYLINE_POINTS = 256
+"""Point limit of the renderer's polyline geometry kernels."""
+
+
+def _polyline_slices(count: int) -> list[slice]:
+    # Three shared points preserve an interior join and its neighbor tangents.
+    return [
+        slice(start, min(start + _MAX_POLYLINE_POINTS, count))
+        for start in range(0, max(1, count - 3), _MAX_POLYLINE_POINTS - 3)
+    ]
 
 
 @dataclass(frozen=True)
@@ -191,7 +204,45 @@ def _lane_line_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
                 "version": 1,
             }
         )
-    return rows
+    bounded = []
+    for row in rows:
+        line = row["lane_line"]
+        style = line["styles"][0].upper()
+        # Dashed/dotted paths must keep their phase; the reader expands them
+        # into individual strokes. Only continuous solid paint is split here.
+        if "SOLID" not in style or "DASHED" in style or "DOT" in style:
+            bounded.append(row)
+            continue
+        rail = line["line_rail"]
+        slices = _polyline_slices(len(rail))
+        if len(slices) == 1:
+            bounded.append(row)
+            continue
+        for index, section in enumerate(slices):
+            bounded.append(
+                {
+                    **row,
+                    "key": {
+                        **row["key"],
+                        "label_class_id": f"{row['key']['label_class_id']}:part:{index}",
+                    },
+                    "lane_line": {
+                        **line,
+                        "line_rail": rail[section],
+                        "is_first_point_physical_end": (
+                            line["is_first_point_physical_end"]
+                            if index == 0
+                            else "false"
+                        ),
+                        "is_last_point_physical_end": (
+                            line["is_last_point_physical_end"]
+                            if index == len(slices) - 1
+                            else "false"
+                        ),
+                    },
+                }
+            )
+    return bounded
 
 
 def _line_geometries(geometry: BaseGeometry) -> list[LineString]:
@@ -254,20 +305,29 @@ def _boundary_chunks(game_map: ResolvedGameMap) -> tuple[np.ndarray, ...]:
     surfaces = [Polygon(element.surface_world[:, :2]) for element in game_map.elements]
     lines = _line_geometries(unary_union(surfaces).boundary)
     lines.sort(key=lambda line: tuple(round(value, 6) for value in line.bounds))
-    z_m = float(game_map.elements[0].surface_world[0, 2])
+    ground = (
+        GroundSnapper(game_map.ground_vertices, game_map.ground_faces)
+        if np.ptp(game_map.ground_vertices[:, 2]) > 0
+        else None
+    )
+
+    def xyz(points_xy: np.ndarray) -> np.ndarray:
+        points = np.column_stack((points_xy, np.zeros(len(points_xy))))
+        if ground is not None:
+            # Sample elevation after the union has removed internal road joins.
+            points = drape_polyline(points, ground, 1.0)
+        else:
+            points[:, 2] = game_map.ground_vertices[0, 2]
+        if not np.isfinite(points).all():
+            raise GameMapError("Road boundary is outside the compiled ground mesh")
+        return points.astype(np.float32)
+
     chunks: list[np.ndarray] = []
     for line in lines:
         length = float(line.length)
         chunk_count = max(1, math.ceil(length / _BOUNDARY_CHUNK_CORE_LENGTH_M))
         if chunk_count == 1:
-            chunks.append(
-                np.column_stack(
-                    (
-                        np.asarray(line.coords, dtype=np.float32),
-                        np.full(len(line.coords), z_m, dtype=np.float32),
-                    )
-                )
-            )
+            chunks.append(xyz(np.asarray(line.coords, dtype=np.float32)))
             continue
         core_length = length / chunk_count
         for index in range(chunk_count):
@@ -276,15 +336,10 @@ def _boundary_chunks(game_map: ResolvedGameMap) -> tuple[np.ndarray, ...]:
                 index * core_length - _BOUNDARY_CHUNK_OVERLAP_M,
                 (index + 1) * core_length + _BOUNDARY_CHUNK_OVERLAP_M,
             )
-            chunks.append(
-                np.column_stack(
-                    (
-                        points_xy,
-                        np.full(len(points_xy), z_m, dtype=np.float32),
-                    )
-                )
-            )
-    return tuple(chunks)
+            chunks.append(xyz(points_xy))
+    return tuple(
+        chunk[section] for chunk in chunks for section in _polyline_slices(len(chunk))
+    )
 
 
 def _boundary_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
@@ -395,6 +450,7 @@ def _trajectory(spawn: GameMapSpawn) -> dict[str, object]:
         float(spawn.position_world[1]),
         float(spawn.position_world[2]),
         spawn.yaw_rad,
+        pitch_rad=spawn.pitch_rad,
     ).tolist()
     return {
         "rig_trajectories": [
