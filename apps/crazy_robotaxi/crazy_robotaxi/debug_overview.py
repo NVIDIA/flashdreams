@@ -31,7 +31,7 @@ def write_capture_overview(directory: Path) -> dict[str, Any]:
     Paths use physical vehicle observations when available. Missing off-road
     flags remain unknown; an interrupted capture never implies race completion.
     """
-    from crazy_robotaxi.debug_report import _records
+    from omnidreams_game_engine.debug_report import _records
 
     manifest = json.loads((directory / "manifest.json").read_text())
     records: dict[int, list[dict[str, Any]]] = defaultdict(list)

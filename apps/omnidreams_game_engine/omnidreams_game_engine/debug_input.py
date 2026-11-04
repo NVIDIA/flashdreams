@@ -25,9 +25,9 @@ from flashdreams.runtime_v2.user_input_event import (
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 if TYPE_CHECKING:
-    from crazy_robotaxi.debug_capture import CaptureRecorder
+    from omnidreams_game_engine.debug_capture import CaptureRecorder
 
-DEBUG_CONTROL_KEY = "robotaxi_debug_control"
+DEBUG_CONTROL_KEY = "omnidreams_debug_control"
 
 
 def control_event(payload: Any) -> UserInputEvent:
@@ -222,7 +222,14 @@ class HeadlessInput:
                 events.append(event)
             return events
 
-    def consumed(self, events: UserInputEvents, *, step: int) -> None:
+    def consumed(
+        self,
+        events: UserInputEvents,
+        *,
+        step: int,
+        consumed_ns: int | None = None,
+        consumer: str = "model",
+    ) -> None:
         """Acknowledge events read by the normal model-thread input consumer."""
         with self._lock:
             for event in events.get_events():
@@ -235,8 +242,13 @@ class HeadlessInput:
                             {
                                 **response,
                                 "status": "consumed",
-                                "consumed_us": self.elapsed_us(),
-                                "model_step": step,
+                                "consumed_us": self.elapsed_us()
+                                if consumed_ns is None or self.ready_ns is None
+                                else (consumed_ns - self.ready_ns) // 1000,
+                                "consumer": consumer,
+                                "gameplay_tick"
+                                if consumer == "gameplay"
+                                else "model_step": step,
                             },
                         )
                     )

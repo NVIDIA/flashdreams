@@ -1,0 +1,258 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Timing evidence from headless input, physics, and presentation observations."""
+
+from __future__ import annotations
+
+import json
+import math
+import statistics
+from collections import defaultdict
+from itertools import pairwise
+from pathlib import Path
+from typing import Any
+
+
+def _records(path: Path):
+    if path.exists():
+        with path.open(encoding="utf-8") as stream:
+            for line in stream:
+                yield json.loads(line)
+
+
+def _milliseconds(values_us: list[float]) -> dict[str, float | int | None]:
+    values = sorted(value / 1000 for value in values_us)
+    return {
+        "count": len(values),
+        "median": statistics.median(values) if values else None,
+        "p95": values[math.ceil(len(values) * 0.95) - 1] if values else None,
+        "max": max(values) if values else None,
+    }
+
+
+def write_timing_report(directory: Path) -> dict[str, Any]:
+    """Join recorded milestones without treating requested motion as visual response.
+
+    Input-to-physics timing uses the start of the recorded physics advance.
+    Presentation identifies a selected frame, not movement inferred from its
+    pixels. Missing observations and ambiguous equal-timestamp inputs remain
+    unmeasured rather than being assigned zero latency.
+    """
+    manifest = json.loads((directory / "manifest.json").read_text())
+    ready_ns = manifest.get("ready_ns")
+    inputs: dict[str, dict[str, Any]] = {}
+    timestamp_ids: dict[int, set[str]] = defaultdict(set)
+    generated = {}
+    delays = []
+    rejected = []
+    for event in _records(directory / "input_events.jsonl"):
+        status = event["status"]
+        if status == "rejected":
+            rejected.append(event)
+        elif status == "generation_returned":
+            generated[(event["rollout_epoch"], event["model_step"])] = event[
+                "elapsed_us"
+            ]
+        elif status == "generation_delay":
+            delays.append(event)
+        elif event.get("id") is not None and status in {
+            "accepted",
+            "dispatched",
+            "consumed",
+            "cancelled",
+        }:
+            identifier = event["id"]
+            row = inputs.setdefault(identifier, {"id": identifier})
+            for key in (
+                "timestamp_us",
+                "received_us",
+                "command",
+                "dispatched_us",
+                "consumed_us",
+            ):
+                if key in event:
+                    row[key] = event[key]
+            row["status"] = status
+            if "timestamp_us" in event:
+                timestamp_ids[event["timestamp_us"]].add(identifier)
+
+    presented = {}
+    presentation_intervals = []
+    previous_presentation = None
+    feedback_changes = []
+    previous_feedback = None
+    for event in _records(directory / "presentation.jsonl"):
+        elapsed = event.get("elapsed_us")
+        if elapsed is None:
+            continue
+        if previous_presentation is not None:
+            presentation_intervals.append(elapsed - previous_presentation)
+        previous_presentation = elapsed
+        source = event.get("source")
+        feedback = event.get("hud_feedback")
+        if feedback != previous_feedback:
+            feedback_changes.append(
+                {"elapsed_us": elapsed, "feedback": feedback, "source": source}
+            )
+            previous_feedback = feedback
+        if source is not None:
+            presented.setdefault((source["rollout_epoch"], source["frame"]), elapsed)
+
+    epochs: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    matched: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    presentation_age = []
+    for record in _records(directory / "telemetry.jsonl"):
+        epoch = record["rollout_epoch"]
+        completed_ns = record.get("physics_completed_ns")
+        started_ns = record.get("physics_started_ns")
+        if completed_ns is not None:
+            epochs[epoch].append((record["simulation_timestamp_us"], completed_ns))
+        first_presentation = presented.get((epoch, record["frame"]))
+        if (
+            completed_ns is not None
+            and ready_ns is not None
+            and first_presentation is not None
+        ):
+            presentation_age.append(
+                first_presentation - (completed_ns - ready_ns) / 1000
+            )
+        transition = record.get("transition_timestamp_us")
+        if transition is not None and started_ns is not None and ready_ns is not None:
+            matched[transition].append(
+                {
+                    "rollout_epoch": epoch,
+                    "frame": record["frame"],
+                    "physics_started_us": (started_ns - ready_ns) / 1000,
+                    "physics_completed_us": (completed_ns - ready_ns) / 1000
+                    if completed_ns is not None
+                    else None,
+                    "generation_returned_us": generated.get(
+                        (epoch, record["model_step"])
+                    ),
+                    "first_presentation_us": first_presentation,
+                }
+            )
+    gameplay_progress = []
+    gameplay_matches: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for path in sorted(directory.glob("gameplay-*.jsonl")):
+        rows = list(_records(path))
+        advances = [row for row in rows if row["tick"] > 0]
+        if advances:
+            sim_us = (
+                advances[-1]["simulation_timestamp_us"]
+                - advances[0]["simulation_timestamp_us"]
+            )
+            wall_us = (advances[-1]["started_ns"] - advances[0]["started_ns"]) / 1000
+            gameplay_progress.append(
+                {
+                    "source": path.name,
+                    "physics_samples": len(advances),
+                    "simulation_elapsed_s": sim_us / 1e6,
+                    "wall_elapsed_s": wall_us / 1e6,
+                    "simulation_to_wall_ratio": sim_us / wall_us
+                    if wall_us > 0
+                    else None,
+                    "physics_gap_ms": _milliseconds(
+                        [
+                            (b["started_ns"] - a["started_ns"]) / 1000
+                            for a, b in zip(advances, advances[1:])
+                        ]
+                    ),
+                    "scheduling_lag_ms": _milliseconds(
+                        [
+                            (row["started_ns"] - row["scheduled_ns"]) / 1000
+                            for row in advances
+                        ]
+                    ),
+                }
+            )
+        for row in advances:
+            transition = row.get("transition_timestamp_us")
+            if transition is not None and ready_ns is not None:
+                gameplay_matches[transition].append(
+                    {
+                        "gameplay_tick": row["tick"],
+                        "physics_started_us": (row["started_ns"] - ready_ns) / 1000,
+                        "physics_completed_us": (row["completed_ns"] - ready_ns) / 1000,
+                    }
+                )
+
+    input_results = []
+    for row in inputs.values():
+        timestamp = row.get("timestamp_us")
+        if timestamp is None or row.get("command", {}).get("type") == "close":
+            continue
+        matches = matched.get(timestamp, [])
+        ambiguous = len(timestamp_ids[timestamp]) != 1 or len(matches) > 1
+        observation = matches[0] if matches and not ambiguous else {}
+        physics_matches = gameplay_matches.get(timestamp, [])
+        if gameplay_progress:
+            ambiguous = len(timestamp_ids[timestamp]) != 1 or len(physics_matches) > 1
+            physics = physics_matches[0] if physics_matches and not ambiguous else {}
+            observation = {
+                **observation,
+                "physics_started_us": None,
+                "physics_completed_us": None,
+                **physics,
+            }
+        else:
+            physics = observation
+        result = {
+            **row,
+            **observation,
+            "physics_association": "ambiguous"
+            if ambiguous
+            else "observed"
+            if physics
+            else "unobserved",
+        }
+        for key in (
+            "dispatched_us",
+            "consumed_us",
+            "physics_started_us",
+            "generation_returned_us",
+            "first_presentation_us",
+        ):
+            value = result.get(key)
+            result["scheduled_to_" + key.removesuffix("_us") + "_ms"] = (
+                None if value is None else (value - timestamp) / 1000
+            )
+        input_results.append(result)
+
+    progress = []
+    for epoch, samples in epochs.items():
+        sim_us = samples[-1][0] - samples[0][0]
+        wall_us = (samples[-1][1] - samples[0][1]) / 1000
+        progress.append(
+            {
+                "rollout_epoch": epoch,
+                "physics_samples": len(samples),
+                "simulation_elapsed_s": sim_us / 1e6,
+                "wall_elapsed_s": wall_us / 1e6,
+                "simulation_to_wall_ratio": sim_us / wall_us if wall_us > 0 else None,
+                "physics_gap_ms": _milliseconds(
+                    [(b[1] - a[1]) / 1000 for a, b in pairwise(samples)]
+                ),
+            }
+        )
+    report = {
+        "format_version": 1,
+        "capture_complete": manifest.get("capture_complete", False),
+        "run_complete": manifest.get("complete", False),
+        "termination_reason": manifest.get("termination_reason"),
+        "generation_adherence": "not_evaluated",
+        "presentation_measurement": "selected frame metadata; not a measurement of visual response",
+        "physics_progress": progress,
+        "gameplay_progress": gameplay_progress,
+        "inputs": input_results,
+        "rejected_inputs": rejected,
+        "physics_to_first_presentation_ms": _milliseconds(presentation_age),
+        "presentation_gap_ms": _milliseconds(presentation_intervals),
+        "hud_feedback_changes": feedback_changes,
+        "generation_delays": delays,
+    }
+    (directory / "timing_summary.json").write_text(
+        json.dumps(report, indent=2, allow_nan=False) + "\n"
+    )
+    return report

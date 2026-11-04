@@ -9,15 +9,20 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import dataclass, field, replace
 from functools import cached_property, partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import torch
+from omnidreams_game_engine.debug_input import DEBUG_CONTROL_KEY, HeadlessInput
+from omnidreams_game_engine.debug_observation import simulation_records
+from omnidreams_game_engine.engine import EngineStep, GameEngine
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.model import WorldModelRollout
 from omnidreams_game_engine.scene import SceneRequest
+from omnidreams_game_engine.simulation.ego_vehicle_kinematics import EgoVehicleKinematics
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 
 from crazy_robotaxi.controls import (
@@ -28,7 +33,6 @@ from crazy_robotaxi.controls import (
     wheel_driver_command,
 )
 from crazy_robotaxi.debug import RobotaxiDebugUILoop, RobotaxiLiveDebugUILoop
-from crazy_robotaxi.debug_input import DEBUG_CONTROL_KEY, HeadlessInput
 from crazy_robotaxi.factory import build_taxi_engine
 from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
@@ -101,6 +105,9 @@ class ModelState:
     """Speed aligned with the retained terminal presentation frame."""
 
     blocks_generated: int = 0
+    last_debug_record: dict[str, Any] | None = None
+    debug_frames: int = 0
+    debug_ground: GroundSnapper | None = None
     rollout_epoch: int = 0
     """Incremented whenever mutable game and model state is reset."""
 
@@ -152,8 +159,24 @@ class ModelState:
                 ),
                 trace_chunk_lifecycle=self.config.profile_input_latency,
             )
+            if capture:
+                self.debug_ground = None
+                if (
+                    scene.ground_mesh_vertices is not None
+                    and scene.ground_mesh_faces is not None
+                ):
+                    self.debug_ground = GroundSnapper(
+                        scene.ground_mesh_vertices, scene.ground_mesh_faces
+                    )
+        if capture:
+            # Rollout resets recreate the simulation, so enable capture on the
+            # active engine rather than retaining the previous engine's flag.
+            simulation = cast(GameEngine, self.rollout.engine).simulation
+            cast(EgoVehicleKinematics, simulation).set_physx_debug_enabled(True)
         if not self.prewarm_complete:
             self._prewarm_rollout()
+        if isinstance(control, HeadlessInput):
+            control.start()
         return self.rollout
 
     def select_game(self, selection: GameSelection) -> None:
@@ -286,6 +309,7 @@ class ModelState:
                 epoch=self.rollout_epoch,
             )
         self.blocks_generated = 0
+        self.debug_frames = 0
         self.finished = False
         self.realtime_miss_count = 0
         self.last_debug_record = None
@@ -363,6 +387,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
 
     def _step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         state = self.state
+        capture = getattr(state.config, "debug_capture", False)
+        control = state.session_desc.metadata.get(DEBUG_CONTROL_KEY)
         runtime_generation = getattr(self, "_generation", 0)
         trace_enabled = getattr(state.config, "profile_input_latency", False)
         # Match Interactive Drive: apply every unread edge before rollout setup,
@@ -393,6 +419,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         cache_finalize_returned_ns: int | None = None
         live_edit_statuses: tuple[LiveEditHudStatus, ...] | None = None
         current_prompt = ""
+        debug_records: tuple[dict[str, Any], ...] = ()
         if snapshot.session_state in active_states:
             current_prompt = rollout.scene.prompt
             live_edit = getattr(rollout.engine, "live_edit", None)
@@ -437,10 +464,52 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                         steer=command.steer,
                         reverse=command.reverse,
                     )
+
+            def observe(engine_step: EngineStep) -> None:
+                nonlocal debug_records
+                debug_records = simulation_records(
+                    engine_step,
+                    commands=commands,
+                    transition_timestamps_us=transition_timestamps_us,
+                    frame_start=state.debug_frames,
+                    rollout_epoch=state.rollout_epoch,
+                    model_step=step_index,
+                    autoregressive_index=autoregressive_index,
+                    elapsed_us=control.elapsed_us()
+                    if isinstance(control, HeadlessInput)
+                    else None,
+                    reused_video=False,
+                    ground=state.debug_ground,
+                )
+                state.last_debug_record = debug_records[-1]
+                if isinstance(control, HeadlessInput) and control.capture is not None:
+                    control.capture.observe(debug_records)
+                state.debug_frames += frame_count
+                if isinstance(control, HeadlessInput):
+                    control.delay_generation(
+                        state.blocks_generated, self._shutdown_event
+                    )
+
+            step_options: dict[str, Any] = {}
+            if capture:
+                step_options["observe_engine_step"] = observe
             generated = rollout.step(
                 autoregressive_index=autoregressive_index,
                 commands=commands,
+                **step_options,
             )
+            if capture and isinstance(control, HeadlessInput):
+                control.messages.put(
+                    (
+                        None,
+                        {
+                            "status": "generation_returned",
+                            "model_step": step_index,
+                            "rollout_epoch": state.rollout_epoch,
+                            "elapsed_us": control.elapsed_us(),
+                        },
+                    )
+                )
             if trace_enabled and generated._trace is not None:
                 trace = generated._trace
                 cache_finalize_returned_ns = trace.cache_finalize_returned_ns

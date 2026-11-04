@@ -211,3 +211,27 @@ def test_overview_bounds_chart_size_but_keeps_all_tick_statistics(tmp_path):
         if e.attrib.get("stroke-width") == "2.2"
     ]
     assert curves and all(d.count("L ") + d.count("M ") <= 2000 for d in curves)
+
+
+def test_timing_report_retains_robotaxi_race_outcomes(tmp_path):
+    game = {
+        "event": "race_complete",
+        "elapsed_time_us": 50_000,
+        "final_time_us": 50_000,
+        "session_state": "awaiting_name",
+    }
+    _write_capture(
+        tmp_path,
+        [
+            {
+                "rollout_epoch": 0,
+                "frame": index,
+                "simulation_timestamp_us": index * 33_333,
+                "game": game,
+            }
+            for index in range(2)
+        ],
+    )
+    report = write_timing_report(tmp_path)
+    assert len(report["race_events"]) == 1
+    assert report["final_game"]["final_time_us"] == 50_000

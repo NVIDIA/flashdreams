@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml import YAML
+import yaml
 
-from crazy_robotaxi.debug_input import control_event
+from omnidreams_game_engine.debug_input import control_event
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,7 +23,7 @@ class DrivingScript:
 def load_driving_script(path: Path) -> DrivingScript:
     """Read the same timestamped event objects accepted by the live socket."""
     path = path.expanduser().resolve()
-    document = YAML(typ="safe").load(path.read_text(encoding="utf-8"))
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(document, dict) or set(document) != {"events"}:
         raise ValueError(
             "Driving script requires an 'events' list of timestamped inputs"

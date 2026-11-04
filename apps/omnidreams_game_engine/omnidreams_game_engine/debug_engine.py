@@ -6,6 +6,7 @@
 from typing import Any
 
 import torch
+
 from omnidreams_game_engine.config import ChunkConfig
 
 
