@@ -1,0 +1,987 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""CPU checks for scripted controls and paired headless observations."""
+
+import json
+import socket
+from dataclasses import asdict, replace
+from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
+
+import numpy as np
+import pytest
+import torch
+from ludus_renderer import BodyState, RigidBodyModel
+from omnidreams_game_engine.debug_input import (
+    DEBUG_CONTROL_KEY,
+    HeadlessInput,
+    control_event,
+)
+from omnidreams_game_engine.debug_window import (
+    DEBUG_METADATA_KEY,
+    DebugCaptureWindow,
+    DebugFrameResult,
+)
+from omnidreams_game_engine.driving_script import load_driving_script
+from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
+from omnidreams_game_engine.types import PhysicsDebugFrame, VehicleState
+
+from flashdreams.runtime_v2.session_desc import (
+    SessionDesc,
+)
+from flashdreams.runtime_v2.step_result import StepResult
+from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEvent,
+    KeyboardInputState,
+    KeyboardUserInputEvent,
+)
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+
+pytestmark = pytest.mark.ci_cpu
+
+
+def test_live_headless_input_queues_rejects_late_and_acknowledges_consumption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "omnidreams_game_engine.debug_capture.WebmClientWindow", RecordingEncoder
+    )
+    now = [10_000_000_000]
+    control = HeadlessInput(lambda: now[0])
+    window = DebugCaptureWindow(
+        tmp_path / "live", snapshot_every=1, cpu_sample_ms=1, clock_ns=lambda: now[0]
+    )
+    window.open(
+        SessionDesc(
+            video_width=6,
+            video_height=4,
+            metadata={
+                DEBUG_METADATA_KEY: {},
+                DEBUG_CONTROL_KEY: control,
+            },
+        )
+    )
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as controller:
+        controller.bind(str(tmp_path / "agent.sock"))
+        controller.settimeout(1)
+
+        def send(command):
+            controller.sendto(
+                json.dumps(command).encode(), str(window.directory / "control.sock")
+            )
+
+        def reply():
+            return json.loads(controller.recv(4096))
+
+        send({"id": "clock", "type": "status"})
+        assert window.get_user_input_events().get_events() == []
+        assert reply()["status"] == "loading"
+        # Accept out of order while loading; dispatch strictly by deadline.
+        send(
+            {
+                "id": "release",
+                "timestamp_us": 200_000,
+                "type": "keyboard",
+                "key": "w",
+                "pressed": False,
+            }
+        )
+        send(
+            {
+                "id": "press",
+                "timestamp_us": 100_000,
+                "type": "keyboard",
+                "key": "w",
+                "pressed": True,
+            }
+        )
+        assert window.get_user_input_events().get_events() == []
+        assert reply()["status"] == reply()["status"] == "accepted"
+        control.start()
+        now[0] += 50_000_000
+        assert window.get_user_input_events().get_events() == []
+        now[0] += 75_000_000
+        events = window.get_user_input_events()
+        (pressed,) = events.get_events()
+        assert isinstance(pressed, KeyboardUserInputEvent)
+        assert (
+            pressed.state is KeyboardInputState.PRESSED
+            and int(pressed.timestamp) == 100_000
+        )
+        assert reply()["status"] == "dispatched"
+        control.consumed(events, step=7)
+        window.get_user_input_events()
+        consumed = reply()
+        assert consumed["status"] == "consumed" and consumed["consumed_us"] == 125_000
+        # Clock queries must not create inputs or overwrite a consumed command.
+        for identifier in ("clock-ready", "press"):
+            send({"id": identifier, "type": "status"})
+            assert window.get_user_input_events().get_events() == []
+            assert reply()["status"] == "ready"
+        send({"id": "late", "timestamp_us": 124_999, "type": "close"})
+        assert window.get_user_input_events().get_events() == []
+        assert reply()["reason"] == "late"
+        send({"id": "press", "timestamp_us": 300_000, "type": "close"})
+        window.get_user_input_events()
+        assert reply()["reason"] == "duplicate_id"
+        # UI stall must not invalidate a command that arrived on time.
+        now[0] += 400_000_000
+        events = window.get_user_input_events()
+        (released,) = events.get_events()
+        assert isinstance(released, KeyboardUserInputEvent)
+        assert (
+            released.state is KeyboardInputState.RELEASED
+            and int(released.timestamp) == 200_000
+        )
+        assert reply()["status"] == "dispatched"
+        control.consumed(events, step=8)
+        window.write(
+            StepResult(
+                step_index=7,
+                output=torch.ones(1, 3, 4, 6),
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+            )
+        )
+        window.close()
+        assert reply()["status"] == "consumed"
+    inputs = [
+        json.loads(line)
+        for line in (window.directory / "input_events.jsonl").read_text().splitlines()
+    ]
+    assert [event["id"] for event in inputs if event["status"] == "consumed"] == [
+        "press",
+        "release",
+    ]
+    assert not (window.directory / "control.sock").exists()
+    assert (window.directory / "latest.png").is_file()
+    samples = [
+        json.loads(line)
+        for line in (window.directory / "cpu_samples.jsonl").read_text().splitlines()
+    ]
+    assert samples and samples[0]["native_thread_id"] == control.native_thread_id
+    assert any(
+        frame["function"].startswith("test_live_headless")
+        for frame in samples[0]["stack"]
+    )
+    record = json.loads((window.directory / "presentation.jsonl").read_text())
+    assert record["ui_step"] == 7 and record["elapsed_us"] == 525_000
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert manifest["views"] == ["presentation"]
+    assert manifest["coverage"]["presentations"]["saved"] == 1
+    assert manifest["pending_input_ids"] == []
+    assert manifest["complete"]
+    report = json.loads((window.directory / "timing_summary.json").read_text())
+    assert {row["id"]: row["status"] for row in report["inputs"]} == {
+        "press": "consumed",
+        "release": "consumed",
+    }
+    assert report["run_complete"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {"type": "keyboard", "key": "w", "pressed": 1},
+        {"type": "keyboard", "key": "", "pressed": True},
+        {"type": "close", "extra": 1},
+    ],
+)
+def test_live_headless_input_rejects_malformed_packets(payload: object) -> None:
+    with pytest.raises(ValueError):
+        control_event(payload)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("axes", [float("nan")]),
+        ("axes", [float("inf")]),
+        ("axes", [-1.01]),
+        ("axes", [True]),
+        ("axes", [10**400]),
+        ("axes", "0"),
+        ("buttons", [-0.01]),
+        ("buttons", [1.01]),
+        ("buttons", [False]),
+        ("buttons", [float("nan")]),
+        ("buttons", [float("inf")]),
+        ("index", True),
+        ("index", -1),
+        ("action", "invalid"),
+    ],
+)
+def test_timestamped_gamepad_rejects_invalid_snapshots(field, value):
+    packet = {
+        "id": "invalid",
+        "timestamp_us": 0,
+        "type": "gamepad",
+        "axes": [],
+        "buttons": [],
+    }
+    packet[field] = value
+    with pytest.raises(ValueError):
+        control_event(packet)
+
+
+def test_input_deadline_boundary_order_and_shutdown() -> None:
+    now = [0]
+    control = HeadlessInput(lambda: now[0])
+    control.start()
+    for identifier in ("first", "second"):
+        control.accept(
+            {"id": identifier, "timestamp_us": 0, "type": "focus", "focused": False}
+        )
+    control.accept({"id": "later", "timestamp_us": 10, "type": "close"})
+    assert len(control.due()) == 2
+    control.close()
+    messages = []
+    while not control.messages.empty():
+        messages.append(control.messages.get_nowait()[1])
+    assert [m["id"] for m in messages if m["status"] == "dispatched"] == [
+        "first",
+        "second",
+    ]
+    assert {m["id"] for m in messages if m["status"] == "cancelled"} == {
+        "first",
+        "second",
+        "later",
+    }
+    # Invalid identifiers must not break JSON acknowledgments (including NaN).
+    control.accept({"id": float("nan"), "type": "status"})
+    rejected = control.messages.get_nowait()[1]
+    assert rejected["status"] == "rejected" and rejected["id"] is None
+    json.dumps(rejected, allow_nan=False)
+
+
+def test_observation_preserves_native_pose_before_game_policy() -> None:
+    world = object.__new__(GamePhysicsWorld)
+    world._ego_model = RigidBodyModel(mass_kg=1500, half_extents_m=(2, 1, 0.5))
+    world._world = SimpleNamespace(
+        collider_state_arrays=lambda: (
+            (),
+            np.empty((0, 3), dtype=np.float32),
+            np.empty((0, 4), dtype=np.float32),
+            np.empty((0, 3), dtype=np.float32),
+        )
+    )
+    world._debug_barrier_segments = np.empty((0, 2, 2), dtype=np.float32)
+    world._debug_barrier_thicknesses = np.empty(0, dtype=np.float32)
+    world._debug_barrier_heights = np.empty(0, dtype=np.float32)
+    world._debug_barrier_bases = np.empty(0, dtype=np.float32)
+    world._debug_barrier_ids = ()
+    world.last_step_actor_collision = False
+    world.last_step_static_barrier_collision = True
+    world._last_contact_resolved_state = VehicleState(10, 20, 0, 0, 8, 0)
+    roll = 0.3
+    body = BodyState(
+        position_m=np.asarray([10, 20, 1.5], dtype=np.float32),
+        orientation_xyzw=np.asarray(
+            [np.sin(roll / 2), 0, 0, np.cos(roll / 2)], dtype=np.float32
+        ),
+        linear_velocity_mps=np.asarray([8, 0, 2], dtype=np.float32),
+        angular_velocity_radps=np.asarray([1, 0, 0], dtype=np.float32),
+    )
+    world._last_debug_ego = body
+    displayed = VehicleState(10, 20, 0, 0, 8, 0)
+    debug = world.debug_frame(displayed)
+    assert debug.static_barrier_collision
+    assert debug.vehicle_state.roll_rad == pytest.approx(roll)
+    assert debug.vehicle_state.z_m == pytest.approx(1.5 - np.cos(roll) * 0.5)
+    np.testing.assert_array_equal(debug.ego_orientation_xyzw, body.orientation_xyzw)
+    np.testing.assert_array_equal(debug.ego_linear_velocity_mps, [8, 0, 2])
+    assert displayed.z_m == displayed.roll_rad == 0
+    assert world._last_contact_resolved_state.z_m == 0
+    body.position_m[2] = 99
+    assert debug.ego_position_m[2] == 1.5
+
+
+def test_ground_measurement_is_read_only_and_selects_nearest_surface() -> None:
+    vertices = np.asarray([[0, 0, 0], [2, 0, 2], [0, 2, 0]], dtype=np.float32)
+    stacked = np.concatenate([vertices, vertices + [0, 0, 10]])
+    ground = GroundSnapper(
+        stacked, np.asarray([[0, 1, 2], [3, 4, 5]], dtype=np.float32)
+    )
+    assert ground.ground_height_at(0.5, 0.5, 0) == pytest.approx(0.5)
+    assert ground.ground_height_at(0.5, 0.5, 10) == pytest.approx(10.5)
+    assert ground.ground_height_at(-1, -1, 0) is None
+    assert ground._anchor_offset_m is None
+
+
+def _debug_record(frame: int, *, contact: bool = False) -> dict:
+    vehicle = VehicleState(frame, 0, 0, 0, 10, 0)
+    colliders = PhysicsDebugFrame(
+        ego_position_m=np.asarray([frame, 0, 0.8], dtype=np.float32),
+        ego_orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
+        ego_dimensions_lwh=np.asarray([4.8, 2, 1.6], dtype=np.float32),
+        actor_positions_m=np.empty((0, 3), dtype=np.float32),
+        actor_orientations_xyzw=np.empty((0, 4), dtype=np.float32),
+        actor_dimensions_lwh=np.empty((0, 3), dtype=np.float32),
+        barrier_segments_xy_m=np.asarray(
+            [[[frame - 10, -1.2], [frame + 10, -1.2]]], dtype=np.float32
+        ),
+        barrier_thicknesses_m=np.asarray([0.3], dtype=np.float32),
+        barrier_heights_m=np.asarray([3], dtype=np.float32),
+        ego_chassis_offset_m=np.asarray([0, 0, -0.04], dtype=np.float32),
+        ego_chassis_dimensions_lwh=np.asarray([4.096, 1.44, 1.36], dtype=np.float32),
+    )
+    return {
+        "frame": frame,
+        "rollout_epoch": 0,
+        "model_step": frame // 8,
+        "autoregressive_index": frame // 8,
+        "chunk_frame": frame % 8,
+        "simulation_timestamp_us": frame * 33333,
+        "rig_pose_world": np.eye(4, dtype=np.float32),
+        "physics_vehicle": asdict(vehicle),
+        "actor_collision": False,
+        "static_barrier_collision": contact,
+        "physics_colliders": asdict(colliders),
+    }
+
+
+@pytest.mark.parametrize(
+    ("timestamp_fields", "expected_time"),
+    [
+        ({"simulation_timestamp_us": 12_345_678}, "12.35s"),
+        ({"simulation_timestamp_us": 0}, "0.00s"),
+        ({"simulation_timestamp_us": None}, "unknown"),
+        ({}, "unknown"),
+    ],
+)
+def test_physics_view_labels_recorded_simulation_time(
+    monkeypatch: pytest.MonkeyPatch, timestamp_fields: dict, expected_time: str
+) -> None:
+    from omnidreams_game_engine.debug_capture import render_physics_view
+
+    record = _debug_record(300)
+    del record["simulation_timestamp_us"]
+    record.update(timestamp_fields)
+    captions = []
+    monkeypatch.setattr(
+        "PIL.ImageDraw.ImageDraw.text",
+        lambda self, xy, text, **kwargs: captions.append(text),
+    )
+    render_physics_view(record, width=640, height=320, trail_xy=[])
+    assert captions[0].startswith(f"PHYSICS  frame 300  sim {expected_time}  ")
+
+
+def test_script_uses_the_live_command_schema_and_rejects_duplicates(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "drive.yaml"
+    source.write_text("events: [{id: end, timestamp_us: 1000000, type: close}]")
+    script = load_driving_script(source)
+    assert script.events == ({"id": "end", "timestamp_us": 1000000, "type": "close"},)
+    source.write_text(json.dumps({"events": list(script.events) * 2}))
+    with pytest.raises(ValueError, match="duplicate"):
+        load_driving_script(source)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "steps: [{frames: 1}]",
+        "events: []",
+        "events: null",
+        "events: [{id: a, timestamp_us: -1, type: close}]",
+        "events: [{id: a, timestamp_us: true, type: close}]",
+        "events: [{id: a, timestamp_us: 1.5, type: close}]",
+        "events: [{id: a, timestamp_us: 0, type: keyboard, key: w, pressed: 1}]",
+        "events: [{id: a, timestamp_us: 0, type: close, extra: 1}]",
+        "events: [{id: a, timestamp_us: 0, type: close}]\nextra: yes",
+    ],
+)
+def test_invalid_scripts_fail_before_game_setup(tmp_path: Path, text: str) -> None:
+    source = tmp_path / "bad.yaml"
+    source.write_text(text)
+    with pytest.raises(ValueError):
+        load_driving_script(source)
+
+
+class RecordingEncoder:
+    """In-memory encoder used to inspect pixels without encoding video."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.frames = []
+        self.closed = False
+
+    def open(self, desc) -> None:
+        self.desc = desc
+
+    def write(self, result) -> None:
+        self.frames.extend(result.read_output().permute(0, 2, 3, 1).numpy().copy())
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.parametrize("paired", [False, True])
+def test_capture_keeps_model_frames_when_presentation_skips_or_repeats(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    paired: bool,
+) -> None:
+    monkeypatch.setattr(
+        "omnidreams_game_engine.debug_capture.WebmClientWindow", RecordingEncoder
+    )
+    window = DebugCaptureWindow(tmp_path / "capture", snapshot_every=30)
+    window.open(
+        SessionDesc(
+            video_width=6,
+            video_height=4,
+            metadata={DEBUG_METADATA_KEY: {"paired_views": paired}},
+        )
+    )
+    assert window.recorder is not None
+    records = tuple(_debug_record(i, contact=i == 1) for i in range(3))
+    output = torch.ones(3, 3, 4, 6)
+    window.recorder.observe(records)
+    window.recorder.submit(records, output, -output)
+    # Reusing the producer buffer cannot change the queued capture.
+    output.zero_()
+    for index in [0, 2, 2]:
+        window.write(
+            DebugFrameResult(
+                step_index=index,
+                output=output[:1],
+                frame_count=1,
+                output_layout=VideoTensorLayout.tchw,
+                record=records[index],
+            )
+        )
+    window.close()
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert manifest["complete"] and manifest["frames_written"] == 3
+    telemetry = [
+        json.loads(line)
+        for line in (window.directory / "telemetry.jsonl").read_text().splitlines()
+    ]
+    assert [r["capture_frame"] for r in telemetry] == [0, 1, 2]
+    presentations = [
+        json.loads(line)
+        for line in (window.directory / "presentation.jsonl").read_text().splitlines()
+    ]
+    assert [r["source"]["capture_frame"] for r in presentations] == [0, 2, 2]
+    encoders = window.recorder._encoders
+    assert np.all(cast(RecordingEncoder, encoders["generated"]).frames[0] == 255)
+    assert np.all(cast(RecordingEncoder, encoders["hdmap"]).frames[0] == 0)
+    assert manifest["contact_frames"] == [1]
+    for view in ("generated", "hdmap", "physics"):
+        for index in range(3):  # initial, contact, and final snapshots
+            assert (window.directory / "frames" / view / f"{index:06d}.png").exists()
+    assert all(cast(RecordingEncoder, encoder).closed for encoder in encoders.values())
+
+
+def test_physics_video_shows_bounds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "omnidreams_game_engine.debug_capture.WebmClientWindow", RecordingEncoder
+    )
+    window = DebugCaptureWindow(tmp_path / "capture")
+    window.open(
+        SessionDesc(
+            video_width=320,
+            video_height=320,
+            metadata={DEBUG_METADATA_KEY: {"paired_views": True}},
+        )
+    )
+    assert window.recorder is not None
+    output = torch.zeros(1, 3, 320, 320)
+    records = (_debug_record(1, contact=True),)
+    window.recorder.observe(records)
+    window.recorder.submit(records, output, output)
+    window.close()
+    pixels = cast(RecordingEncoder, window.recorder._encoders["physics"]).frames[0]
+    np.testing.assert_array_equal(pixels[172, 80], [0, 220, 235])
+    np.testing.assert_array_equal(pixels[170, 160], [245, 245, 245])
+    np.testing.assert_array_equal(pixels[167, 160], [70, 150, 255])
+
+
+def test_sink_requires_capture_metadata_and_tchw(tmp_path: Path) -> None:
+    window = DebugCaptureWindow(tmp_path / "out")
+    desc = SessionDesc(
+        metadata={DEBUG_METADATA_KEY: {}}, output_layout=VideoTensorLayout.btchw
+    )
+    with pytest.raises(ValueError, match="tchw"):
+        window.open(desc)
+    with pytest.raises(ValueError, match="requires session capture metadata"):
+        window.open(replace(desc, metadata={}))
+
+
+def test_debug_window_delivers_runtime_events_once_in_timestamp_order(
+    tmp_path: Path,
+) -> None:
+    window = DebugCaptureWindow(tmp_path / "capture")
+    earlier = CloseUserInputEvent(timestamp=np.uint64(1))
+    later = CloseUserInputEvent(timestamp=np.uint64(2))
+    window.put_user_input_event(later)
+    window.put_user_input_event(earlier)
+    assert window.get_user_input_events().get_events() == [earlier, later]
+    assert window.get_user_input_events().get_events() == []
+
+
+def test_generation_delay_cycles_and_shutdown_interrupts() -> None:
+    import threading
+
+    now = [0]
+    control = HeadlessInput(lambda: now[0])
+    control.generation_delays_ms = (0, 25, 100)
+    control.start()
+    waits = []
+
+    def wait(seconds):
+        waits.append(seconds)
+        now[0] += int(seconds * 1e9)
+        return False
+
+    stop = SimpleNamespace(wait=wait)
+    for chunk in range(5):
+        control.delay_generation(chunk, cast(threading.Event, stop))
+    assert waits == [0.025, 0.1, 0.025]
+    shutdown = threading.Event()
+    shutdown.set()
+    control.delay_generation(5, shutdown)
+    messages = []
+    while not control.messages.empty():
+        messages.append(control.messages.get()[1])
+    assert messages[-1]["interrupted"]
+    assert messages[-1]["completed_us"] == messages[-1]["started_us"]
+
+
+def test_timing_report_preserves_missing_and_ambiguous_observations(tmp_path) -> None:
+    from omnidreams_game_engine.debug_report import write_timing_report
+
+    def write(name, rows):
+        (tmp_path / name).write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    write("manifest.json", [{"ready_ns": 1_000_000_000, "capture_complete": False}])
+    write(
+        "input_events.jsonl",
+        [
+            {
+                "id": name,
+                "status": "consumed",
+                "timestamp_us": timestamp,
+                "dispatched_us": timestamp + 10_000,
+                "consumed_us": timestamp + 100_000,
+                "command": {"type": "keyboard"},
+            }
+            for name, timestamp in (
+                ("press", 100_000),
+                ("a", 200_000),
+                ("b", 200_000),
+                ("missing", 300_000),
+            )
+        ],
+    )
+    write(
+        "telemetry.jsonl",
+        [
+            {
+                "frame": index,
+                "rollout_epoch": 0,
+                "model_step": 0,
+                "simulation_timestamp_us": index * 33_333,
+                "transition_timestamp_us": 100_000 + index * 100_000,
+                "physics_started_ns": 1_300_000_000 + index * 500_000_000,
+                "physics_completed_ns": 1_301_000_000 + index * 500_000_000,
+                "game": {
+                    "event": "race_complete",
+                    "elapsed_time_us": 50_000,
+                    "final_time_us": 50_000,
+                    "session_state": "awaiting_name",
+                },
+            }
+            for index in range(2)
+        ],
+    )
+    write(
+        "presentation.jsonl",
+        [
+            {
+                "elapsed_us": 900_000,
+                "source": {"rollout_epoch": 0, "frame": 0},
+                "hud_feedback": {"speed_mph": 1},
+            }
+        ],
+    )
+    report = write_timing_report(tmp_path)
+    press, a, b, missing = report["inputs"]
+    assert press["scheduled_to_physics_started_ms"] == 200
+    assert press["scheduled_to_first_presentation_ms"] == 800
+    assert press["scheduled_to_generation_returned_ms"] is None
+    assert a["physics_association"] == b["physics_association"] == "ambiguous"
+    assert missing["physics_association"] == "unobserved"
+    assert missing["scheduled_to_physics_started_ms"] is None
+    assert report["physics_progress"][0]["simulation_to_wall_ratio"] < 0.1
+    assert report["physics_progress"][0]["physics_gap_ms"]["max"] == 500
+    assert not report["capture_complete"]
+    assert report["generation_adherence"] == "not_evaluated"
+    assert report["hud_feedback_changes"][0]["feedback"] == {"speed_mph": 1}
+
+
+def test_capture_overflow_reports_ranges_without_blocking_producer(
+    tmp_path, monkeypatch
+):
+    import threading
+
+    from omnidreams_game_engine.debug_capture import CaptureRecorder
+
+    entered, release = threading.Event(), threading.Event()
+    original = CaptureRecorder._write
+
+    def blocked(self, *args):
+        entered.set()
+        assert release.wait(5)
+        original(self, *args)
+
+    monkeypatch.setattr(CaptureRecorder, "_write", blocked)
+    recorder = CaptureRecorder(
+        tmp_path, SessionDesc(), images=False, snapshot_every=30, queue_size=1
+    )
+    try:
+        recorder.observe((_debug_record(0),))
+        assert entered.wait(2)
+        recorder.observe((_debug_record(1),))
+        recorder.observe((_debug_record(2),))  # Full queue must return immediately.
+    finally:
+        release.set()
+        recorder.close()
+    summary = recorder.summary()
+    assert summary["coverage"]["observations"] == {
+        "produced": 3,
+        "saved": 2,
+        "missing_ranges": [[2, 2]],
+    }
+    assert summary["finalized"] and not summary["capture_complete"]
+
+
+def test_image_overflow_keeps_telemetry_and_reset_identity(tmp_path, monkeypatch):
+    import threading
+
+    from omnidreams_game_engine.debug_capture import CaptureRecorder
+
+    entered, release = threading.Event(), threading.Event()
+    original = CaptureRecorder._write
+
+    def blocked(self, kind, *args):
+        if kind == "model":
+            entered.set()
+            assert release.wait(5)
+        original(self, kind, *args)
+
+    monkeypatch.setattr(CaptureRecorder, "_write", blocked)
+    monkeypatch.setattr(
+        "omnidreams_game_engine.debug_capture.WebmClientWindow", RecordingEncoder
+    )
+    recorder = CaptureRecorder(
+        tmp_path,
+        SessionDesc(video_width=6, video_height=4),
+        images=True,
+        snapshot_every=30,
+        image_slots=1,
+    )
+    output = torch.zeros(1, 3, 4, 6)
+    try:
+        records = (_debug_record(0),)
+        recorder.observe(records)
+        recorder.submit(records, output, output)
+        assert entered.wait(2)
+        records = ({**_debug_record(0), "rollout_epoch": 1},)
+        recorder.observe(records)
+        recorder.submit(records, output, output)
+    finally:
+        release.set()
+        recorder.close()
+    summary = recorder.summary()
+    assert summary["coverage"]["observations"]["saved"] == 2
+    assert summary["coverage"]["model_images"]["missing_ranges"] == [[1, 1]]
+    assert not summary["capture_complete"]
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "telemetry.jsonl").read_text().splitlines()
+    ]
+    assert [(r["capture_frame"], r["rollout_epoch"], r["frame"]) for r in records] == [
+        (0, 0, 0),
+        (1, 1, 0),
+    ]
+
+
+def test_encoder_failure_finalizes_manifest_and_fails_strict_capture(
+    tmp_path, monkeypatch
+):
+    class BrokenEncoder(RecordingEncoder):
+        def write(self, frames):
+            raise OSError("test disk failure")
+
+    monkeypatch.setattr(
+        "omnidreams_game_engine.debug_capture.WebmClientWindow", BrokenEncoder
+    )
+    window = DebugCaptureWindow(tmp_path / "capture", strict=True)
+    window.open(
+        SessionDesc(video_width=6, video_height=4, metadata={DEBUG_METADATA_KEY: {}})
+    )
+    assert window.recorder is not None
+    records = (_debug_record(0),)
+    window.recorder.observe(records)
+    output = torch.zeros(1, 3, 4, 6)
+    window.recorder.submit(records, output, output)
+    with pytest.raises(RuntimeError, match="Incomplete debug capture"):
+        window.close()
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert not manifest["complete"] and not manifest["finalized"]
+    assert manifest["coverage"]["observations"]["saved"] == 1
+    assert manifest["capture_errors"] == ["OSError: test disk failure"]
+
+
+def test_script_completion_requires_consumption_and_endpoint(tmp_path):
+    now = [0]
+    script = [
+        {
+            "id": "press",
+            "timestamp_us": 0,
+            "type": "keyboard",
+            "key": "w",
+            "pressed": True,
+        },
+        {"id": "end", "timestamp_us": 10, "type": "close"},
+    ]
+    window = DebugCaptureWindow(
+        tmp_path / "capture", capture_images=False, clock_ns=lambda: now[0]
+    )
+    window.open(SessionDesc(metadata={DEBUG_METADATA_KEY: {"script_events": script}}))
+    window.control.start()
+    window.get_user_input_events()  # Dispatched but never read by the model.
+    now[0] = 10_000
+    window.get_user_input_events()
+    window.close()
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert manifest["capture_complete"]  # Files are complete, scenario isn't.
+    assert not manifest["complete"] and not manifest["script_complete"]
+    assert manifest["pending_input_ids"] == ["press"]
+    assert manifest["termination_reason"] == "close_command"
+    assert not list(window.directory.glob("*.webm"))
+
+
+@pytest.mark.parametrize("reset_at", [None, 10])
+@pytest.mark.parametrize("finish_during_contact", [False, True])
+def test_contact_bursts_keep_endpoints_periodic_images_and_every_video_frame(
+    tmp_path, monkeypatch, reset_at, finish_during_contact
+):
+    from omnidreams_game_engine.debug_capture import CaptureRecorder
+    from PIL import Image
+
+    monkeypatch.setattr(
+        "omnidreams_game_engine.debug_capture.WebmClientWindow", RecordingEncoder
+    )
+    count = 18 if finish_during_contact else 20
+    records = tuple(
+        {
+            **_debug_record(index, contact=2 <= index <= 17),
+            "rollout_epoch": int(reset_at is not None and index >= reset_at),
+        }
+        for index in range(count)
+    )
+    output = torch.linspace(-1, 1, count)[:, None, None, None].expand(-1, 3, 4, 6)
+    recorder = CaptureRecorder(
+        tmp_path,
+        SessionDesc(video_width=6, video_height=4),
+        images=True,
+        snapshot_every=5,
+    )
+    recorder.observe(records)
+    recorder.submit(records, output, output)
+    recorder.close()
+    summary = recorder.summary()
+    assert summary["capture_complete"]
+    assert summary["contact_frames"] == list(range(2, 18))
+    assert summary["contact_snapshot_policy"] == "onset_end_and_periodic"
+    assert summary["coverage"]["observations"]["saved"] == count
+    assert summary["coverage"]["model_images"]["saved"] == count
+    expected = {0, 2, 5, 10, 15, 17, count - 1}
+    if reset_at is not None:
+        expected.add(reset_at - 1)
+    for view in ("generated", "hdmap", "physics"):
+        assert {
+            int(path.stem) for path in (tmp_path / "frames" / view).glob("*.png")
+        } == expected
+        encoder = cast(RecordingEncoder, recorder._encoders[view])
+        assert len(encoder.frames) == count
+        for identifier in expected:
+            saved = np.asarray(
+                Image.open(tmp_path / "frames" / view / f"{identifier:06d}.png")
+            )
+            np.testing.assert_array_equal(saved, encoder.frames[identifier])
+
+
+def test_webm_capture_round_trip_without_external_tools(tmp_path, monkeypatch):
+    import subprocess
+
+    from flashdreams_webm import Reader
+    from omnidreams_game_engine.debug_capture import CaptureRecorder
+
+    def no_process(*args, **kwargs):
+        raise AssertionError("Debug capture must not launch a media executable")
+
+    monkeypatch.setattr(subprocess, "Popen", no_process)
+    monkeypatch.setenv("PATH", "")
+    desc = SessionDesc(
+        video_width=80,
+        video_height=72,
+        frames_per_second_for_step=30,
+        frames_per_second_for_ui=60,
+    )
+    recorder = CaptureRecorder(tmp_path, desc, images=True, snapshot_every=1)
+    records = tuple(_debug_record(i) for i in range(3))
+    video = torch.tensor([-1.0, 0.0, 1.0])[:, None, None, None].expand(-1, 3, 72, 80)
+    try:
+        recorder.observe(records)
+        recorder.submit(records, video, -video)
+        for index in range(3):
+            recorder.present({"source": records[index]}, video[index : index + 1])
+    finally:
+        recorder.close()
+    assert recorder.summary()["capture_complete"], recorder.summary()
+    assert not list(tmp_path.glob("*.mp4"))
+    for name in ("generated", "hdmap", "physics", "presentation"):
+        reader = Reader(str(tmp_path / f"{name}.webm"))
+        try:
+            assert (reader.width, reader.height) == (80, 72)
+            fps = 60 if name == "presentation" else 30
+            assert reader.duration_ns / 1e9 == pytest.approx(3 / fps, abs=1e-6)
+            luma = []
+            while (planes := reader.read()) is not None:
+                luma.append(np.frombuffer(planes[0], dtype=np.uint8).mean())
+            assert len(luma) == 3
+            if name != "physics":
+                expected = [235, 126, 16] if name == "hdmap" else [16, 126, 235]
+                np.testing.assert_allclose(luma, expected, atol=3)
+        finally:
+            reader.close()
+
+
+def test_timing_report_uses_physics_process_clock_not_generation_samples(tmp_path):
+    from omnidreams_game_engine.debug_report import write_timing_report
+
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"ready_ns": 1_000_000, "complete": True, "capture_complete": True})
+    )
+    (tmp_path / "input_events.jsonl").write_text(
+        json.dumps(
+            {
+                "status": "accepted",
+                "id": "press",
+                "timestamp_us": 1000,
+                "command": {"type": "keyboard"},
+            }
+        )
+        + "\n"
+    )
+    rows: list[dict[str, int | None]] = [
+        dict(
+            tick=0,
+            simulation_timestamp_us=0,
+            started_ns=1_000_000,
+            scheduled_ns=1_000_000,
+            completed_ns=1_000_000,
+        )
+    ]
+    for tick in (1, 2):
+        rows.append(
+            dict(
+                tick=tick,
+                simulation_timestamp_us=tick * 8333,
+                started_ns=12_000_000 + (tick - 1) * 8_333_000,
+                completed_ns=13_000_000 + (tick - 1) * 8_333_000,
+                scheduled_ns=12_000_000 + (tick - 1) * 8_333_000,
+                transition_timestamp_us=1000 if tick == 1 else None,
+            )
+        )
+    (tmp_path / "gameplay-1.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows)
+    )
+    report = write_timing_report(tmp_path)
+    assert report["gameplay_progress"][0]["simulation_to_wall_ratio"] == pytest.approx(
+        1
+    )
+    assert report["inputs"][0]["scheduled_to_physics_started_ms"] == 10
+    assert report["inputs"][0]["scheduled_to_first_presentation_ms"] is None
+    assert report["inputs"][0]["physics_association"] == "observed"
+
+
+def test_capture_recorded_world_without_native_physics(tmp_path, monkeypatch):
+    from dataclasses import dataclass
+
+    from omnidreams_game_engine.debug_observation import simulation_records
+    from omnidreams_game_engine.engine import EngineStep
+    from omnidreams_game_engine.types import (
+        ConditionBatch,
+        DriverCommand,
+        TrajectoryChunk,
+    )
+
+    @dataclass(frozen=True)
+    class GameState:
+        session_state: str = "playing"
+
+    monkeypatch.setattr(
+        "omnidreams_game_engine.debug_capture.WebmClientWindow", RecordingEncoder
+    )
+    vehicle = VehicleState(2, 3, 4, 0, 10, 0)
+    command = DriverCommand(throttle=1)
+    output = torch.zeros(1, 3, 4, 6)
+    step = EngineStep(
+        TrajectoryChunk(
+            np.array([10_000]),
+            np.eye(4, dtype=np.float32)[None],
+            (vehicle,),
+            vehicle,
+            applied_commands=(command,),
+        ),
+        (GameState(),),
+        ConditionBatch(output[None, None]),
+    )
+    records = simulation_records(
+        step,
+        commands=(command,),
+        transition_timestamps_us=(100,),
+        frame_start=0,
+        rollout_epoch=0,
+        model_step=0,
+        autoregressive_index=0,
+        elapsed_us=1000,
+    )
+    assert records[0]["physics_vehicle"] is None
+    assert records[0]["physics_started_ns"] is None
+    assert records[0]["vehicle"]["x_m"] == 2
+    window = DebugCaptureWindow(tmp_path / "capture", strict=True)
+    window.open(
+        SessionDesc(video_width=6, video_height=4, metadata={DEBUG_METADATA_KEY: {}})
+    )
+    assert window.recorder is not None
+    window.recorder.observe(records)
+    window.recorder.submit(records, output, output)
+    window.close()
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert manifest["capture_complete"]
+    assert set(manifest["views"]) == {"generated", "hdmap"}
+    summary = json.loads((window.directory / "timing_summary.json").read_text())
+    assert summary["physics_progress"] == []
