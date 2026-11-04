@@ -1644,11 +1644,6 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         "    rules: {global_time_s: 180}\n"
         "live_edit:\n  items: {nitro_duration_s: 2.5}\n"
     )
-    (tmp_path / "settings.yaml").write_text(
-        "game:\n  taxi:\n    vehicle: {max_speed_mps: 17}\n"
-        "    rules: {global_time_s: 180}\n"
-        "live_edit:\n  items: {nitro_duration_s: 2.5}\n"
-    )
     snapshot: TaxiGameSnapshot | RaceGameSnapshot | FreeRoamSnapshot = TaxiGameSnapshot(
         phase="seeking_pickup",
         target_xyz_m=(25, 0, 0),
@@ -1767,7 +1762,9 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         def close(self):
             pass
 
-    monkeypatch.setattr("crazy_robotaxi.debug_capture.WebmClientWindow", Encoder)
+    monkeypatch.setattr(
+        "omnidreams_game_engine.debug_capture.WebmClientWindow", Encoder
+    )
 
     def generate(**kwargs):
         # Deliberately slower than a chunk: inputs must still arrive while busy.
@@ -1915,7 +1912,7 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     assert (
         window.directory / "inputs" / _RACE_MAP.name
     ).read_text() == _RACE_MAP.read_text()
-    from crazy_robotaxi.driving_script import load_driving_script
+    from omnidreams_game_engine.driving_script import load_driving_script
 
     if source == "file":
         captured_script = load_driving_script(window.directory / "inputs/drive.yaml")
@@ -1928,73 +1925,6 @@ def test_live_debug_respects_ui_selection_and_runtime_input(
 ) -> None:
     from crazy_robotaxi.debug import (
         DEBUG_METADATA_KEY,
-        RobotaxiDebugUILoop,
-        RobotaxiLiveDebugUILoop,
-    )
-
-    app = _application()
-    app.resolve_client_window_mode("robotaxi-debug")
-    app.init(
-        [
-            "--device",
-            "cpu",
-            "--game-mode",
-            "free-roam",
-            "--map",
-            str(_RACE_MAP),
-            "--config",
-            str(tmp_path / "settings.yaml"),
-            "--prewarm-blocks",
-            "2",
-            "--total-blocks",
-            "2",
-            "--debug-view",
-            "paired" if no_ui else "gameplay",
-        ]
-    )
-    session = app.create_session(app.session_desc())
-    session.init()
-    ui_loop, model_loop = session._take_loops()
-    assert isinstance(
-        ui_loop, RobotaxiDebugUILoop if no_ui else RobotaxiLiveDebugUILoop
-    )
-    assert isinstance(model_loop, CrazyRobotaxiModelLoop)
-    assert model_loop.state.config.driving_script is None
-    assert model_loop.state.config.prewarm_blocks == 2
-    assert session.session_desc.presentation_mode is PresentationMode.CONTINUOUS
-    metadata = session.session_desc.metadata[DEBUG_METADATA_KEY]
-    assert metadata["input_mode"] == "runtime" and metadata["paired_views"] == no_ui
-
-
-@pytest.mark.parametrize(
-    "mode, extra, error",
-    [
-        ("robotaxi-debug", ["--ui"], "conflicts"),
-        ("native", [], "requires --mode"),
-    ],
-)
-def test_debug_view_rejects_conflicting_or_non_debug_use(tmp_path, mode, extra, error):
-    app = _application()
-    app.resolve_client_window_mode(mode)
-    with pytest.raises(ValueError, match=error):
-        app.init(
-            [
-                "--config",
-                str(tmp_path / "settings.yaml"),
-                "--debug-view",
-                "paired",
-                *extra,
-            ]
-        )
-
-
-@pytest.mark.parametrize("no_ui", [False, True])
-def test_live_debug_respects_ui_selection_and_runtime_input(
-    tmp_path: Path, no_ui: bool
-) -> None:
-    from crazy_robotaxi.debug import (
-        DEBUG_METADATA_KEY,
-        RobotaxiLiveDebugUILoop,
         RobotaxiDebugUILoop,
         RobotaxiLiveDebugUILoop,
     )
@@ -2083,7 +2013,7 @@ def test_scripted_headless_startup_requires_complete_cli_selection(
 @pytest.mark.parametrize("game_mode", ["taxi", "free-roam", "race"])
 def test_engine_only_debug_skips_model_loading_and_labels_capture(tmp_path, game_mode):
     from crazy_robotaxi.debug import DEBUG_METADATA_KEY
-    from crazy_robotaxi.debug_engine import SemanticDebugPipeline
+    from omnidreams_game_engine.debug_engine import SemanticDebugPipeline
 
     prepared = []
 
