@@ -12,8 +12,8 @@ import shapely
 import torch
 from ludus_renderer import (
     PRIM_BEV_ROAD_SURFACE,
-    PRIM_POLE,
     PRIM_LANE_LINE_WHITE_SOLID,
+    PRIM_POLE,
     TimestampedPolylinePool,
     TimestampedScene,
 )
