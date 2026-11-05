@@ -59,7 +59,6 @@ def _build_simulation(engine_options, driver, controls, observe_physics):
     return TaxiSimulationDriver(engine, driver, controls)
 
 
-
 def build_gameplay_process(
     engine_options,
     driver,
