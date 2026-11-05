@@ -65,7 +65,7 @@ def test_stationary_world_retains_image_and_ar_cursor_until_motion(monkeypatch):
         debug_capture=False,
         profile_input_latency=False,
         live_edit=LiveEditConfig(),
-        total_blocks=None,
+        total_blocks=4,
         pipeline_profiling=False,
         no_ui=False,
     )
@@ -83,6 +83,7 @@ def test_stationary_world_retains_image_and_ar_cursor_until_motion(monkeypatch):
     state.last_hdmap = torch.zeros(1, 3, 4, 8)
     state.last_pose = np.eye(4, dtype=np.float32)
     state.blocks_generated = 3
+    state.blocks_output = 3
     loop = CrazyRobotaxiModelLoop()
     loop.register_session_loop_objects(
         state=state,
@@ -92,6 +93,7 @@ def test_stationary_world_retains_image_and_ar_cursor_until_motion(monkeypatch):
     )
     result = loop.step(0, UserInputEvents([]))
     assert state.blocks_generated == 3 and not rollout.step.called
+    assert state.blocks_output == 4 and state.finished
     assert torch.equal(
         result[0].read_output(), torch.ones_like(result[0].read_output())
     )

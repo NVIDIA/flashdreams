@@ -57,29 +57,45 @@ class GenerationWindow:
         """Keep intervening collisions and actor tracks when sampling the path."""
         steps = tuple(sample.step for sample in self.samples)
         paths = tuple(step.trajectory for step in steps)
-        actors: dict[str, list[DynamicActorTrajectory]] = {}
+        # Split tracks wherever recorded presence ends, including reappearances.
+        series: list[list[tuple[DynamicActorTrajectory, int]]] = []
+        active: dict[str, list[tuple[DynamicActorTrajectory, int]]] = {}
         for path in paths:
+            present = {}
+            timestamp = int(path.timestamps_us[0])
             for actor in path.dynamic_actors:
-                actors.setdefault(actor.entity_id, []).append(actor)
+                if not actor.timestamps_us[0] <= timestamp <= actor.timestamps_us[-1]:
+                    continue
+                segment = active.get(actor.entity_id)
+                if segment is None:
+                    segment = []
+                    series.append(segment)
+                segment.append((actor, timestamp))
+                present[actor.entity_id] = segment
+            active = present
         tracks = []
-        for series in actors.values():
-            timestamps = np.concatenate([actor.timestamps_us for actor in series])
-            # Visual-only actors can repeat their complete authored track. Keep
-            # the latest observation at each timestamp, in chronological order.
+        seen = set()
+        for series_index, segment in enumerate(series):
+            timestamps = np.concatenate([actor.timestamps_us for actor, _ in segment])
             _, reversed_indices = np.unique(timestamps[::-1], return_index=True)
             indices = len(timestamps) - 1 - reversed_indices
-            tracks.append(
-                replace(
-                    series[-1],
-                    timestamps_us=timestamps[indices],
-                    translations_world=np.concatenate(
-                        [a.translations_world for a in series]
-                    )[indices],
-                    orientations_xyzw=np.concatenate(
-                        [a.orientations_xyzw for a in series]
-                    )[indices],
-                )
+            actor = segment[-1][0]
+            entity_id = actor.entity_id
+            if entity_id in seen:
+                entity_id = f"{entity_id}/presence-{series_index}"
+            seen.add(actor.entity_id)
+            track = replace(
+                actor,
+                entity_id=entity_id,
+                timestamps_us=timestamps[indices],
+                translations_world=np.concatenate(
+                    [a.translations_world for a, _ in segment]
+                )[indices],
+                orientations_xyzw=np.concatenate(
+                    [a.orientations_xyzw for a, _ in segment]
+                )[indices],
             )
+            tracks.append(_clip_actor_track(track, segment[0][1], segment[-1][1]))
         timings = [
             path.physx_timings for path in paths if path.physx_timings is not None
         ]
@@ -126,6 +142,49 @@ class GenerationWindow:
                 for key in steps[0].metrics
             },
         )
+
+
+def _clip_actor_track(
+    actor: DynamicActorTrajectory, start: int, end: int
+) -> DynamicActorTrajectory:
+    timestamps = actor.timestamps_us
+    if start == timestamps[0] and end == timestamps[-1]:
+        return actor
+    clipped = np.unique(
+        np.concatenate(
+            ([start, end], timestamps[(timestamps >= start) & (timestamps <= end)])
+        )
+    )
+    upper = (
+        np.searchsorted(timestamps, clipped, side="right").clip(1, len(timestamps) - 1)
+        if len(timestamps) > 1
+        else np.zeros(len(clipped), dtype=int)
+    )
+    lower = np.maximum(upper - 1, 0)
+    span = timestamps[upper] - timestamps[lower]
+    fraction = (clipped - timestamps[lower]) / np.maximum(span, 1)
+    positions = (
+        actor.translations_world[lower] * (1 - fraction[:, None])
+        + actor.translations_world[upper] * fraction[:, None]
+    )
+    q0 = actor.orientations_xyzw[lower]
+    q1 = actor.orientations_xyzw[upper].copy()
+    dot = np.sum(q0 * q1, axis=1)
+    q1[dot < 0] *= -1
+    angle = np.arccos(np.clip(np.abs(dot), 0, 1))
+    sine = np.sin(angle)
+    near = sine < 1e-6
+    divisor = np.where(near, 1, sine)
+    a = np.where(near, 1 - fraction, np.sin((1 - fraction) * angle) / divisor)
+    b = np.where(near, fraction, np.sin(fraction * angle) / divisor)
+    orientations = a[:, None] * q0 + b[:, None] * q1
+    orientations /= np.linalg.norm(orientations, axis=1, keepdims=True)
+    return replace(
+        actor,
+        timestamps_us=clipped,
+        translations_world=positions.astype(np.float32),
+        orientations_xyzw=orientations.astype(np.float32),
+    )
 
 
 class WorldTimeline:

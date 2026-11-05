@@ -252,8 +252,12 @@ class LiveEditGameplay:
                         image_height=self._image_height,
                     )
                 )
+        status = self.hud_statuses()[-1]
+        if self.style is not None:
+            skin, weather = self.style.selected_labels()
+            status = replace(status, skin_name=skin, weather_name=weather)
         return LiveEditFrame(
-            self.hud_statuses()[-1],
+            status,
             tuple(sprites),
             self._obstacle_boxes(int(trajectory.timestamps_us[-1]))
             if self.config.obstacle.annotate

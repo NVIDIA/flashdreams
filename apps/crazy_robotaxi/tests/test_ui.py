@@ -3864,3 +3864,78 @@ def test_hud_uses_current_gameplay_while_video_frame_stays_unchanged(monkeypatch
     assert speeds == [12, 18]
     assert delivered == [events]
     assert state._current is not None and state._current.speed_mps == 0
+
+
+@pytest.mark.parametrize("cancel", [None, "release", "focus"])
+def test_gameplay_attachment_preserves_only_controls_still_held(cancel):
+    from omnidreams_game_engine.input import DriverInput
+
+    state = TaxiHudState(320, 240, _calibration())
+    state.consume_input_events(
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(100), key="w", state=KeyboardInputState.PRESSED
+                ),
+            ]
+        )
+    )
+    if cancel == "release":
+        state.consume_input_events(
+            UserInputEvents(
+                [
+                    KeyboardUserInputEvent(
+                        timestamp=np.uint64(200),
+                        key="w",
+                        state=KeyboardInputState.RELEASED,
+                    ),
+                ]
+            )
+        )
+    elif cancel == "focus":
+        state.consume_input_events(
+            UserInputEvents(
+                [FocusUserInputEvent(timestamp=np.uint64(200), focused=False)]
+            )
+        )
+    driver = DriverInput()
+    delivered = []
+
+    def submit(events):
+        delivered.extend(events.get_events())
+        driver.apply(events)
+
+    state.attach_gameplay(SimpleNamespace(submit_input=submit))
+    assert driver.command().throttle == (1 if cancel is None else 0)
+    assert all(event.timestamp == 0 for event in delivered)
+
+
+def test_gameplay_attachment_retains_latest_wheel_state_and_disconnect():
+    from flashdreams.runtime_v2.user_input_event import GameWheelUserInputEvent
+    from omnidreams_game_engine.input import DriverInput
+
+    state = TaxiHudState(320, 240, _calibration())
+    for index in range(20):
+        state.consume_input_events(
+            UserInputEvents(
+                [
+                    GameWheelUserInputEvent(
+                        timestamp=np.uint64(index),
+                        throttle=index / 20,
+                        steering=0.2,
+                    )
+                ]
+            )
+        )
+    driver = DriverInput()
+    state.attach_gameplay(SimpleNamespace(submit_input=driver.apply))
+    assert driver.command().throttle == pytest.approx(0.95)
+    state.attach_gameplay(None)
+    state.consume_input_events(
+        UserInputEvents(
+            [GameWheelUserInputEvent(timestamp=np.uint64(100), action="disconnected")]
+        )
+    )
+    fresh_driver = DriverInput()
+    state.attach_gameplay(SimpleNamespace(submit_input=fresh_driver.apply))
+    assert fresh_driver.command().throttle == 0

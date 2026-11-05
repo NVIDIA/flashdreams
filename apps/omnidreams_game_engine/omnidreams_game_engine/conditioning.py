@@ -56,6 +56,8 @@ class LudusConditionRenderer(ConditionRenderer):
         if self._device.type != "cuda":
             raise ValueError("Ludus conditioning requires a CUDA device")
         self._context = LudusCudaTimestampedContext(device=self._device)
+        # Recorded actor lifetimes are authoritative, including disappearances.
+        self._context.set_max_extrapolation_us(0)
         self._context.set_depth_scaling(True)
         self._context.set_msaa_samples(4)
         self._context.set_max_tessellation_levels(cube=3)

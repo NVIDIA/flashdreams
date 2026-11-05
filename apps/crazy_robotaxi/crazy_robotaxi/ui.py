@@ -483,6 +483,11 @@ class TaxiHudState:
     _latest_input_latency_ms: float | None = None
     """Latest UI-ingress-to-model-frame-selection latency measurement."""
 
+    _held_gameplay_inputs: dict[tuple[str, str | int], UserInputEvent] = field(
+        default_factory=dict
+    )
+    """Latest held controls retained across worker startup and restart."""
+
     gameplay: Any | None = None
     """Process bridge supplying current gameplay independently of video."""
 
@@ -567,13 +572,45 @@ class TaxiHudState:
         if elapsed_s > 0.0:
             self._video_fps = (len(times) - 1) / elapsed_s
 
+    def attach_gameplay(self, gameplay: Any | None) -> None:
+        """Hand current held controls to a newly ready gameplay process."""
+        self.gameplay = gameplay
+        if gameplay is not None and self._held_gameplay_inputs:
+            events = sorted(
+                self._held_gameplay_inputs.values(),
+                key=lambda event: int(event.timestamp),
+            )
+            # These are current control states, not future scheduled events.
+            gameplay.submit_input(
+                UserInputEvents(
+                    [replace(event, timestamp=np.uint64(0)) for event in events]
+                )
+            )
+
     def consume_input_events(self, events: UserInputEvents) -> None:
         """Track responsive drive state and receipt times on the UI thread."""
         if self.gameplay is not None:
             self.gameplay.submit_input(events)
         received = events.get_events()
         for event in received:
+            if isinstance(event, KeyboardUserInputEvent):
+                key = ("keyboard", canonical_key(str(event.key)))
+                if event.state is KeyboardInputState.PRESSED:
+                    self._held_gameplay_inputs[key] = event
+                else:
+                    self._held_gameplay_inputs.pop(key, None)
+            elif isinstance(event, (GamepadUserInputEvent, GameWheelUserInputEvent)):
+                key = (event.get_type_name(), event.index)
+                if event.action == "disconnected":
+                    self._held_gameplay_inputs.pop(key, None)
+                elif event.action == "state":
+                    self._held_gameplay_inputs[key] = event
             if isinstance(event, FocusUserInputEvent) and not event.focused:
+                self._held_gameplay_inputs = {
+                    key: value
+                    for key, value in self._held_gameplay_inputs.items()
+                    if key[0] != "keyboard"
+                }
                 self._pressed_keys.clear()
             elif isinstance(event, KeyboardUserInputEvent):
                 key = canonical_key(str(event.key))

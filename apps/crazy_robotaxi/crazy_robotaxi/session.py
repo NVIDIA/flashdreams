@@ -109,6 +109,8 @@ class ModelState:
     """Speed aligned with the retained terminal presentation frame."""
 
     blocks_generated: int = 0
+    blocks_output: int = 0
+    """Visible chunks, including reused video, counted against the output budget."""
     prewarmed_blocks: int = 0
     """Retained stationary AR history preceding the visible generated blocks."""
 
@@ -179,8 +181,8 @@ class ModelState:
             self.gameplay.start()
             invoke_async(
                 self.ui_loop,
-                lambda ui_state, gameplay=self.gameplay: setattr(
-                    ui_state, "gameplay", gameplay
+                lambda ui_state, gameplay=self.gameplay: ui_state.attach_gameplay(
+                    gameplay
                 ),
             )
         return self.rollout
@@ -348,6 +350,7 @@ class ModelState:
                 time_ns=time.monotonic_ns(),
             )
         self.blocks_generated = 0
+        self.blocks_output = 0
         self.prewarmed_blocks = 0
         self.prewarm_complete = False
         self.prewarm_wall_ms = 0.0
@@ -371,9 +374,7 @@ class ModelState:
         if self.gameplay is not None:
             self.gameplay.close()
             self.gameplay = None
-            invoke_async(
-                self.ui_loop, lambda ui_state: setattr(ui_state, "gameplay", None)
-            )
+            invoke_async(self.ui_loop, lambda ui_state: ui_state.attach_gameplay(None))
 
     def close(self) -> None:
         self._close_gameplay()
@@ -549,6 +550,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 if live_edit.style is not None:
                     current_prompt = live_edit.style.active_prompt or current_prompt
             state.blocks_generated += int(not reuse_video)
+            state.blocks_output += 1
             video = generated.video_bvtchw[0, 0]
             expected_shape = (
                 3,
@@ -630,7 +632,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         )
         if (
             state.config.total_blocks is not None
-            and state.blocks_generated >= state.config.total_blocks
+            and state.blocks_output >= state.config.total_blocks
         ):
             state.finished = True
         count = int(video.shape[0])

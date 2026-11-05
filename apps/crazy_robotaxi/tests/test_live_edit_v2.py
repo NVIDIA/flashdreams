@@ -781,3 +781,28 @@ def test_obstacle_lifetimes_and_stagger_follow_simulation_time(
     ability.request_spawn()
     assert ability._elapsed_s == 0
     assert ability._pending == [(0, 0), (1, config.stagger_interval_s)]
+
+
+def test_worker_frame_reports_selected_style_before_model_applies_it():
+    config = LiveEditConfig(
+        style=LiveEditStyleConfig(enabled=True),
+        weather=LiveEditWeatherConfig(enabled=True),
+    )
+    gameplay = LiveEditGameplay(config, _scene(), (), vehicle=VehicleConfig())
+    state = VehicleState(0, 0, 0, 0, 0, 0)
+    trajectory = TrajectoryChunk(
+        np.array([0]), np.eye(4, dtype=np.float32)[None], (state,), state
+    )
+    style = gameplay.style
+    assert style is not None
+    style.request_cycle()
+    gameplay.begin_advance(trajectory, 1 / 120)
+    gameplay.advance_frame(state, True)
+    frame = gameplay.capture_frame(trajectory)
+    assert frame.status.skin_name == config.style.skins[0].name
+    assert style.active_skin_name == "base"
+    style.request_selection((None, 0))
+    frame = gameplay.capture_frame(trajectory)
+    assert frame.status.skin_name == "base"
+    assert frame.status.weather_name == config.weather.weathers[0].name
+    assert style.active_weather_name == "clear"

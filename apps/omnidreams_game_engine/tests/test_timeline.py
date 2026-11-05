@@ -158,3 +158,42 @@ def test_terminal_window_freezes_final_state_without_inventing_future_gameplay()
     timeline.commit(window)
     assert timeline.generation_tick == timeline.gameplay_tick == 6
     assert timeline.prepare(8, threading.Event()) is None
+
+
+def test_authored_tracks_follow_recorded_presence_including_reappearance():
+    timeline = WorldTimeline()
+    authored = replace(
+        sample(0).step.trajectory.dynamic_actors[0],
+        timestamps_us=np.array([0, 1_000_000]),
+        translations_world=np.array([[0, 0, 0], [12, 0, 0]], dtype=np.float32),
+        orientations_xyzw=np.array([[0, 0, 0, 1], [0, 0, 1, 0]], dtype=np.float32),
+    )
+    for tick in range(33):
+        observation = sample(tick)
+        present = 4 <= tick <= 8 or 20 <= tick <= 24
+        path = replace(
+            observation.step.trajectory, dynamic_actors=(authored,) if present else ()
+        )
+        timeline.append(
+            replace(observation, step=replace(observation.step, trajectory=path))
+        )
+    window = timeline.prepare(9, threading.Event())
+    assert window is not None
+    actors = window.recorded_step().trajectory.dynamic_actors
+    assert len(actors) == 2
+    assert actors[0].entity_id != actors[1].entity_id
+    assert [a.timestamps_us.tolist() for a in actors] == [
+        [33333, 66667],
+        [166667, 200000],
+    ]
+    for actor in actors:
+        np.testing.assert_allclose(
+            actor.translations_world[:, 0], actor.timestamps_us * 12e-6
+        )
+        angle = actor.timestamps_us * np.pi / 2e6
+        np.testing.assert_allclose(
+            actor.orientations_xyzw[:, 2], np.sin(angle), atol=1e-6
+        )
+        np.testing.assert_allclose(
+            actor.orientations_xyzw[:, 3], np.cos(angle), atol=1e-6
+        )

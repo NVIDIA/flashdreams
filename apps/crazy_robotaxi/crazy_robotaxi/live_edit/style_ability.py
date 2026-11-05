@@ -367,6 +367,18 @@ class StyleAbility:
         """Return desired gameplay style independently of model-cache progress."""
         return self._skin_state(), self._weather_state()
 
+    def selected_labels(self) -> tuple[str, str]:
+        """Return labels for gameplay's selection before model application."""
+        skin, weather = self.selection()
+        return (
+            "base"
+            if skin is None or not self._config.enabled
+            else self._config.skins[skin].name,
+            "clear"
+            if weather is None or self._weather_config is None
+            else self._weather_config.weathers[weather].name,
+        )
+
     def request_selection(self, selection: tuple[int | None, int | None]) -> None:
         """Reconcile the model prompt with a recorded gameplay selection."""
         skin, weather = selection
