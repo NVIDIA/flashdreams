@@ -31,8 +31,11 @@ def native_physics() -> None:
     prepare_physx()
 
 
+@pytest.mark.parametrize("height", [-4.0, 0.0, 8.0])
 @pytest.mark.parametrize("nearby_count", [0, 80])
-def test_barrier_query_keeps_contacts_after_topology_changes(nearby_count: int) -> None:
+def test_barrier_query_keeps_contacts_after_topology_changes(
+    height: float, nearby_count: int
+) -> None:
     model = _ego_model(VehicleConfig())
     yaw = 0.9
     support = (
@@ -44,6 +47,8 @@ def test_barrier_query_keeps_contacts_after_topology_changes(nearby_count: int) 
         (-10, support + 0.03),
         (10, support + 0.03),
         barrier_id="contact",
+        start_z_m=height,
+        end_z_m=height,
     )
     # More than a fixed 32/64-hit buffer can hold, but outside contact distance.
     barriers = tuple(
@@ -51,13 +56,37 @@ def test_barrier_query_keeps_contacts_after_topology_changes(nearby_count: int) 
             (-10, radius + 0.25 + i * 0.0001),
             (10, radius + 0.25 + i * 0.0001),
             barrier_id=f"near-{i}",
+            start_z_m=height,
+            end_z_m=height,
         )
         for i in range(nearby_count)
+    ) + (
+        InvisibleBarrier(
+            contact.start_xy_m,
+            contact.end_xy_m,
+            barrier_id="above",
+            start_z_m=height + 20,
+            end_z_m=height + 20,
+        ),
     )
     world = PhysXWorld(PhysicsObjectGraph(barriers=barriers), model)
     try:
+        world.set_ground_mesh(
+            np.asarray(
+                [
+                    [-30, -30, height],
+                    [30, -30, height],
+                    [30, 30, height],
+                    [-30, 30, height],
+                ],
+                dtype=np.float32,
+            ),
+            np.asarray([[0, 1, 2], [0, 2, 3]], dtype=np.int32),
+        )
         body = BodyState(
-            position_m=np.asarray([0, 0, model.half_extents_m[2]], dtype=np.float32),
+            position_m=np.asarray(
+                [0, 0, height + model.half_extents_m[2]], dtype=np.float32
+            ),
             orientation_xyzw=np.asarray(
                 [0, 0, math.sin(yaw / 2), math.cos(yaw / 2)], dtype=np.float32
             ),

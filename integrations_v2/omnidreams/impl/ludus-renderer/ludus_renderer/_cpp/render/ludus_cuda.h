@@ -159,7 +159,8 @@ struct TsPolylinePoolHeader {
     uint32_t varrays_ps_offset;       // [6] into int32 buffer
     uint32_t vertices_offset;         // [7] into vertex buffer
     uint32_t aabb_offset;             // [8] into float buffer
-    uint32_t _pad[7];
+    uint32_t surface_planes_offset;   // [9] float offset + 1; zero means two-sided
+    uint32_t _pad[6];
 };
 
 struct TsPolygonPoolHeader {
@@ -175,7 +176,8 @@ struct TsPolygonPoolHeader {
     uint32_t vertices_offset;         // [9]
     uint32_t triangles_offset;        // [10]
     uint32_t aabb_offset;             // [11]
-    uint32_t _pad[4];
+    uint32_t surface_planes_offset;   // [12] float offset + 1; zero means two-sided
+    uint32_t _pad[3];
 };
 
 struct TsCubePoolHeader {

@@ -165,6 +165,9 @@ def build_physx_debug_cube_pool(
         ground_z = float(
             snapshot.ego_position_m[2] - snapshot.ego_dimensions_lwh[2] * 0.5
         )
+        bases = getattr(snapshot, "barrier_base_heights_m", None)
+        if bases is not None:
+            ground_z = np.asarray(bases, dtype=np.float32)[valid]
         translations[barrier_indices, frame_index, :2] = centers
         translations[barrier_indices, frame_index, 2] = ground_z + heights * 0.5
         yaw = np.arctan2(delta[:, 1], delta[:, 0])

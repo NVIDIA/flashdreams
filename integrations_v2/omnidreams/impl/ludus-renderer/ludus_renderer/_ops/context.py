@@ -153,6 +153,14 @@ class LudusCudaTimestampedContext:
             vertices_list.append(verts_padded)
 
             float_list.append(aabbs)
+            if pool.surface_planes is not None:
+                if pool.surface_planes.shape != (n_verts, 4):
+                    raise ValueError("surface_planes must have shape [N, 4]")
+                header[9] = float_offset + len(aabbs) + 1
+                float_list.append(
+                    pool.surface_planes.to(device, dtype=torch.float32).flatten()
+                )
+                float_offset += n_verts * 4
 
             ts_offset += n_ts
             int32_offset += n_ts + n_varrays
@@ -207,6 +215,14 @@ class LudusCudaTimestampedContext:
             triangles_list.append(tris_padded)
 
             float_list.append(aabbs)
+            if pool.surface_planes is not None:
+                if pool.surface_planes.shape != (n_verts, 4):
+                    raise ValueError("surface_planes must have shape [N, 4]")
+                header[12] = float_offset + len(aabbs) + 1
+                float_list.append(
+                    pool.surface_planes.to(device, dtype=torch.float32).flatten()
+                )
+                float_offset += n_verts * 4
 
             ts_offset += n_ts
             int32_offset += n_ts + 2 * n_varrays
