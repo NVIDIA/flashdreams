@@ -25,7 +25,7 @@ from omnidreams_game_engine.game_map.vicinity import (
     GameMapVicinity,
     GameMapVicinityResolver,
 )
-from omnidreams_game_engine.math3d import quaternion_to_matrix_xyzw, rig_pose_from_state
+from omnidreams_game_engine.math3d import quaternion_to_matrix_xyzw
 from omnidreams_game_engine.simulation.actor_controller import (
     PhysicsActorController,
 )
@@ -342,65 +342,6 @@ def _reinforce_static_barrier_rebound(
         if resolved_normal_speed < target_outward_speed:
             reinforced[:2] += normal * (target_outward_speed - resolved_normal_speed)
     return reinforced, len(contact_indices) > 0
-
-
-def constrain_grounded_roll(
-    state: VehicleState,
-    vehicle: VehicleConfig,
-    surface: tuple[float, np.ndarray] | None,
-) -> VehicleState:
-    """Limit a supported vehicle's roll without moving its body center.
-
-    Games opt into this constraint by applying it to their resolved physical
-    state before synchronizing that state back to the physics world.
-
-    Args:
-        state: Resolved physical vehicle state.
-        vehicle: Body dimensions, suspension reach, and roll limit.
-        surface: Supporting ground height and normal, or ``None`` when absent.
-
-    Returns:
-        Constrained state, or the original state when airborne or within limits.
-    """
-    if surface is None or abs(state.z_m - surface[0]) > vehicle.suspension_travel_m:
-        return state
-    normal = surface[1]
-    cy, sy = math.cos(state.yaw_rad), math.sin(state.yaw_rad)
-    road_roll = -math.asin(float(np.clip(-sy * normal[0] + cy * normal[1], -1, 1)))
-    relative_roll = math.atan2(
-        math.sin(state.roll_rad - road_roll), math.cos(state.roll_rad - road_roll)
-    )
-    limited = float(
-        np.clip(relative_roll, -vehicle.max_body_roll_rad, vehicle.max_body_roll_rad)
-    )
-    if limited == relative_roll:
-        return state
-    roll = road_roll + limited
-    # Rotate about the physical body center, rather than moving that center
-    # when the bottom-of-body rig origin changes orientation.
-    pose_options = dict(
-        x_m=state.x_m,
-        y_m=state.y_m,
-        z_m=state.z_m,
-        yaw_rad=state.yaw_rad,
-        pitch_rad=state.pitch_rad,
-    )
-    old_up = rig_pose_from_state(**pose_options, roll_rad=state.roll_rad)[:3, 2]
-    new_up = rig_pose_from_state(**pose_options, roll_rad=roll)[:3, 2]
-    offset = (old_up - new_up) * (vehicle.aabb_height_m / 2)
-    roll_rate = (
-        state.angular_velocity_x_radps * cy + state.angular_velocity_y_radps * sy
-    )
-    outward_rate = roll_rate if roll_rate * relative_roll > 0 else 0.0
-    return replace(
-        state,
-        x_m=state.x_m + float(offset[0]),
-        y_m=state.y_m + float(offset[1]),
-        z_m=state.z_m + float(offset[2]),
-        roll_rad=roll,
-        angular_velocity_x_radps=state.angular_velocity_x_radps - cy * outward_rate,
-        angular_velocity_y_radps=state.angular_velocity_y_radps - sy * outward_rate,
-    )
 
 
 class GamePhysicsWorld:
