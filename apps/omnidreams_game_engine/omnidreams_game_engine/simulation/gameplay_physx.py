@@ -8,7 +8,13 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 
-from ludus_renderer import PhysicsObjectGraph, PhysXWorld, RigidBodyModel, SceneObject
+from ludus_renderer import (
+    PhysicsObjectGraph,
+    PhysXWorld,
+    RigidBodyModel,
+    SceneObject,
+    prepare_physx,
+)
 
 from omnidreams_game_engine.simulation.actor_controller import ActorTrackTarget
 
@@ -33,6 +39,8 @@ class GameplayPhysXWorld(PhysXWorld):
     ) -> None:
         self._gameplay_drive_speed_caps: dict[str, float] = {}
         self.set_actor_drive_speed_caps(max_actor_drive_speeds_mps or {})
+        # Spawned simulation owners need their own prepared native module.
+        prepare_physx()
         super().__init__(
             graph,
             ego_model,

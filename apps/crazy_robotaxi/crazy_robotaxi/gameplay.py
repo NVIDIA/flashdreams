@@ -23,10 +23,6 @@ class TaxiSimulationDriver(SimulationDriver):
         super().__init__(engine, driver)
         self.actions = BoundActionState(controls)
         self.live_edit = getattr(engine, "live_edit", None)
-        if self.live_edit is not None and self.live_edit.obstacles is not None:
-            self.live_edit.obstacles.advance_chunk_fraction = (
-                engine.frame_interval_s / (8 / 30)
-            )
 
     def apply(self, events):
         for action in self.actions.apply(events):
@@ -49,9 +45,6 @@ class TaxiSimulationDriver(SimulationDriver):
 
 
 def _build_simulation(engine_options, driver, controls):
-    from ludus_renderer import prepare_physx
-
-    prepare_physx()
     return TaxiSimulationDriver(
         build_taxi_engine(**engine_options, render_conditions=False), driver, controls
     )

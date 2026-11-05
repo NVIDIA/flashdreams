@@ -70,7 +70,7 @@ class ObstacleEvent:
 
     static: bool = False
     phase: ObstaclePhase = ObstaclePhase.SCRIPTED
-    chunks: int = 0
+    elapsed_s: float = 0.0
     hit_logged: bool = False
     scene_object: SceneObject | None = None
     logical_timestamp_us: float = 0.0
@@ -408,9 +408,6 @@ def build_obstacle_event(
 class ObstacleAbility:
     """Own track-backed obstacle lifecycle, rendering, and PhysX control."""
 
-    advance_chunk_fraction: float = 1.0
-    """Fraction of a nominal 8/30-second chunk advanced per rules update."""
-
     def __init__(
         self,
         config: LiveEditObstacleConfig,
@@ -449,9 +446,9 @@ class ObstacleAbility:
             self._parked_templates = resolved_catalog.parked(
                 length_range_m=config.length_range_m
             )
-        self._pending: list[tuple[int, int]] = []
+        self._pending: list[tuple[int, float]] = []
         self._events: list[ObstacleEvent] = []
-        self._chunk_index = 0
+        self._elapsed_s = 0.0
         self._event_count = 0
         self._burst_count = 0
         self._static_initialized = False
@@ -513,9 +510,9 @@ class ObstacleAbility:
             return
         if self._pending or any(not event.static for event in self.events):
             return
-        base = self._chunk_index
+        base = self._elapsed_s
         self._pending = [
-            (slot, base + slot * self._config.stagger_chunks)
+            (slot, base + slot * self._config.stagger_interval_s)
             for slot in range(self._config.count)
         ]
         self._burst_count += 1
@@ -523,7 +520,7 @@ class ObstacleAbility:
     def reset(self) -> None:
         self._pending.clear()
         self._events.clear()
-        self._chunk_index = 0
+        self._elapsed_s = 0.0
         self._static_initialized = False
         self._owned_ids.clear()
         self._drive_speeds_mps.clear()
@@ -650,9 +647,9 @@ class ObstacleAbility:
             else:
                 for slot in range(self._config.static_count):
                     self._make_event(ego_state, timestamp_us, slot, static=True)
-        due = [entry for entry in self._pending if entry[1] <= self._chunk_index]
+        due = [entry for entry in self._pending if entry[1] <= self._elapsed_s + 1e-9]
         self._pending = [
-            entry for entry in self._pending if entry[1] > self._chunk_index
+            entry for entry in self._pending if entry[1] > self._elapsed_s + 1e-9
         ]
         for slot, _ in due:
             self._make_event(ego_state, timestamp_us, slot, static=False)
@@ -731,9 +728,10 @@ class ObstacleAbility:
                 return
 
     def advance_frames(
-        self, trajectory: TrajectoryChunk
+        self, trajectory: TrajectoryChunk, frame_interval_s: float
     ) -> tuple[DynamicActorTrajectory, ...]:
-        """Advance chunk lifetimes and return visual-only renderer actors."""
+        """Advance simulation-time lifetimes and return visual-only actors."""
+        elapsed_s = len(trajectory.vehicle_states) * frame_interval_s
         if not self._config.physics:
             self._spawn_due(
                 trajectory.vehicle_states[0], int(trajectory.timestamps_us[0])
@@ -741,7 +739,7 @@ class ObstacleAbility:
         actors: list[DynamicActorTrajectory] = []
         last_timestamp_us = int(trajectory.timestamps_us[-1])
         for event in self.events:
-            event.chunks += self.advance_chunk_fraction
+            event.elapsed_s += elapsed_s
             if not self._config.physics:
                 self._check_visual_collision(event, trajectory)
                 actors.append(event.actor())
@@ -752,14 +750,15 @@ class ObstacleAbility:
                 else last_timestamp_us >= int(event.timestamps_us[-1])
             )
             if not event.static and (
-                event.chunks >= self._config.active_chunks or track_exhausted
+                event.elapsed_s + 1e-9 >= self._config.active_duration_s
+                or track_exhausted
             ):
                 event.phase = ObstaclePhase.EXPIRED
                 reason = "track exhausted" if track_exhausted else "duration reached"
                 logger.info(
                     "[live-edit] obstacle despawned {} ({})", event.entity_id, reason
                 )
-        self._chunk_index += self.advance_chunk_fraction
+        self._elapsed_s += elapsed_s
         return tuple(actors)
 
 

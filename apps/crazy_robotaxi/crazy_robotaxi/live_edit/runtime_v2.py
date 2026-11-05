@@ -363,7 +363,9 @@ class LiveEditGameplay:
             for status in self._frame_statuses
         )
 
-    def begin_advance(self, trajectory: TrajectoryChunk) -> tuple[Any, ...]:
+    def begin_advance(
+        self, trajectory: TrajectoryChunk, frame_interval_s: float
+    ) -> tuple[Any, ...]:
         """Prepare one trajectory for frame-by-frame gameplay updates."""
         self._frame_statuses.clear()
         self._nitro_activated_during_advance = False
@@ -378,7 +380,7 @@ class LiveEditGameplay:
             self._obstacle_count_for_advance = None
             return ()
         active_ids = {event.entity_id for event in self.obstacles.events}
-        actors = self.obstacles.advance_frames(trajectory)
+        actors = self.obstacles.advance_frames(trajectory, frame_interval_s)
         active_ids.update(actor.entity_id for actor in actors)
         self._obstacle_count_for_advance = len(active_ids)
         return actors
@@ -572,7 +574,7 @@ class LiveEditGameRules:
     def advance_frames(
         self, trajectory: TrajectoryChunk, frame_interval_s: float
     ) -> GameUpdate:
-        dynamic_actors = self.gameplay.begin_advance(trajectory)
+        dynamic_actors = self.gameplay.begin_advance(trajectory, frame_interval_s)
         update = self.inner.advance_frames(trajectory, frame_interval_s)
         self.gameplay.complete_advance(len(update.frames))
         return GameUpdate(
