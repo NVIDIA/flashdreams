@@ -55,7 +55,7 @@ from crazy_robotaxi.settings import (
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
 from ludus_renderer.physx import PhysXStepTimings, _CompactPhysicsStep
 from omnidreams_game_engine.config import BevConfig, RasterConfig
-from omnidreams_game_engine.engine import GameEngine
+from omnidreams_game_engine.engine import EngineStep, GameEngine
 from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
 from omnidreams_game_engine.gameplay import GameplayProcess
@@ -73,8 +73,6 @@ from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import (
     CameraCalibration,
     ConditionBatch,
-    DriverCommand,
-    PhysicsDebugFrame,
     SceneDefinition,
     VehicleState,
 )
@@ -1682,7 +1680,6 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
 
     from crazy_robotaxi.debug import RobotaxiDebugWindow
     from crazy_robotaxi.settings import SettingsDocument
-    from omnidreams_game_engine.types import VehicleState
     from PIL import Image
 
     from flashdreams.runtime_v2.application_runner import ApplicationRunner
@@ -1742,56 +1739,28 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
             elapsed_time_us=0,
             best_time_us=None,
         )
-    applied = []
     closed = []
     debug_enabled = []
+    rendered = []
+    workers = []
 
-    def engine_step(commands):
-        start = len(applied)
-        applied.extend(commands)
-        count = len(commands)
-        vehicles = tuple(VehicleState(start + i, 0, 0, 0, i, 0) for i in range(count))
-        hdmap = torch.zeros(1, 1, count, 3, 4, 8)
-        for index in range(count):
-            hdmap[:, :, index] = (start + index) / 10 - 1
-        return SimpleNamespace(
-            metrics={},
-            game_frames=tuple(snapshot for i in range(count)),
-            trajectory=SimpleNamespace(
-                timestamps_us=np.arange(start, start + count) * 33333,
-                rig_poses_world=np.repeat(
-                    np.eye(4, dtype=np.float32)[None], count, axis=0
-                ),
-                vehicle_states=vehicles,
-                physx_timings=None,
-                physics_debug_frames=tuple(
-                    PhysicsDebugFrame(
-                        ego_position_m=np.asarray(
-                            [v.x_m, v.y_m, 0.8], dtype=np.float32
-                        ),
-                        ego_orientation_xyzw=np.asarray([0, 0, 0, 1], dtype=np.float32),
-                        ego_dimensions_lwh=np.asarray([4.8, 2, 1.6], dtype=np.float32),
-                        actor_positions_m=np.empty((0, 3), dtype=np.float32),
-                        actor_orientations_xyzw=np.empty((0, 4), dtype=np.float32),
-                        actor_dimensions_lwh=np.empty((0, 3), dtype=np.float32),
-                        barrier_segments_xy_m=np.empty((0, 2, 2), dtype=np.float32),
-                        barrier_thicknesses_m=np.empty(0, dtype=np.float32),
-                        barrier_heights_m=np.empty(0, dtype=np.float32),
-                        vehicle_state=v,
-                        actor_collision=False,
-                        static_barrier_collision=False,
-                        physics_started_ns=time.monotonic_ns(),
-                        physics_completed_ns=time.monotonic_ns(),
-                    )
-                    for v in vehicles
-                ),
-            ),
-            condition=SimpleNamespace(hdmap_bvtchw=hdmap, bev_tchw=None),
+    def render(recorded):
+        rendered.append(recorded)
+        hdmap = torch.zeros(1, 1, len(recorded.game_frames), 3, 4, 8)
+        for index, vehicle in enumerate(recorded.trajectory.vehicle_states):
+            hdmap[:, :, index] = vehicle.x_m / 10 - 1
+        return EngineStep(
+            recorded.trajectory, recorded.game_frames, ConditionBatch(hdmap)
         )
+
+    def unexpected_advance(*args, **kwargs):
+        pytest.fail("Generation advanced gameplay instead of rendering recorded state")
 
     engine = SimpleNamespace(
         current_game_frame=snapshot,
-        step=engine_step,
+        step=unexpected_advance,
+        advance=unexpected_advance,
+        render=render,
         is_running=True,
         simulation=SimpleNamespace(set_physx_debug_enabled=debug_enabled.append),
         close=lambda: closed.append(True),
@@ -1799,18 +1768,15 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     monkeypatch.setattr(
         "crazy_robotaxi.session.build_taxi_engine", lambda **kwargs: engine
     )
-    original_apply = DriverInput.apply
-    read_keys = []
 
-    def apply(driver, events):
-        read_keys.extend(
-            event
-            for event in events.get_events()
-            if isinstance(event, KeyboardUserInputEvent)
+    def build_worker(*, driver, controls, observer, observe_physics, **kwargs):
+        worker = GameplayProcess(
+            partial(simulation, snapshot, driver, controls, observe_physics), observer
         )
-        return original_apply(driver, events)
+        workers.append(worker)
+        return worker
 
-    monkeypatch.setattr(DriverInput, "apply", apply)
+    monkeypatch.setattr("crazy_robotaxi.session.build_gameplay_process", build_worker)
     encoded = {}
 
     class Encoder:
@@ -1895,16 +1861,18 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         json.loads(line)
         for line in (window.directory / "telemetry.jsonl").read_text().splitlines()
     ]
-    assert len(records) == len(applied)
+    assert rendered and records
     frame_ids = [record["frame"] for record in records]
     assert all(b > a for a, b in zip(frame_ids, frame_ids[1:]))
-    assert [record["physics_vehicle"]["x_m"] for record in records] == frame_ids
-    assert [record["simulation_timestamp_us"] for record in records] == [
-        i * 33333 for i in frame_ids
+    physics = [
+        json.loads(line)
+        for line in (window.directory / "gameplay-1.jsonl").read_text().splitlines()
     ]
-    assert any(command.throttle > 0 for command in applied)
-    assert applied[-1].throttle == 0
-    assert [int(event.timestamp) for event in read_keys] == [100_000, 400_000]
+    assert len(physics) > len(records)
+    assert any(row["command"]["throttle"] > 0 for row in physics)
+    assert physics[-1]["command"]["throttle"] == 0
+    assert physics[-1]["vehicle"]["x_m"] == pytest.approx(3, abs=0.5)
+    assert all(not worker._process.is_alive() for worker in workers)
     assert debug_enabled and all(debug_enabled) and closed == [True]
     assert (
         len(encoded["generated"])
@@ -1912,9 +1880,9 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         == len(encoded["physics"])
         == len(records)
     )
-    for index, frame_id in enumerate(frame_ids):
+    for index, record in enumerate(records):
         assert int(encoded["hdmap"][index][0, 0, 0]) == pytest.approx(
-            np.clip(frame_id * 12.75, 0, 255), abs=1
+            np.clip(record["physics_vehicle"]["x_m"] * 12.75, 0, 255), abs=1
         )
     with Image.open(
         window.directory / "frames/generated" / f"{len(records) - 1:06d}.png"
@@ -1933,10 +1901,12 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         for line in (window.directory / "model_steps.jsonl").read_text().splitlines()
     ]
     assert steps and all("model_step_cpu_ms" in step["metrics"] for step in steps)
-    assert all(step["metrics"]["generate_wall_ms"] >= 150 for step in steps)
+    generating = [step for step in steps if "generate_wall_ms" in step["metrics"]]
+    assert generating
+    assert all(step["metrics"]["generate_wall_ms"] >= 150 for step in generating)
     assert all(
         step["metrics"]["generate_cpu_ms"] < step["metrics"]["generate_wall_ms"]
-        for step in steps
+        for step in generating
     )
     samples = [
         json.loads(line)
@@ -1953,14 +1923,15 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     assert report["generation_adherence"] == "not_evaluated"
     assert report["generation_delays"]
     assert report["generation_delays"][0]["requested_ms"] == 120
-    progress = report["physics_progress"][0]
-    assert progress["simulation_to_wall_ratio"] < 0.9
-    assert progress["physics_gap_ms"]["max"] >= 150
+    progress = report["gameplay_progress"][0]
+    assert progress["source"].startswith("gameplay-")
+    assert 0.9 < progress["simulation_to_wall_ratio"] < 1.1
+    assert progress["physics_gap_ms"]["p95"] < 100
     by_id = {row["id"]: row for row in report["inputs"]}
     press = by_id["press"]
     assert press["physics_association"] == "observed"
     assert press["dispatched_us"] < press["consumed_us"] <= press["physics_started_us"]
-    assert press["scheduled_to_physics_started_ms"] > 100
+    assert press["scheduled_to_physics_started_ms"] < 100
     assert press["generation_returned_us"] >= press["physics_completed_us"]
     assert press["first_presentation_us"] >= press["generation_returned_us"]
     captured_settings = window.directory / "inputs/settings.yaml"
