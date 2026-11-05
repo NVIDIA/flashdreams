@@ -8,8 +8,8 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from omnidreams_game_engine.config import VehicleConfig
-from omnidreams_game_engine.simulation.game_physics import constrain_grounded_roll
+from crazy_robotaxi.dynamics import TaxiVehicleConfig
+from crazy_robotaxi.physics import constrain_grounded_roll
 from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.types import VehicleState
 
@@ -38,7 +38,7 @@ def test_grounded_roll_is_limited_relative_to_road_without_moving_body_center(
     normal /= np.linalg.norm(normal)
     cy, sy = math.cos(yaw), math.sin(yaw)
     road_roll = -math.asin(-sy * normal[0] + cy * normal[1])
-    vehicle = VehicleConfig(max_body_roll_rad=0.16)
+    vehicle = TaxiVehicleConfig()
     state = VehicleState(
         4,
         8,
@@ -68,7 +68,7 @@ def test_grounded_roll_is_limited_relative_to_road_without_moving_body_center(
 
 
 def test_roll_limit_leaves_airborne_motion_and_inward_rotation_free():
-    vehicle = VehicleConfig(max_body_roll_rad=0.16)
+    vehicle = TaxiVehicleConfig()
     state = VehicleState(0, 0, 0, 0, 0, 0, roll_rad=0.5, angular_velocity_x_radps=-0.4)
     surface = (0.0, np.asarray([0.0, 0.0, 1.0]))
     assert constrain_grounded_roll(state, vehicle, None) is state
@@ -80,3 +80,20 @@ def test_roll_limit_leaves_airborne_motion_and_inward_rotation_free():
         constrain_grounded_roll(state, vehicle, surface).angular_velocity_x_radps
         == -0.4
     )
+
+
+def test_contact_roll_limit_is_published_to_the_physical_world(monkeypatch):
+    from crazy_robotaxi.physics import TaxiPhysicsWorld
+    from omnidreams_game_engine.simulation.game_physics import GamePhysicsWorld
+    from omnidreams_game_engine.types import DriverCommand
+
+    state = VehicleState(0, 0, 0, 0, 0, 0, roll_rad=0.5, ragdoll_active=True)
+    world = object.__new__(TaxiPhysicsWorld)
+    world._taxi_vehicle = TaxiVehicleConfig()
+    world.last_step_ground_surface = (0.0, np.asarray([0.0, 0.0, 1.0]))
+    published = []
+    monkeypatch.setattr(GamePhysicsWorld, "step", lambda *args: (state, ()))
+    monkeypatch.setattr(world, "synchronize_ego_state", published.append)
+    result, _ = world.step_with_command(state, DriverCommand(), 0, 1 / 120)
+    assert published == [result]
+    assert result.roll_rad == pytest.approx(world._taxi_vehicle.max_body_roll_rad)
