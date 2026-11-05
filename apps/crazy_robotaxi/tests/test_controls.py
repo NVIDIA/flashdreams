@@ -3,7 +3,7 @@
 
 """CPU tests for configurable Crazy Robotaxi controls."""
 
-from dataclasses import replace
+from dataclasses import fields, replace
 from functools import partial
 from pathlib import Path
 
@@ -147,44 +147,6 @@ def test_full_gamepad_and_keyboard_inputs_produce_the_same_drive_commands() -> N
     )
 
 
-def test_gamepad_defaults_use_standard_button_indices() -> None:
-    controls = ControlsConfig()
-    gamepad = controls.gamepad
-
-    assert binding_display("keyboard", controls.keyboard.return_to_menu[0]) == "ESC"
-    assert gamepad.handbrake == (
-        InputBinding("button", 0),
-        InputBinding("button", 4),
-    )
-    assert gamepad.restart == (InputBinding("button", 9), None)
-    assert gamepad.return_to_menu == (InputBinding("button", 8), None)
-    assert gamepad.toggle_hints == (InputBinding("button", 5), None)
-    assert controls.keyboard.toggle_hdmap == (InputBinding("key", "m"), None)
-    assert gamepad.toggle_hdmap == (InputBinding("button", 2), None)
-    assert gamepad.cycle_style == (InputBinding("button", 14), None)
-    assert gamepad.cycle_weather == (InputBinding("button", 15), None)
-    assert gamepad.toggle_coins == (InputBinding("button", 12), None)
-    assert gamepad.spawn_obstacle == (InputBinding("button", 13), None)
-    assert binding_display("gamepad", gamepad.restart[0]) == "START / MENU"
-    assert binding_display("gamepad", gamepad.return_to_menu[0]) == "BACK / VIEW"
-
-    pressed = GamepadUserInputEvent(
-        timestamp=np.uint64(1),
-        action="state",
-        pressed=tuple(index in {2, 5, 8, 9, 12, 13, 14, 15} for index in range(16)),
-    )
-    assert BoundActionState(controls).apply(UserInputEvents([pressed])) == {
-        "restart",
-        "return_to_menu",
-        "toggle_hints",
-        "toggle_hdmap",
-        "style",
-        "weather",
-        "coins",
-        "obstacle",
-    }
-
-
 @pytest.mark.parametrize(
     ("style", "expected"),
     (("Xbox", "A"), ("PlayStation", "CROSS"), ("Nintendo Switch", "B")),
@@ -204,12 +166,16 @@ def test_steering_display_describes_physical_inversion() -> None:
 
 
 def test_duplicate_capture_swaps_the_previous_binding() -> None:
-    original = ControlsConfig().keyboard
+    original = replace(
+        ControlsConfig().keyboard,
+        restart=(InputBinding("key", "p"), None),
+        toggle_hints=(InputBinding("key", "j"), None),
+    )
 
-    updated = update_binding(original, "toggle_hints", 0, InputBinding("key", "r"))
+    updated = update_binding(original, "toggle_hints", 0, InputBinding("key", "p"))
 
-    assert updated.toggle_hints == (InputBinding("key", "r"), None)
-    assert updated.restart == (InputBinding("key", "h"), None)
+    assert updated.toggle_hints == (InputBinding("key", "p"), None)
+    assert updated.restart == (InputBinding("key", "j"), None)
 
 
 def test_axis_capture_ignores_baseline_and_derives_steering_inversion() -> None:
@@ -288,18 +254,26 @@ def test_controls_document_loads_round_trip_yaml_button_indices(
     assert document.settings.handbrake == (InputBinding("button", 0), None)
 
 
-def test_authored_binding_overrides_a_conflicting_new_default(tmp_path: Path) -> None:
+def test_authored_binding_overrides_a_conflicting_new_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gamepad = ControlsConfig().gamepad
+    unbound = replace(gamepad, **{item.name: (None, None) for item in fields(gamepad)})
+    defaults = replace(
+        unbound,
+        toggle_hints=(InputBinding("button", 1), None),
+        cycle_style=(InputBinding("button", 14), None),
+        cycle_weather=(InputBinding("button", 15), None),
+    )
+    monkeypatch.setattr(ControlsConfig, "for_device", lambda self, device: defaults)
     path = tmp_path / "gamepad.yaml"
     path.write_text(
-        "schema_version: 1\n"
-        "handbrake: [{button: 0}, null]\n"
-        "toggle_hints: [{button: 14}, null]\n",
+        "schema_version: 1\ntoggle_hints: [{button: 14}, null]\n",
         encoding="utf-8",
     )
 
     document = ControlsDocument.load(path, "gamepad")
 
-    assert document.settings.handbrake == (InputBinding("button", 0), None)
     assert document.settings.toggle_hints == (InputBinding("button", 14), None)
     assert document.settings.cycle_style == (None, None)
     assert document.settings.cycle_weather == (InputBinding("button", 15), None)

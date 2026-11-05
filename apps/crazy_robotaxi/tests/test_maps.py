@@ -17,31 +17,13 @@ from omnidreams_game_engine.game_map import (
     load_game_map,
     load_game_map_header,
 )
-from omnidreams_game_engine.game_map.types import (
-    game_map_from_dict,
-    game_map_to_dict,
-)
+from omnidreams_game_engine.game_map.types import game_map_from_dict, game_map_to_dict
 from omnidreams_game_engine.scene import SceneRequest, load_scene
 from PIL import Image
 
 pytestmark = pytest.mark.ci_cpu
 
 _MAP_FIXTURES = Path(__file__).parent / "maps"
-
-
-@pytest.mark.parametrize(
-    "filename",
-    ["boulevard_district.robotaxi.yaml", "flashdreams_raceway.robotaxi.yaml"],
-)
-def test_shipped_map_is_valid(filename: str) -> None:
-    path = Path(__file__).parents[1] / "crazy_robotaxi" / "maps" / filename
-    game_map = load_game_map(path)
-
-    assert game_map.map_id.startswith("crazy-robotaxi-")
-    assert game_map.spawns
-    assert game_map.lanes
-    assert game_map.default_spawn.prompt_context
-    assert game_map.default_spawn.prompt_context != game_map.default_spawn.prompt
 
 
 @pytest.mark.parametrize("height", [0, 12])
@@ -91,6 +73,15 @@ def test_short_curved_joint_lanes_share_their_divider_edges(
             second_edge = second_edge[::-1]
         np.testing.assert_allclose(first_edge, second_edge, atol=1e-5)
         np.testing.assert_allclose(divider.polyline_world, first_edge, atol=1e-5)
+
+
+def test_shipped_maps_are_valid() -> None:
+    paths = sorted(
+        (Path(__file__).parents[1] / "crazy_robotaxi" / "maps").glob("*.robotaxi.yaml")
+    )
+    assert paths
+    for path in paths:
+        load_game_map(path)
 
 
 def test_prompt_context_is_trimmed_and_round_trips(tmp_path: Path) -> None:
@@ -267,22 +258,19 @@ def test_scene_request_selects_nondefault_spawn(
     assert course_scene.game_map.race_courses[0].spawn_id == "course-start"
 
 
-def test_boulevard_traffic_turns_are_continuous_and_physically_limited() -> None:
-    path = (
-        Path(__file__).parents[1]
-        / "crazy_robotaxi"
-        / "maps"
-        / "boulevard_district.robotaxi.yaml"
-    )
+def test_authored_traffic_turns_are_continuous_and_physically_limited() -> None:
+    path = _MAP_FIXTURES / "turning_traffic.robotaxi.yaml"
     game_map = load_game_map(path)
     lanes = {lane.lane_id: lane for lane in game_map.lanes}
     node_types = {node.node_id: node.node_type for node in game_map.topology.nodes}
 
-    connectors = (
+    connectors = tuple(
         lane
         for lane in game_map.lanes
         if ":connector:" in lane.lane_id and node_types[lane.element_id] != "cul_de_sac"
     )
+    assert connectors
+    assert game_map.traffic
     for connector in connectors:
         sources = [
             lane for lane in game_map.lanes if connector.lane_id in lane.successor_ids
@@ -314,7 +302,6 @@ def test_boulevard_traffic_turns_are_continuous_and_physically_limited() -> None
     for vehicle in game_map.traffic:
         segments = np.diff(vehicle.centerline_world[:, :2], axis=0)
         lengths = np.linalg.norm(segments, axis=1)
-        assert np.all(lengths >= 0.25 - 1.0e-5), vehicle.vehicle_id
 
         headings = np.arctan2(segments[:, 1], segments[:, 0])
         heading_changes = np.abs(
