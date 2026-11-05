@@ -30,6 +30,10 @@ class TaxiSimulationDriver(SimulationDriver):
                 self.request_action(action)
         return super().apply(events)
 
+    def restore_input(self, events):
+        self.actions.apply(events)
+        super().restore_input(events)
+
     def request_action(self, value):
         if self.live_edit is not None:
             self.live_edit.request_action(value)

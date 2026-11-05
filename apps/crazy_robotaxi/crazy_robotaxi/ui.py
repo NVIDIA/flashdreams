@@ -581,7 +581,7 @@ class TaxiHudState:
                 key=lambda event: int(event.timestamp),
             )
             # These are current control states, not future scheduled events.
-            gameplay.submit_input(
+            gameplay.restore_input(
                 UserInputEvents(
                     [replace(event, timestamp=np.uint64(0)) for event in events]
                 )

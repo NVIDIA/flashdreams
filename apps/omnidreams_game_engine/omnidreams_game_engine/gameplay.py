@@ -39,6 +39,10 @@ class SimulationDriver:
         """Apply due input events and return command transition times."""
         return self.driver.apply(events, record_transitions=False)
 
+    def restore_input(self, events: UserInputEvents) -> None:
+        """Restore held controls without triggering application actions."""
+        self.driver.apply(events, record_transitions=False)
+
     def advance(self) -> WorldSample:
         """Advance one physics step and record its world state."""
         return WorldSample(self.engine.advance((self.driver.command(),)))
@@ -135,6 +139,8 @@ def _run_gameplay(factory, inputs, outputs, stop, observe: bool) -> None:
                             ),
                         )
                         sequence += 1
+                elif kind == "restore_input":
+                    simulation.restore_input(message[1])
                 elif kind == "action":
                     simulation.request_action(message[1])
                 elif kind == "text":
@@ -248,6 +254,11 @@ class GameplayProcess:
         # Queue feeder would have to reacquire the model process's GIL first.
         with self._send_lock:
             self._inputs.send(message)
+
+    def restore_input(self, events: UserInputEvents) -> None:
+        """Restore current held controls after startup without fresh presses."""
+        self.check()
+        self._send(("restore_input", events))
 
     def submit_input(self, events: UserInputEvents) -> None:
         """Forward events dispatched by the ordinary UI reader without waiting."""

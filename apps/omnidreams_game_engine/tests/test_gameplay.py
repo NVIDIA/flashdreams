@@ -254,3 +254,24 @@ def test_lagging_physics_applies_wall_clock_inputs_and_acknowledges_each_batch_p
         400_000_000,
         800_000_000,
     ]
+
+
+def test_worker_restores_held_driving_state():
+    worker = GameplayProcess(_simulation)
+    try:
+        worker.start()
+        worker.restore_input(UserInputEvents([key("held", 0, "w", True)]))
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            worker.check()
+            latest = worker.timeline.latest
+            if (
+                latest is not None
+                and latest.step.trajectory.vehicle_states[-1].x_m > 0.02
+            ):
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("Restored throttle did not reach gameplay")
+    finally:
+        worker.close()

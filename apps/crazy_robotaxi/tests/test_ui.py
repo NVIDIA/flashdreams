@@ -3905,7 +3905,7 @@ def test_gameplay_attachment_preserves_only_controls_still_held(cancel):
         delivered.extend(events.get_events())
         driver.apply(events)
 
-    state.attach_gameplay(SimpleNamespace(submit_input=submit))
+    state.attach_gameplay(SimpleNamespace(restore_input=submit))
     assert driver.command().throttle == (1 if cancel is None else 0)
     assert all(event.timestamp == 0 for event in delivered)
 
@@ -3928,7 +3928,7 @@ def test_gameplay_attachment_retains_latest_wheel_state_and_disconnect():
             )
         )
     driver = DriverInput()
-    state.attach_gameplay(SimpleNamespace(submit_input=driver.apply))
+    state.attach_gameplay(SimpleNamespace(restore_input=driver.apply))
     assert driver.command().throttle == pytest.approx(0.95)
     state.attach_gameplay(None)
     state.consume_input_events(
@@ -3937,5 +3937,48 @@ def test_gameplay_attachment_retains_latest_wheel_state_and_disconnect():
         )
     )
     fresh_driver = DriverInput()
-    state.attach_gameplay(SimpleNamespace(submit_input=fresh_driver.apply))
+    state.attach_gameplay(SimpleNamespace(restore_input=fresh_driver.apply))
     assert fresh_driver.command().throttle == 0
+
+
+@pytest.mark.parametrize(
+    "key,action", [("k", "style"), ("v", "weather"), ("c", "coins"), ("o", "obstacle")]
+)
+@pytest.mark.parametrize("device", ["keyboard", "gamepad"])
+def test_gameplay_attachment_restores_held_actions_without_retriggering(
+    key, action, device
+):
+    from crazy_robotaxi.controls import ControlsConfig
+    from crazy_robotaxi.gameplay import TaxiSimulationDriver
+    from omnidreams_game_engine.input import DriverInput
+
+    actions = []
+    simulation = TaxiSimulationDriver(
+        SimpleNamespace(live_edit=SimpleNamespace(request_action=actions.append)),
+        DriverInput(),
+        ControlsConfig(),
+    )
+    state = TaxiHudState(320, 240, _calibration())
+
+    def event(name, pressed):
+        if device == "gamepad" and name != "w":
+            buttons = [False] * 16
+            buttons[{"k": 14, "v": 15, "c": 12, "o": 13}[name]] = pressed
+            return GamepadUserInputEvent(timestamp=np.uint64(0), buttons=tuple(buttons))
+        return KeyboardUserInputEvent(
+            timestamp=np.uint64(0),
+            key=name,
+            state=KeyboardInputState.PRESSED
+            if pressed
+            else KeyboardInputState.RELEASED,
+        )
+
+    held = UserInputEvents([event("w", True), event(key, True)])
+    state.consume_input_events(held)
+    state.attach_gameplay(SimpleNamespace(restore_input=simulation.restore_input))
+    assert simulation.driver.command().throttle == 1
+    assert actions == []
+    simulation.apply(held)
+    assert actions == []
+    simulation.apply(UserInputEvents([event(key, False), event(key, True)]))
+    assert actions == [action]
