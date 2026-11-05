@@ -204,7 +204,7 @@ Action2V, Interactive Drive, and Crazy Robotaxi. It ends that session through
 `is_finished()`. Both can be set; the first to fire wins. Making the runner
 count the only user-facing length is a later change.
 
-`--mode mp4` requires `--timeout` and/or `--total-model-steps` (a number or
+`--mode mp4` and `--mode webm` require `--timeout` and/or `--total-model-steps` (a number or
 `unbound` on each). Native-window and WebRTC may omit both and end when the
 client closes. An application's own `is_finished()` can still end a session
 first.

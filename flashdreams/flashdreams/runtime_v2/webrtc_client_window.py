@@ -18,7 +18,7 @@ from flashdreams.runtime_v2.selected_file import (
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import UserInputEvent
+from flashdreams.runtime_v2.user_input_event import FocusUserInputEvent, UserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
@@ -150,6 +150,13 @@ class WebRTCClientWindow(IClientWindow):
         with self._input_lock:
             self._input_events.clear()
             self._session_event_offset_us = session_event_offset_us
+            focused = self.server.browser_focused
+            if focused is not None:
+                self._input_events.append(
+                    FocusUserInputEvent(
+                        timestamp=session_event_offset_us, focused=focused
+                    )
+                )
 
     def get_user_input_events(self) -> UserInputEvents:
         """Implement ``InputSource.get_user_input_events`` for browser input.
