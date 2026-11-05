@@ -4,7 +4,7 @@
 """Compiler checks for complete bounded solid markings and unchanged dash paths."""
 
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -29,7 +29,7 @@ def test_compiled_markings_preserve_every_segment(count: int, style: str) -> Non
             line_markings=(marking,),
         ),
     )
-    rows = _lane_line_rows(game_map)
+    rows = cast(list[dict[str, Any]], _lane_line_rows(game_map))
     rails = [
         np.asarray(
             [
