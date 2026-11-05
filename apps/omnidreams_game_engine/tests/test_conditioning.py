@@ -134,7 +134,6 @@ def test_road_surface_planes_preserve_ungrounded_and_non_road_geometry() -> None
     assert road.surface_planes is None
 
 
-
 @pytest.mark.parametrize(
     "surfaces",
     [
