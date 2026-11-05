@@ -3,8 +3,8 @@
 
 """Synthetic simulation for application tests using the real gameplay process."""
 
-from dataclasses import replace
 import time
+from dataclasses import replace
 
 import numpy as np
 from crazy_robotaxi.controls import ControlsConfig
