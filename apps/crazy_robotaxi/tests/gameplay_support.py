@@ -4,7 +4,6 @@
 """Synthetic simulation for application tests using the real gameplay process."""
 
 from dataclasses import replace
-import time
 
 import numpy as np
 from crazy_robotaxi.controls import ControlsConfig
@@ -36,7 +35,6 @@ class TestEngine:
         self.debug = enabled
 
     def advance(self, commands):
-        started = time.monotonic_ns()
         (command,) = commands
         speed = command.throttle * 10
         self.state = replace(
@@ -61,11 +59,6 @@ class TestEngine:
                     barrier_segments_xy_m=np.empty((0, 2, 2), dtype=np.float32),
                     barrier_thicknesses_m=np.empty(0, dtype=np.float32),
                     barrier_heights_m=np.empty(0, dtype=np.float32),
-                    vehicle_state=self.state,
-                    actor_collision=False,
-                    static_barrier_collision=False,
-                    physics_started_ns=started,
-                    physics_completed_ns=time.monotonic_ns(),
                 ),
             )
         trajectory = TrajectoryChunk(

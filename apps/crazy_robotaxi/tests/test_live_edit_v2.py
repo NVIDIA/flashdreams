@@ -748,7 +748,10 @@ def test_obstacle_lifetimes_and_stagger_follow_simulation_time(
     )
     state = VehicleState(0, 0, 0, 0, 0, 0)
     body = BodyState(
-        np.array([0, 0, 0.75]), np.array([0, 0, 0, 1]), np.zeros(3), np.zeros(3)
+        np.array([0, 0, 0.75], dtype=np.float32),
+        np.array([0, 0, 0, 1], dtype=np.float32),
+        np.zeros(3, dtype=np.float32),
+        np.zeros(3, dtype=np.float32),
     )
     ability.request_spawn()
     spawned = {}

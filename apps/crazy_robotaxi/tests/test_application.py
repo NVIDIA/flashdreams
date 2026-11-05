@@ -1471,7 +1471,7 @@ def test_application_forces_continuous_presentation_for_interactive_input() -> N
 @pytest.mark.parametrize("no_ui", (False, True))
 @pytest.mark.parametrize("game_mode", ("race", "free-roam"))
 def test_cli_selection_starts_game_with_or_without_ui(
-    monkeypatch: pytest.MonkeyPatch, no_ui: bool, game_mode: str
+    monkeypatch: pytest.MonkeyPatch, no_ui: bool, game_mode: str, gameplay_workers
 ) -> None:
     monkeypatch.setattr(
         "crazy_robotaxi.session.WorldModelRollout", lambda **_: SimpleNamespace()
@@ -1592,4 +1592,4 @@ def test_headless_loop_presents_video_channel_and_finishes() -> None:
 @pytest.mark.parametrize("flag", ["--realtime-gameplay", "--no-realtime-gameplay"])
 def test_cli_rejects_removed_gameplay_mode_switch(flag):
     with pytest.raises(SystemExit):
-        _parser(_STUB_DEFAULTS).parse_args([flag])
+        _application().init([flag])
