@@ -1,0 +1,7 @@
+# Accelerate, hold right steering, recover, then coast on the wall clock.
+events:
+  - {id: accelerate, timestamp_us: 0, type: keyboard, key: w, pressed: true}
+  - {id: turn, timestamp_us: 2000000, type: keyboard, key: d, pressed: true}
+  - {id: straighten, timestamp_us: 2600000, type: keyboard, key: d, pressed: false}
+  - {id: coast, timestamp_us: 4000000, type: keyboard, key: w, pressed: false}
+  - {id: end, timestamp_us: 6000000, type: close}

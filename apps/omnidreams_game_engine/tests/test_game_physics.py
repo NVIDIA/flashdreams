@@ -6,15 +6,22 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 from ludus_renderer import BodyState, InvisibleBarrier, RigidBodyModel
+from ludus_renderer.physx import PhysXStepTimings, _CompactPhysicsStep
+from omnidreams_game_engine.config import VehicleConfig
+from omnidreams_game_engine.simulation import game_physics
 from omnidreams_game_engine.simulation.game_physics import (
     _BARRIER_CONTACT_SLOP_M,
     _BarrierReboundIndex,
     _reinforce_static_barrier_rebound,
 )
+from omnidreams_game_engine.types import SceneDefinition, VehicleState
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -100,6 +107,51 @@ def _scalar_rebound(
         if resolved_normal_speed < target_outward_speed:
             reinforced[:2] += normal * (target_outward_speed - resolved_normal_speed)
     return reinforced, contact_detected
+
+
+def test_debug_observation_preserves_native_velocity_before_curb_rebound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native = MagicMock()
+    native.collider_state_arrays.return_value = (
+        (),
+        np.empty((0, 3)),
+        np.empty((0, 4)),
+        np.empty((0, 3)),
+    )
+    monkeypatch.setattr(game_physics, "GameplayPhysXWorld", lambda *a, **kw: native)
+    scene = SimpleNamespace(
+        game_map=None,
+        line_layers=(),
+        ground_mesh_vertices=None,
+        ground_mesh_faces=None,
+        initial_rig_to_world=np.eye(4),
+    )
+    world = game_physics.GamePhysicsWorld(
+        cast(SceneDefinition, scene),
+        VehicleConfig(static_collision_enabled=True),
+        static_barrier_segments_world=np.asarray([[[-5, 0, 0], [5, 0, 0]]]),
+        static_barrier_restitution=0.5,
+    )
+    body = _body_state(position_xy=(0, 0.2), velocity_xy=(2, -1), yaw_rad=0)
+    body.position_m[2] = world._ego_model.half_extents_m[2]
+    native.step_compact.return_value = _CompactPhysicsStep(
+        ego=body,
+        actor_samples=(),
+        track_samples=(),
+        struck_object_ids=frozenset(),
+        impact=False,
+        timings=PhysXStepTimings(0, 0, 0, 0, 0, 0, 0),
+    )
+    state = VehicleState(0, 0.2, 0, 0, 2, 0, velocity_x_mps=2, velocity_y_mps=-6)
+    resolved, _ = world.step(state, 0, 1 / 30)
+    assert resolved.velocity_y_mps == pytest.approx(3)
+    body.linear_velocity_mps[:] = 99
+    debug = world.debug_frame(resolved)
+    assert debug.static_barrier_collision
+    np.testing.assert_array_equal(debug.ego_linear_velocity_mps, [2, -1, 0])
+    assert debug.vehicle_state is not None
+    assert debug.vehicle_state.velocity_y_mps == -1
 
 
 def test_vectorized_barrier_rebound_matches_scalar_reference() -> None:

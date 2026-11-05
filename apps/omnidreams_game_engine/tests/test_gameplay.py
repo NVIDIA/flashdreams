@@ -254,3 +254,51 @@ def test_lagging_physics_applies_wall_clock_inputs_and_acknowledges_each_batch_p
         400_000_000,
         800_000_000,
     ]
+
+
+def test_headless_observer_records_independent_ticks_and_consumed_events(tmp_path):
+    import json
+
+    from omnidreams_game_engine.debug_input import HeadlessInput
+    from omnidreams_game_engine.debug_observation import GameplayCapture
+    from omnidreams_game_engine.debug_window import (
+        DEBUG_METADATA_KEY,
+        DebugCaptureWindow,
+    )
+
+    from flashdreams.runtime_v2.session_desc import SessionDesc
+
+    window = DebugCaptureWindow(tmp_path / "capture", capture_images=False, strict=True)
+    window.open(SessionDesc(metadata={DEBUG_METADATA_KEY: {}}))
+    control = window.control
+    assert isinstance(control, HeadlessInput)
+    worker = GameplayProcess(_simulation, GameplayCapture(control, 2))
+    try:
+        control.accept(
+            dict(
+                id="press", timestamp_us=50_000, type="keyboard", key="w", pressed=True
+            )
+        )
+        worker.start()
+        deadline = time.monotonic() + 0.3
+        while time.monotonic() < deadline:
+            worker.submit_input(window.get_user_input_events())
+            time.sleep(0.002)
+        worker.check()
+    finally:
+        worker.close()
+        window.close()
+    rows = [
+        json.loads(line)
+        for line in (window.directory / "gameplay-2.jsonl").read_text().splitlines()
+    ]
+    assert len(rows) > 20
+    assert rows[-1]["vehicle"]["x_m"] > 0
+    assert any(row["transition_timestamp_us"] == 50_000 for row in rows)
+    manifest = json.loads((window.directory / "manifest.json").read_text())
+    assert manifest["capture_complete"] and not manifest["pending_input_ids"]
+    assert manifest["coverage"]["gameplay_ticks"]["saved"] == len(rows)
+    report = json.loads((window.directory / "timing_summary.json").read_text())
+    assert report["inputs"][0]["physics_association"] == "observed"
+    assert report["inputs"][0]["scheduled_to_consumed_ms"] < 100
+    assert 0.9 < report["gameplay_progress"][0]["simulation_to_wall_ratio"] < 1.1

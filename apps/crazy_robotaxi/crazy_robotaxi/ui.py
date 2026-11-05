@@ -22,6 +22,7 @@ import torch
 import torch.nn.functional as functional
 from omnidreams_game_engine.camera import FThetaCameraModel
 from omnidreams_game_engine.config import BevConfig
+from omnidreams_game_engine.debug_input import HeadlessInput
 from omnidreams_game_engine.types import CameraCalibration
 from PIL import Image
 from torch import Tensor
@@ -233,6 +234,9 @@ class TaxiHudFrame:
     cache_finalize_returned_ns: int | None = None
     """Chunk-lifecycle correlation fields for input diagnosis."""
 
+    debug_record: dict[str, Any] | None = None
+    """Capture observation aligned with this generated frame."""
+
 
 @dataclass(frozen=True, slots=True)
 class _BindingCapture:
@@ -264,6 +268,9 @@ class TaxiHudState:
 
     bev: BevConfig = BevConfig()
     """BEV camera geometry used to place navigation markers on the map."""
+
+    debug_control: HeadlessInput | None = None
+    """Shared capture correlation for offscreen presentation."""
 
     profile_input_latency: bool = False
     """Whether input arrival and model-frame latency diagnostics are visible."""
@@ -1653,6 +1660,8 @@ class TaxiHudState:
         font = self._gameplay_overlay_font(imgui)
         font_size = max(28.0, min(76.0, float(self.height) * 0.12))
         speed = str(round(abs(float(speed_mps)) * _MPS_TO_MPH))
+        if self.debug_control is not None:
+            self.debug_control.presentation_feedback = {"speed_mph": int(speed)}
         speed_width, speed_height = _overlay_text_size(
             imgui, speed, font_size, font=font
         )

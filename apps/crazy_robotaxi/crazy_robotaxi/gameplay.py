@@ -4,8 +4,12 @@
 """Robotaxi controls and live-edit behavior for the shared gameplay process."""
 
 from functools import partial
+from typing import cast
 
 from omnidreams_game_engine.gameplay import GameplayProcess, SimulationDriver
+from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
+    EgoVehicleKinematics,
+)
 from omnidreams_game_engine.timeline import WorldSample
 
 from crazy_robotaxi.controls import (
@@ -44,16 +48,22 @@ class TaxiSimulationDriver(SimulationDriver):
         )
 
 
-def _build_simulation(engine_options, driver, controls):
-    return TaxiSimulationDriver(
-        build_taxi_engine(**engine_options, render_conditions=False), driver, controls
-    )
+def _build_simulation(engine_options, driver, controls, observe_physics):
+    engine = build_taxi_engine(**engine_options, render_conditions=False)
+    if observe_physics:
+        cast(EgoVehicleKinematics, engine.simulation).set_physx_debug_enabled(True)
+    return TaxiSimulationDriver(engine, driver, controls)
 
 
 def build_gameplay_process(
-    engine_options, driver, controls=ControlsConfig(), observer=None
+    engine_options,
+    driver,
+    controls=ControlsConfig(),
+    observer=None,
+    observe_physics=False,
 ):
     """Launch the shared physics owner with Robotaxi's engine and controls."""
     return GameplayProcess(
-        partial(_build_simulation, engine_options, driver, controls), observer
+        partial(_build_simulation, engine_options, driver, controls, observe_physics),
+        observer,
     )

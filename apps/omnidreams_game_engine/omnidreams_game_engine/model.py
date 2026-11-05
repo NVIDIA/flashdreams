@@ -138,6 +138,9 @@ class WorldModelRollout:
         engine_wall_ms = (time.perf_counter() - engine_wall_started) * 1000.0
         engine_cpu_ms = (time.thread_time() - engine_cpu_started) * 1000.0
 
+        if observe_engine_step is not None:
+            observe_engine_step(engine_step)
+
         pipeline_wall_started = time.perf_counter()
         pipeline_cpu_started = time.thread_time()
         live_edit = getattr(self.engine, "live_edit", None)
@@ -152,6 +155,8 @@ class WorldModelRollout:
         generate_started_ns = (
             time.monotonic_ns() if self._trace_chunk_lifecycle else None
         )
+        generate_wall_started = time.perf_counter()
+        generate_cpu_started = time.thread_time()
         with torch.no_grad():
             video = self.pipeline.generate(
                 autoregressive_index=autoregressive_index,
@@ -161,6 +166,10 @@ class WorldModelRollout:
             generate_returned_ns = (
                 time.monotonic_ns() if self._trace_chunk_lifecycle else None
             )
+            generate_wall_ms = (time.perf_counter() - generate_wall_started) * 1000.0
+            generate_cpu_ms = (time.thread_time() - generate_cpu_started) * 1000.0
+            finalize_wall_started = time.perf_counter()
+            finalize_cpu_started = time.thread_time()
             finalize_metrics = self.pipeline.finalize(
                 autoregressive_index=autoregressive_index,
                 cache=self.cache,
@@ -168,6 +177,8 @@ class WorldModelRollout:
         cache_finalize_returned_ns = (
             time.monotonic_ns() if self._trace_chunk_lifecycle else None
         )
+        finalize_wall_ms = (time.perf_counter() - finalize_wall_started) * 1000.0
+        finalize_cpu_ms = (time.thread_time() - finalize_cpu_started) * 1000.0
         pipeline_wall_ms = (time.perf_counter() - pipeline_wall_started) * 1000.0
         pipeline_cpu_ms = (time.thread_time() - pipeline_cpu_started) * 1000.0
 
@@ -195,6 +206,10 @@ class WorldModelRollout:
             {
                 "engine_wall_ms": engine_wall_ms,
                 "engine_cpu_ms": engine_cpu_ms,
+                "generate_wall_ms": generate_wall_ms,
+                "generate_cpu_ms": generate_cpu_ms,
+                "finalize_wall_ms": finalize_wall_ms,
+                "finalize_cpu_ms": finalize_cpu_ms,
                 "pipeline_wall_ms": pipeline_wall_ms,
                 "pipeline_cpu_ms": pipeline_cpu_ms,
                 "postprocess_wall_ms": postprocess_wall_ms,

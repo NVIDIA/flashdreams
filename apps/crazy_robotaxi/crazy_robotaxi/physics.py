@@ -220,25 +220,9 @@ class TaxiPhysicsWorld(GamePhysicsWorld):
 
     def debug_frame(self, state: VehicleState) -> PhysicsDebugFrame:
         """Capture topology with the pre-policy PhysX contact pose for the ego."""
-        debug = super().debug_frame(state)
         contact_state = getattr(self, "_last_contact_resolved_state", None)
-        if contact_state is None:
-            return debug
-        half_yaw = contact_state.yaw_rad * 0.5
-        return replace(
-            debug,
-            ego_position_m=np.asarray(
-                [
-                    contact_state.x_m,
-                    contact_state.y_m,
-                    contact_state.z_m + self._ego_model.half_extents_m[2],
-                ],
-                dtype=np.float32,
-            ),
-            ego_orientation_xyzw=np.asarray(
-                [0.0, 0.0, math.sin(half_yaw), math.cos(half_yaw)],
-                dtype=np.float32,
-            ),
+        return super().debug_frame(
+            contact_state if contact_state is not None else state
         )
 
     def step(
