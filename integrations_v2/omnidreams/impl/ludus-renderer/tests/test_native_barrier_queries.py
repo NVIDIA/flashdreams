@@ -15,13 +15,40 @@ from ludus_renderer import (
     PhysicsObjectGraph,
     PhysXWorld,
     RigidBodyModel,
+    VehicleModel,
     prepare_physx,
 )
 from ludus_renderer.physx import _EGO_BODY_ID, _state_arrays
-from omnidreams_game_engine.config import VehicleConfig
-from omnidreams_game_engine.simulation.game_physics import _ego_model
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _vehicle_model() -> RigidBodyModel:
+    """Build a synthetic four-wheel body without game or demo defaults."""
+    return RigidBodyModel(
+        mass_kg=1500,
+        half_extents_m=(2.4, 1.0, 0.8),
+        vehicle=VehicleModel(
+            chassis_half_extents_m=(2.2, 0.88, 0.5),
+            chassis_offset_m=(0.0, 0.0, 0.2),
+            suspension_mounts_m=(
+                (1.4, 0.8, 0.0),
+                (1.4, -0.8, 0.0),
+                (-1.4, 0.8, 0.0),
+                (-1.4, -0.8, 0.0),
+            ),
+            wheel_radius_m=0.3,
+            suspension_rest_length_m=0.3,
+            suspension_max_compression_m=0.2,
+            spring_stiffness_n_per_m=30000,
+            damper_rate_n_s_per_m=3000,
+            tire_friction=1.0,
+            cornering_stiffness_n_per_rad=60000,
+            rolling_resistance=0.015,
+            max_engine_force_n=9000,
+            max_brake_force_n=15000,
+        ),
+    )
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -33,7 +60,7 @@ def native_physics() -> None:
 
 @pytest.mark.parametrize("nearby_count", [0, 80])
 def test_barrier_query_keeps_contacts_after_topology_changes(nearby_count: int) -> None:
-    model = _ego_model(VehicleConfig())
+    model = _vehicle_model()
     yaw = 0.9
     support = (
         math.sin(yaw) * model.half_extents_m[0]
@@ -105,7 +132,7 @@ def test_barrier_query_preserves_thick_wall_endpoint_rebound() -> None:
 @pytest.mark.parametrize("vehicle", [False, True])
 def test_competing_barriers_preserve_contact_order(vehicle: bool) -> None:
     model = (
-        _ego_model(VehicleConfig())
+        _vehicle_model()
         if vehicle
         else RigidBodyModel(mass_kg=1500, half_extents_m=(2, 2, 0.5))
     )
