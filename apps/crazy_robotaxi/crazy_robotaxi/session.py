@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -56,7 +55,6 @@ from crazy_robotaxi.ui import (
 )
 from flashdreams.api_v2.loop import IModelLoop, IUILoop, invoke_async
 from flashdreams.api_v2.session import ISession
-from flashdreams.runtime_v2.input_timeline import RealtimeInputTimeline
 from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -82,9 +80,6 @@ class ModelState:
     config: ApplicationConfig
     session_desc: SessionDesc
     driver_input: DriverInput
-    input_timeline: RealtimeInputTimeline = field(init=False)
-    """Frame-rate sampling clock for timestamped driving transitions."""
-
     control_actions: BoundActionState = field(init=False)
     """Rising-edge gameplay actions for the process-start bindings."""
 
@@ -131,9 +126,6 @@ class ModelState:
     """Wall time spent in hidden startup generation, excluding rollout creation."""
 
     def __post_init__(self) -> None:
-        self.input_timeline = RealtimeInputTimeline(
-            samples_per_second=self.session_desc.frames_per_second_for_step,
-        )
         self.control_actions = BoundActionState(self.config.controls)
 
     def ensure_rollout(self) -> WorldModelRollout:
@@ -167,7 +159,7 @@ class ModelState:
             )
         if not self.prewarm_complete:
             self._prewarm_rollout()
-        if getattr(self.config, "realtime_gameplay", False) and self.gameplay is None:
+        if self.gameplay is None:
             self.gameplay = build_gameplay_process(
                 engine_options=dict(
                     scene=self.scene,
@@ -284,65 +276,54 @@ class ModelState:
             "[crazy-robotaxi] prewarming %d hidden AR blocks before presentation",
             block_count,
         )
-        initial_trajectory = None
-        initial_game_frame = None
-        if self.config.realtime_gameplay:
-            engine = cast(GameEngine, rollout.engine)
-            # Taxi simulations include the initial state as their first sample:
-            # sampling one frame does not tick physics, traffic, or game rules.
-            # The live gameplay process starts its own fresh engine afterward.
-            initial_trajectory = engine.simulation.pose_chunk(
-                commands=(DriverCommand(),),
-                chunk_size=1,
-                frame_interval_s=engine.frame_interval_s,
-                extrapolation_offset_s=0.0,
+        engine = cast(GameEngine, rollout.engine)
+        # Taxi simulations include the initial state as their first sample:
+        # sampling one frame does not tick physics, traffic, or game rules.
+        # The live gameplay process starts its own fresh engine afterward.
+        initial_trajectory = engine.simulation.pose_chunk(
+            commands=(DriverCommand(),),
+            chunk_size=1,
+            frame_interval_s=engine.frame_interval_s,
+            extrapolation_offset_s=0.0,
+        )
+        initial_game_frame = engine.current_game_frame
+        live_edit = getattr(engine, "live_edit", None)
+        if live_edit is not None and live_edit.style is not None:
+            live_edit.style.update_map_context(
+                initial_trajectory.boundary_state_after_chunk
             )
-            initial_game_frame = engine.current_game_frame
-            live_edit = getattr(engine, "live_edit", None)
-            if live_edit is not None and live_edit.style is not None:
-                live_edit.style.update_map_context(
-                    initial_trajectory.boundary_state_after_chunk
-                )
-            if isinstance(initial_game_frame, TaxiGameSnapshot):
-                initial_trajectory = replace(
-                    initial_trajectory,
-                    dynamic_actors=(
-                        *initial_trajectory.dynamic_actors,
-                        *build_pickup_passenger_trajectories(
-                            (initial_game_frame,), initial_trajectory.timestamps_us
-                        ),
+        if isinstance(initial_game_frame, TaxiGameSnapshot):
+            initial_trajectory = replace(
+                initial_trajectory,
+                dynamic_actors=(
+                    *initial_trajectory.dynamic_actors,
+                    *build_pickup_passenger_trajectories(
+                        (initial_game_frame,), initial_trajectory.timestamps_us
                     ),
-                )
+                ),
+            )
         for autoregressive_index in range(block_count):
             current_block = autoregressive_index + 1
             self._set_loading_status(
                 f"WARMING WORLD MODEL  {current_block}/{block_count}"
             )
             frame_count = rollout.frame_count(autoregressive_index)
-            step_options: dict[str, Any] = {}
-            if initial_trajectory is not None:
-                step_options["recorded_step"] = SimulationStep(
-                    trajectory=_sample_trajectory(
-                        initial_trajectory, (0,) * frame_count
-                    ),
-                    game_frames=(initial_game_frame,) * frame_count,
-                )
+            recorded = SimulationStep(
+                trajectory=_sample_trajectory(initial_trajectory, (0,) * frame_count),
+                game_frames=(initial_game_frame,) * frame_count,
+            )
             generated = rollout.step(
                 autoregressive_index=autoregressive_index,
                 commands=tuple(DriverCommand() for _ in range(frame_count)),
-                **step_options,
+                recorded_step=recorded,
             )
-            if initial_trajectory is not None and generated.video_bvtchw.is_cuda:
+            if generated.video_bvtchw.is_cuda:
                 # Complete all startup work before starting the gameplay clock.
                 torch.cuda.synchronize(generated.video_bvtchw.device)
             del generated
 
-        if initial_trajectory is None:
-            rollout.reset()
-        else:
-            # These frames are genuine stationary world history. Preserve both
-            # that history and the CUDA graphs bound to its cache storage.
-            self.prewarmed_blocks = block_count
+        # Preserve stationary history and the CUDA graphs bound to its cache.
+        self.prewarmed_blocks = block_count
         self.prewarm_wall_ms = (time.perf_counter() - started) * 1000.0
         self.prewarm_complete = True
         self._set_loading_status("STARTING GAME")
@@ -377,7 +358,6 @@ class ModelState:
         self.last_bev = None
         self.last_pose = None
         self.driver_input.reset()
-        self.input_timeline.reset()
         self.last_speed_mps = 0.0
         if self.rollout is not None:
             self.rollout.reset()
@@ -414,63 +394,33 @@ class ModelState:
 
     def submit_player_name(self, name: str) -> None:
         """Submit a UI-validated leaderboard name on the model thread."""
-        rollout = self.ensure_rollout()
-        if self.gameplay is not None:
-            self.gameplay.submit_text(name)
-        else:
-            rollout.engine.submit_text(name)
+        self.ensure_rollout()
+        assert self.gameplay is not None
+        self.gameplay.submit_text(name)
 
     def request_live_edit_action(self, action: LiveEditAction) -> None:
         """Forward one UI action to the active live-edit gameplay state."""
-        rollout = self.rollout
-        if rollout is None:
-            return
         if self.gameplay is not None:
             self.gameplay.request_action(action)
-            return
-        live_edit = getattr(rollout.engine, "live_edit", None)
-        if live_edit is not None:
-            live_edit.request_action(action)
-
-
-def _pace_realtime_chunk(
-    shutdown_event: threading.Event,
-    *,
-    frame_count: int,
-    frames_per_second: int,
-    model_step_wall_ms: float,
-) -> tuple[float, float]:
-    chunk_duration_ms = frame_count / frames_per_second * 1000.0
-    realtime_margin_ms = chunk_duration_ms - model_step_wall_ms
-    if realtime_margin_ms > 0.0:
-        shutdown_event.wait(realtime_margin_ms / 1000.0)
-    return chunk_duration_ms, realtime_margin_ms
 
 
 class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
-    """Run simulation, rules, conditioning, and generation in one V2 step."""
+    """Generate frames from the independent gameplay process's recorded state."""
 
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         state = self.state
         runtime_generation = getattr(self, "_generation", 0)
         trace_enabled = getattr(state.config, "profile_input_latency", False)
-        # Match Interactive Drive: apply every unread edge before rollout setup,
-        # reset handling, or simulation reads the retained command.
-        input_times_s = (
-            ()
-            if getattr(state.config, "realtime_gameplay", False)
-            else state.driver_input.apply(events)
-        )
         control_actions = state.control_actions.apply(events)
         if not state.game_selected:
             return state.menu_result(step_index)
         rollout = state.ensure_rollout()
         step_wall_started = time.perf_counter()
         step_cpu_started = time.thread_time()
-        gameplay = getattr(state, "gameplay", None)
-        if gameplay is not None:
-            gameplay.check()
-        latest = None if gameplay is None else gameplay.timeline.latest
+        gameplay = state.gameplay
+        assert gameplay is not None
+        gameplay.check()
+        latest = gameplay.timeline.latest
         snapshot = (
             rollout.engine.current_game_frame
             if latest is None
@@ -484,6 +434,7 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             state.restart_game()
             rollout = state.ensure_rollout()
             gameplay = state.gameplay
+            assert gameplay is not None
             snapshot = rollout.engine.current_game_frame
             if not isinstance(
                 snapshot, (TaxiGameSnapshot, RaceGameSnapshot, FreeRoamSnapshot)
@@ -496,42 +447,24 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         live_edit_statuses: tuple[LiveEditHudStatus, ...] | None = None
         current_prompt = ""
         generating = snapshot.session_state in active_states or (
-            gameplay is not None
-            and gameplay.timeline.gameplay_tick > gameplay.timeline.generation_tick
+            gameplay.timeline.gameplay_tick > gameplay.timeline.generation_tick
         )
         if generating:
             current_prompt = rollout.scene.prompt
             live_edit = getattr(rollout.engine, "live_edit", None)
-            if live_edit is not None and gameplay is None:
-                for action in ("style", "weather", "coins", "obstacle"):
-                    if action in control_actions:
-                        live_edit.request_action(action)
             autoregressive_index = state.prewarmed_blocks + state.blocks_generated
             frame_count = rollout.frame_count(autoregressive_index)
-            window = None
-            recorded = None
-            if gameplay is not None:
-                window = gameplay.timeline.prepare(frame_count, self._shutdown_event)
-                if window is None:
-                    return []
-                recorded = window.recorded_step()
-                if live_edit is not None:
-                    live_edit.use_recorded_frames(
-                        tuple(window.samples[i].presentation for i in window.indices),
-                        recorded.trajectory,
-                    )
-                commands = recorded.trajectory.applied_commands
-                transition_timestamps_us = window.transition_timestamps_us()
-            else:
-                input_window = state.input_timeline.next_window(
-                    frame_count, input_times_s=input_times_s
+            window = gameplay.timeline.prepare(frame_count, self._shutdown_event)
+            if window is None:
+                return []
+            recorded = window.recorded_step()
+            if live_edit is not None:
+                live_edit.use_recorded_frames(
+                    tuple(window.samples[i].presentation for i in window.indices),
+                    recorded.trajectory,
                 )
-                sampled_commands, transition_timestamps_us = state.driver_input.sample(
-                    input_window
-                )
-                commands = tuple(
-                    taxi_driver_command(command) for command in sampled_commands
-                )
+            commands = recorded.trajectory.applied_commands
+            transition_timestamps_us = window.transition_timestamps_us()
             if trace_enabled:
                 sampled_at_ns = time.monotonic_ns()
                 for frame_index, (command, transition_timestamp_us) in enumerate(
@@ -550,12 +483,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                             if transition_timestamp_us is None
                             else transition_timestamp_us
                         ),
-                        window_start_us=None
-                        if gameplay is not None
-                        else round(input_window.start_s * 1_000_000),
-                        window_end_us=None
-                        if gameplay is not None
-                        else round(input_window.end_s * 1_000_000),
                         throttle=command.throttle,
                         brake=command.brake,
                         steer=command.steer,
@@ -563,23 +490,15 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                     )
 
             reuse_video = (
-                recorded is not None
-                and state.last_video is not None
+                state.last_video is not None
                 and state.last_hdmap is not None
                 and state.last_pose is not None
                 and not state.config.live_edit.any_enabled
                 and _stationary_world(recorded.trajectory, state.last_pose)
             )
 
-            step_options: dict[str, Any] = {}
-            if recorded is not None:
-                step_options["recorded_step"] = recorded
             if reuse_video:
-                assert (
-                    recorded is not None
-                    and state.last_video is not None
-                    and state.last_hdmap is not None
-                )
+                assert state.last_video is not None and state.last_hdmap is not None
                 frozen = EngineStep(
                     recorded.trajectory,
                     recorded.game_frames,
@@ -600,10 +519,9 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                 generated = rollout.step(
                     autoregressive_index=autoregressive_index,
                     commands=commands,
-                    **step_options,
+                    recorded_step=recorded,
                 )
-            if gameplay is not None and window is not None:
-                gameplay.timeline.commit(window)
+            gameplay.timeline.commit(window)
             if trace_enabled and generated._trace is not None:
                 trace = generated._trace
                 cache_finalize_returned_ns = trace.cache_finalize_returned_ns
@@ -662,15 +580,11 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             )
             bev = engine_step.condition.bev_tchw
             metrics = dict(generated.metrics)
-            if gameplay is not None:
-                metrics["generation_age_ms"] = (
-                    (
-                        gameplay.timeline.gameplay_tick
-                        - gameplay.timeline.generation_tick
-                    )
-                    * 1000
-                    / 120
-                )
+            metrics["generation_age_ms"] = (
+                (gameplay.timeline.gameplay_tick - gameplay.timeline.generation_tick)
+                * 1000
+                / 120
+            )
             if state.blocks_generated == 1 and state.prewarm_wall_ms > 0.0:
                 metrics["startup_prewarm_wall_ms"] = state.prewarm_wall_ms
                 metrics["startup_prewarm_blocks"] = state.config.prewarm_blocks
@@ -723,17 +637,10 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         if generating:
             model_step_wall_ms = (time.perf_counter() - step_wall_started) * 1000.0
             model_step_cpu_ms = (time.thread_time() - step_cpu_started) * 1000.0
-            chunk_duration_ms, realtime_margin_ms = _pace_realtime_chunk(
-                self._shutdown_event,
-                frame_count=count,
-                frames_per_second=state.session_desc.frames_per_second_for_step,
-                model_step_wall_ms=max(
-                    model_step_wall_ms,
-                    count / state.session_desc.frames_per_second_for_step * 1000,
-                )
-                if gameplay is not None
-                else model_step_wall_ms,
+            chunk_duration_ms = (
+                count / state.session_desc.frames_per_second_for_step * 1000
             )
+            realtime_margin_ms = chunk_duration_ms - model_step_wall_ms
             metrics.update(
                 {
                     "model_step_cpu_ms": model_step_cpu_ms,

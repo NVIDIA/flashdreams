@@ -62,7 +62,6 @@ def test_stationary_world_retains_image_and_ar_cursor_until_motion(monkeypatch):
     published = []
     config = SimpleNamespace(
         controls=ControlsConfig(),
-        realtime_gameplay=True,
         debug_capture=False,
         profile_input_latency=False,
         live_edit=LiveEditConfig(),
