@@ -13,9 +13,6 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
-from apps.crazy_robotaxi.tests.gameplay_support import simulation
-from omnidreams_game_engine.gameplay import GameplayProcess
-
 import numpy as np
 import pytest
 import torch
@@ -56,6 +53,7 @@ from crazy_robotaxi.settings import (
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
 from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.engine import GameEngine
+from omnidreams_game_engine.gameplay import GameplayProcess
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.model import WorldModelRollout
 from omnidreams_game_engine.renderer_settings import RendererSettings
@@ -71,6 +69,7 @@ from omnidreams_game_engine.types import (
 )
 from torch import Tensor
 
+from apps.crazy_robotaxi.tests.gameplay_support import simulation
 from flashdreams.api_v2.loop import ModelInferenceState
 from flashdreams.infra.diffusion.model import DiffusionModelConfig
 from flashdreams.infra.diffusion.scheduler.base import SchedulerConfig

@@ -81,6 +81,7 @@ def test_bev_road_surface_pool_triangulates_concave_pavement() -> None:
 
 def test_conditioning_does_not_extrapolate_past_recorded_actor_lifetimes(monkeypatch):
     from unittest.mock import MagicMock
+
     from omnidreams_game_engine import conditioning
     from omnidreams_game_engine.config import RasterConfig
 

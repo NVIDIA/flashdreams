@@ -3911,8 +3911,9 @@ def test_gameplay_attachment_preserves_only_controls_still_held(cancel):
 
 
 def test_gameplay_attachment_retains_latest_wheel_state_and_disconnect():
-    from flashdreams.runtime_v2.user_input_event import GameWheelUserInputEvent
     from omnidreams_game_engine.input import DriverInput
+
+    from flashdreams.runtime_v2.user_input_event import GameWheelUserInputEvent
 
     state = TaxiHudState(320, 240, _calibration())
     for index in range(20):
