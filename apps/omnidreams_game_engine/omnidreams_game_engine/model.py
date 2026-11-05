@@ -14,7 +14,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from omnidreams_game_engine.engine import EngineStep
+from omnidreams_game_engine.engine import EngineStep, SimulationStep
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 
 
@@ -34,6 +34,8 @@ class RolloutEngine(Protocol):
     def current_game_frame(self) -> object: ...
 
     def step(self, commands: tuple[DriverCommand, ...]) -> EngineStep: ...
+
+    def render(self, recorded: SimulationStep) -> EngineStep: ...
 
     def submit_text(self, value: str) -> object: ...
 
@@ -104,8 +106,14 @@ class WorldModelRollout:
         *,
         autoregressive_index: int,
         commands: tuple[DriverCommand, ...],
+        observe_engine_step: Callable[[EngineStep], None] | None = None,
+        recorded_step: SimulationStep | None = None,
     ) -> WorldModelStep:
-        """Simulate, condition, generate, and finalize one block directly."""
+        """Simulate, condition, generate, and finalize one block directly.
+
+        ``observe_engine_step`` receives completed simulation observations before
+        generation begins, including when generation subsequently fails.
+        """
         if self._closed:
             raise RuntimeError("WorldModelRollout is closed")
         expected = self.frame_count(autoregressive_index)
@@ -119,7 +127,11 @@ class WorldModelRollout:
         )
         engine_wall_started = time.perf_counter()
         engine_cpu_started = time.thread_time()
-        engine_step = self.engine.step(commands)
+        engine_step = (
+            self.engine.step(commands)
+            if recorded_step is None
+            else self.engine.render(recorded_step)
+        )
         engine_step_returned_ns = (
             time.monotonic_ns() if self._trace_chunk_lifecycle else None
         )

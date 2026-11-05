@@ -35,12 +35,15 @@ from crazy_robotaxi.live_edit.obstacle_events import (
     ObstacleEvent,
     ObstaclePhase,
 )
-from crazy_robotaxi.live_edit.obstacle_templates import load_obstacle_template_catalog
+from crazy_robotaxi.live_edit.obstacle_templates import (
+    ObstacleTemplate,
+    load_obstacle_template_catalog,
+)
 from crazy_robotaxi.live_edit.runtime_v2 import LiveEditGameplay, LiveEditGameRules
 from crazy_robotaxi.live_edit.style_ability import StyleAbility
 from crazy_robotaxi.live_edit.weather_ability import compose_swap_target
 from crazy_robotaxi.navigation import NavigationLane
-from ludus_renderer import SceneObject
+from ludus_renderer import BodyState, SceneObject
 from omnidreams_game_engine.config import VehicleConfig
 from omnidreams_game_engine.contracts import GameRules, GameUpdate
 from omnidreams_game_engine.game_map import load_game_map
@@ -267,8 +270,10 @@ def test_live_edit_rules_preserve_actors_and_complete_frame_capture() -> None:
         return GameUpdate(frames=("frame",))
 
     inner = SimpleNamespace(is_running=True, advance_frames=advance_inner)
+    intervals = []
     gameplay = SimpleNamespace(
-        begin_advance=lambda _trajectory: ("actor",),
+        begin_advance=lambda _trajectory, interval: intervals.append(interval)
+        or ("actor",),
         complete_advance=completed.append,
     )
     rules = LiveEditGameRules(
@@ -281,6 +286,7 @@ def test_live_edit_rules_preserve_actors_and_complete_frame_capture() -> None:
     assert update.frames == ("frame",)
     assert update.dynamic_actors == ("actor",)
     assert completed == [1]
+    assert intervals == [0.1]
 
 
 @pytest.mark.parametrize(
@@ -401,7 +407,7 @@ def test_physical_obstacle_lifetime_uses_relative_track_clock() -> None:
         enabled=True, physics=True, active_chunks=10
     )
     obstacle._events = [event]
-    obstacle._chunk_index = 0
+    obstacle._elapsed_s = 0.0
     state = VehicleState(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     trajectory = TrajectoryChunk(
         timestamps_us=np.asarray([1_000_000_000], dtype=np.int64),
@@ -410,12 +416,12 @@ def test_physical_obstacle_lifetime_uses_relative_track_clock() -> None:
         boundary_state_after_chunk=state,
     )
 
-    obstacle.advance_frames(trajectory)
+    obstacle.advance_frames(trajectory, 1 / 30)
 
     assert event.phase is ObstaclePhase.SCRIPTED
 
     event.logical_timestamp_us = 4_000_000.0
-    obstacle.advance_frames(trajectory)
+    obstacle.advance_frames(trajectory, 1 / 30)
 
     assert event.phase is ObstaclePhase.EXPIRED
 
@@ -541,7 +547,8 @@ def test_map_state_is_applied_at_the_post_simulation_model_boundary() -> None:
     gameplay._frame_statuses = []
 
     gameplay.begin_advance(
-        SimpleNamespace(boundary_state_after_chunk=state, vehicle_states=(state,))
+        SimpleNamespace(boundary_state_after_chunk=state, vehicle_states=(state,)),
+        1 / 30,
     )
     gameplay.prepare_model_step(None, None, None, 0)
 
@@ -670,3 +677,107 @@ def test_dynamic_prompts_need_enabled_and_an_included_fragment() -> None:
     assert not inclusions_disabled.active
     assert not config.any_enabled
     assert not config.requires_python_dit
+
+
+def test_generation_composites_recorded_pickups_without_reading_live_world(monkeypatch):
+    import torch
+    from crazy_robotaxi.live_edit.runtime_v2 import LiveEditFrame, LiveEditHudStatus
+
+    gameplay = LiveEditGameplay(LiveEditConfig(), _scene(), (), vehicle=VehicleConfig())
+    gameplay._presentation_enabled = True
+    sprites = (object(), object())
+    frames = tuple(
+        LiveEditFrame(LiveEditHudStatus(coins_collected=i), (sprite,), (), None)
+        for i, sprite in enumerate(sprites)
+    )
+    state = VehicleState(0, 0, 0, 0, 0, 0)
+    trajectory = TrajectoryChunk(
+        np.asarray([0, 33_333]),
+        np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0),
+        (state, state),
+        state,
+    )
+    gameplay.use_recorded_frames(frames, trajectory)
+    seen = []
+
+    def composite(frame, *, sprites, **kwargs):
+        seen.extend(sprites)
+        return frame
+
+    monkeypatch.setattr(gameplay, "_compositor", SimpleNamespace(composite=composite))
+    monkeypatch.setattr(
+        gameplay,
+        "coins",
+        SimpleNamespace(
+            visible_sprites=lambda *args, **kwargs: pytest.fail("Read live pickups")
+        ),
+    )
+    video = torch.zeros(1, 1, 2, 3, 4, 8)
+    result = gameplay.postprocess_video(video, SimpleNamespace(trajectory=trajectory))
+    assert result.shape == video.shape
+    assert seen == list(sprites)
+    assert [frame.coins_collected for frame in gameplay._frame_statuses] == [0, 1]
+
+
+@pytest.mark.parametrize(
+    "frame_interval_s,batch_size", [(1 / 120, 1), (1 / 30, 1), (1 / 30, 8)]
+)
+@pytest.mark.parametrize("physics", [False, True])
+def test_obstacle_lifetimes_and_stagger_follow_simulation_time(
+    frame_interval_s: float, batch_size: int, physics: bool
+) -> None:
+    template = ObstacleTemplate(
+        template_index=0,
+        object_type="Car",
+        timestamps_us=np.array([0, 20_000_000], dtype=np.int64),
+        translations_local_m=np.array([[0, 0, 0], [0, 40, 0]], dtype=np.float32),
+        orientations_xyzw=np.tile(np.array([0, 0, 0, 1], dtype=np.float32), (2, 1)),
+        dimensions_lwh=np.array([4, 2, 1.5], dtype=np.float32),
+        source_ground_offset_m=0.75,
+    )
+    config = LiveEditObstacleConfig(
+        enabled=True,
+        physics=physics,
+        count=2,
+        stagger_chunks=1,
+        active_chunks=2,
+        static_count=1,
+    )
+    ability = ObstacleAbility(
+        config, templates=(template,), parked_templates=(template,)
+    )
+    state = VehicleState(0, 0, 0, 0, 0, 0)
+    body = BodyState(
+        np.array([0, 0, 0.75]), np.array([0, 0, 0, 1]), np.zeros(3), np.zeros(3)
+    )
+    ability.request_spawn()
+    spawned = {}
+    expired = {}
+    duration_s = batch_size * frame_interval_s
+    # Three legacy duration units cover the stagger and both lifetimes.
+    for step in range(round(0.8 / duration_s)):
+        start_s = step * duration_s
+        if physics:
+            ability.prepare_topology(body)
+        trajectory = TrajectoryChunk(
+            timestamps_us=np.rint(
+                (start_s + np.arange(batch_size) * frame_interval_s) * 1e6
+            ).astype(np.int64),
+            rig_poses_world=np.tile(np.eye(4, dtype=np.float32), (batch_size, 1, 1)),
+            vehicle_states=(state,) * batch_size,
+            boundary_state_after_chunk=state,
+        )
+        ability.advance_frames(trajectory, frame_interval_s)
+        for event in ability._events:
+            if event.static:
+                assert event.phase is not ObstaclePhase.EXPIRED
+                continue
+            spawned.setdefault(event.entity_id, start_s)
+            if event.phase is ObstaclePhase.EXPIRED:
+                expired.setdefault(event.entity_id, start_s + duration_s)
+    assert list(spawned.values()) == pytest.approx([0, 8 / 30])
+    assert list(expired.values()) == pytest.approx([16 / 30, 24 / 30])
+    ability.reset()
+    ability.request_spawn()
+    assert ability._elapsed_s == 0
+    assert ability._pending == [(0, 0), (1, config.stagger_interval_s)]
