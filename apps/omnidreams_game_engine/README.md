@@ -27,6 +27,13 @@ engine resources. The application owns pipeline construction and lifetime;
 the [FlashDreams V2 runtime](../../flashdreams/flashdreams/runtime_v2/README.md)
 owns the model and UI loops, threads, client windows, and presentation.
 
+## Versioned API and external engines
+
+`omnidreams_game_engine.api.v0` is the versioned public API: the contract
+above, re-exported unchanged, and a layer that connects a game engine running
+outside FlashDreams through the same `WorldModelRollout`. See
+[External game engines](https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/external_engine/).
+
 ## Shared implementation
 
 | Module | Provides |
