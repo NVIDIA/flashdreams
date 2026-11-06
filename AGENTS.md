@@ -79,6 +79,8 @@ Use `--no-instantiate` before GPU work to inspect the resolved runner config wit
 
 Before performance work, collect an nsys report with `uv run flashdreams-profile` and read the timeline; see `docs/source/documentation/demo_api/guides/profiling.md`.
 
+For source-input latency, use the shared `IProfiler` and the two host checkpoints documented in that guide: UI claim and successful client-window write return.
+
 ## No-GPU Workflow
 
 - Inspect available runners with `uv run flashdreams-run --help`, then inspect a specific runner with `uv run flashdreams-run --no-instantiate <runner-name>`.

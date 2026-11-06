@@ -42,3 +42,17 @@ class InputSource(Protocol):
         another window.
         """
         ...
+
+
+@runtime_checkable
+class TimestampedInputSource(InputSource, Protocol):
+    """Input source whose event timestamps share the runtime monotonic clock."""
+
+    @property
+    @abstractmethod
+    def input_timestamp_origin_ns(self) -> int | None:
+        """Return the runtime-clock origin for session-relative timestamps."""
+        ...
+
+
+__all__ = ["InputSource", "TimestampedInputSource"]
