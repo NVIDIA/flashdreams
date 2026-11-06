@@ -3,11 +3,12 @@
 
 import types
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 import torch
 
+import flashdreams.core.attention.native as native_attention
 from flashdreams.core.attention.kvcache import BlockKVCache
 from flashdreams.recipes.wan.transformer.impl import modules as wan_modules
 from flashdreams.recipes.wan.transformer.impl.network import WanDiTNetworkConfig
@@ -54,6 +55,7 @@ class _DummyNetworkConfig:
     patch_size: tuple[int, int, int] = (1, 2, 2)
     in_dim: int = 16
     apply_rope_before_kvcache: bool = True
+    self_attention_backend: Literal["cudnn", "sage2"] = "cudnn"
 
     def setup(self) -> _DummyNetwork:
         return _DummyNetwork()
@@ -188,3 +190,76 @@ def test_wan_patchify_unpatchify_round_trip_without_cp() -> None:
 
     assert patched.shape == (1, 8, 64)
     torch.testing.assert_close(restored, latent)
+
+
+def test_wan_attention_backend_defaults_to_cudnn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_load() -> None:
+        raise AssertionError("default WAN config attempted to load SageAttention")
+
+    monkeypatch.setattr(native_attention, "_load_sage2_op", fail_load)
+    config = WanDiTNetworkConfig(
+        dim=64,
+        ffn_dim=128,
+        num_heads=1,
+        num_layers=1,
+        cross_attn_enable_img=True,
+    )
+
+    network = config.setup()
+    block = cast(wan_modules.Block, network.blocks[0])
+
+    assert config.self_attention_backend == "cudnn"
+    assert block.self_attn.attn_op.backend == "cudnn"
+    assert block.cross_attn.attn_op.backend == "cudnn"
+    assert block.cross_attn.attn_op_image.backend == "cudnn"
+
+
+def test_wan_sage2_routes_only_to_self_attention(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        native_attention,
+        "_load_sage2_op",
+        lambda: lambda *args, **kwargs: args[0],
+    )
+    transformer = Wan21Transformer(
+        Wan21TransformerConfig(
+            network=WanDiTNetworkConfig(
+                dim=64,
+                ffn_dim=128,
+                num_heads=1,
+                num_layers=1,
+                cross_attn_enable_img=True,
+                self_attention_backend="sage2",
+            ),
+            compile_network=False,
+            use_cuda_graph=False,
+        )
+    )
+    block = cast(wan_modules.Block, transformer.network.blocks[0])
+
+    assert block.self_attn.attn_op.backend == "sage2"
+    assert block.cross_attn.attn_op.backend == "cudnn"
+    assert block.cross_attn.attn_op_image.backend == "cudnn"
+
+
+def test_wan_sage2_rejects_cuda_graph_before_network_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_setup(config: Wan21TransformerConfig) -> _DummyNetwork:
+        raise AssertionError("network construction should not start")
+
+    monkeypatch.setattr(Wan21Transformer, "_setup_network", staticmethod(fail_setup))
+    config = Wan21TransformerConfig(
+        network=cast(
+            WanDiTNetworkConfig,
+            _DummyNetworkConfig(self_attention_backend="sage2"),
+        ),
+        compile_network=False,
+        use_cuda_graph=True,
+    )
+
+    with pytest.raises(ValueError, match="incompatible with use_cuda_graph=True"):
+        Wan21Transformer(config)

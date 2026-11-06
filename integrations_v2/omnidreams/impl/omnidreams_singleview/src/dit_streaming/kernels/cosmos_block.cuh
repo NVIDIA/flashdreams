@@ -35,6 +35,7 @@ enum class CosmosLinearBackend : int {
 
 enum class CosmosAttentionBackend : int {
   CUDNN_BF16 = 0,
+  SAGE2 = 1,
   FP8_DENSE_REF = 4,
   SPARGE = 6,
   SAGE3 = 7,
