@@ -232,6 +232,10 @@ class ModelState:
         assert rollout is not None
         block_count = self.config.prewarm_blocks
         if block_count == 0:
+            live_edit = getattr(getattr(rollout, "engine", None), "live_edit", None)
+            finish_model_warmup = getattr(live_edit, "finish_model_warmup", None)
+            if callable(finish_model_warmup):
+                finish_model_warmup()
             self.prewarm_complete = True
             return
 
@@ -251,6 +255,11 @@ class ModelState:
                 commands=tuple(DriverCommand() for _ in range(frame_count)),
             )
             del generated
+
+        live_edit = getattr(getattr(rollout, "engine", None), "live_edit", None)
+        finish_model_warmup = getattr(live_edit, "finish_model_warmup", None)
+        if callable(finish_model_warmup):
+            finish_model_warmup()
 
         # Retain process-lifetime compiled kernels and autotune results, but
         # discard every gameplay, conditioning, and AR-cache mutation. Cache-

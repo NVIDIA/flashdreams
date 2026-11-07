@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from itertools import product
 
 import numpy as np
 from omnidreams_game_engine.game_map.types import (
@@ -210,6 +211,64 @@ class MapContextTracker:
         )
         self._last_state = result
         return result
+
+    def possible_suffixes(self) -> tuple[str, ...]:
+        """Return every prompt suffix allowed by this map and fragment policy."""
+        config = self._config
+        road_contexts: set[str | None] = {None}
+        if config.include_current_road_context:
+            road_contexts.update(
+                road.prompt_context
+                for road in self._roads.values()
+                if road.prompt_context
+            )
+
+        node_states: set[tuple[str | None, str | None]] = {(None, None)}
+        for node in self._nodes.values():
+            approach_phrase = _APPROACH_PHRASES.get(node.node_type)
+            if approach_phrase is not None:
+                node_states.add(
+                    (
+                        approach_phrase if config.include_next_map_node_type else None,
+                        node.prompt_context
+                        if config.include_next_map_node_context
+                        else None,
+                    )
+                )
+            current_phrase = _CURRENT_PHRASES.get(node.node_type)
+            if current_phrase is not None or node.prompt_context:
+                node_states.add(
+                    (
+                        current_phrase if config.include_next_map_node_type else None,
+                        node.prompt_context
+                        if config.include_next_map_node_context
+                        else None,
+                    )
+                )
+
+        curves: tuple[str | None, ...] = (
+            (None, "left", "right")
+            if config.include_upcoming_road_curve_direction
+            else (None,)
+        )
+        motions: tuple[str | None, ...] = (
+            ("forward", "stationary", "reverse")
+            if config.include_taxi_motion_state
+            else (None,)
+        )
+        suffixes = {
+            compose_map_suffix(
+                road_context=road_context,
+                node_phrase=node_phrase,
+                node_context=node_context,
+                curve=curve,
+                motion=motion,
+            )
+            for road_context, (node_phrase, node_context), curve, motion in product(
+                road_contexts, node_states, curves, motions
+            )
+        }
+        return tuple(sorted(suffixes))
 
     def _compose_suffix(
         self,

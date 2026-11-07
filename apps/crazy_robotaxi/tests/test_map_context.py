@@ -295,3 +295,37 @@ def test_each_dynamic_prompt_fragment_can_be_excluded_independently(
 
     assert excluded_fragment not in suffix
     assert all(fragment in suffix for fragment in all_fragments - {excluded_fragment})
+
+
+def test_possible_suffixes_respect_selected_fragment_sources() -> None:
+    game_map = load_game_map(_MAPS / "traffic_loop.robotaxi.yaml")
+    tracker = _tracker(
+        game_map,
+        include_current_road_context=False,
+        include_next_map_node_type=False,
+        include_next_map_node_context=False,
+        include_upcoming_road_curve_direction=False,
+    )
+
+    assert tracker.possible_suffixes() == (
+        "The taxi is driving forward.",
+        "The taxi is reversing; scenery moves forward relative to the camera.",
+        "The taxi is stationary.",
+    )
+
+
+@pytest.mark.parametrize(
+    ("map_name", "expected_count"),
+    [
+        ("flashdreams_raceway.robotaxi.yaml", 126),
+        ("boulevard_district.robotaxi.yaml", 630),
+    ],
+)
+def test_possible_suffixes_enumerate_packaged_map_state_space(
+    map_name: str, expected_count: int
+) -> None:
+    game_map = load_game_map(
+        Path(__file__).parents[1] / "crazy_robotaxi" / "maps" / map_name
+    )
+
+    assert len(_tracker(game_map).possible_suffixes()) == expected_count

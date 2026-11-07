@@ -209,6 +209,7 @@ class LiveEditGameplay:
         """Reuse installed model hooks while resetting per-rollout gameplay."""
         if self.style is not None and previous.style is not None:
             self.style = previous.style
+            self.style.finish_dynamic_prompt_preencoding()
             if self.config.dynamic_prompts.active:
                 if self._game_map is None:
                     raise ValueError(
@@ -225,6 +226,11 @@ class LiveEditGameplay:
         if self.guidance is not None and previous.guidance is not None:
             self.guidance = previous.guidance
             self.guidance.reset_v2(pipeline)
+
+    def finish_model_warmup(self) -> None:
+        """Finish background model preparation before gameplay starts."""
+        if self.style is not None:
+            self.style.finish_dynamic_prompt_preencoding()
 
     def prepare_model_step(
         self, pipeline: Any, engine: Any, step: Any, autoregressive_index: int
