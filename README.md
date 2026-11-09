@@ -41,6 +41,10 @@ Checkout our game-like crazy-robotaxi demo [here](https://nvidia.github.io/flash
 Try [Cosmos3 Nano Sim Auto](integrations_v2/cosmos3_nano_sim_auto/README.md)
 for multiview driving with prepared HD maps and optional LiDAR.
 
+Try [Cosmos3 Nano Sim Transfer](integrations_v2/cosmos3_nano_sim_transfer/README.md)
+to generate video from a caption and a depth, segmentation, edge, or blur
+control stream. It supports recorded clips and an in-process streaming API.
+
 ## Developer guides
 
 ### For Demo Developers

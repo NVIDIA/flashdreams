@@ -200,6 +200,22 @@ Training checkpoints and prepared scene assets have their own distribution
 terms and are not included in these source packages.
 
 ================================================================================
+Optional integration: integrations_v2/cosmos3_nano_sim_transfer
+================================================================================
+
+Cosmos3 Nano Sim Transfer uses the shared cosmos_interactive MoT network,
+checkpoint loader and tokenizer, the Wan 2.2 VAE, and the optional TAEHV-super
+decoder attributed above. Its control-video reader uses the existing mediapy
+dependency. The implementation follows NVIDIA cosmos-framework's Transfer
+inference contract:
+https://github.com/NVIDIA/cosmos-framework
+
+The released model weights and tokenizer are downloaded separately from
+https://huggingface.co/nvidia/Cosmos3-Nano-Sim-Transfer
+and retain their upstream terms. No model weights or control-video datasets
+are distributed with this integration.
+
+================================================================================
 Optional integration: integrations_v2/omnidreams
 ================================================================================
 

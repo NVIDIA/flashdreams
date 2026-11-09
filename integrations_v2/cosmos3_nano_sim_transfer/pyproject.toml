@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flashdreams-cosmos3-nano-sim-transfer"
+version = "0.2.0"
+description = "Cosmos3 Nano Sim Transfer: control video to video, one latent per step."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "flashdreams-cosmos-interactive",
+    # Control video decoding (mediapy) through flashdreams.infra.runner_io.
+    "flashdreams[runners]",
+]
+
+# No test extra here on purpose. pytest and friends live in the workspace root's
+# test dependency group.
+
+[project.entry-points."flashdreams.applications_v2"]
+"control2v-cosmos3-nano-sim-transfer" = "cosmos3_nano_sim_transfer.apps.control2v.adapter:create_app"
+
+[tool.uv.sources]
+flashdreams-cosmos-interactive = { workspace = true }
+flashdreams = { workspace = true }
+
+[tool.setuptools]
+include-package-data = false
+# This directory is the package, as in cosmos3_nano_sim_auto; a new subpackage
+# has to be listed here or it ships missing from an installed wheel.
+packages = [
+    "cosmos3_nano_sim_transfer",
+    "cosmos3_nano_sim_transfer.impl",
+    "cosmos3_nano_sim_transfer.apps",
+    "cosmos3_nano_sim_transfer.apps.control2v",
+    "cosmos3_nano_sim_transfer.probes",
+]
+
+[tool.setuptools.package-dir]
+cosmos3_nano_sim_transfer = "."
+
+[tool.uv]
+managed = true

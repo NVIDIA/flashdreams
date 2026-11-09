@@ -32,6 +32,7 @@ members = [
     "flashdreams-cosmos-predict2",
     "flashdreams-cosmos3-nano-sim-auto",
     "flashdreams-cosmos3-nano-sim-bimanual",
+    "flashdreams-cosmos3-nano-sim-transfer",
     "flashdreams-fastvideo-causal-wan22",
     "flashdreams-flashvsr",
     "flashdreams-handdreams",
@@ -1071,6 +1072,22 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "flashdreams-cosmos3-nano-sim-transfer"
+version = "0.2.0"
+source = { editable = "integrations_v2/cosmos3_nano_sim_transfer" }
+dependencies = [
+    { name = "flashdreams", extra = ["runners"] },
+    { name = "flashdreams-cosmos-interactive" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flashdreams", extras = ["runners"], editable = "flashdreams" },
+    { name = "flashdreams-cosmos-interactive", editable = "integrations_v2/cosmos_interactive" },
+]
+
 
 [[package]]
 name = "flashdreams-fastvideo-causal-wan22"

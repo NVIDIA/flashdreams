@@ -16,6 +16,8 @@ guides. They are the canonical authoring instructions.
 - `cosmos3_nano_sim_auto` — multiview RGB and optional LiDAR generation,
   including Interactive Drive with prepared JSON scene bundles.
 - `cosmos_interactive` — shared Cosmos Interactive model and codec components.
+- `cosmos3_nano_sim_transfer` — depth, segmentation, edge, or blur control-video
+  generation with a recorded-clip application and an in-process streaming API.
 - `color_fade` — the smallest integration that writes a file. No model, CPU
   only, and the worked example for the rest of this guide.
 - `red_screen` — the smallest interactive one, streaming to a browser.

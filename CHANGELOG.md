@@ -10,6 +10,15 @@ This changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- [Cosmos3 Nano Sim Transfer](integrations_v2/cosmos3_nano_sim_transfer/README.md):
+  control-video generation with released weights, bounded streaming history,
+  an in-process `TransferStream` API, and the `control2v-cosmos3-nano-sim-transfer`
+  v2 application. Eager four-step inference with Wan 2.2 decoding is the default;
+  CUDA graphs, compilation, TAEHV-super decoding, and shorter sampling schedules
+  are optional.
+
 ## [v0.2.0] - 2026-10-21
 
 Changes since [v0.1.0].
