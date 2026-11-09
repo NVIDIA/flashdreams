@@ -21,9 +21,10 @@ The package exports `GameEngine`, `SimulationStep`, `render_recorded_step`,
 
 Applications supply implementations of the `SimulationWorld`, `GameRules`, and
 `ConditionRenderer` protocols in [contracts.py](omnidreams_game_engine/contracts.py).
-The engine checks that game snapshots and conditioning frames match the number
-of driver commands. The rollout uses the pipeline's output-frame count and
-checks that generated video matches the engine block.
+The engine checks that game snapshots match the simulated commands, and that
+rendered conditioning frames match the recording. The rollout validates its
+input against the pipeline's output-frame count and checks that generated video
+matches the engine block.
 
 `GameEngine.step()` retains the coupled advance-and-render path. For independent
 clocks, `GameplayProcess` owns a `SimulationDriver` in a spawned CPU process and
@@ -39,22 +40,13 @@ The application uses current gameplay for responsive HUD feedback and the record
 state for overlays that must align with generated pixels. Optional parent-side
 `GameplayObserver` hooks report readiness, applied inputs, and physics timings.
 
-### External observation producers
+### Rendering recorded gameplay
 
-An external engine can feed the same `WorldTimeline` without a `GameplayProcess`.
-Convert each decoded observation into a single-frame `SimulationStep` and append
-it as a `WorldSample`, one per source tick in order starting with the seed. Configure
-`ticks_per_frame` for the observation cadence: `2` for observations at 60 Hz and
-nominal output at 30 FPS, or `4` for Robotaxi's 120 Hz observations. The timeline
-samples a longer recorded interval when generation falls behind.
-
-Keep source tick and epoch identifiers in the recording's `game_frames`, with
-source timestamps in `trajectory.timestamps_us`. Both survive sampling and appear
-in `WorldModelStep.engine`, so delivery and presentation can use the selected
-source observations rather than deriving ticks from the generated frame index.
-The external engine's `RolloutEngine.render(recorded)` implementation calls
-`render_recorded_step(recorded, condition_renderer)`; its existing source and
-renderer lifecycle remain application-owned.
+`WorldModelRollout.step(recorded_step=...)` renders and generates from a
+`SimulationStep` without advancing physics. `GameEngine.render()` uses
+`render_recorded_step(recorded, condition_renderer)`, which preserves the
+recorded trajectory and game snapshots in the returned `EngineStep`.
+Robotaxi uses this flow when generating a new video chunk:
 
 ```python
 window = timeline.prepare(rollout.frame_count(ar_index), shutdown_event)
@@ -67,12 +59,10 @@ if window is not None:
 ```
 
 Pass either `commands` or `recorded_step` to the rollout, never both. A recording
-already contains its applied controls. Commit only after successful generation
-and cache finalization. On a seed/restart, or a model failure that may have mutated
-the cache, close the old timeline and restart the rollout from the epoch's seed. History
-overflow fails explicitly; the adapter owns recovery rather than silently
-discarding unconsumed observations. External tick grants, control-image capture,
-transport, and presentation are outside this shared path.
+already contains its applied controls, and its trajectory and game snapshots must
+match the pipeline's frame count. Commit the window only after the rollout returns
+successfully, including cache finalization. Timeline overflow raises an error
+instead of overwriting unconsumed gameplay.
 
 `WorldModelRollout.reset()` recreates the engine and autoregressive cache while
 retaining the pipeline and its model weights. `close()` releases session-local
