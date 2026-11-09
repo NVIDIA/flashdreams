@@ -5,18 +5,25 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 import torch
-from omnidreams_game_engine.engine import EngineStep, SimulationStep
+from omnidreams_game_engine.engine import (
+    EngineStep,
+    SimulationStep,
+    render_recorded_step,
+)
 from omnidreams_game_engine.model import WorldModelRollout, _initial_image_tensor
+from omnidreams_game_engine.timeline import WorldSample, WorldTimeline
 from omnidreams_game_engine.types import (
     CameraCalibration,
     ConditionBatch,
     DriverCommand,
+    DynamicActorTrajectory,
     SceneDefinition,
     TrajectoryChunk,
     VehicleState,
@@ -205,3 +212,210 @@ def test_initial_image_tensor_owns_writable_numpy_storage(monkeypatch) -> None:
 
     assert writable_flags == [True]
     assert tensor.shape == (1, 1, 1, 3, 4, 8)
+
+
+@dataclass(frozen=True)
+class _ExternalFrame:
+    epoch: int
+    tick: int
+
+
+def _external_sample(
+    tick: int, *, epoch: int = 7, sim_hz: int = 60, actor_present: bool = False
+) -> WorldSample:
+    state = VehicleState(tick / 1000, 0, 0, 0, 1, 0)
+    pose = np.eye(4, dtype=np.float32)[None]
+    pose[0, 0, 3] = state.x_m
+    timestamps = np.array([round(tick * 1_000_000 / sim_hz)], dtype=np.int64)
+    actors = (
+        (
+            DynamicActorTrajectory(
+                "external-car",
+                "Car",
+                timestamps,
+                pose[:, :3, 3].copy(),
+                np.array([[0, 0, 0, 1]], dtype=np.float32),
+                np.ones(3, dtype=np.float32),
+                is_simulated=True,
+            ),
+        )
+        if actor_present
+        else ()
+    )
+    trajectory = TrajectoryChunk(
+        timestamps, pose, (state,), state, dynamic_actors=actors
+    )
+    return WorldSample(
+        SimulationStep(
+            trajectory, (_ExternalFrame(epoch, tick),), {"external_build_ms": 1.0}
+        )
+    )
+
+
+class _ObservationRenderer:
+    def load_scene(self, scene: SceneDefinition) -> None:
+        pass
+
+    def render(self, trajectory: TrajectoryChunk) -> ConditionBatch:
+        positions = torch.from_numpy(trajectory.rig_poses_world[:, 0, 3].copy())
+        return ConditionBatch(
+            positions.reshape(1, 1, -1, 1, 1, 1).expand(-1, -1, -1, 3, 4, 8)
+        )
+
+    def close(self) -> None:
+        pass
+
+
+class _ExternalEngine(_Engine):
+    def step(self, commands: tuple[DriverCommand, ...]) -> EngineStep:
+        raise AssertionError("An external recording must not advance local simulation")
+
+    def render(self, recorded: SimulationStep) -> EngineStep:
+        return render_recorded_step(recorded, _ObservationRenderer())
+
+
+@pytest.mark.parametrize("sim_hz", [60, 120])
+def test_external_observations_share_timeline_and_recorded_rollout(
+    monkeypatch: pytest.MonkeyPatch, sim_hz: int
+) -> None:
+    stride = sim_hz // 30
+    timeline = WorldTimeline(ticks_per_frame=stride)
+    origin = 600
+    for tick in range(stride + 1):
+        timeline.append(_external_sample(origin + tick, sim_hz=sim_hz))
+    pipeline = _Pipeline()
+    original_generate = pipeline.generate
+    elapsed_ticks = sim_hz // 2
+
+    def generate(*, autoregressive_index, cache, input):
+        original_generate(
+            autoregressive_index=autoregressive_index, cache=cache, input=input
+        )
+        if autoregressive_index == 0:
+            # The external producer progresses while generation holds its snapshot.
+            for tick in range(stride + 1, stride + elapsed_ticks + 1):
+                timeline.append(
+                    _external_sample(
+                        origin + tick,
+                        sim_hz=sim_hz,
+                        actor_present=tick <= stride + 4,
+                    )
+                )
+        return input.clone()
+
+    monkeypatch.setattr(pipeline, "generate", generate)
+    rollout = WorldModelRollout(
+        pipeline=pipeline, scene=_scene(), engine_factory=_ExternalEngine
+    )
+    first = timeline.prepare(2, threading.Event())
+    assert first is not None
+    result = rollout.step(autoregressive_index=0, recorded_step=first.recorded_step())
+    assert result.engine.game_frames == (
+        _ExternalFrame(7, origin),
+        _ExternalFrame(7, origin + stride),
+    )
+    assert timeline.gameplay_tick == stride + elapsed_ticks
+    assert timeline.generation_tick == -1
+    assert pipeline.calls[-1][0] == "finalize"
+    timeline.commit(first)
+
+    second = timeline.prepare(2, threading.Event())
+    assert second is not None
+    result = rollout.step(autoregressive_index=1, recorded_step=second.recorded_step())
+    ticks = (origin + stride + elapsed_ticks // 2, origin + stride + elapsed_ticks)
+    assert result.engine.game_frames == tuple(_ExternalFrame(7, tick) for tick in ticks)
+    np.testing.assert_array_equal(
+        result.engine.trajectory.timestamps_us,
+        [round(tick * 1_000_000 / sim_hz) for tick in ticks],
+    )
+    np.testing.assert_allclose(
+        result.video_bvtchw[0, 0, :, 0, 0, 0], np.array(ticks) / 1000
+    )
+    assert result.metrics["external_build_ms"] == elapsed_ticks
+    actor = result.engine.trajectory.dynamic_actors[0]
+    assert actor.timestamps_us[0] == round((origin + stride + 1) * 1_000_000 / sim_hz)
+    assert actor.timestamps_us[-1] == round((origin + stride + 4) * 1_000_000 / sim_hz)
+    timeline.commit(second)
+    assert timeline.generation_tick == timeline.gameplay_tick
+    rollout.close()
+
+
+@pytest.mark.parametrize("failure_stage", ["generate", "finalize"])
+def test_external_recording_failure_and_new_epoch(
+    monkeypatch: pytest.MonkeyPatch, failure_stage: str
+) -> None:
+    pipeline = _Pipeline()
+    rollout = WorldModelRollout(
+        pipeline=pipeline, scene=_scene(), engine_factory=_ExternalEngine
+    )
+    timeline = WorldTimeline(ticks_per_frame=2)
+    for tick in range(600, 603):
+        timeline.append(_external_sample(tick))
+    window = timeline.prepare(2, threading.Event())
+    assert window is not None
+
+    def fail(**kwargs):
+        raise RuntimeError("model failed")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(pipeline, failure_stage, fail)
+        with pytest.raises(RuntimeError, match="model failed"):
+            rollout.step(autoregressive_index=0, recorded_step=window.recorded_step())
+            timeline.commit(window)
+    assert timeline.generation_tick == -1
+    with pytest.raises(RuntimeError, match="Commit"):
+        timeline.prepare(2, threading.Event())
+
+    # A failed model/cache step restarts the epoch instead of replaying stale history.
+    timeline.close()
+    previous_engine = rollout.engine
+    previous_cache = rollout.cache
+    rollout.reset()
+    assert isinstance(previous_engine, _ExternalEngine) and previous_engine.closed
+    assert rollout.cache is not previous_cache
+    timeline = WorldTimeline(ticks_per_frame=2)
+    for tick in range(30, 33):
+        timeline.append(_external_sample(tick, epoch=8))
+    window = timeline.prepare(2, threading.Event())
+    assert window is not None
+    result = rollout.step(autoregressive_index=0, recorded_step=window.recorded_step())
+    assert result.engine.game_frames == (_ExternalFrame(8, 30), _ExternalFrame(8, 32))
+    timeline.commit(window)
+    rollout.close()
+
+
+@pytest.mark.parametrize(
+    "input_kind", ["missing", "both", "commands", "recorded", "unaligned"]
+)
+def test_rollout_rejects_invalid_inputs_before_rendering(
+    monkeypatch: pytest.MonkeyPatch, input_kind: str
+) -> None:
+    pipeline = _Pipeline()
+    engine = _ExternalEngine()
+    rollout = WorldModelRollout(
+        pipeline=pipeline, scene=_scene(), engine_factory=lambda: engine
+    )
+    recorded = _external_sample(600).step
+    commands = (DriverCommand(),) if input_kind in {"both", "commands"} else None
+    if input_kind == "unaligned":
+        recorded = replace(recorded, game_frames=recorded.game_frames * 2)
+    recorded_step = (
+        recorded if input_kind in {"both", "recorded", "unaligned"} else None
+    )
+
+    def unexpected_render(recorded):
+        pytest.fail("Invalid recordings must be rejected before rendering")
+
+    monkeypatch.setattr(engine, "render", unexpected_render)
+    with pytest.raises(ValueError):
+        rollout.step(
+            autoregressive_index=0, commands=commands, recorded_step=recorded_step
+        )
+    assert not any(name in {"generate", "finalize"} for name, _ in pipeline.calls)
+    rollout.close()
+
+
+def test_recorded_rendering_rejects_unaligned_game_frames() -> None:
+    recorded = _external_sample(600).step
+    with pytest.raises(ValueError, match="Game frames must align"):
+        render_recorded_step(replace(recorded, game_frames=()), _ObservationRenderer())

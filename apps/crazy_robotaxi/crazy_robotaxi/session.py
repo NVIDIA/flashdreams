@@ -316,7 +316,6 @@ class ModelState:
             )
             generated = rollout.step(
                 autoregressive_index=autoregressive_index,
-                commands=tuple(DriverCommand() for _ in range(frame_count)),
                 recorded_step=recorded,
             )
             if generated.video_bvtchw.is_cuda:
@@ -519,7 +518,6 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             else:
                 generated = rollout.step(
                     autoregressive_index=autoregressive_index,
-                    commands=commands,
                     recorded_step=recorded,
                 )
             gameplay.timeline.commit(window)

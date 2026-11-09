@@ -7,13 +7,15 @@ world-model rollout.
 
 ## Responsibilities and public API
 
-The package exports `GameEngine`, `SimulationStep`, `EngineStep`, and `WorldModelRollout`:
+The package exports `GameEngine`, `SimulationStep`, `render_recorded_step`,
+`EngineStep`, and `WorldModelRollout`:
 
 | Component | Responsibility |
 | --- | --- |
 | `GameEngine.advance()` | Advance vehicle simulation and application rules without rendering. |
 | `SimulationStep` | Recorded trajectory, actors, commands, and game snapshots that can be rendered independently of the mutable simulation. |
-| `GameEngine.render()` | Render conditioning from a recorded simulation step without advancing physics or rules. |
+| `render_recorded_step()` | Render conditioning and timings from a recording with a caller-owned condition renderer; no local simulation or game rules are required. |
+| `GameEngine.render()` | Render a recording through `render_recorded_step()` without advancing physics or rules. |
 | `EngineStep` | Return the trajectory, game-state snapshots, conditioning frames, and engine timing metrics for that block. |
 | `WorldModelRollout` | Generate video from an engine step or supplied recorded step, finalize the autoregressive cache, and return video with its matching conditioning. |
 
@@ -36,6 +38,41 @@ generation. Physics may continue while the model renders that recorded window.
 The application uses current gameplay for responsive HUD feedback and the recorded
 state for overlays that must align with generated pixels. Optional parent-side
 `GameplayObserver` hooks report readiness, applied inputs, and physics timings.
+
+### External observation producers
+
+An external engine can feed the same `WorldTimeline` without a `GameplayProcess`.
+Convert each decoded observation into a single-frame `SimulationStep` and append
+it as a `WorldSample`, one per source tick in order starting with the seed. Configure
+`ticks_per_frame` for the observation cadence: `2` for observations at 60 Hz and
+nominal output at 30 FPS, or `4` for Robotaxi's 120 Hz observations. The timeline
+samples a longer recorded interval when generation falls behind.
+
+Keep source tick and epoch identifiers in the recording's `game_frames`, with
+source timestamps in `trajectory.timestamps_us`. Both survive sampling and appear
+in `WorldModelStep.engine`, so delivery and presentation can use the selected
+source observations rather than deriving ticks from the generated frame index.
+The external engine's `RolloutEngine.render(recorded)` implementation calls
+`render_recorded_step(recorded, condition_renderer)`; its existing source and
+renderer lifecycle remain application-owned.
+
+```python
+window = timeline.prepare(rollout.frame_count(ar_index), shutdown_event)
+if window is not None:
+    result = rollout.step(
+        autoregressive_index=ar_index,
+        recorded_step=window.recorded_step(),
+    )
+    timeline.commit(window)
+```
+
+Pass either `commands` or `recorded_step` to the rollout, never both. A recording
+already contains its applied controls. Commit only after successful generation
+and cache finalization. On a seed/restart, or a model failure that may have mutated
+the cache, close the old timeline and restart the rollout from the epoch's seed. History
+overflow fails explicitly; the adapter owns recovery rather than silently
+discarding unconsumed observations. External tick grants, control-image capture,
+transport, and presentation are outside this shared path.
 
 `WorldModelRollout.reset()` recreates the engine and autoregressive cache while
 retaining the pipeline and its model weights. `close()` releases session-local

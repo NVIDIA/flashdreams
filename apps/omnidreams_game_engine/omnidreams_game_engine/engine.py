@@ -39,6 +39,35 @@ class EngineStep:
     """Wall and model-thread CPU timings for the engine's major stages."""
 
 
+def render_recorded_step(
+    recorded: SimulationStep, condition_renderer: ConditionRenderer
+) -> EngineStep:
+    """Render recorded observations without owning or advancing their simulation.
+
+    The caller owns the renderer and the recording's source clock. Preserve
+    trajectories and game snapshots so output frames retain their source identity.
+    """
+    if len(recorded.game_frames) != len(recorded.trajectory.timestamps_us):
+        raise ValueError("Game frames must align with recorded trajectory frames")
+    wall_started = time.perf_counter()
+    cpu_started = time.thread_time()
+    condition = condition_renderer.render(recorded.trajectory)
+    wall_ms = (time.perf_counter() - wall_started) * 1000
+    cpu_ms = (time.thread_time() - cpu_started) * 1000
+    if int(condition.hdmap_bvtchw.shape[2]) != len(recorded.game_frames):
+        raise ValueError("Condition frames must align with recorded trajectory frames")
+    metrics = dict(recorded.metrics)
+    metrics.update(
+        conditioning_wall_ms=wall_ms,
+        conditioning_cpu_ms=cpu_ms,
+        engine_step_wall_ms=wall_ms
+        + sum(metrics.get(k, 0) for k in ("simulation_wall_ms", "rules_wall_ms")),
+        engine_step_cpu_ms=cpu_ms
+        + sum(metrics.get(k, 0) for k in ("simulation_cpu_ms", "rules_cpu_ms")),
+    )
+    return EngineStep(recorded.trajectory, recorded.game_frames, condition, metrics)
+
+
 class GameEngine:
     """Advance owned simulation state and render recorded world observations."""
 
@@ -121,23 +150,7 @@ class GameEngine:
         """Render a frozen world observation without advancing gameplay."""
         if self._closed or self.condition_renderer is None:
             raise RuntimeError("GameEngine has no active condition renderer")
-        wall_started = time.perf_counter()
-        cpu_started = time.thread_time()
-        condition = self.condition_renderer.render(recorded.trajectory)
-        wall_ms = (time.perf_counter() - wall_started) * 1000
-        cpu_ms = (time.thread_time() - cpu_started) * 1000
-        if int(condition.hdmap_bvtchw.shape[2]) != len(recorded.game_frames):
-            raise ValueError("Condition frames must align with simulated commands")
-        metrics = dict(recorded.metrics)
-        metrics.update(
-            conditioning_wall_ms=wall_ms,
-            conditioning_cpu_ms=cpu_ms,
-            engine_step_wall_ms=wall_ms
-            + sum(metrics.get(k, 0) for k in ("simulation_wall_ms", "rules_wall_ms")),
-            engine_step_cpu_ms=cpu_ms
-            + sum(metrics.get(k, 0) for k in ("simulation_cpu_ms", "rules_cpu_ms")),
-        )
-        return EngineStep(recorded.trajectory, recorded.game_frames, condition, metrics)
+        return render_recorded_step(recorded, self.condition_renderer)
 
     def close(self) -> None:
         """Release session-local physics and renderer resources."""

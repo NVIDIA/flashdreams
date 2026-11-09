@@ -105,11 +105,15 @@ class WorldModelRollout:
         self,
         *,
         autoregressive_index: int,
-        commands: tuple[DriverCommand, ...],
+        commands: tuple[DriverCommand, ...] | None = None,
         observe_engine_step: Callable[[EngineStep], None] | None = None,
         recorded_step: SimulationStep | None = None,
     ) -> WorldModelStep:
         """Simulate, condition, generate, and finalize one block directly.
+
+        Supply either driving ``commands`` or a ``recorded_step``. Recorded
+        trajectories and game snapshots must match the pipeline's frame count;
+        their applied controls are already part of the recording.
 
         ``observe_engine_step`` receives completed simulation observations before
         generation begins, including when generation subsequently fails.
@@ -117,8 +121,22 @@ class WorldModelRollout:
         if self._closed:
             raise RuntimeError("WorldModelRollout is closed")
         expected = self.frame_count(autoregressive_index)
-        if len(commands) != expected:
-            raise ValueError(f"Expected {expected} commands, got {len(commands)}")
+        if recorded_step is not None:
+            if commands is not None:
+                raise ValueError("Supply either commands or recorded_step, not both")
+            count = len(recorded_step.game_frames)
+            if (
+                count != expected
+                or len(recorded_step.trajectory.timestamps_us) != count
+            ):
+                raise ValueError(
+                    f"Expected {expected} aligned recorded frames, got {count} game frames "
+                    f"and {len(recorded_step.trajectory.timestamps_us)} trajectory frames"
+                )
+        elif commands is None or len(commands) != expected:
+            raise ValueError(
+                f"Expected {expected} commands, got {0 if commands is None else len(commands)}"
+            )
 
         rollout_wall_started = time.perf_counter()
         rollout_cpu_started = time.thread_time()
@@ -127,11 +145,11 @@ class WorldModelRollout:
         )
         engine_wall_started = time.perf_counter()
         engine_cpu_started = time.thread_time()
-        engine_step = (
-            self.engine.step(commands)
-            if recorded_step is None
-            else self.engine.render(recorded_step)
-        )
+        if recorded_step is not None:
+            engine_step = self.engine.render(recorded_step)
+        else:
+            assert commands is not None
+            engine_step = self.engine.step(commands)
         engine_step_returned_ns = (
             time.monotonic_ns() if self._trace_chunk_lifecycle else None
         )

@@ -3,7 +3,18 @@
 
 """Reusable simulation and world-model rendering for FlashDreams V2."""
 
-from omnidreams_game_engine.engine import EngineStep, GameEngine, SimulationStep
+from omnidreams_game_engine.engine import (
+    EngineStep,
+    GameEngine,
+    SimulationStep,
+    render_recorded_step,
+)
 from omnidreams_game_engine.model import WorldModelRollout
 
-__all__ = ["EngineStep", "GameEngine", "SimulationStep", "WorldModelRollout"]
+__all__ = [
+    "EngineStep",
+    "GameEngine",
+    "SimulationStep",
+    "WorldModelRollout",
+    "render_recorded_step",
+]
