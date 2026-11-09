@@ -178,8 +178,6 @@ class ApplicationConfig:
     visual_flare_enabled: bool = False
     """Whether collision feedback may darken the presented game frame."""
 
-    """Run authoritative physics on a separate CPU process."""
-
     no_ui: bool = False
     """Present raw model frames without the ImGui HUD (no graphics device)."""
 
