@@ -4,10 +4,10 @@
     {
       "id": "offline-command",
       "expected_skill": "flashdreams-package-offline",
-      "prompt": "Give a packaging command only, without executing it, for the installed FlashDreams V2 preset crazy-robotaxi-omnidreams in native-window mode. Use the new destination artifacts/taxi-bundle. The app also accepts --fullscreen. Dependencies are already installed. Include validation and retain the console.",
-      "expected_output": "Calls uv run --no-sync python tools/package-as-offline-exe/package_as_offline_exe.py --output artifacts/taxi-bundle ::: flashdreams-run-v2 crazy-robotaxi-omnidreams --mode native-window -- --fullscreen. Does not add --preload-application, --skip-runtime-validation or --noconsole.",
+      "prompt": "Give a packaging command only, without executing it, for the installed FlashDreams V2 preset crazy-robotaxi-omnidreams in native-window mode. Use the new destination artifacts/taxi-bundle. Start the native window fullscreen and set the app rollout to one block using --total-blocks 1. Dependencies are already installed. Include validation and retain the console.",
+      "expected_output": "Calls uv run --no-sync python tools/package-as-offline-exe/package_as_offline_exe.py --output artifacts/taxi-bundle ::: flashdreams-run-v2 crazy-robotaxi-omnidreams --mode native-window --fullscreen -- --total-blocks 1. Does not add --preload-application, --skip-runtime-validation or --noconsole.",
       "assertions": [
-        "Separates packager and runtime arguments with ::: and app arguments with --.",
+        "Separates packager and runtime arguments with :::; places --fullscreen before -- and --total-blocks 1 after it.",
         "Uses the supplied preset, mode and new destination.",
         "Leaves runtime validation enabled and does not execute the build."
       ]

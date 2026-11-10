@@ -4,22 +4,22 @@
     {
       "id": "run-file",
       "expected_skill": "flashdreams-run-model",
-      "prompt": "Give me a command, without executing it, to run the installed FlashDreams V2 preset t2v-wan21-t2v-1.3b-480p for one model step. Save artifacts/cat.mp4, retain every generated frame in order, and use the app prompt \"A cat surfing\". No checkout or GPU is available here.",
-      "expected_output": "Uses uv run --no-sync flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p with --mode mp4 --output-path artifacts/cat.mp4 --total-model-steps 1 --backpressure-mode block --presentation-mode on_demand before -- and --prompt \"A cat surfing\" after it. Does not execute generation.",
+      "prompt": "Give me a command, without executing it, to run the installed FlashDreams V2 preset t2v-wan21-t2v-1.3b-480p for one model step. Save artifacts/cat.mp4, retain every generated frame in order without UI overlays, and use the app prompt \"A cat surfing\". No checkout or GPU is available here.",
+      "expected_output": "Uses uv run --no-sync flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p with --mode mp4 --output-path artifacts/cat.mp4 --total-model-steps 1 --backpressure-mode block --presentation-mode on_demand before -- and --no-ui --prompt \"A cat surfing\" after it. Does not execute generation.",
       "assertions": [
         "Produces a V2 command with the supplied preset, output path and one-step bound.",
-        "Places runtime flags before -- and the prompt after --.",
+        "Places runtime flags before -- and --no-ui plus the prompt after -- to disable the interactive UI.",
         "Uses block and on_demand for frame-preserving file output and does not run the command."
       ]
     },
     {
       "id": "run-separator",
       "expected_skill": "flashdreams-run-model",
-      "prompt": "Diagnose this FlashDreams command without running it: flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p --prompt \"rain\" -- --mode webm --output-path rain.webm. The app accepts --prompt. I want one model step in a WebM file.",
-      "expected_output": "Moves --prompt rain after the separator and --mode webm, --output-path rain.webm and --total-model-steps 1 before it. Identifies both the wrong argument boundaries and the missing file-run limit.",
+      "prompt": "Diagnose this FlashDreams command without running it: flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p --prompt \"rain\" -- --mode webm --output-path rain.webm. The app accepts --prompt. I want one model step in a WebM file without UI overlays.",
+      "expected_output": "Moves --prompt rain after the separator, adds --no-ui there for raw video without interactive controls, and places --mode webm, --output-path rain.webm and --total-model-steps 1 before it. Identifies the wrong argument boundaries, missing file-run limit, and need to disable the application UI separately from choosing file output.",
       "assertions": [
         "Identifies the swapped runtime/application arguments.",
-        "Returns a corrected command with an explicit model-step bound.",
+        "Returns a corrected command with an explicit model-step bound and --no-ui on the application side of --.",
         "Does not launch or install anything."
       ]
     },

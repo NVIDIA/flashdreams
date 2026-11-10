@@ -60,13 +60,17 @@ The shape is `flashdreams-run-v2 PRESET SYSTEM_ARGS -- APP_ARGS`.
   block --presentation-mode on_demand`. Interactive latency may justify different
   pacing; do not promise that `drop_oldest` preserves all frames.
 
+For raw T2V file output, pass `--no-ui` after `--` to disable interactive prompt
+controls and their Vulkan rendering requirement. Selecting `mp4` or `webm` alone
+does not disable the application UI.
+
 For example, a bounded Wan 2.1 file run:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p \
   --mode mp4 --output-path artifacts/wan21.mp4 --total-model-steps 1 \
   --backpressure-mode block --presentation-mode on_demand \
-  -- --prompt "A cat surfing"
+  -- --no-ui --prompt "A cat surfing"
 ```
 
 Use `flashdreams-run-v2` for current applications. The legacy
