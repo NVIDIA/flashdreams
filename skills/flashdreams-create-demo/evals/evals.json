@@ -4,7 +4,7 @@
     {
       "id": "demo-lifecycle",
       "expected_skill": "flashdreams-create-demo",
-      "prompt": "Review this new model-independent FlashDreams V2 demo design: __init__ loads weights, session_desc compiles kernels, create_session starts a WebRTC server, and a UI callback directly writes the model cache. Give a corrected lifecycle and thread-ownership plan. Do not write or execute an app.",
+      "prompt": "Review this new model-independent FlashDreams V2 demo design: __init__ loads weights, session_desc compiles kernels, create_session starts a WebRTC server, and a UI callback directly writes the model cache. Give a corrected lifecycle and thread-ownership plan. Do not write or execute an app. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Keeps construction/description cheap, starts preparation in IApplication.init, lets the runtime own WebRTC and threading, returns an uninitialized isolated session, and queues UI changes to model-owned state with invoke_async using captured values.",
       "assertions": [
         "Moves model loading and compilation into the init preparation path.",
@@ -15,7 +15,7 @@
     {
       "id": "demo-stub-tests",
       "expected_skill": "flashdreams-create-demo",
-      "prompt": "I need CPU-only tests for a new FlashDreams V2 app. A teammate proposes importing the real model from integrations_v2 and downloading its checkpoint in the app test fixture. Give a focused replacement test plan, including test location and marker. Do not run tests.",
+      "prompt": "I need CPU-only tests for a new FlashDreams V2 app. A teammate proposes importing the real model from integrations_v2 and downloading its checkpoint in the app test fixture. Give a focused replacement test plan, including test location and marker. Do not run tests. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Places stub-based tests in apps/<demo>/tests with ci_cpu markers and no integration imports/downloads. Covers cheap construction, session validation, generate/finalize ordering, frame metadata, empty output, prompt/reset behavior and cleanup. Real model checks belong in integrations_v2/<model>/tests.",
       "assertions": [
         "Uses app-local tests with fake pipelines and the ci_cpu marker.",
@@ -26,7 +26,7 @@
     {
       "id": "demo-output",
       "expected_skill": "flashdreams-create-demo",
-      "prompt": "A FlashDreams V2 prompt UI stays open between prompts. Its model loop returns None while waiting, returns a bare StepResult when frames arrive, and sets is_finished true whenever one prompt finishes. Which return values need fixing, and when is finishing the model loop compatible with keeping the UI open? Give review feedback only.",
+      "prompt": "A FlashDreams V2 prompt UI stays open between prompts. Its model loop returns None while waiting, returns a bare StepResult when frames arrive, and sets is_finished true whenever one prompt finishes. Which return values need fixing, and when is finishing the model loop compatible with keeping the UI open? Give review feedback only. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Returns a list of StepResult, including [] when a step produces no output. Accepts either a persistent model loop that keeps is_finished false while waiting for new prompts, or a finite model loop per prompt with the UI using request_new_session for subsequent prompts. Model-loop completion does not by itself mean application completion. Keeps mutable rollout state owned by each session's model loop, resetting it for new prompts or creating a fresh session.",
       "assertions": [
         "Corrects step return values to lists and uses [] for no output.",
@@ -37,7 +37,7 @@
     {
       "id": "demo-boundary",
       "expected_skill": "flashdreams-create-demo",
-      "prompt": "I am adding a new FlashDreams V2 drawing UI that should work with several models. Where should its code, model defaults, application factory registration and tests live? Provide a small directory sketch and dependency direction, without running commands.",
+      "prompt": "I am adding a new FlashDreams V2 drawing UI that should work with several models. Where should its code, model defaults, application factory registration and tests live? Provide a small directory sketch and dependency direction, without running commands. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Places the reusable app under apps/<demo> with stub tests. Each model owns defaults and a factory adapter under integrations_v2/<model>/apps/<demo>, registered by that integration via flashdreams.applications_v2. The app depends on framework; integration depends on app/framework.",
       "assertions": [
         "Shows a reusable apps/<demo> package and app-local tests.",

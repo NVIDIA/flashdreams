@@ -4,18 +4,19 @@
     {
       "id": "integrate-manifest",
       "expected_skill": "flashdreams-integrate-model",
-      "prompt": "Review a proposed FlashDreams V2 binding. New code is in integrations/my_model/my_model/runner.py and registers [project.entry-points.\"flashdreams.runner_configs\"] my-model=\"my_model.runner:RUNNER\". It should bind a reusable apps/my_demo app to my_model. Supply the corrected in-tree layout and manifest entry-point fragment, not a full implementation. No checkout is available.",
+      "prompt": "Review a legacy V1-style proposal that needs migration to a FlashDreams V2 binding. New code is in integrations/my_model/my_model/runner.py and registers [project.entry-points.\"flashdreams.runner_configs\"] my-model=\"my_model.runner:RUNNER\". It should bind a reusable apps/my_demo app to my_model. Supply the corrected in-tree layout and manifest entry-point fragment, not a full implementation. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Places model code/config/tests under integrations_v2/my_model and its adapter under apps/my_demo/adapter.py inside that model package. Registers a zero-argument create_app factory in flashdreams.applications_v2, declares the reusable app dependency and includes adapter modules in packaging. Does not introduce a RunnerConfig for the V2 binding.",
       "assertions": [
         "Provides integrations_v2/my_model/apps/my_demo/adapter.py as the adapter location.",
         "Uses flashdreams.applications_v2 with an adapter:create_app target.",
-        "Keeps the dependency from integration to app and mentions packaging the adapter."
+        "Keeps the dependency from integration to app and mentions packaging the adapter.",
+        "Rejects the legacy runner.py and flashdreams.runner_configs pattern for this V2 binding."
       ]
     },
     {
       "id": "integrate-remap",
       "expected_skill": "flashdreams-integrate-model",
-      "prompt": "I am porting weights into FlashDreams. Source checkpoint keys a and b both rename to weight; c renames to bias. The model expects weight and bias with matching tensor shapes. My check compares only the destination key set and passes. Is this sufficient? Give a CPU-safe validation plan without loading real weights.",
+      "prompt": "I am porting weights into FlashDreams. Source checkpoint keys a and b both rename to weight; c renames to bias. The model expects weight and bias with matching tensor shapes. My check compares only the destination key set and passes. Is this sufficient? Give a CPU-safe validation plan without loading real weights. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Explains that the transform silently overwrites a tensor, so matching destination sets/shapes do not prove a bijection. Check duplicate destinations/cardinality, missing and unexpected keys, and shapes using metadata/meta tensors through the actual transform, plus representative key tests.",
       "assertions": [
         "Identifies the a/b collision and possible dictionary overwrite.",
@@ -26,7 +27,7 @@
     {
       "id": "integrate-ownership",
       "expected_skill": "flashdreams-integrate-model",
-      "prompt": "A proposed FlashDreams model port makes apps/t2v import my_model.config and makes flashdreams.infra import my_model to register its preset. Where should the model defaults and registration live instead, and how should app tests and model integration tests be separated? This is a design review; do not edit files.",
+      "prompt": "A proposed FlashDreams model port makes apps/t2v import my_model.config and makes flashdreams.infra import my_model to register its preset. Where should the model defaults and registration live instead, and how should app tests and model integration tests be separated? This is a design review; do not edit files. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Keeps the app and shared framework model-independent. The model integration owns config and an adapter under integrations_v2/my_model/apps/t2v/adapter.py; its package depends on the reusable app and exposes the V2 factory entry point. App tests use stubs; model checks live in integration tests.",
       "assertions": [
         "Identifies both reversed dependencies.",
@@ -37,7 +38,7 @@
     {
       "id": "integrate-preparation",
       "expected_skill": "flashdreams-integrate-model",
-      "prompt": "Review this FlashDreams V2 adapter lifecycle: create_app() downloads weights; session_desc() compiles kernels; the first model step imports a native extension and fetches missing assets. Where should one-time preparation happen, when must it finish, and what can a CPU parser check prove?",
+      "prompt": "Review this FlashDreams V2 adapter lifecycle: create_app() downloads weights; session_desc() compiles kernels; the first model step imports a native extension and fetches missing assets. Where should one-time preparation happen, when must it finish, and what can a CPU parser check prove? Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Keeps factory and description cheap; completes downloads, compilation/native loading and model construction within IApplication.init, waiting for any preparation workers before returning. Starting a worker in init does not exempt later operations from the preparation guard. Steps consume prepared state; parser checks do not prove checkpoint correctness, GPU execution or parity.",
       "assertions": [
         "Requires one-time preparation to finish before IApplication.init returns rather than merely starting work there.",

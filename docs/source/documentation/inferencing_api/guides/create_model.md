@@ -95,7 +95,8 @@ Keep these checks CPU-safe when possible:
 
 - package imports and metadata;
 - config names, component types, and derived-variant independence;
-- matching checkpoint keys and tensor shapes;
+- checkpoint-transform keys and tensor shapes, including duplicate destination
+  detection so dictionary overwrites cannot hide a many-to-one mapping;
 - small-tensor component shapes and cache/reset behavior;
 - pipeline execution with a fake model;
 - application adapter flow with the reusable app's testing helpers.

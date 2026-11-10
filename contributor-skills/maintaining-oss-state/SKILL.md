@@ -1,31 +1,22 @@
 ---
 name: maintaining-oss-state
-description: Maintain FlashDreams repository licensing, dependency attribution, SPDX headers, REUSE annotations, and OSS-release collateral. Use when changing dependencies, vendoring source, or investigating reuse-lint failures; ordinary model use does not require this contributor workflow.
+description: Maintain FlashDreams licensing, dependency attribution, SPDX headers and REUSE annotations when changing dependencies, vendoring source or investigating reuse-lint failures. Ordinary model use does not require this contributor workflow.
 ---
 
 # Maintain FlashDreams OSS state
 
-Work from the FlashDreams repository root. Read `CONTRIBUTING.md` for current
-contribution and IP-review policy, and `.github/workflows/reuse-lint.yml` for the
-checks actually enforced today.
+Read [CONTRIBUTING.md](../../CONTRIBUTING.md#licensing-of-contributions) and its
+coding-convention and IP-review sections for the current policy. Inspect
+[the reuse-lint workflow](../../.github/workflows/reuse-lint.yml) for the check
+that actually failed, rather than relying on historical release instructions.
 
-For a dependency or vendoring change, read the applicable section of
-[the maintenance reference](references/oss-maintenance.md) before editing:
+For dependency changes, keep the owning `pyproject.toml`, `uv.lock` and applicable
+entries in `THIRD-PARTY-NOTICES` consistent. For vendored source, preserve upstream
+attribution, record provenance, and check the relevant `LICENSES/`, `REUSE.toml`,
+`LICENSE` and `NOTICE` entries. Do not replace third-party terms with project defaults.
 
-- Sections 1-4: ownership of LICENSE/NOTICE/THIRD-PARTY-NOTICES/REUSE files and
-  aggregate versus override annotations.
-- Sections 5-6: dependency updates and physically redistributed third-party code.
-- Sections 7-10: source headers, release records, DCO text and CI checks.
-- Sections 11-13: common failures, focused operation checklists and file lookup.
-
-Keep dependency declarations, lockfile and attribution consistent. Preserve
-upstream notices when moving vendored files; do not replace their licensing
-with project defaults. Documentation and config without inline headers are
-covered by `REUSE.toml`. A Markdown skill starts with YAML frontmatter, not a
-license comment.
-
-The reference preserves historical release-review records and examples. Verify
-current source and approval requirements for the actual change rather than
-assuming those historical examples grant permission or describe every current
-third-party component. Report required external paperwork separately from local
-file changes; do not submit it unless the user authorized that action.
+Use the actual copyright holder and preserve existing notices. Files without
+inline headers use REUSE annotations; skill YAML frontmatter must remain first.
+Run the applicable checks, report unresolved attribution or approval questions,
+and follow the current maintainer review process. Historical approval for one
+release does not establish approval for a new dependency or use.

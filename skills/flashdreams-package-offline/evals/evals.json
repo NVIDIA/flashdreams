@@ -4,7 +4,7 @@
     {
       "id": "offline-command",
       "expected_skill": "flashdreams-package-offline",
-      "prompt": "Give a packaging command only, without executing it, for the installed FlashDreams V2 preset crazy-robotaxi-omnidreams in native-window mode. Use the new destination artifacts/taxi-bundle. Start the native window fullscreen and set the app rollout to one block using --total-blocks 1. Dependencies are already installed. Include validation and retain the console.",
+      "prompt": "Give a packaging command only, without executing it, for the installed FlashDreams V2 preset crazy-robotaxi-omnidreams in native-window mode. Use the new destination artifacts/taxi-bundle. Start the native window fullscreen and set the app rollout to one block using --total-blocks 1. Dependencies are already installed. Include validation and retain the console. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Calls uv run --no-sync python tools/package-as-offline-exe/package_as_offline_exe.py --output artifacts/taxi-bundle ::: flashdreams-run-v2 crazy-robotaxi-omnidreams --mode native-window --fullscreen -- --total-blocks 1. Does not add --preload-application, --skip-runtime-validation or --noconsole.",
       "assertions": [
         "Separates packager and runtime arguments with :::; places --fullscreen before -- and --total-blocks 1 after it.",
@@ -15,7 +15,7 @@
     {
       "id": "offline-platform",
       "expected_skill": "flashdreams-package-offline",
-      "prompt": "I built a FlashDreams offline executable on Linux and want to send just that executable to a Windows laptop with no NVIDIA GPU. Is that a supported deployment? Explain the concrete requirements; do not build anything.",
+      "prompt": "I built a FlashDreams offline executable on Linux and want to send just that executable to a Windows laptop with no NVIDIA GPU. Is that a supported deployment? Explain the concrete requirements; do not build anything. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Explains that bundles are host-native: Windows needs a Windows build. The complete folder including _internal and cache must be distributed. A compatible NVIDIA GPU and driver are still required; bundling removes Python/uv/network requirements, not GPU requirements.",
       "assertions": [
         "Identifies the OS mismatch and lack of cross-compilation.",
@@ -26,7 +26,7 @@
     {
       "id": "offline-validation",
       "expected_skill": "flashdreams-package-offline",
-      "prompt": "My FlashDreams bundle builds with --skip-runtime-validation and runs on the build machine with warm caches and internet. Can I mark it offline-tested? Propose the smallest useful acceptance check, without running it.",
+      "prompt": "My FlashDreams bundle builds with --skip-runtime-validation and runs on the build machine with warm caches and internet. Can I mark it offline-tested? Propose the smallest useful acceptance check, without running it. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Does not claim offline validation. Tests the full folder on a clean compatible target with network disabled and empty user caches, checks real generation and requested window mode, and inspects INSTALLER_OUTPUT.txt and any PREPARATION_ISSUES.txt. Notes that skipping runtime validation omits the one-model-loop-step check; even an enabled check may produce no generated frames if the app is waiting for input.",
       "assertions": [
         "Distinguishes build completion and skipped runtime checks from offline correctness.",
@@ -37,7 +37,7 @@
     {
       "id": "offline-late-download",
       "expected_skill": "flashdreams-package-offline",
-      "prompt": "A FlashDreams offline bundle tries to fetch an asset during the first model step, after IApplication.init has returned. A proposed fix enables downloads on the target or tells users to copy the developer Hugging Face cache. What is the proper fix and how should it be verified?",
+      "prompt": "A FlashDreams offline bundle tries to fetch an asset during the first model step, after IApplication.init has returned. A proposed fix enables downloads on the target or tells users to copy the developer Hugging Face cache. What is the proper fix and how should it be verified? Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Completes one-time download/preparation within IApplication.init, waiting for any preparation workers before returning, and includes the required prepared assets in the bundle. Starting a worker in init does not exempt later operations from the preparation guard. Model steps consume prepared state and report missing assets. Rebuilds and tests with networking disabled and empty target user caches; neither workaround demonstrates offline portability.",
       "assertions": [
         "Identifies late preparation as the root cause.",

@@ -4,7 +4,7 @@
     {
       "id": "run-file",
       "expected_skill": "flashdreams-run-model",
-      "prompt": "Give me a command, without executing it, to run the installed FlashDreams V2 preset t2v-wan21-t2v-1.3b-480p for one model step. Save artifacts/cat.mp4, retain every generated frame in order without UI overlays, and use the app prompt \"A cat surfing\". No checkout or GPU is available here.",
+      "prompt": "Give me a command, without executing it, to run the installed FlashDreams V2 preset t2v-wan21-t2v-1.3b-480p for one model step. Save artifacts/cat.mp4, retain every generated frame in order without UI overlays, and use the app prompt \"A cat surfing\". No checkout or GPU is available here. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Uses uv run --no-sync flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p with --mode mp4 --output-path artifacts/cat.mp4 --total-model-steps 1 before -- and --no-ui --prompt \"A cat surfing\" after it. Accepts either explicit --backpressure-mode block --presentation-mode on_demand runtime flags or their omission: this preset defaults to block and the CLI selects on_demand for MP4 output. Does not execute generation.",
       "assertions": [
         "Produces a V2 command with the supplied preset, output path and one-step bound.",
@@ -15,7 +15,7 @@
     {
       "id": "run-separator",
       "expected_skill": "flashdreams-run-model",
-      "prompt": "Diagnose this FlashDreams command without running it: flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p --prompt \"rain\" -- --mode webm --output-path rain.webm. The app accepts --prompt. I want one model step in a WebM file without UI overlays.",
+      "prompt": "Diagnose this FlashDreams command without running it: flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p --prompt \"rain\" -- --mode webm --output-path rain.webm. The app accepts --prompt. I want one model step in a WebM file without UI overlays. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Moves --prompt rain after the separator, adds --no-ui there for raw video without interactive controls, and places --mode webm, --output-path rain.webm and --total-model-steps 1 before it. Identifies the wrong argument boundaries, missing file-run limit, and need to disable the application UI separately from choosing file output.",
       "assertions": [
         "Identifies the swapped runtime/application arguments.",
@@ -26,7 +26,7 @@
     {
       "id": "run-inspect",
       "expected_skill": "flashdreams-run-model",
-      "prompt": "I only want to check the argument parser for the installed FlashDreams V2 preset minimal-t2v-wan21 on a CPU-only machine. Should I use --no-instantiate or --preload-application? Provide the inspection command only plus a short explanation; do not run it.",
+      "prompt": "I only want to check the argument parser for the installed FlashDreams V2 preset minimal-t2v-wan21 on a CPU-only machine. Should I use --no-instantiate or --preload-application? Provide the inspection command only plus a short explanation; do not run it. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "Uses uv run --no-sync flashdreams-run-v2 minimal-t2v-wan21 -- --help. Explains that --no-instantiate is legacy V1 and preload initializes resources and normally attempts one model-loop step, which may produce no frames while waiting for input. Preload is not a CPU dry run, and help is not GPU or weight validation.",
       "assertions": [
         "Supplies the application help command with -- --help.",
@@ -37,7 +37,7 @@
     {
       "id": "run-discovery",
       "expected_skill": "flashdreams-run-model",
-      "prompt": "FlashDreams reports unknown preset wan21-t2v-1.3b-480p. My manifest has [project] name=\"flashdreams-wan21\" and [project.entry-points.\"flashdreams.applications_v2\"] \"t2v-wan21-t2v-1.3b-480p\"=\"wan21.apps.t2v.adapter:create_app\". Give the corrected preset and targeted resync command; do not install anything.",
+      "prompt": "FlashDreams reports unknown preset wan21-t2v-1.3b-480p. My manifest has [project] name=\"flashdreams-wan21\" and [project.entry-points.\"flashdreams.applications_v2\"] \"t2v-wan21-t2v-1.3b-480p\"=\"wan21.apps.t2v.adapter:create_app\". Give the corrected preset and targeted resync command; do not install anything. Use the FlashDreams source and docs provided at /workspace/repo as reference. Do not install dependencies, download model assets, run generation or build a bundle.",
       "expected_output": "The runnable preset is t2v-wan21-t2v-1.3b-480p, not the pipeline config name. Resync with uv sync --package flashdreams-wan21 --inexact, then inspect that preset using V2 application help.",
       "assertions": [
         "Uses the manifest entry-point key rather than inventing a preset.",
