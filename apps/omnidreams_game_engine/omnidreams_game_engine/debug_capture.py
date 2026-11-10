@@ -217,6 +217,7 @@ class CaptureRecorder:
             "presentation": threading.BoundedSemaphore(60),
         }
         self._encoders: dict[str, WebmClientWindow] = {}
+        self._copy_streams: dict[torch.device, torch.cuda.Stream] = {}
         self._last_frames: dict[str, tuple[int, np.ndarray]] = {}
         self._last_snapshot: dict[str, int] = {}
         self._contact_active: dict[str, bool] = {}
@@ -310,8 +311,18 @@ class CaptureRecorder:
         log.flush()
 
     def _pixels(self, result: StepResult) -> np.ndarray:
-        output = result.read_output()
-        return output.permute(0, 2, 3, 1).cpu().numpy()
+        stream = None
+        device = result.device
+        if device.type == "cuda":
+            # The default stream can already contain the next model chunk.
+            # Wait only for this snapshot, then copy on the writer's own stream.
+            result.wait_until_ready()
+            stream = self._copy_streams.get(device)
+            if stream is None:
+                stream = self._copy_streams[device] = torch.cuda.Stream(device=device)
+        with torch.cuda.stream(stream):
+            output = result.read_output()
+            return output.permute(0, 2, 3, 1).cpu().numpy()
 
     def _save(
         self, name: str, frame: np.ndarray, identifier: int, contact=False
