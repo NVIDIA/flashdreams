@@ -1,8 +1,3 @@
----
-name: maintaining-oss-state
-description: Maintain FlashDreams's OSS-release state — the LICENSE / NOTICE / THIRD-PARTY-NOTICES / REUSE.toml / LICENSES/ / CONTRIBUTING.md collateral that satisfies OSRB Bug 6107043, the per-file SPDX headers, the third-party dependency manifest in THIRD-PARTY-NOTICES, and the pyproject.toml + uv.lock dependency pins. Use when adding or upgrading a runtime dependency, vendoring third-party source into the repo, adding a new first-party source file (any .py / .pyx / .pyi / .c / .cc / .cpp / .h / .hpp / .cu / .cuh / .sh / .proto / Dockerfile), reviewing whether a change requires reopening an OSRB bug or filing a self-cert, or triaging a reuse-lint CI failure.
----
-
 # Maintaining FlashDreams's OSS state
 
 FlashDreams is released to the public under Apache-2.0 (OSRB Bug
@@ -226,7 +221,7 @@ Reference architectures
        and confirming weights/sources aren't redistributed>
 
 ================================================================================
-Optional integration: integrations/<name>
+Optional integration: integrations_v2/<name>
 ================================================================================
 
   <one block per integration that pulls in deps not used by the root
@@ -335,7 +330,7 @@ This is the highest-frequency OSS-state edit. It touches **four** places:
 Vendoring upstream source into the repo (the cudaraster + LodePNG
 pattern, PR #111) is heavier — it touches **six** places:
 
-1. **Physically place the source** under an `integrations/.../` subtree
+1. **Physically place the source** under an `integrations_v2/.../` subtree
    that signals it's third-party (e.g.,
    `integrations_v2/omnidreams/impl/ludus-renderer/ludus_renderer/_cpp/cudaraster/`).
    Keep the upstream banners verbatim in the file headers — don't
@@ -415,7 +410,7 @@ of the three fails, the dep needs a regular Use bug at
 
 ## 9. Updating CONTRIBUTING.md
 
-The DCO v1.1 text is reproduced verbatim in `CONTRIBUTING.md:108-133`.
+The DCO v1.1 text is reproduced verbatim in `CONTRIBUTING.md` under "Developer Certificate of Origin (DCO)".
 **Do not paraphrase, summarize, or "modernize" it** — the `reuse-lint`
 collateral step looks for the exact pattern
 `Developer.{1,40}Certificate.{1,10}of.{1,10}Origin|Signed-off-by|sign-off`,
@@ -523,7 +518,7 @@ Triggers: every PR, every push to `main`, and every merge-queue group
   and is out of OSRB scope per the policy bullet. If it's in
   `dependencies = [...]`, it ships to every consumer — OSRB-scoped.
   The `[dev]` extras in `flashdreams/pyproject.toml` and
-  `integrations/*/pyproject.toml` are the seams.
+  `integrations_v2/*/pyproject.toml` are the seams.
 - **Forgetting that `gitlab/main` and `origin/main` have diverged.**
   Internal `gitlab` `main` carries 10+ commits not on `origin`
   (`Add --offload-text-encoder for batch run`, etc.) and is missing
@@ -565,13 +560,13 @@ weak-copyleft):**
 5. (Optional) Update `THIRD-PARTY-NOTICES` if its row drifts
    (e.g., URL changed).
 
-**Vendor upstream `qux` (BSD-3) into `integrations/foo/qux/`:**
+**Vendor upstream `qux` (BSD-3) into `integrations_v2/foo/qux/`:**
 
 1. Drop source in with upstream banners preserved.
 2. Add `LICENSES/BSD-3-Clause.txt` if not already present.
 3. New `[[annotations]]` block in `REUSE.toml` with
    `precedence = "override"`, BSD-3 SPDX, upstream copyright, path
-   `"integrations/foo/qux/**"`.
+   `"integrations_v2/foo/qux/**"`.
 4. New block in `THIRD-PARTY-NOTICES` "Source-level
    redistributions" — path,
    `License: BSD-3-Clause (see LICENSES/BSD-3-Clause.txt)`,

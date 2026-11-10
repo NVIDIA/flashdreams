@@ -35,7 +35,7 @@ FlashDreams is a GPU-heavy inference and serving library for autoregressive vide
 
 Start here, then use the narrower docs for the task in front of you:
 
-- `skills/` contains repo-authored Agent Skills. Use `skills/README.md` for opt-in setup and skill authoring rules.
+- `skills/` contains public product workflow skills; `contributor-skills/` contains repository maintenance skills excluded from catalog publication. Use `skills/README.md` for opt-in setup and authoring rules.
 - `README.md` covers user-facing setup, requirements, supported models, and first-run commands.
 - `CONTRIBUTING.md` covers PR process, DCO sign-off, coding conventions, test markers, and dependency rules.
 - `docs/README.md` covers the Zensical docs build and hosting. `tests/README.md` covers local, Docker, and CI-oriented test entry points.
@@ -46,26 +46,25 @@ File structure is in [CONTRIBUTING.md's File Tree Of FlashDreams](CONTRIBUTING.m
 
 ## Skill Map
 
-- `skills/flashdreams-integrations`: read before changing recipe/integration architecture, runner registration, pipeline wiring, or model boundaries.
-- `skills/integrate-a-model`: read before porting a new external model or reproducing an integration workflow.
-- `skills/profile-model-performance`: read before starting performance work on an existing model integration, demo, runner, or serving path; use it to map execution, add stage timings, and identify decode/model/cache/transfer/presentation bottlenecks.
-- `skills/apply-inference-optimizations`: read before porting runtime speedups such as bounded K/V caches, overlap, compile, CUDA graphs, decoder layout changes, or presentation queue tuning into an integration.
-- `skills/validate-performance-quality`: read before adding benchmark sweeps, quality comparisons, profiler probes, performance summaries, or docs for a performance change.
-- `skills/security-code-review`: read when reviewing a change for security-sensitive behavior or giving the final merge approval.
-- `skills/flashdreams-postprocessing`: read before adding or modifying video post-processors, postprocess presets, `VideoPostprocessStream`, buffering/layout behavior, or runner postprocess wiring.
-- `skills/flashdreams-preparation`: read before adding or changing checkpoint/asset downloads, CUDA/native compilation, application initialization, or preload behavior.
-- `skills/python-docstring-style`: read before adding or polishing Python docstrings, field docstrings, module comments, or SPDX headers.
-- `skills/maintaining-oss-state`: read before dependency, license, NOTICE, REUSE, or OSS-release collateral changes.
-- When adding a new `skills/<skill-name>/SKILL.md`, update this section so agents can discover when to use it.
+- `skills/flashdreams-run-model`: select, install, launch, or troubleshoot an existing V2 model/demo preset.
+- `skills/flashdreams-integrate-model`: port a model, configure its pipeline and checkpoint conversion, or bind it to an existing demo.
+- `skills/flashdreams-create-demo`: develop a model-independent V2 app, its lifecycle, preparation, controls, and stub tests.
+- `skills/flashdreams-package-offline`: preload, package, and validate an offline application folder.
+- `contributor-skills/profile-model-performance`: establish a baseline and identify model, cache, decode, transfer, or presentation bottlenecks.
+- `contributor-skills/apply-inference-optimizations`: apply measured runtime speedups while preserving quality and reset behavior.
+- `contributor-skills/validate-performance-quality`: validate performance changes with benchmarks and appropriate quality references.
+- `contributor-skills/security-code-review`: review security-sensitive changes or prepare evidence for human merge approval.
+- `contributor-skills/flashdreams-postprocessing`: change processors, presets, buffering/layout behavior, or application postprocess wiring.
+- `contributor-skills/python-docstring-style`: write or polish Python docstrings, comments, and SPDX headers.
+- `contributor-skills/maintaining-oss-state`: change dependencies, licenses, notices, REUSE annotations, or OSS collateral.
+- When adding, moving, or removing a skill, update this map and the setup instructions in `skills/README.md`.
 
 ## Common Commands
 
 ```bash
-uv sync --extra dev --extra runners
-uv sync --package <integration> --extra dev
-uv run flashdreams-run --help
-uv run flashdreams-run <runner-name> --help
-uv run flashdreams-run --no-instantiate <runner-name>
+uv sync --package <integration-distribution> --extra dev --inexact
+uv run --no-sync flashdreams-run-v2 --help
+uv run --no-sync flashdreams-run-v2 <application-preset> -- --help
 uv run --group lint pre-commit run -a
 uv run pytest -m ci_cpu
 uv run pytest -m "not manual"
@@ -75,14 +74,16 @@ uv run --only-group docs zensical build --clean -f docs/zensical.toml
 uv run --only-group docs zensical serve -f docs/zensical.toml
 ```
 
-Use `--no-instantiate` before GPU work to inspect the resolved runner config without constructing models or loading checkpoints.
+Runtime flags precede `--`; application flags follow it. Application help checks
+argument parsing without constructing the model. Inspect manifests and source
+instead of synchronizing GPU dependencies for a CPU-only metadata task.
 
 Before performance work, collect an nsys report with `uv run flashdreams-profile` and read the timeline; see `docs/source/documentation/demo_api/guides/profiling.md`.
 
 ## No-GPU Workflow
 
-- Inspect available runners with `uv run flashdreams-run --help`, then inspect a specific runner with `uv run flashdreams-run --no-instantiate <runner-name>`.
-- Prefer CPU checks first: config imports, checkpoint key-remap shape/bijection tests on CPU or meta tensors, docs builds, `pytest -m ci_cpu`, and static assertions about runner names and pipeline wiring.
+- Inspect V2 presets in `integrations_v2/<model>/pyproject.toml` under `flashdreams.applications_v2`. In an installed environment, inspect runtime help and `flashdreams-run-v2 <preset> -- --help`.
+- Prefer CPU checks first: config imports, checkpoint key-remap shape/bijection tests on CPU or meta tensors, docs builds, `pytest -m ci_cpu`, and static assertions about application entry points and pipeline wiring.
 - Avoid `ci_gpu`, generation, `torchrun`, Docker GPU tests, large Hugging Face downloads, rollout parity, CUDA graph, WebRTC runtime, and quality-regression tests on CPU-only hosts unless the user requests them or the test explicitly skips cleanly.
 
 ## Testing Guidance
@@ -110,17 +111,17 @@ Because of this direction, tests in `apps/<name>/tests/` must not import from `i
 
 - FlashDreams targets large NVIDIA GPUs; many real rollouts need 80 GB VRAM and CUDA-capable dependencies.
 - Full `uv sync`/`uv run` can build CUDA packages such as Transformer Engine. For narrow work, use `uv sync --package <integration> --extra dev` when possible.
-- `flashdreams-run --no-instantiate` resolves config only; it does not prove weights, CUDA execution, or parity.
+- V2 application help does not prove weights, CUDA execution, or parity. `--no-instantiate` belongs to the legacy V1 CLI. V2 `--preload-application` prepares resources and normally runs a model block; it is not a CPU dry run.
 - First GPU runs include compile/autotune warmup, so benchmark harnesses should discard warmup chunks.
 - Docs CI mocks heavy GPU packages; local docs work should use the commands in `docs/README.md`.
 - Plain `pytest` includes manual tests. Use `pytest -m ci_cpu` or `pytest -m "not manual"` for normal local validation.
-- New or moved skills must pass the Agent Skills frontmatter checks in `tests/test_agent_skills.py`.
+- New or moved skills must pass `tests/test_agent_skills.py`. Public skills also need evaluation datasets; static validation is separate from measured agent/GPU evaluation.
 
 ## Troubleshooting Links
 
 - Setup and requirements: `README.md`, `docs/source/quickstart/index.md`
 - CLI details: `docs/source/documentation/cli.md`
-- Integration/plugin layout: `docs/source/documentation/demo_api/guides/integrate_model.md`
+- Integration/plugin layout: `docs/source/documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md`
 - New integrations: `docs/source/documentation/inferencing_api/guides/create_model.md`
 - Docs build and hosting: `docs/README.md`
 - Tests and quality regressions: `tests/README.md`

@@ -26,7 +26,7 @@ that it is safe for the target workflow.
 - After applying an optimization, continue with `validate-performance-quality`
   before promoting it as a default or documenting a speedup claim.
 - Print active settings and stage timing summaries so runs are auditable.
-- Read `flashdreams-integrations` before moving code across `core`, `infra`,
+- Read `skills/flashdreams-integrate-model/SKILL.md` before moving code across `core`, `infra`,
   recipes, or integrations. Avoid model-specific branches in shared layers; add
   config slots or override hooks instead.
 

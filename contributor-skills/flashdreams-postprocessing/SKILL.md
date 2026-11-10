@@ -1,11 +1,11 @@
 ---
 name: flashdreams-postprocessing
-description: Add or modify FlashDreams video post-processing processors, sessions, presets, and runner stream wiring. Use when implementing a new VideoPostProcessorConfig / VideoPostProcessor / VideoPostProcessorSession, registering a --postprocess.preset entry point, changing VideoPostprocessStream behavior, or reasoning about streaming buffering, layouts, per-view processing, distributed execution, or postprocess tests.
+description: Add or modify FlashDreams video post-processing processors, sessions, presets, and application wiring. Use for VideoPostProcessor contracts, buffering/layout behavior, per-view processing, distributed execution, or postprocess tests in this repository.
 ---
 
 # FlashDreams Post-Processing
 
-Use this skill when adding a video post-processor or changing the runner
+Use this skill when adding a video post-processor or changing the application
 post-processing stream. The reference implementation is
 `integrations_v2/flashvsr/impl/postprocess.py`.
 
@@ -29,7 +29,7 @@ config or processor factory.
 1. Pick a home:
    - Generic reusable post-processing belongs under `flashdreams/flashdreams/infra/postprocess/`.
    - Model-specific processors belong in their integration, for example
-     `integrations/<name>/<pkg>/postprocess.py`.
+     `integrations_v2/<name>/impl/postprocess.py`.
 
 2. Define a config subclass:
 
@@ -118,7 +118,10 @@ config or processor factory.
    POSTPROCESS_PRESET_MY_V1 = MyPostProcessorConfig(...)
    ```
 
-   Users select it with `--postprocess.preset my-postprocessor-v1`.
+   Interactive Drive exposes `--postprocess-preset my-postprocessor-v1`
+   after the V2 CLI's `--` separator. Check each application's parser rather
+   than assuming a global runtime option. The legacy runner's dotted
+   `--postprocess.preset` spelling is not the V2 application interface.
 
    V2 applications that also expose device placement should resolve both at
    launch time through the shared factory:
@@ -136,7 +139,19 @@ config or processor factory.
    application; the session runner cannot infer those semantics from an
    ordered list of model results.
 
-## Runner Interaction
+## Preparation and application ownership
+
+Start downloads, compilation, native loading and model construction in
+`IApplication.init` or work initiated there. Call the processor/session's
+`prepare()` through the application's initialization path when it owns prepared
+resources. Later processing consumes those resources; it must not silently
+download missing assets during a model step. Per-stream buffers and caches still
+belong to the session. Keep channel selection and output metadata in the app.
+
+Use `apps/interactive_drive/interactive_drive/core.py` for V2 option parsing and
+`apps/interactive_drive/tests/test_application.py` for preset/device tests.
+
+## Legacy runner interaction
 
 Runners create a `VideoPostprocessStream` through
 `create_runner_postprocess_stream()`. The stream:
@@ -158,7 +173,7 @@ Add CPU-safe tests unless the behavior genuinely requires a GPU:
 
 - Config/preset discovery: `flashdreams/tests/test_postprocess_presets.py`.
 - Stream contract and buffering: `flashdreams/tests/test_postprocess_stream.py`.
-- Processor-specific CPU fakes: `integrations/<name>/tests/test_postprocess.py`.
+- Processor-specific CPU fakes: `integrations_v2/<name>/tests/`.
 - Runner distributed skip/all-rank behavior:
   `flashdreams/tests/test_runner_postprocess.py`.
 
@@ -168,8 +183,8 @@ Prefer fake processor builders for CPU tests instead of loading checkpoints.
 Useful focused validation:
 
 ```bash
-uv run pytest flashdreams/tests/test_runner_postprocess.py \
+uv run --no-sync pytest flashdreams/tests/test_runner_postprocess.py \
   flashdreams/tests/test_postprocess_stream.py \
   flashdreams/tests/test_postprocess_presets.py \
-  integrations/<name>/tests/test_postprocess.py
+  -m ci_cpu
 ```

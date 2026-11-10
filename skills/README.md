@@ -1,44 +1,132 @@
 # Agent Skills
 
-Project-authored [Agent Skills](https://agentskills.io/specification) live in
-the canonical root `skills/` directory. They are **opt-in**: FlashDreams
-does not assume that every agent client automatically loads repository
-skills, so developers can still control which local skills their tools use.
+FlashDreams maintains two opt-in skill collections:
 
-Opt in by symlinking this directory into whichever tool you use. From the repo root:
+| Location | Audience | Publication |
+| --- | --- | --- |
+| `skills/<name>/` | Developers using or extending FlashDreams | Candidates for individual NVIDIA catalog registration. |
+| `contributor-skills/<name>/` | Contributors maintaining this repository | Repository-only; exclude these paths from catalog sync. |
+
+## Product workflows
+
+| Skill | Use it for |
+| --- | --- |
+| [flashdreams-run-model](flashdreams-run-model/SKILL.md) | Select, install, launch, and troubleshoot an existing model/demo preset. |
+| [flashdreams-integrate-model](flashdreams-integrate-model/SKILL.md) | Port a model and bind it to an existing demo using V2. |
+| [flashdreams-create-demo](flashdreams-create-demo/SKILL.md) | Build a model-independent app, its controls, lifecycle, and stub tests. |
+| [flashdreams-package-offline](flashdreams-package-offline/SKILL.md) | Build and validate an offline application folder. |
+
+These workflows replace `integrate-a-model` and `flashdreams-integrations`;
+preparation rules are incorporated into integration, demo, packaging, and local
+postprocessing guidance. The old `four-view-inference` skill is retired: its
+advertised legacy presets are not registered by the current integration packages.
+This does not remove model code or its historical reference document.
+
+Contributor skills retain security review, OSS maintenance, Python documentation
+style, performance profiling/optimization/validation, and postprocessing guidance.
+See [the agent skill map](../AGENTS.md#skill-map) for individual activation rules.
+
+## Opt in locally
+
+No client is assumed to load skills automatically. From the repository root,
+choose the discovery directory your client supports. For product skills only:
 
 ```bash
-# Cursor
-mkdir -p .cursor && ln -s ../skills .cursor/skills
-
-# Claude Code
-mkdir -p .claude && ln -s ../skills .claude/skills
-
-# Other / general agents
-mkdir -p .agents && ln -s ../skills .agents/skills
+# General agents (use .claude or .cursor in place of .agents as appropriate).
+mkdir -p .agents
+ln -s ../skills .agents/skills
 ```
 
-`.cursor/` / `.claude/` / `.agents/` are already gitignored (add entries if they aren't), so the symlinks stay local. If you want to be selective, symlink individual skill directories instead of the whole folder:
+For a selective mix, use a **real directory** at `.agents/skills` and individual
+links instead:
 
 ```bash
-ln -s ../../skills/<skill-name> <.cursor|.claude|.agents>/skills/<skill-name>
+mkdir -p .agents/skills
+ln -s ../../skills/flashdreams-integrate-model .agents/skills/flashdreams-integrate-model
+ln -s ../../contributor-skills/python-docstring-style .agents/skills/python-docstring-style
 ```
 
-## Layout
+These are alternative setups. If `.agents/skills` is already a whole-directory
+symlink, replace that local symlink with a real directory before adding individual
+links; otherwise the links would be written into the canonical `skills/` tree.
+Update any individual links to renamed or moved skills. `.agents/`, `.claude/`,
+and `.cursor/` are gitignored, so discovery preferences remain local.
 
-Each skill is a directory containing a `SKILL.md` with YAML frontmatter:
+## Authoring and maintenance
 
+Follow the [Agent Skills specification](https://agentskills.io/specification).
+Keep a skill's directory name equal to its frontmatter `name`, use a precise
+`description`, and keep `SKILL.md` concise (under 500 lines). Public skills use
+`flashdreams-` names and the repository's Apache-2.0 license. Author metadata uses
+the team contact recorded in `REUSE.toml`.
+
+Include the essential workflow inside the skill. Product source paths refer to a
+user's FlashDreams checkout, not the installed skill's parent directory. Public
+skills must not depend on unregistered contributor skills. Link to current docs
+for details instead of copying entire manuals or mutable model catalogs.
+
+Update `AGENTS.md` and this map when skills move. Refresh commands and contracts
+on product releases, rerun evaluations, and re-sign changed published content.
+Catalog registration must list each public skill separately; do not register the
+repository root or `contributor-skills/`.
+
+## Local checks
+
+The repository checks names/descriptions for both collections and public dataset
+integrity without importing models or downloading weights:
+
+```bash
+# Uses an isolated pytest tool environment instead of syncing the GPU workspace.
+PYTHONPATH=flashdreams uv run --no-project --with pytest python -m pytest tests/test_agent_skills.py -q
 ```
-skills/
-├── README.md
-└── <skill-name>/
-    ├── SKILL.md          # required: name, description, body
-    ├── reference.md      # optional: deeper docs, linked from SKILL.md
-    └── scripts/          # optional: executable helpers
+
+With [SkillEvaluator](https://github.com/NVIDIA/SkillEvaluator) and its Tier 3
+extra installed, run:
+
+```bash
+skillevaluator validate skills/ --external --tiers 1 --output-dir /tmp/flashdreams-skill-validation
+for skill in skills/*/SKILL.md; do
+  skillevaluator tier3 validate "${skill%/SKILL.md}" --strict
+done
 ```
 
-The `SKILL.md` format follows the vendor-neutral specification [agentskills.io](https://agentskills.io/specification) and is compatible with claude, cursor, and other agents: YAML frontmatter with `name` (lowercase-hyphenated, ≤64 chars) and `description` (specific, third person, includes both *what* and *when*), followed by markdown instructions. Keep the body under ~500 lines and push long-form reference into sibling files.
+Tier 1 requires its scanner dependencies. Inspect detailed reports for incomplete
+scans, including unresolved source or generated-output references; an incomplete
+scan is not a pass. `tier3 validate` checks datasets without executing agents.
+Neither command proves task completion or skill uplift.
 
-## Authoring
+## Behavioral evaluation and publication
 
-When adding a skill, prefer codifying conventions already visible in the codebase over re-deriving them. The goal is to reduce drift between human-written code and agent-written code, not to invent new style.
+Each public skill ships six cases in `evals/evals.json`: four positive tasks,
+one neighboring-workflow negative, and one unrelated negative. These are
+self-contained CPU smoke scenarios for command construction and code/design
+review. They need no product checkout, checkpoint, GPU, or network inside the
+agent task; model/provider access is still needed by the evaluation harness.
+Keep prompts unforced so trigger selection can be measured. `expected_skill: null`
+means this skill should not activate; another applicable skill may activate.
+
+Run both agent harnesses with and without the skill in isolated workspaces using
+the same model/settings and cases. With the Tier 3 extra, provider credentials,
+and a working sandbox configured, for example:
+
+```bash
+skillevaluator tier3 evaluate skills/flashdreams-run-model \
+  --agents codex,claude-code --env-mode docker \
+  --results-dir /tmp/flashdreams-skill-evals
+```
+
+Repeat for all four skills and record the evaluator revision, product commit,
+agent/model versions, trigger correctness, task/behavior results, token use and
+elapsed time. Inspect the verdict: a completed evaluation command alone does not
+mean it passed. The smoke suite does **not** prove end-to-end model integration,
+GUI behavior, numerical parity, throughput or offline portability.
+
+Before publication, add team-run evidence for a real model launch, a model/adapter
+integration with CPU and GPU parity checks, a demo tested with a stub and real
+adapter, and a complete offline bundle on a clean network-disabled target. Use
+team GPU infrastructure/BYOE for work beyond the publishing CI's capacity.
+
+Do not invent a passing `BENCHMARK.md`, skill card, or signature. Those artifacts
+must reflect completed evaluation and the signing pipeline. These skills remain
+publication candidates until evaluation, onboarding, signing and catalog review
+are complete.

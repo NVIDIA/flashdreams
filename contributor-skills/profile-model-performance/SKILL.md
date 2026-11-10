@@ -25,10 +25,10 @@ guess from code shape alone.
    - Trace one generation step through input preparation, encode/context setup,
      model or denoise loop, cache update/finalize, decode, transfer, encode, and
      presentation.
-   - Read `flashdreams-integrations` before changing framework boundaries or
+   - Read `skills/flashdreams-integrate-model/SKILL.md` before changing framework boundaries or
      config contracts. Keep this skill focused on measurement and diagnosis.
    - Prefer no-GPU inspection first: config resolution, `--help`,
-     `--no-instantiate`, static runner wiring, and small CPU tests.
+     `flashdreams-run-v2 PRESET -- --help`, static application wiring, and small CPU tests.
 
 2. **Establish a reproducible baseline.**
    - Use fixed input, seed, prompt/control schedule, resolution, chunk/window

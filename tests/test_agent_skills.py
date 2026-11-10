@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -134,3 +135,61 @@ def test_skill_frontmatter_matches_agentskills_spec() -> None:
             f"{path}: name must match parent directory {path.parent.name!r}"
         )
         assert 1 <= len(description) <= 1024, f"{path}: invalid description length"
+
+
+@pytest.mark.parametrize("path", sorted((_ROOT / "skills").glob("*/SKILL.md")))
+def test_public_skill_has_evaluation_cases(path: Path) -> None:
+    """Keep public datasets usable for both task and trigger evaluation."""
+    name = _frontmatter(path)["name"]
+    assert name.startswith("flashdreams-"), (
+        f"{path}: public names need a product prefix"
+    )
+    assert len(path.read_text(encoding="utf-8").splitlines()) < 500
+    dataset = json.loads(
+        (path.parent / "evals" / "evals.json").read_text(encoding="utf-8")
+    )
+    assert dataset["skill_name"] == name
+    cases = dataset["evals"]
+    assert isinstance(cases, list) and cases, f"{path}: expected a nonempty case list"
+
+    ids: set[str] = set()
+    questions: set[str] = set()
+    targets: set[str | None] = set()
+    for case in cases:
+        for field in ("id", "prompt", "expected_output"):
+            assert isinstance(case[field], str) and case[field].strip(), (
+                f"{path}: {field} must be nonempty text"
+            )
+        assert case["id"] not in ids, f"{path}: duplicate case id"
+        assert case["prompt"] not in questions, f"{path}: duplicate prompt"
+        ids.add(case["id"])
+        questions.add(case["prompt"])
+        assert case["expected_skill"] in (name, None), f"{path}: wrong target skill"
+        targets.add(case["expected_skill"])
+        behaviors = case["assertions"]
+        assert isinstance(behaviors, list) and behaviors
+        assert all(isinstance(item, str) and item.strip() for item in behaviors)
+    assert targets == {name, None}, f"{path}: include positive and negative cases"
+
+
+def test_skill_discovery_map_and_local_links() -> None:
+    """Catch stale discovery paths and references after moving skills."""
+    agent_guide = (_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    names: set[str] = set()
+    for path in _repo_skill_files():
+        name = _frontmatter(path)["name"]
+        assert name not in names, f"duplicate skill name: {name}"
+        names.add(name)
+        relative = path.parent.relative_to(_ROOT).as_posix()
+        assert f"`{relative}`" in agent_guide, f"{relative}: missing from AGENTS.md"
+
+    for directory in ("skills", "contributor-skills"):
+        for path in (_ROOT / directory).rglob("*.md"):
+            text = path.read_text(encoding="utf-8")
+            # Markdown examples inside code spans or fences are not navigable links.
+            prose = re.sub(r"(`+)(.*?)\1", "", text, flags=re.DOTALL)
+            for target in re.findall(r"\[[^\]\n]+\]\(([^)\s]+)\)", prose):
+                if target.startswith(("https://", "http://", "#", "mailto:")):
+                    continue
+                resolved = path.parent / target.split("#", 1)[0]
+                assert resolved.exists(), f"{path}: broken local link {target}"

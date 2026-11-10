@@ -1,0 +1,68 @@
+{
+  "skill_name": "flashdreams-package-offline",
+  "evals": [
+    {
+      "id": "offline-command",
+      "expected_skill": "flashdreams-package-offline",
+      "prompt": "Give a packaging command only, without executing it, for the installed FlashDreams V2 preset crazy-robotaxi-omnidreams in native-window mode. Use the new destination artifacts/taxi-bundle. The app also accepts --fullscreen. Dependencies are already installed. Include validation and retain the console.",
+      "expected_output": "Calls uv run --no-sync python tools/package-as-offline-exe/package_as_offline_exe.py --output artifacts/taxi-bundle ::: flashdreams-run-v2 crazy-robotaxi-omnidreams --mode native-window -- --fullscreen. Does not add --preload-application, --skip-runtime-validation or --noconsole.",
+      "assertions": [
+        "Separates packager and runtime arguments with ::: and app arguments with --.",
+        "Uses the supplied preset, mode and new destination.",
+        "Leaves runtime validation enabled and does not execute the build."
+      ]
+    },
+    {
+      "id": "offline-platform",
+      "expected_skill": "flashdreams-package-offline",
+      "prompt": "I built a FlashDreams offline executable on Linux and want to send just that executable to a Windows laptop with no NVIDIA GPU. Is that a supported deployment? Explain the concrete requirements; do not build anything.",
+      "expected_output": "Explains that bundles are host-native: Windows needs a Windows build. The complete folder including _internal and cache must be distributed. A compatible NVIDIA GPU and driver are still required; bundling removes Python/uv/network requirements, not GPU requirements.",
+      "assertions": [
+        "Identifies the OS mismatch and lack of cross-compilation.",
+        "Requires the complete bundle folder rather than the executable alone.",
+        "States the remaining GPU/driver requirement."
+      ]
+    },
+    {
+      "id": "offline-validation",
+      "expected_skill": "flashdreams-package-offline",
+      "prompt": "My FlashDreams bundle builds with --skip-runtime-validation and runs on the build machine with warm caches and internet. Can I mark it offline-tested? Propose the smallest useful acceptance check, without running it.",
+      "expected_output": "Does not claim offline validation. Tests the full folder on a clean compatible target with network disabled and empty user caches, checks real generation and requested window mode, and inspects INSTALLER_OUTPUT.txt and PREPARATION_ISSUES.txt. Notes that skipping runtime validation omits the first-model-block check.",
+      "assertions": [
+        "Distinguishes build completion and skipped runtime checks from offline correctness.",
+        "Requires network-disabled, empty-cache target testing of the whole folder.",
+        "Checks generation/output and preparation logs."
+      ]
+    },
+    {
+      "id": "offline-late-download",
+      "expected_skill": "flashdreams-package-offline",
+      "prompt": "A FlashDreams offline bundle tries to fetch an asset during the first model step, after IApplication.init has returned. A proposed fix enables downloads on the target or tells users to copy the developer Hugging Face cache. What is the proper fix and how should it be verified?",
+      "expected_output": "Moves one-time download/preparation into initialization or work initiated there and includes the required prepared assets in the bundle. Model steps consume prepared state and report missing assets. Rebuilds and tests with networking disabled and empty target caches; neither workaround demonstrates offline portability.",
+      "assertions": [
+        "Identifies late preparation as the root cause.",
+        "Moves preparation into the application init path and includes prepared resources in the bundle.",
+        "Verifies a rebuilt full bundle without network or a warm developer cache."
+      ]
+    },
+    {
+      "id": "offline-negative-run",
+      "expected_skill": null,
+      "prompt": "Run an already installed FlashDreams demo in a browser on this workstation. I do not need a distributable bundle or executable.",
+      "expected_output": "Handles normal demo launching without loading the offline packager skill.",
+      "assertions": [
+        "Does not load or apply flashdreams-package-offline.",
+        "Does not invoke PyInstaller or the offline packager."
+      ]
+    },
+    {
+      "id": "offline-negative-generic",
+      "expected_skill": null,
+      "prompt": "How do I create a Python wheel for a small pure-Python utility unrelated to FlashDreams?",
+      "expected_output": "Explains ordinary Python packaging without invoking the FlashDreams offline packager.",
+      "assertions": [
+        "Does not load flashdreams-package-offline."
+      ]
+    }
+  ]
+}

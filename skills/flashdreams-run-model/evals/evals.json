@@ -1,0 +1,68 @@
+{
+  "skill_name": "flashdreams-run-model",
+  "evals": [
+    {
+      "id": "run-file",
+      "expected_skill": "flashdreams-run-model",
+      "prompt": "Give me a command, without executing it, to run the installed FlashDreams V2 preset t2v-wan21-t2v-1.3b-480p for one model step. Save artifacts/cat.mp4, retain every generated frame in order, and use the app prompt \"A cat surfing\". No checkout or GPU is available here.",
+      "expected_output": "Uses uv run --no-sync flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p with --mode mp4 --output-path artifacts/cat.mp4 --total-model-steps 1 --backpressure-mode block --presentation-mode on_demand before -- and --prompt \"A cat surfing\" after it. Does not execute generation.",
+      "assertions": [
+        "Produces a V2 command with the supplied preset, output path and one-step bound.",
+        "Places runtime flags before -- and the prompt after --.",
+        "Uses block and on_demand for frame-preserving file output and does not run the command."
+      ]
+    },
+    {
+      "id": "run-separator",
+      "expected_skill": "flashdreams-run-model",
+      "prompt": "Diagnose this FlashDreams command without running it: flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p --prompt \"rain\" -- --mode webm --output-path rain.webm. The app accepts --prompt. I want one model step in a WebM file.",
+      "expected_output": "Moves --prompt rain after the separator and --mode webm, --output-path rain.webm and --total-model-steps 1 before it. Identifies both the wrong argument boundaries and the missing file-run limit.",
+      "assertions": [
+        "Identifies the swapped runtime/application arguments.",
+        "Returns a corrected command with an explicit model-step bound.",
+        "Does not launch or install anything."
+      ]
+    },
+    {
+      "id": "run-inspect",
+      "expected_skill": "flashdreams-run-model",
+      "prompt": "I only want to check the argument parser for the installed FlashDreams V2 preset minimal-t2v-wan21 on a CPU-only machine. Should I use --no-instantiate or --preload-application? Provide the inspection command only plus a short explanation; do not run it.",
+      "expected_output": "Uses uv run --no-sync flashdreams-run-v2 minimal-t2v-wan21 -- --help. Explains that --no-instantiate is legacy V1 and preload initializes resources and normally executes a model block; help is not GPU or weight validation.",
+      "assertions": [
+        "Supplies the application help command with -- --help.",
+        "Distinguishes V1 config resolution from V2 preload.",
+        "Does not claim parser success proves a rollout."
+      ]
+    },
+    {
+      "id": "run-discovery",
+      "expected_skill": "flashdreams-run-model",
+      "prompt": "FlashDreams reports unknown preset wan21-t2v-1.3b-480p. My manifest has [project] name=\"flashdreams-wan21\" and [project.entry-points.\"flashdreams.applications_v2\"] \"t2v-wan21-t2v-1.3b-480p\"=\"wan21.apps.t2v.adapter:create_app\". Give the corrected preset and targeted resync command; do not install anything.",
+      "expected_output": "The runnable preset is t2v-wan21-t2v-1.3b-480p, not the pipeline config name. Resync with uv sync --package flashdreams-wan21 --inexact, then inspect that preset using V2 application help.",
+      "assertions": [
+        "Uses the manifest entry-point key rather than inventing a preset.",
+        "Targets the distribution flashdreams-wan21 for resync.",
+        "Does not execute the suggested commands."
+      ]
+    },
+    {
+      "id": "run-negative-demo",
+      "expected_skill": null,
+      "prompt": "I am designing a new model-independent FlashDreams V2 app with custom controls and stub tests. Explain which thread should own model state; I am not selecting or launching a preset.",
+      "expected_output": "Addresses application architecture and model-thread ownership without invoking the run-model skill.",
+      "assertions": [
+        "Does not load or apply flashdreams-run-model.",
+        "Does not substitute installation or generation for the design question."
+      ]
+    },
+    {
+      "id": "run-negative-generic",
+      "expected_skill": null,
+      "prompt": "What does the shell command pwd print?",
+      "expected_output": "Explains that pwd prints the current working directory without invoking a FlashDreams skill.",
+      "assertions": [
+        "Answers the shell question without loading flashdreams-run-model."
+      ]
+    }
+  ]
+}
