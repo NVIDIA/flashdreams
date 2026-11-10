@@ -141,8 +141,10 @@ config or processor factory.
 
 ## Preparation and application ownership
 
-Start downloads, compilation, native loading and model construction in
-`IApplication.init` or work initiated there. Call the processor/session's
+Complete downloads, compilation, native loading and model construction in
+`IApplication.init`, with any preparation workers finished before it returns.
+Workers started during initialization are still subject to the preparation guard
+after `init` returns. Call the processor/session's
 `prepare()` through the application's initialization path when it owns prepared
 resources. Later processing consumes those resources; it must not silently
 download missing assets during a model step. Per-stream buffers and caches still

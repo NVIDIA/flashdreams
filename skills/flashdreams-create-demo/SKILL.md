@@ -46,7 +46,7 @@ App tests use stubs and must not import `integrations_v2`.
 | Boundary | Responsibility |
 | --- | --- |
 | Constructor, `session_desc()`, default mode selection | Cheap configuration and output description; these run before initialization. |
-| `IApplication.init(args)` | Parse app arguments; initiate downloads, extraction, compilation, native loading and shared model construction. |
+| `IApplication.init(args)` | Parse app arguments; complete downloads, extraction, compilation, native loading and shared model construction before returning. |
 | `create_session(desc)` | Check supported dimensions/layout/rate and return an isolated, uninitialized session using prepared resources. |
 | `ISession.init()` | Register one model loop; register a UI loop only when custom UI is needed. |
 | `IModelLoop.step(index, events)` | Advance model state and return a list of `StepResult`, including an empty list when there is no output. |
@@ -55,13 +55,18 @@ App tests use stubs and must not import `integrations_v2`.
 Keep expensive immutable/shared resources on the application and mutable rollout
 state on session loops. Per-prompt cache initialization can happen on the model
 thread, but one-time downloads or native builds must not be deferred there.
-When preparation is missing, fail with a clear error instead of silently fetching.
+Wait for preparation workers before `init` returns; starting them there does not
+exempt later operations from the preparation guard. When preparation is missing,
+fail with a clear error instead of silently fetching.
 
 Return accurate frame counts and layouts with each `StepResult`; preserve channel
 ordering for multi-output apps. The model thread owns generation state. UI changes
 use `invoke_async` to schedule updates there; capture submitted values so later UI
-edits cannot alter a queued request. Implement finite completion deliberately:
-waiting for another prompt is different from a finished application.
+edits cannot alter a queued request. Model-loop completion does not by itself
+end the application. An interactive app can keep a persistent model loop waiting
+for prompts, or finish each prompt's model loop and let the UI call
+`request_new_session` for the next prompt. Reset mutable rollout state for new
+prompts or create a fresh session.
 
 ## Check with a stub before using a model
 
@@ -82,8 +87,10 @@ uv run --no-sync flashdreams-run-v2 minimal-t2v-wan21 -- --help
 
 Replace these paths/preset for the new app. Help is a parser check, not a rollout.
 GPU validation is a separate step once a real adapter and environment are ready.
-`--preload-application` initializes the application and normally runs one model
-block; `--skip-preload-validation` skips that block, not resource preparation.
+`--preload-application` initializes the application and normally attempts one
+model-loop step. That check may produce no frames while waiting for input, so
+verify actual generation separately. `--skip-preload-validation` skips the step
+check while still performing resource preparation.
 Preparation policy is `none|warn|error` through `FLASHDREAMS_PREPARATION_POLICY`;
 preload defaults to `warn`. Inspect the reported preparation issues and fix their
 source rather than treating skipped validation as a successful runtime test.

@@ -46,22 +46,25 @@ uv run --no-sync python tools/package-as-offline-exe/package_as_offline_exe.py \
 
 The output directory must not already exist. Choose a new destination rather
 than deleting an existing bundle. Do not pass `--preload-application`: the
-packager manages preload and first-model-block validation itself.
+packager manages preload and the check that attempts one model-loop step.
 
 Useful options, before `:::`:
 
 - `--preload-timeout SECONDS`: bound startup when downloads/builds are slow.
 - `--hidden-import MODULE`: include a dynamically imported module known to be missing.
 - `--collect-executable NAME`: include a required executable from `PATH`.
-- `--skip-runtime-validation`: skip the first model block; this does not demonstrate
-  that generation works and still initializes the application.
+- `--skip-runtime-validation`: skip the model-loop step check while still
+  initializing the application. Even an enabled check may produce no frames if
+  the app is waiting for input; verify actual generation separately.
 - `--noconsole`: hide the Windows console; runtime logs remain in the user's temp area.
 
 Check the current tool's help before adding options. If preparation finds a
 download, compilation or native load after initialization, fix the application:
-start one-time preparation inside `IApplication.init` or work initiated there,
-and consume prepared state later. Do not fix offline failures by depending on a
-developer's warm cache or allowing downloads on the target.
+complete one-time preparation within `IApplication.init`, waiting for any
+preparation workers before returning. The preparation guard applies after `init`
+returns, including to workers started there. Later steps consume prepared state.
+Do not fix offline failures by depending on a developer's warm cache or allowing
+downloads on the target.
 
 ## Validate distribution, not just the build
 

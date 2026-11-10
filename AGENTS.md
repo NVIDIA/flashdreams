@@ -111,7 +111,7 @@ Because of this direction, tests in `apps/<name>/tests/` must not import from `i
 
 - FlashDreams targets large NVIDIA GPUs; many real rollouts need 80 GB VRAM and CUDA-capable dependencies.
 - Full `uv sync`/`uv run` can build CUDA packages such as Transformer Engine. For narrow work, use `uv sync --package <integration> --extra dev` when possible.
-- V2 application help does not prove weights, CUDA execution, or parity. `--no-instantiate` belongs to the legacy V1 CLI. V2 `--preload-application` prepares resources and normally runs a model block; it is not a CPU dry run.
+- V2 application help does not prove weights, CUDA execution, or parity. `--no-instantiate` belongs to the legacy V1 CLI. V2 `--preload-application` prepares resources and normally attempts one model-loop step, which may produce no frames while waiting for input; it is not a CPU dry run or proof of generation.
 - First GPU runs include compile/autotune warmup, so benchmark harnesses should discard warmup chunks.
 - Docs CI mocks heavy GPU packages; local docs work should use the commands in `docs/README.md`.
 - Plain `pytest` includes manual tests. Use `pytest -m ci_cpu` or `pytest -m "not manual"` for normal local validation.

@@ -73,10 +73,14 @@ uv run --no-sync flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p \
   -- --no-ui --prompt "A cat surfing"
 ```
 
+This preset defaults to `block`, and the CLI selects `on_demand` for MP4/WebM
+output when unspecified. The example spells out both defaults for clarity.
+
 Use `flashdreams-run-v2` for current applications. The legacy
 `flashdreams-run --no-instantiate` resolves V1 runner configs and is not a V2
 dry-run flag. `--preload-application` is also not a CPU dry run: it initializes
-resources and, by default, executes one model block.
+resources and, by default, attempts one model-loop step. That check may produce
+no frames while waiting for input; it does not by itself prove generation works.
 
 ## Diagnose before retrying
 

@@ -86,12 +86,14 @@ and include adapter modules in the built wheel. Out-of-tree packages declare
 installable dependencies rather than workspace-only mappings. Do not register a
 new V2 adapter in `flashdreams.runner_configs` or add a `RunnerConfig` wrapper.
 
-Start downloads, extraction, native compilation/loading and model construction
-inside `IApplication.init` or work initiated there. Constructors and
-`session_desc()` must remain cheap: the runtime requests the description before
-`init`. Session creation consumes prepared resources and returns an uninitialized,
-isolated session; loops own mutable per-run state. Missing prepared assets should
-produce a useful error rather than a download from a model step.
+Complete downloads, extraction, native compilation/loading and model construction
+within `IApplication.init`; wait for any preparation workers before returning.
+The preparation guard applies after `init` returns, including to workers started
+there. Constructors and `session_desc()` must remain cheap: the runtime requests
+the description before `init`. Session creation consumes prepared resources and
+returns an uninitialized, isolated session; loops own mutable per-run state.
+Missing prepared assets should produce a useful error rather than a download
+from a model step.
 
 ## Validate and document
 
