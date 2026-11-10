@@ -8,31 +8,27 @@ metadata:
 
 # Run a FlashDreams model
 
-Use the user's FlashDreams checkout and requested revision. Paths below are
-relative to that checkout; the published links also work when this skill is
-installed separately. For command or review requests, inspect the docs and
-manifests without installing packages or launching inference.
+Resolve source paths from the user's checkout at the requested revision.
+For command or review requests, inspect docs and manifests without installing
+packages or launching inference.
 
-1. Select a supported model/demo pair using `docs/source/models/` and
-   `docs/source/demos/` ([models](https://flashdreams.org/main/models/),
-   [demos](https://flashdreams.org/main/demos/)). Read the model's requirements,
-   install command and preset; verify registration in its
-   `integrations_v2/<model>/pyproject.toml`. Do not construct preset names by guesswork.
-2. Build the command using `docs/source/documentation/cli.md`
-   ([CLI reference](https://flashdreams.org/main/documentation/cli/)) and the
-   selected demo's arguments. V2 uses `flashdreams-run-v2 PRESET RUNTIME_ARGS --
-   APP_ARGS`. For raw T2V file output, use the app's `--no-ui`; choosing MP4 does
-   not disable its UI. Choose an explicit output path and run limit for files.
-3. In an already installed environment, use runtime help and
-   `flashdreams-run-v2 PRESET -- --help` to check arguments. Application help is
-   not a GPU dry run or generation test; preload can load weights and execute
-   model code. Check the documented package/extras before changing dependencies.
+1. Select a documented preset from `docs/source/models/` and `docs/source/demos/`
+   ([models](https://flashdreams.org/main/models/),
+   [demos](https://flashdreams.org/main/demos/)). Follow the model's requirements
+   and installation instructions; verify the preset in `integrations_v2/<model>/pyproject.toml`.
+2. Follow `docs/source/documentation/cli.md`
+   ([CLI reference](https://flashdreams.org/main/documentation/cli/)):
+   `flashdreams-run-v2 PRESET RUNTIME_ARGS -- APP_ARGS`. For raw T2V file output,
+   pass the app's `--no-ui`; MP4 output alone does not disable UI.
+   Choose an explicit output path and run limit for files.
+3. In an installed environment, check runtime help and
+   `flashdreams-run-v2 PRESET -- --help` for app arguments. Help does not test
+   generation; preload can load weights and execute model code.
 4. For failures, follow `docs/source/troubleshooting.md`
    ([troubleshooting](https://flashdreams.org/main/troubleshooting/)). Check
-   preset installation and argument placement before changing the environment.
-   For performance investigations, use the maintained
-   [profiling guide](https://flashdreams.org/main/documentation/demo_api/guides/profiling/).
-5. Report the command and what was actually verified. When execution is requested,
-   check the resulting file or interactive output; distinguish parser success,
-   preparation, and generation. Use the CLI's backpressure/presentation controls
-   when every generated frame must be retained.
+   preset installation and argument placement before changing dependencies.
+   Use the [profiling guide](https://flashdreams.org/main/documentation/demo_api/guides/profiling/)
+   for performance investigations.
+5. Report the command and checks performed. When execution is requested, inspect
+   the output; distinguish parsing, preparation and generation. Use the CLI's
+   backpressure/presentation controls when every generated frame must be retained.

@@ -8,32 +8,26 @@ metadata:
 
 # Integrate a FlashDreams model
 
-Use the user's checkout at the requested revision. Paths below are relative to
-that checkout; published links are available for separately installed skills.
-For a review, inspect the supplied proposal and reference code without installing
-GPU dependencies or creating an integration the user did not request.
+Resolve source paths from the user's checkout at the requested revision.
+For reviews, inspect the proposal and source without installing GPU dependencies
+or implementing an integration.
 
 1. Follow `docs/source/documentation/inferencing_api/guides/create_model.md`
    ([model guide](https://flashdreams.org/main/documentation/inferencing_api/guides/create_model/)).
-   Establish the upstream revision and parity reference, then reuse the closest
-   recipe. Keep model code, configuration, checkpoint conversion and tests in
-   `integrations_v2/<model>/`; shared framework code must not import the model.
+   Establish the upstream revision and parity reference; reuse the closest recipe.
+   Keep model-specific code and tests in `integrations_v2/<model>/`.
 2. For a demo binding, follow
    `docs/source/documentation/demo_api/guides/integrate_model_adapter_for_a_demo.md`
    ([adapter guide](https://flashdreams.org/main/documentation/demo_api/guides/integrate_model_adapter_for_a_demo/)).
-   The integration owns `apps/<demo>/adapter.py`, depends on the reusable app,
-   and registers a zero-argument factory under `flashdreams.applications_v2`.
-   Check the package's dependencies and wheel contents as well as its entry point.
-   V2 bindings do not use the legacy runner registry.
-3. Follow the application lifecycle in the
-   [demo guide](https://flashdreams.org/main/documentation/demo_api/guides/create_demo/).
-   Factories and descriptions stay cheap; one-time preparation must finish
-   before `IApplication.init` returns. App tests use stubs, while model/adapter
-   checks belong to the integration.
-4. Validate the actual checkpoint transform on metadata or meta tensors before
-   GPU loading, including duplicate destination keys as well as keys and shapes.
-   Follow the model guide's CPU checks and upstream parity checks; a parser check
-   or plausible video alone does not establish numerical parity.
-5. Update the model page, registered presets and navigation as directed by the
-   guides. Report completed checks, missing hardware-dependent evidence, and
-   any dependency or attribution changes for contributor review.
+   The integration depends on the reusable app and registers a zero-argument
+   factory under `flashdreams.applications_v2`. Check dependencies and wheel
+   contents as well as registration. Shared framework and app code must not
+   import the integration; V2 bindings do not use the legacy runner registry.
+3. Follow the [demo lifecycle guide](https://flashdreams.org/main/documentation/demo_api/guides/create_demo/):
+   keep factories and descriptions cheap and finish preparation before
+   `IApplication.init` returns. Test apps with stubs and adapters in the integration.
+4. Follow the model guide's validation and documentation steps. Check checkpoint
+   transforms on metadata or meta tensors, including keys, shapes and duplicate
+   destinations, before GPU loading. Report CPU checks and upstream parity
+   evidence separately; parser success or plausible video does not prove parity.
+   Flag missing checks and dependency or attribution changes for review.

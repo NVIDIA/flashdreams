@@ -8,25 +8,15 @@ metadata:
 
 # Package FlashDreams for offline use
 
-Use the user's checkout and requested revision. For plans or command-only tasks,
-read the guide and tool source without starting downloads or a bundle build.
+Use the user's checkout at the requested revision. For plans or command reviews,
+inspect docs and source without downloading assets or building a bundle.
 
 1. Follow `docs/source/documentation/tools/offline_program_packager.md`
    ([offline packager](https://flashdreams.org/main/documentation/tools/offline_program_packager/)).
    Confirm a working documented V2 preset, its dependencies and the target
-   OS/GPU/driver. The packager supports `native-window` and `webrtc`; build on
-   the target OS rather than assuming cross-platform binaries.
-2. Check the tool's current help and the
-   [CLI reference](https://flashdreams.org/main/documentation/cli/). Put packager
-   options before `:::`, then the full `flashdreams-run-v2` command. Its runtime
-   arguments precede `--`; app arguments follow it. Use a new output directory.
-3. Let the packager control preload. Inspect `INSTALLER_OUTPUT.txt` and
-   `PREPARATION_ISSUES.txt`; fix late downloads/builds in application initialization
-   rather than relying on a developer cache. Skipping runtime validation does
-   not skip preparation or prove that the application works.
-4. Follow the guide's bundle-content and writable-cache instructions. Distribute
-   the complete folder, and check model/asset/dependency redistribution terms.
-   Test on a clean compatible target with networking disabled and empty user
-   caches; verify actual generation, restart and the requested output mode.
-5. Report the exact command, revision, target, artifacts and checks performed.
+   OS/GPU/driver. Try to output in a new directory for every new package.
+2. Inspect `INSTALLER_OUTPUT.txt` and any `PREPARATION_ISSUES.txt` to help
+   identify/fix late downloads/builds in application initialization. Fixing
+   reported issues is not mandatory and does not guarantee the app will function.
+3. Report the exact command, revision, target, artifacts and checks performed.
    Distinguish command validation, a successful build and verified offline use.
