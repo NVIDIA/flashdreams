@@ -43,10 +43,10 @@ def test_opt_in_trace_correlates_publish_drop_and_present(caplog) -> None:
 
     with caplog.at_level(logging.INFO, logger=_LOGGER):
         manager.publish(3, [_result(10)])
-        assert manager.advance(3)[0]
+        assert manager.advance(3, now=0.0)[0]
         manager.publish(3, [_result(11)])
         manager.publish(3, [_result(12)])
-        assert manager.advance(3)[0]
+        assert manager.advance(3, now=1.0)[0]
 
     trace = "\n".join(
         record.getMessage() for record in caplog.records if record.name == _LOGGER

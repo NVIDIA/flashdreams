@@ -148,8 +148,7 @@ def test_presentation_clock_uses_complete_model_and_postprocess_time() -> None:
     )
 
 
-def test_presentation_clock_caps_slow_observed_cadence() -> None:
-    """Do not let an early slow step create a visible presentation stall."""
+def test_presentation_clock_paces_even_very_slow_generation() -> None:
     clock = _PresentationClock(
         frames_per_second=16,
         maximum_frames_per_second=60,
@@ -158,10 +157,10 @@ def test_presentation_clock_caps_slow_observed_cadence() -> None:
     _observe_model_step(clock, 1.0, 1, 5.0)
     _observe_model_step(clock, 6.0, 1, 5.0)
 
-    assert clock.frames_per_second == pytest.approx(5.0)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(0.2))
     clock.mark_advanced(now=10.0)
-    assert not clock.is_due(now=10.199, generation=0)
-    assert clock.is_due(now=10.201, generation=0)
+    assert not clock.is_due(now=14.899, generation=0)
+    assert clock.is_due(now=14.901, generation=0)
 
 
 def test_presentation_clock_clamps_model_fps_to_ui_fps() -> None:
@@ -1176,8 +1175,10 @@ def test_presentation_manager_advances_when_due_or_backlogged() -> None:
     assert manager.advance(0, now=1.01)[0]
 
 
+@pytest.mark.parametrize("model_fps", [3, 15])
 def test_slow_chunks_are_paced_across_queue_underruns(
     monkeypatch: pytest.MonkeyPatch,
+    model_fps: int,
 ) -> None:
     manager = PresentationManager(device=torch.device("cpu"))
     manager.configure(
@@ -1192,10 +1193,11 @@ def test_slow_chunks_are_paced_across_queue_underruns(
         "flashdreams.runtime_v2.presentation_manager.time.monotonic", lambda: now
     )
     advances: list[tuple[float, int]] = []
-    for tick in range(321):
+    ticks_per_chunk = 8 * 60 // model_fps
+    for tick in range(ticks_per_chunk * 10 + 1):
         now = tick / 60.0
-        if tick and tick % 32 == 0:
-            chunk = tick // 32 - 1
+        if tick and tick % ticks_per_chunk == 0:
+            chunk = tick // ticks_per_chunk - 1
             manager.publish(
                 0,
                 [
@@ -1208,7 +1210,7 @@ def test_slow_chunks_are_paced_across_queue_underruns(
                         output_layout=VideoTensorLayout.tchw,
                     )
                 ],
-                step_elapsed_s=8 / 15,
+                step_elapsed_s=8 / model_fps,
             )
         if manager.advance(0, now=now)[0]:
             frame = manager.presented_frame(0)
@@ -1218,8 +1220,8 @@ def test_slow_chunks_are_paced_across_queue_underruns(
     steady_times = [when for when, frame in advances if 16 <= frame < 72]
     intervals = [b - a for a, b in zip(steady_times, steady_times[1:])]
     assert len(steady_times) == 56
-    assert min(intervals) >= 3 / 60 - 1e-6
-    assert max(intervals) <= 5 / 60 + 1e-6
+    assert min(intervals) >= 1 / model_fps - 1 / 60 - 1e-6
+    assert max(intervals) <= 1.16 / model_fps + 2 / 60 + 1e-6
     assert [frame for _, frame in advances] == list(range(len(advances)))
 
 

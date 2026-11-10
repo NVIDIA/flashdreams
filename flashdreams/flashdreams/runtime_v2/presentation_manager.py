@@ -30,9 +30,6 @@ _MODEL_FPS_WINDOW_SECONDS = 2.0
 _PRESENTATION_DRAIN_MARGIN = 0.98
 """Present slightly faster than recent model FPS when possible."""
 
-_MAXIMUM_OBSERVED_FRAME_INTERVAL_SECONDS = 0.2
-"""Bound cold output observations so presentation does not visibly stall."""
-
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
 _TRACE_PREFIX = "[runtime-v2-chunk-trace]"
 
@@ -112,10 +109,7 @@ class _PresentationClock:
                 self._model_frame_rate.reset()
                 return
             self._present_frame_interval = max(
-                min(
-                    (1.0 / observed_model_fps) * _PRESENTATION_DRAIN_MARGIN,
-                    _MAXIMUM_OBSERVED_FRAME_INTERVAL_SECONDS,
-                ),
+                (1.0 / observed_model_fps) * _PRESENTATION_DRAIN_MARGIN,
                 self._minimum_frame_interval,
             )
 

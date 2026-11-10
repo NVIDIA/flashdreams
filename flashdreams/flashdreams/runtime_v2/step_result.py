@@ -60,6 +60,11 @@ class StepResult:
         event.record(torch.cuda.current_stream(output.device))
         object.__setattr__(self, "_output_ready_event", event)
 
+    @property
+    def device(self) -> torch.device:
+        """Return the output device without scheduling a consumer dependency."""
+        return self._output.device
+
     def wait_until_ready(self) -> None:
         """Wait for this output's producer event on the calling thread.
 
