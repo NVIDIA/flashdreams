@@ -143,6 +143,11 @@ class _PresentationClock:
             else:
                 self._next_frame_at = next_frame_at + frame_interval
 
+    def mark_starved(self) -> None:
+        """Start a fresh interval when output resumes after an empty queue."""
+        with self._lock:
+            self._next_frame_at = None
+
     def _reset_generation(self, generation: int) -> None:
         self._generation = generation
         self._present_frame_interval = self._fallback_frame_interval
@@ -396,7 +401,11 @@ class PresentationManager:
             self._presented_frame_count = 0
 
         now = time.monotonic() if now is None else float(now)
-        backlog = self.is_backlogged
+        backlog = (
+            self.is_backlogged
+            and self._presented_chunk is not None
+            and self._frame_index + 1 < self._presented_chunk[0].frame_count
+        )
         if not self._presentation_clock.is_due(now, generation, backlog=backlog):
             return False, None
 
@@ -419,6 +428,7 @@ class PresentationManager:
             latest=self._backpressure_mode is BackpressureMode.DROP_OLDEST,
         )
         if chunk is None:
+            self._presentation_clock.mark_starved()
             return False, None
         self._presented_chunk = chunk
         self._frame_index = 0

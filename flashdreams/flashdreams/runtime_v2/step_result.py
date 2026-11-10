@@ -60,6 +60,16 @@ class StepResult:
         event.record(torch.cuda.current_stream(output.device))
         object.__setattr__(self, "_output_ready_event", event)
 
+    def wait_until_ready(self) -> None:
+        """Wait for this output's producer event on the calling thread.
+
+        Model publication uses this boundary so unfinished GPU work does not
+        block UI presentation or get omitted from the measured chunk duration.
+        CPU outputs are already ready. Other CUDA streams are not synchronized.
+        """
+        if self._output_ready_event is not None:
+            self._output_ready_event.synchronize()
+
     def read_output(self, *, sync_with_event: bool = True) -> Tensor:
         """Return the output, optionally ordered before the current CUDA stream.
 
