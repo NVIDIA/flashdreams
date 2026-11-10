@@ -1,15 +1,13 @@
----
-title: 'External game engines'
----
-
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# External game engines
 
 `omnidreams_game_engine.api.v0` connects a game engine that runs outside
 FlashDreams, such as an Unreal build, to a world model the way an in-process
 engine is connected: through `WorldModelRollout` and its `RolloutEngine`
 interface. The engine sends its state for every model frame over the
-[external-engine protocol](../api_reference/external_engine_protocol.md); the
+[external-engine protocol](EXTERNAL_ENGINE_PROTOCOL.md); the
 host draws the condition from it, generates the video and sends the frames
 back. An in-process engine keeps implementing `SimulationWorld`, `GameRules`
 and `ConditionRenderer` and runs in `GameEngine`; given the same states, both
@@ -68,7 +66,7 @@ failure) is refused, because a replay cannot reproduce it.
 
 ## Engine bring-up
 
-Implement the [protocol](../api_reference/external_engine_protocol.md). The
+Implement the [protocol](EXTERNAL_ENGINE_PROTOCOL.md). The
 stub engine in `omnidreams_game_engine.api.v0.stub_engine` is a complete
 reference in Python and drives a host without a game:
 

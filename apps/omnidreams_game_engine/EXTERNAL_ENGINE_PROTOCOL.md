@@ -1,13 +1,11 @@
----
-title: 'External-engine protocol'
----
-
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
+# External-engine protocol
+
 `omnidreams-engine/0` is the wire protocol between a game engine and a model
 host that renders the engine's state with a world model; the
-[External game engines](../guides/external_engine.md) guide shows the host
+[External game engines](EXTERNAL_ENGINE.md) guide shows the host
 side. The message classes are in `omnidreams_game_engine.api.v0.messages`, and
 `schema.json` beside them is a JSON Schema of every header.
 

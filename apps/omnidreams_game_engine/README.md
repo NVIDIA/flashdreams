@@ -32,7 +32,7 @@ owns the model and UI loops, threads, client windows, and presentation.
 `omnidreams_game_engine.api.v0` is the versioned public API: the contract
 above, re-exported unchanged, and a layer that connects a game engine running
 outside FlashDreams through the same `WorldModelRollout`. See
-[External game engines](https://nvidia.github.io/flashdreams/main/documentation/demo_api/guides/external_engine/).
+[External game engines](EXTERNAL_ENGINE.md).
 
 ## Shared implementation
 
