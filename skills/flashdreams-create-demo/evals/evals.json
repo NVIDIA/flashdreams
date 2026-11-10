@@ -26,12 +26,12 @@
     {
       "id": "demo-output",
       "expected_skill": "flashdreams-create-demo",
-      "prompt": "A FlashDreams V2 prompt UI stays open between prompts. Its model loop returns None while waiting, returns a bare StepResult when frames arrive, and sets is_finished true whenever one prompt finishes. What should change? Give review feedback only.",
-      "expected_output": "Returns a list of StepResult, including [] when there is no output. Distinguishes temporary prompt completion from application completion and keeps the interactive app available for new prompts. Maintains per-prompt/reset state on the model loop.",
+      "prompt": "A FlashDreams V2 prompt UI stays open between prompts. Its model loop returns None while waiting, returns a bare StepResult when frames arrive, and sets is_finished true whenever one prompt finishes. Which return values need fixing, and when is finishing the model loop compatible with keeping the UI open? Give review feedback only.",
+      "expected_output": "Returns a list of StepResult, including [] when a step produces no output. Accepts either a persistent model loop that keeps is_finished false while waiting for new prompts, or a finite model loop per prompt with the UI using request_new_session for subsequent prompts. Model-loop completion does not by itself mean application completion. Keeps mutable rollout state owned by each session's model loop, resetting it for new prompts or creating a fresh session.",
       "assertions": [
         "Corrects step return values to lists and uses [] for no output.",
-        "Separates waiting for input from finite application completion.",
-        "Keeps per-prompt state and reset handling on the model loop."
+        "Keeps the UI available through either a persistent model loop or session replacement; does not treat model-loop completion as necessarily ending the application.",
+        "Keeps mutable rollout state owned by each session's model loop, resetting it for new prompts or creating a fresh session."
       ]
     },
     {

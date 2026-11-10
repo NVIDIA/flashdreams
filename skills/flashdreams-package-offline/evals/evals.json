@@ -27,32 +27,33 @@
       "id": "offline-validation",
       "expected_skill": "flashdreams-package-offline",
       "prompt": "My FlashDreams bundle builds with --skip-runtime-validation and runs on the build machine with warm caches and internet. Can I mark it offline-tested? Propose the smallest useful acceptance check, without running it.",
-      "expected_output": "Does not claim offline validation. Tests the full folder on a clean compatible target with network disabled and empty user caches, checks real generation and requested window mode, and inspects INSTALLER_OUTPUT.txt and PREPARATION_ISSUES.txt. Notes that skipping runtime validation omits the first-model-block check.",
+      "expected_output": "Does not claim offline validation. Tests the full folder on a clean compatible target with network disabled and empty user caches, checks real generation and requested window mode, and inspects INSTALLER_OUTPUT.txt and any PREPARATION_ISSUES.txt. Notes that skipping runtime validation omits the one-model-loop-step check; even an enabled check may produce no generated frames if the app is waiting for input.",
       "assertions": [
         "Distinguishes build completion and skipped runtime checks from offline correctness.",
         "Requires network-disabled, empty-cache target testing of the whole folder.",
-        "Checks generation/output and preparation logs."
+        "Checks real generation/output and preparation logs rather than treating a possibly idle preload step as proof of generation."
       ]
     },
     {
       "id": "offline-late-download",
       "expected_skill": "flashdreams-package-offline",
       "prompt": "A FlashDreams offline bundle tries to fetch an asset during the first model step, after IApplication.init has returned. A proposed fix enables downloads on the target or tells users to copy the developer Hugging Face cache. What is the proper fix and how should it be verified?",
-      "expected_output": "Moves one-time download/preparation into initialization or work initiated there and includes the required prepared assets in the bundle. Model steps consume prepared state and report missing assets. Rebuilds and tests with networking disabled and empty target caches; neither workaround demonstrates offline portability.",
+      "expected_output": "Completes one-time download/preparation within IApplication.init, waiting for any preparation workers before returning, and includes the required prepared assets in the bundle. Starting a worker in init does not exempt later operations from the preparation guard. Model steps consume prepared state and report missing assets. Rebuilds and tests with networking disabled and empty target user caches; neither workaround demonstrates offline portability.",
       "assertions": [
         "Identifies late preparation as the root cause.",
-        "Moves preparation into the application init path and includes prepared resources in the bundle.",
+        "Requires preparation to finish before IApplication.init returns and includes prepared resources in the bundle.",
         "Verifies a rebuilt full bundle without network or a warm developer cache."
       ]
     },
     {
       "id": "offline-negative-run",
       "expected_skill": null,
-      "prompt": "Run an already installed FlashDreams demo in a browser on this workstation. I do not need a distributable bundle or executable.",
-      "expected_output": "Handles normal demo launching without loading the offline packager skill.",
+      "prompt": "Give me the command, without executing it, to open the installed FlashDreams V2 preset t2v-wan21-t2v-1.3b-480p in a browser. I do not need a distributable bundle or executable. No checkout or GPU is available here.",
+      "expected_output": "Provides flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p --mode webrtc, optionally prefixed with uv run --no-sync, without loading the offline packager skill, executing the command or installing anything.",
       "assertions": [
         "Does not load or apply flashdreams-package-offline.",
-        "Does not invoke PyInstaller or the offline packager."
+        "Does not invoke PyInstaller or the offline packager.",
+        "Provides a V2 command with the supplied preset and --mode webrtc without executing or installing anything."
       ]
     },
     {

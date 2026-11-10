@@ -5,11 +5,11 @@
       "id": "run-file",
       "expected_skill": "flashdreams-run-model",
       "prompt": "Give me a command, without executing it, to run the installed FlashDreams V2 preset t2v-wan21-t2v-1.3b-480p for one model step. Save artifacts/cat.mp4, retain every generated frame in order without UI overlays, and use the app prompt \"A cat surfing\". No checkout or GPU is available here.",
-      "expected_output": "Uses uv run --no-sync flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p with --mode mp4 --output-path artifacts/cat.mp4 --total-model-steps 1 --backpressure-mode block --presentation-mode on_demand before -- and --no-ui --prompt \"A cat surfing\" after it. Does not execute generation.",
+      "expected_output": "Uses uv run --no-sync flashdreams-run-v2 t2v-wan21-t2v-1.3b-480p with --mode mp4 --output-path artifacts/cat.mp4 --total-model-steps 1 before -- and --no-ui --prompt \"A cat surfing\" after it. Accepts either explicit --backpressure-mode block --presentation-mode on_demand runtime flags or their omission: this preset defaults to block and the CLI selects on_demand for MP4 output. Does not execute generation.",
       "assertions": [
         "Produces a V2 command with the supplied preset, output path and one-step bound.",
         "Places runtime flags before -- and --no-ui plus the prompt after -- to disable the interactive UI.",
-        "Uses block and on_demand for frame-preserving file output and does not run the command."
+        "Preserves frames using block and on_demand, either explicitly or through this command's defaults, and does not run the command."
       ]
     },
     {
@@ -27,10 +27,10 @@
       "id": "run-inspect",
       "expected_skill": "flashdreams-run-model",
       "prompt": "I only want to check the argument parser for the installed FlashDreams V2 preset minimal-t2v-wan21 on a CPU-only machine. Should I use --no-instantiate or --preload-application? Provide the inspection command only plus a short explanation; do not run it.",
-      "expected_output": "Uses uv run --no-sync flashdreams-run-v2 minimal-t2v-wan21 -- --help. Explains that --no-instantiate is legacy V1 and preload initializes resources and normally executes a model block; help is not GPU or weight validation.",
+      "expected_output": "Uses uv run --no-sync flashdreams-run-v2 minimal-t2v-wan21 -- --help. Explains that --no-instantiate is legacy V1 and preload initializes resources and normally attempts one model-loop step, which may produce no frames while waiting for input. Preload is not a CPU dry run, and help is not GPU or weight validation.",
       "assertions": [
         "Supplies the application help command with -- --help.",
-        "Distinguishes V1 config resolution from V2 preload.",
+        "Distinguishes V1 config resolution from V2 preload without claiming that a preload step necessarily generates frames.",
         "Does not claim parser success proves a rollout."
       ]
     },
