@@ -7,24 +7,8 @@ FlashDreams maintains two opt-in skill collections:
 | `skills/<name>/` | Developers using or extending FlashDreams | Candidates for individual NVIDIA catalog registration. |
 | `contributor-skills/<name>/` | Contributors maintaining this repository | Repository-only; exclude these paths from catalog sync. |
 
-## Product workflows
-
-| Skill | Use it for |
-| --- | --- |
-| [flashdreams-run-model](flashdreams-run-model/SKILL.md) | Select, install, launch, and troubleshoot an existing model/demo preset. |
-| [flashdreams-integrate-model](flashdreams-integrate-model/SKILL.md) | Port a model and bind it to an existing demo using V2. |
-| [flashdreams-create-demo](flashdreams-create-demo/SKILL.md) | Build a model-independent app, its controls, lifecycle, and stub tests. |
-| [flashdreams-package-offline](flashdreams-package-offline/SKILL.md) | Build and validate an offline application folder. |
-
-These workflows replace `integrate-a-model` and `flashdreams-integrations`;
-preparation rules are incorporated into integration, demo, packaging, and local
-postprocessing guidance. The old `four-view-inference` skill is retired: its
-advertised legacy presets are not registered by the current integration packages.
-This does not remove model code or its historical reference document.
-
-Contributor skills retain security review, OSS maintenance, Python documentation
-style, performance profiling/optimization/validation, and postprocessing guidance.
-See [the agent skill map](../AGENTS.md#skill-map) for individual activation rules.
+Read each skill's `SKILL.md` frontmatter (`name` and `description`) to find the
+workflow that matches your task, then load that skill's full instructions.
 
 ## Opt in locally
 
@@ -65,8 +49,8 @@ user's FlashDreams checkout, not the installed skill's parent directory. Public
 skills must not depend on unregistered contributor skills. Link to current docs
 for details instead of copying entire manuals or mutable model catalogs.
 
-Update `AGENTS.md` and this map when skills move. Refresh commands and contracts
-on product releases, rerun evaluations, and re-sign changed published content.
+Refresh commands and contracts on product releases, rerun evaluations, and
+re-sign changed published content.
 Catalog registration must list each public skill separately; do not register the
 repository root or `contributor-skills/`.
 

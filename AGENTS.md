@@ -44,20 +44,11 @@ Start here, then use the narrower docs for the task in front of you:
 
 File structure is in [CONTRIBUTING.md's File Tree Of FlashDreams](CONTRIBUTING.md#file-tree-of-flashdreams). Ignore gitignored AI-tool directories (see `.gitignore`) when scanning the source tree; they hold tool state, not the repo's current source.
 
-## Skill Map
+## Skills
 
-- `skills/flashdreams-run-model`: select, install, launch, or troubleshoot an existing V2 model/demo preset.
-- `skills/flashdreams-integrate-model`: port a model, configure its pipeline and checkpoint conversion, or bind it to an existing demo.
-- `skills/flashdreams-create-demo`: develop a model-independent V2 app, its lifecycle, preparation, controls, and stub tests.
-- `skills/flashdreams-package-offline`: preload, package, and validate an offline application folder.
-- `contributor-skills/profile-model-performance`: establish a baseline and identify model, cache, decode, transfer, or presentation bottlenecks.
-- `contributor-skills/apply-inference-optimizations`: apply measured runtime speedups while preserving quality and reset behavior.
-- `contributor-skills/validate-performance-quality`: validate performance changes with benchmarks and appropriate quality references.
-- `contributor-skills/security-code-review`: review security-sensitive changes or prepare evidence for human merge approval.
-- `contributor-skills/flashdreams-postprocessing`: change processors, presets, buffering/layout behavior, or application postprocess wiring.
-- `contributor-skills/python-docstring-style`: write or polish Python docstrings, comments, and SPDX headers.
-- `contributor-skills/maintaining-oss-state`: change dependencies, licenses, notices, REUSE annotations, or OSS collateral.
-- When adding, moving, or removing a skill, update this map and the setup instructions in `skills/README.md`.
+Discover available skills in `skills/` and `contributor-skills/` by reading the
+`name` and `description` frontmatter in their `SKILL.md` files. Load the full
+instructions only for skills relevant to the task.
 
 ## Common Commands
 

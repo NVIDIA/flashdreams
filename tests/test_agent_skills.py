@@ -172,16 +172,13 @@ def test_public_skill_has_evaluation_cases(path: Path) -> None:
     assert targets == {name, None}, f"{path}: include positive and negative cases"
 
 
-def test_skill_discovery_map_and_local_links() -> None:
-    """Catch stale discovery paths and references after moving skills."""
-    agent_guide = (_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+def test_skill_names_and_local_links() -> None:
+    """Check unique skill names and local Markdown references."""
     names: set[str] = set()
     for path in _repo_skill_files():
         name = _frontmatter(path)["name"]
         assert name not in names, f"duplicate skill name: {name}"
         names.add(name)
-        relative = path.parent.relative_to(_ROOT).as_posix()
-        assert f"`{relative}`" in agent_guide, f"{relative}: missing from AGENTS.md"
 
     for directory in ("skills", "contributor-skills"):
         for path in (_ROOT / directory).rglob("*.md"):
