@@ -31,7 +31,7 @@ dev = ["pytest>=8.0", "pytest-manual-marker>=2.0"]
 include = ["omnidreams_game_engine*"]
 
 [tool.setuptools.package-data]
-omnidreams_game_engine = ["screenshot.jpg"]
+omnidreams_game_engine = ["screenshot.jpg", "api/v0/schema.json"]
 
 [tool.uv]
 managed = true
