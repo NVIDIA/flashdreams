@@ -1762,7 +1762,17 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         advance=unexpected_advance,
         render=render,
         is_running=True,
-        simulation=SimpleNamespace(set_physx_debug_enabled=debug_enabled.append),
+        frame_interval_s=1 / 30,
+        simulation=SimpleNamespace(
+            set_physx_debug_enabled=debug_enabled.append,
+            pose_chunk=EgoVehicleKinematics(
+                initial_timestamp_us=0,
+                initial_state=VehicleState(0, 0, 0, 0, 0, 0),
+                vehicle_config=TaxiVehicleConfig(),
+                ground_snapper=None,
+                include_initial_state_in_first_chunk=True,
+            ).pose_chunk,
+        ),
         close=lambda: closed.append(True),
     )
     monkeypatch.setattr(
