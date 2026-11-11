@@ -9,7 +9,10 @@ import pytest
 import torch
 from torch import Tensor
 
-from flashdreams.infra.diffusion.scheduler import FlowMatchSchedulerConfig
+from flashdreams.infra.diffusion.scheduler import (
+    FlowMatchSchedulerConfig,
+    FlowMatchUniPCSchedulerConfig,
+)
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -37,3 +40,17 @@ def test_flow_match_uses_the_supplied_generator_for_transition_noise() -> None:
     )
     sigma = scheduler.denoising_sigmas[1]
     torch.testing.assert_close(actual, (1.0 - sigma) * initial + sigma * noise)
+
+
+def test_unipc_single_step_returns_the_x0_estimate() -> None:
+    """A one-step UniPC schedule lands on sigma 0 in its only predictor step."""
+    scheduler = FlowMatchUniPCSchedulerConfig(num_inference_steps=1).setup()
+    initial = torch.randn(2, 3, generator=torch.Generator().manual_seed(0))
+    flow = torch.randn(2, 3, generator=torch.Generator().manual_seed(1))
+
+    actual = scheduler.sample(
+        initial_noise=initial,
+        predict_flow=lambda sample, timestep: flow,
+    )
+
+    torch.testing.assert_close(actual, initial - scheduler.sigmas[0] * flow)

@@ -95,7 +95,7 @@ def _build_per_step_coefs(sigmas: np.ndarray) -> dict[str, np.ndarray]:
     b_corr_m0 = np.zeros_like(a_pred)
     b_corr_dprev = np.zeros_like(a_pred)
     b_corr_dt = np.zeros_like(a_pred)
-    if N >= 1:
+    if N >= 2:
         sigma_s0_c = s[:-2]  # corrector at step i uses s[i-1]; i runs 1..N-1
         sigma_t_c = s[1:-1]  # corrector at step i uses s[i]
         alpha_t_c = 1.0 - sigma_t_c
