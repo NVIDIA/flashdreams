@@ -300,6 +300,57 @@ def test_wan22_vae_diffusers_remap_still_targets_real_params() -> None:
 
 
 @torch.no_grad()
+@pytest.mark.ci_cpu
+@pytest.mark.parametrize("chunk_sizes", [(1, 1, 1, 1, 1), (3, 1, 1)])
+def test_wan_vae_decoder_streams_one_latent_frame_chunks(
+    tmp_path, chunk_sizes: tuple[int, ...]
+) -> None:
+    """Streaming decode matches a one-call decode with one-latent-frame chunks.
+
+    Upstream Wan decodes one latent frame per call, and the framewise
+    Causal-Forcing presets feed the decoder one latent frame per AR step.
+    """
+    from safetensors.torch import save_file
+
+    from flashdreams.recipes.wan.autoencoder.vae import CausalConv3d, Decoder3d
+
+    torch.manual_seed(0)
+    z_dim = 4
+    modules = {
+        "decoder": Decoder3d(dim=8, z_dim=z_dim, temperal_upsample=(True, True, False)),
+        "conv2": CausalConv3d(z_dim, z_dim, 1),
+    }
+    checkpoint = {
+        f"{name}.{key}": torch.randn_like(value) * 0.2
+        for name, module in modules.items()
+        for key, value in module.state_dict().items()
+    }
+    checkpoint_path = str(tmp_path / "wan_vae.safetensors")
+    save_file(checkpoint, checkpoint_path)
+    decoder = WanVAEDecoderConfig(
+        checkpoint_path=checkpoint_path,
+        dtype=torch.float32,
+        use_cuda_graph=False,
+        base_dim=8,
+        z_dim=z_dim,
+        latent_mean=(0.0,) * z_dim,
+        latent_std=(1.0,) * z_dim,
+    ).setup()
+    z = torch.randn(sum(chunk_sizes), z_dim, 2, 2)  # [T, C, H, W]
+
+    whole = decoder(z, cache=decoder.initialize_autoregressive_cache())
+    cache = decoder.initialize_autoregressive_cache()
+    starts = [sum(chunk_sizes[:i]) for i in range(len(chunk_sizes))]
+    streamed = torch.cat(
+        [
+            decoder(z[start : start + size], autoregressive_index=i, cache=cache)
+            for i, (start, size) in enumerate(zip(starts, chunk_sizes))
+        ]
+    )
+    torch.testing.assert_close(streamed, whole)
+
+
+@torch.no_grad()
 @pytest.mark.manual
 def test_wan22_vae_native_pth_and_diffusers_weights_identical() -> None:
     """Native ``.pth`` (no remap) and the diffusers remap yield identical weights.
