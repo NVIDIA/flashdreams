@@ -14,11 +14,7 @@ from typing import Any
 from flashdreams.api_v2.application import IApplication
 
 APPLICATION_ENTRY_POINT_GROUP = "flashdreams.applications_v2"
-"""Entry-point group whose values expose a zero-argument ``create_app`` factory.
-
-Separate from the v1 ``flashdreams.applications`` group, which resolves to
-``IFlashDreamsApplication`` and would refuse a v2 application registered there.
-"""
+"""Entry-point group whose values expose a zero-argument ``create_app`` factory."""
 
 
 def registered_application_slugs() -> tuple[str, ...]:
@@ -70,10 +66,7 @@ def _from_entry_point(entry_point: EntryPoint) -> IApplication:
 
 
 def _validated(value: Any, *, origin: str) -> IApplication:
-    """Return ``value`` if it is an application, and say what it was if not.
-
-    An integration still on the v1 contract lands here.
-    """
+    """Return ``value`` if it is an application, and say what it was if not."""
     if not isinstance(value, IApplication):
         raise TypeError(
             f"Application factory {origin!r} returned {type(value).__name__}; "

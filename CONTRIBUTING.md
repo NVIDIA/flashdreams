@@ -268,8 +268,7 @@ flashdreams/flashdreams/        # the framework package
   api_v2/                       # protocols an application implements
   runtime_v2/                   # the two-thread loop that runs an application
   runtime/                      # experimental inference runtime API envelope (v0, pre-v2)
-  serving/                      # optional serving utilities (WebRTC, network, launch)
-  demo/                         # transport-neutral application hosting and I/O API
+  serving/                      # shared realtime, network, and runner launch utilities
   accelerated/                  # accelerated kernels (quantization, multi-head attention)
   quality/                      # output-quality regression utilities (video, CLIP compare)
   configs/                      # runner registry and CLI aggregator
