@@ -177,6 +177,14 @@ def gameplay_workers(monkeypatch):
         return worker
 
     monkeypatch.setattr("crazy_robotaxi.session.build_gameplay_process", build)
+    # These model-only tests do not tick a presentation thread. The real UI
+    # startup handshake is exercised in test_ui_renderer_startup.py.
+    monkeypatch.setattr(ModelState, "_prepare_ui_renderer", lambda self, factory: True)
+    monkeypatch.setattr(
+        ModelState,
+        "_prewarm_rollout",
+        lambda self: setattr(self, "prewarm_complete", True),
+    )
     yield workers
     for worker in workers:
         worker.close()
@@ -1218,6 +1226,10 @@ def test_realtime_prewarm_preserves_frozen_world_cache_and_restart(
         assert state.blocks_generated == 0
         assert state.prewarmed_blocks == prewarm_blocks
         assert state.prewarm_complete
+        assert state.initial_trajectory is not None
+        assert state.initial_trajectory.timestamps_us.tolist() == [123_000]
+        if mode == "taxi":
+            assert state.initial_trajectory.dynamic_actors
         assert len(engines) == epoch + 1
         engine = engines[-1]
         engine.rules.advance_frames.assert_not_called()
@@ -1284,6 +1296,7 @@ def test_realtime_prewarm_preserves_frozen_world_cache_and_restart(
         assert rollout.cache is not cache
         assert state.prewarmed_blocks == 0
         assert not state.prewarm_complete
+        assert state.initial_trajectory is None
         assert state.prewarm_wall_ms == 0
     state.close()
 
@@ -1536,30 +1549,33 @@ def test_cli_selection_starts_game_with_or_without_ui(
             "cpu",
             "--prewarm-blocks",
             "0",
-            "--no-ui",
+            *(["--no-ui"] if no_ui else []),
             "--total-blocks",
             "4",
             "--game-mode",
-            "race",
-            "--race-course",
-            "grand-prix",
+            game_mode,
+            *(["--race-course", "grand-prix"] if game_mode == "race" else []),
             "--map",
             str(_DEMO_RACE_MAP),
         ]
     )
     assert app._config is not None
-    assert app._config.no_ui
+    assert app._config.no_ui is no_ui
 
     session = app.create_session(app.session_desc())
     session.init()
     ui_loop, model_loop = session._take_loops()
 
-    assert isinstance(ui_loop, CrazyRobotaxiHeadlessUILoop)
+    assert isinstance(
+        ui_loop, CrazyRobotaxiHeadlessUILoop if no_ui else CrazyRobotaxiImGuiUILoop
+    )
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert model_loop.state.ui_loop is ui_loop
-    assert ui_loop.state.initial_game_mode == "race"
+    assert ui_loop.state.initial_game_mode == game_mode
     assert ui_loop.state.initial_map_path == _DEMO_RACE_MAP.resolve()
-    assert ui_loop.state.initial_race_course_id == "grand-prix"
+    assert ui_loop.state.initial_race_course_id == (
+        "grand-prix" if game_mode == "race" else None
+    )
 
 
 def test_no_ui_in_race_mode_requires_a_course() -> None:

@@ -116,15 +116,9 @@ def _run_gameplay(factory, inputs, outputs, stop, observe: bool) -> None:
                 kind = message[0]
                 if kind == "input":
                     _, serial, events, received = message
-                    if input_origin is None and any(
-                        int(e.get_timestamp()) > 0 for e in events.get_events()
-                    ):
-                        input_origin = (
-                            received
-                            - max(int(e.get_timestamp()) for e in events.get_events())
-                            / 1e6
-                        )
-                    # Retain timestamp order, including future events in a batch.
+                    # Live-window events are already due. Only a caller with an
+                    # explicit clock origin can schedule future input; inferring
+                    # that origin from a delayed event would delay later controls.
                     for event_index, event in enumerate(events.get_events()):
                         heapq.heappush(
                             pending,

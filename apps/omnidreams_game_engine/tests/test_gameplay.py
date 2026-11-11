@@ -166,6 +166,55 @@ def _broken_engine(**kwargs):
     raise ValueError("test physics initialization failure")
 
 
+@pytest.mark.parametrize("input_origin", [None, 100.0])
+def test_delayed_first_input_does_not_delay_subsequent_live_controls(
+    monkeypatch, input_origin
+):
+    """Apply a fresh release immediately after a delayed initial press."""
+    from collections import deque
+    from queue import Queue
+
+    import omnidreams_game_engine.gameplay as gameplay
+
+    clock = [100.2]
+    stopped = threading.Event()
+    monkeypatch.setattr(gameplay.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(gameplay.time, "monotonic_ns", lambda: round(clock[0] * 1e9))
+    incoming = deque(
+        [
+            ("start", 100.2, input_origin),
+            ("input", 0, UserInputEvents([key("press", 100_000, "w", True)]), 100.2),
+        ]
+    )
+    inputs = SimpleNamespace(poll=lambda *args: bool(incoming), recv=incoming.popleft)
+    outputs = Queue()
+    commands = []
+
+    class Engine(_Engine):
+        def advance(self, batch):
+            commands.append(batch[0])
+            result = super().advance(batch)
+            clock[0] += 0.02
+            if self.tick == 1:
+                incoming.append(
+                    (
+                        "input",
+                        1,
+                        UserInputEvents([key("release", 220_000, "w", False)]),
+                        clock[0],
+                    )
+                )
+            if self.tick == 3:
+                stopped.set()
+            return result
+
+    gameplay._run_gameplay(
+        partial(_simulation, Engine), inputs, outputs, stopped, False
+    )
+    assert not any(message[0] == "error" for message in outputs.queue)
+    assert [command.throttle for command in commands] == [1, 0, 0]
+
+
 def test_process_failure_is_reported_and_can_be_closed():
     worker = GameplayProcess(partial(_simulation, _broken_engine))
     try:

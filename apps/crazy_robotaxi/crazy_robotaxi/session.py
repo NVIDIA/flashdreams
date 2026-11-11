@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import Future
 from dataclasses import dataclass, field, replace
 from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any, cast
@@ -39,7 +41,7 @@ from crazy_robotaxi.controls import (
     taxi_driver_command,
     wheel_driver_command,
 )
-from crazy_robotaxi.factory import build_taxi_engine
+from crazy_robotaxi.factory import build_taxi_engine, build_world_renderer
 from crazy_robotaxi.free_roam import FreeRoamSnapshot
 from crazy_robotaxi.game_selection import GameMapOption, GameSelection
 from crazy_robotaxi.gameplay import build_gameplay_process
@@ -86,6 +88,9 @@ class ModelState:
     ui_loop: IUILoop[TaxiHudState]
     """UI-loop endpoint used only through ``invoke_async``."""
 
+    shutdown_event: threading.Event = field(default_factory=threading.Event)
+    """Session stop signal used while waiting for UI startup preparation."""
+
     pipeline: Any | None = None
     """Lazily constructed after the client opens and a game is selected."""
 
@@ -123,6 +128,9 @@ class ModelState:
     realtime_miss_count: int = 0
     prewarm_complete: bool = False
     """Whether startup AR-shape warmup has completed for this session."""
+
+    initial_trajectory: TrajectoryChunk | None = None
+    """Frozen initial sample shared by model warmup and UI renderer preparation."""
 
     prewarm_wall_ms: float = 0.0
     """Wall time spent in hidden startup generation, excluding rollout creation."""
@@ -162,6 +170,7 @@ class ModelState:
         if not self.prewarm_complete:
             self._prewarm_rollout()
         if self.gameplay is None:
+            assert self.scene is not None
             self.gameplay = build_gameplay_process(
                 engine_options=dict(
                     scene=self.scene,
@@ -178,14 +187,58 @@ class ModelState:
                 driver=self.driver_input,
                 controls=self.config.controls,
             )
+            renderer_factory = None
+            if not self.config.no_ui:
+                renderer_factory = partial(
+                    build_world_renderer,
+                    self.scene,
+                    self.config.renderer.raster,
+                    self.config.renderer.bev,
+                    self.config.device,
+                )
+                if not self._prepare_ui_renderer(renderer_factory):
+                    return self.rollout
             self.gameplay.start()
             invoke_async(
                 self.ui_loop,
-                lambda ui_state, gameplay=self.gameplay: ui_state.attach_gameplay(
-                    gameplay
+                lambda ui_state,
+                gameplay=self.gameplay,
+                renderer_factory=renderer_factory: ui_state.attach_gameplay(
+                    gameplay, renderer_factory=renderer_factory
                 ),
             )
         return self.rollout
+
+    def _prepare_ui_renderer(self, renderer_factory: Callable[[], Any]) -> bool:
+        """Wait for UI-owned scene setup without starting gameplay clocks."""
+        trajectory = self.initial_trajectory
+        assert trajectory is not None
+        prepared: Future[None] = Future()
+
+        def prepare(ui_state: TaxiHudState) -> None:
+            if self.shutdown_event.is_set():
+                prepared.cancel()
+                return
+            try:
+                ui_state.prepare_world_renderer(renderer_factory, trajectory)
+            except BaseException as error:
+                prepared.set_exception(error)
+            else:
+                prepared.set_result(None)
+
+        try:
+            invoke_async(self.ui_loop, prepare)
+        except RuntimeError:
+            if self.shutdown_event.is_set():
+                return False
+            raise
+        while not prepared.done():
+            if self.shutdown_event.wait(0.01):
+                return False
+        if self.shutdown_event.is_set():
+            return False
+        prepared.result()
+        return True
 
     def select_game(self, selection: GameSelection) -> None:
         """Load the selected map and configure its rules on the model thread."""
@@ -269,15 +322,7 @@ class ModelState:
         rollout = self.rollout
         assert rollout is not None
         block_count = self.config.prewarm_blocks
-        if block_count == 0:
-            self.prewarm_complete = True
-            return
-
         started = time.perf_counter()
-        _LOGGER.info(
-            "[crazy-robotaxi] prewarming %d hidden AR blocks before presentation",
-            block_count,
-        )
         engine = cast(GameEngine, rollout.engine)
         # Taxi simulations include the initial state as their first sample:
         # sampling one frame does not tick physics, traffic, or game rules.
@@ -289,11 +334,6 @@ class ModelState:
             extrapolation_offset_s=0.0,
         )
         initial_game_frame = engine.current_game_frame
-        live_edit = getattr(engine, "live_edit", None)
-        if live_edit is not None and live_edit.style is not None:
-            live_edit.style.update_map_context(
-                initial_trajectory.boundary_state_after_chunk
-            )
         if isinstance(initial_game_frame, TaxiGameSnapshot):
             initial_trajectory = replace(
                 initial_trajectory,
@@ -303,6 +343,19 @@ class ModelState:
                         (initial_game_frame,), initial_trajectory.timestamps_us
                     ),
                 ),
+            )
+        self.initial_trajectory = initial_trajectory
+        if block_count == 0:
+            self.prewarm_complete = True
+            return
+        _LOGGER.info(
+            "[crazy-robotaxi] prewarming %d hidden AR blocks before presentation",
+            block_count,
+        )
+        live_edit = getattr(engine, "live_edit", None)
+        if live_edit is not None and live_edit.style is not None:
+            live_edit.style.update_map_context(
+                initial_trajectory.boundary_state_after_chunk
             )
         for autoregressive_index in range(block_count):
             current_block = autoregressive_index + 1
@@ -352,6 +405,7 @@ class ModelState:
         self.blocks_output = 0
         self.prewarmed_blocks = 0
         self.prewarm_complete = False
+        self.initial_trajectory = None
         self.prewarm_wall_ms = 0.0
         self.finished = False
         self.realtime_miss_count = 0
@@ -816,6 +870,7 @@ class CrazyRobotaxiSession(ISession):
                 pipeline_factory=self._pipeline_factory,
                 scene_factory=self._scene_factory,
                 owns_pipeline=False,
+                shutdown_event=self._shutdown_event,
                 config=self._config,
                 session_desc=self._session_desc,
                 driver_input=DriverInput(

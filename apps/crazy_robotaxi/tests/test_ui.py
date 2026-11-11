@@ -3834,7 +3834,10 @@ def test_hud_uses_current_gameplay_while_video_frame_stays_unchanged(monkeypatch
     latest = SimpleNamespace(
         step=SimpleNamespace(
             game_frames=(old_snapshot,),
-            trajectory=SimpleNamespace(vehicle_states=(SimpleNamespace(speed_mps=12),)),
+            trajectory=SimpleNamespace(
+                vehicle_states=(SimpleNamespace(speed_mps=12),),
+                rig_poses_world=np.eye(4, dtype=np.float32)[None],
+            ),
         ),
         presentation=None,
     )
@@ -3864,6 +3867,122 @@ def test_hud_uses_current_gameplay_while_video_frame_stays_unchanged(monkeypatch
     assert speeds == [12, 18]
     assert delivered == [events]
     assert state._current is not None and state._current.speed_mps == 0
+
+
+def test_world_views_advance_with_physics_while_model_frame_is_unchanged(monkeypatch):
+    state = TaxiHudState(320, 240, _calibration())
+    state._menu_stage = "game"
+    state.show_hdmap = True
+    video = torch.zeros(1, 3, 240, 320)
+    state.publish(
+        build_hud_frames(video, (_snapshot(),), np.eye(4, dtype=np.float32)[None])
+    )
+    latest = SimpleNamespace(step=SimpleNamespace(trajectory="first physics sample"))
+    gameplay = SimpleNamespace(
+        timeline=SimpleNamespace(latest=latest), submit_input=Mock()
+    )
+    renderer = Mock()
+    first = torch.ones(1, 1, 1, 3, 240, 320)
+    second = first * 2
+    renderer.render_views.side_effect = [(first, first[0, 0]), (second, second[0, 0])]
+    factory = Mock(return_value=renderer)
+    state.attach_gameplay(gameplay, renderer_factory=factory)
+    loop = CrazyRobotaxiImGuiUILoop(width=320, height=240)
+    loop.state = state
+    loop._presentation_manager = Mock()
+    loop._presentation_manager.presented_frames.return_value = (video[0],)
+    monkeypatch.setattr(TaxiHudState, "draw", Mock())
+    monkeypatch.setattr(TaxiHudState, "draw_waypoints", Mock())
+    composites = []
+    monkeypatch.setattr(
+        TaxiHudState,
+        "composite_bev",
+        lambda self, background, bev: composites.append((background, bev))
+        or background,
+    )
+    loop.step_ui(object(), 0, UserInputEvents([]))
+    latest.step.trajectory = "second physics sample"
+    loop.step_ui(object(), 1, UserInputEvents([]))
+    assert [call.args[0] for call in renderer.render_views.call_args_list] == [
+        "first physics sample",
+        "second physics sample",
+    ]
+    assert [float(background[0, 0, 0]) for background, _ in composites] == [1, 2]
+    assert [float(bev[0, 0, 0]) for _, bev in composites] == [1, 2]
+    factory.assert_called_once()
+    assert state._current is not None
+    assert state._current.frame_key == video[0].data_ptr()
+    loop.close()
+    renderer.close.assert_called_once()
+
+
+@pytest.mark.parametrize("game", ["taxi", "race"])
+def test_world_markers_follow_the_sample_rendered_in_the_selected_view(
+    monkeypatch: pytest.MonkeyPatch, game: str
+) -> None:
+    import crazy_robotaxi.ui as ui
+
+    state = TaxiHudState(320, 240, _calibration())
+    state._menu_stage = "game"
+    state.show_hdmap = True
+    video = torch.zeros(1, 3, 240, 320)
+    snapshot = _snapshot() if game == "taxi" else _race_snapshot()
+    generated_pose = np.eye(4, dtype=np.float32)
+    state.publish(build_hud_frames(video, (snapshot,), generated_pose[None]))
+    samples = []
+    for index in range(3):
+        pose = generated_pose.copy()
+        pose[1, 3] = index + 1
+        samples.append(
+            SimpleNamespace(
+                step=SimpleNamespace(
+                    game_frames=(replace(snapshot, distance_m=24.0 - index),),
+                    trajectory=SimpleNamespace(rig_poses_world=pose[None]),
+                )
+            )
+        )
+    gameplay = SimpleNamespace(
+        timeline=SimpleNamespace(latest=samples[0]), submit_input=Mock()
+    )
+    rendered = []
+
+    def render_views(trajectory, *, include_main):
+        rendered.append(trajectory)
+        # Physics advances during rendering; overlays must retain the input sample.
+        gameplay.timeline.latest = samples[min(len(rendered), 2)]
+        return (video.unsqueeze(0).unsqueeze(0) if include_main else None), None
+
+    renderer = Mock(render_views=render_views)
+    state.attach_gameplay(gameplay, renderer_factory=lambda: renderer)
+    projection_name = (
+        "project_waypoints" if game == "taxi" else "project_race_gate_to_camera"
+    )
+    projection = Mock(wraps=getattr(ui, projection_name))
+    monkeypatch.setattr(ui, projection_name, projection)
+    loop = CrazyRobotaxiImGuiUILoop(width=320, height=240)
+    loop.state = state
+    loop._presentation_manager = Mock()
+    loop._presentation_manager.presented_frames.return_value = (video[0],)
+    monkeypatch.setattr(TaxiHudState, "draw", Mock())
+    monkeypatch.setattr(
+        TaxiHudState, "composite_bev", lambda self, background, bev: background
+    )
+    imgui = _FakeImGui()
+    for tick in range(2):
+        loop.step_ui(imgui, tick, UserInputEvents([]))
+    state.show_hdmap = False
+    loop.step_ui(imgui, 2, UserInputEvents([]))
+
+    assert len(projection.call_args_list) == 3
+    for call, sample in zip(projection.call_args_list[:2], samples[:2]):
+        assert call.args[0] is sample.step.game_frames[-1]
+        np.testing.assert_array_equal(
+            call.args[1], sample.step.trajectory.rig_poses_world[-1]
+        )
+    assert projection.call_args_list[-1].args[0] is snapshot
+    np.testing.assert_array_equal(projection.call_args_list[-1].args[1], generated_pose)
+    assert rendered[:2] == [sample.step.trajectory for sample in samples[:2]]
+    loop.close()
 
 
 @pytest.mark.parametrize("cancel", [None, "release", "focus"])

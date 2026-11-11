@@ -320,7 +320,7 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
 
     assert steps_run_out == [2]
     assert failure_queue.empty()
-    assert step_timings == pytest.approx([0.9 + output_wait_s] * 2)
+    assert step_timings == pytest.approx([0.9] * 2)
     assert model_loop.inference_state is ModelInferenceState.FINISHED
 
 
@@ -871,15 +871,15 @@ def test_ui_keeps_ticking_until_asynchronous_output_is_ready() -> None:
     ui_ticks = 0
 
     def finish_output() -> None:
-        log.record("output.wait")
-        assert ui_progress.wait(timeout=2.0)
-        ready.set()
+        raise AssertionError("Presentation must not synchronize pending output")
 
     class AsyncSession(FakeSession):
         def step(self, step_index: int, events: UserInputEvents) -> StepResult:
             result = super().step(step_index, events)
             object.__setattr__(
-                result, "_output_ready_event", Mock(synchronize=finish_output)
+                result,
+                "_output_ready_event",
+                Mock(query=ready.is_set, synchronize=finish_output),
             )
             submitted.set()
             return result
@@ -890,6 +890,7 @@ def test_ui_keeps_ticking_until_asynchronous_output_is_ready() -> None:
                 ui_ticks += 1
                 if ui_ticks == 4:
                     ui_progress.set()
+                    ready.set()
             result = super().run_ui(step_index, events)
             if result:
                 assert ready.is_set(), "UI must only consume completed model output"
@@ -903,7 +904,7 @@ def test_ui_keeps_ticking_until_asynchronous_output_is_ready() -> None:
 
     assert ui_ticks >= 4
     assert window.results
-    assert log.threads_for("output.wait") == {_STEP_THREAD_NAME}
+    assert ui_progress.is_set()
 
 
 def test_each_message_queue_runs_on_its_owning_thread() -> None:
@@ -2333,3 +2334,42 @@ def test_run_session_reports_the_init_rather_than_the_session_close(
             run_session(session, RecordingClientWindow(log), steps=1)
 
     assert "session close failed" in caplog.text
+
+
+def test_slow_ui_ticks_do_not_add_an_extra_frame_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 0.0
+    waits: list[float] = []
+    log = CallLog()
+
+    class SlowUISession(FakeSession):
+        def run_ui(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            nonlocal now
+            result = super().run_ui(step_index, events)
+            now += 0.02  # Drawing already exceeds the 10 ms UI interval.
+            return result
+
+    session = SlowUISession(
+        _session_desc(ui_fps=100, presentation_mode=PresentationMode.CONTINUOUS), log
+    )
+    real_wait = session._shutdown_event.wait
+
+    def wait(timeout: float | None = None) -> bool:
+        nonlocal now
+        if (
+            threading.current_thread() is threading.main_thread()
+            and timeout is not None
+        ):
+            waits.append(timeout)
+            now += timeout
+            return real_wait(0.001)  # Let the model thread publish its next frame.
+        return real_wait(timeout)
+
+    monkeypatch.setattr(session._shutdown_event, "wait", wait)
+    clock = Mock()
+    clock.monotonic.side_effect = lambda: now
+    monkeypatch.setattr("flashdreams.runtime_v2.session_runner.time", clock)
+    run_session(session, RecordingClientWindow(log), steps=4)
+    assert len(waits) >= 3
+    assert waits[1:] == [0.0] * (len(waits) - 1)

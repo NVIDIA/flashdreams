@@ -139,10 +139,9 @@ def build_taxi_engine(
         rules = TaxiGameRules(controller)
     if live_edit_gameplay is not None:
         rules = LiveEditGameRules(rules, live_edit_gameplay)
-    renderer = None
-    if render_conditions:
-        renderer = LudusConditionRenderer(raster, bev, device=device)
-        renderer.load_scene(scene)
+    renderer = (
+        build_world_renderer(scene, raster, bev, device) if render_conditions else None
+    )
     engine = GameEngine(
         simulation=simulation,
         rules=rules,
@@ -151,6 +150,15 @@ def build_taxi_engine(
     )
     setattr(engine, "live_edit", live_edit_gameplay)
     return engine
+
+
+def build_world_renderer(
+    scene: SceneDefinition, raster: RasterConfig, bev: BevConfig, device: str
+) -> LudusConditionRenderer:
+    """Create a renderer owned by the calling thread for one loaded world."""
+    renderer = LudusConditionRenderer(raster, bev, device=device)
+    renderer.load_scene(scene)
+    return renderer
 
 
 def _integrate_taxi_vehicle(

@@ -10,7 +10,7 @@ import math
 import re
 import time
 from collections import OrderedDict, deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, is_dataclass, replace
 from importlib.resources import as_file, files
 from pathlib import Path
@@ -21,8 +21,10 @@ import numpy.typing as npt
 import torch
 import torch.nn.functional as functional
 from omnidreams_game_engine.camera import FThetaCameraModel
+from omnidreams_game_engine.conditioning import LudusConditionRenderer
 from omnidreams_game_engine.config import BevConfig
-from omnidreams_game_engine.types import CameraCalibration
+from omnidreams_game_engine.timeline import WorldSample
+from omnidreams_game_engine.types import CameraCalibration, TrajectoryChunk
 from PIL import Image
 from torch import Tensor
 
@@ -503,6 +505,10 @@ class TaxiHudState:
     _gameplay_font: Any | None = None
     """Droid Sans face used for prominent gameplay feedback."""
 
+    _world_renderer_factory: Callable[[], LudusConditionRenderer] | None = None
+    _world_renderer: LudusConditionRenderer | None = None
+    """UI-owned renderer for current gameplay, independent of model chunks."""
+
     def __post_init__(self) -> None:
         """Initialize input state from the process-start bindings."""
         self._model_size = self.width, self.height
@@ -572,8 +578,19 @@ class TaxiHudState:
         if elapsed_s > 0.0:
             self._video_fps = (len(times) - 1) / elapsed_s
 
-    def attach_gameplay(self, gameplay: Any | None) -> None:
+    def attach_gameplay(
+        self,
+        gameplay: Any | None,
+        *,
+        renderer_factory: Callable[[], LudusConditionRenderer] | None = None,
+    ) -> None:
         """Hand current held controls to a newly ready gameplay process."""
+        if self._world_renderer is not None and (
+            gameplay is None or renderer_factory is not self._world_renderer_factory
+        ):
+            self._world_renderer.close()
+            self._world_renderer = None
+        self._world_renderer_factory = renderer_factory
         self.gameplay = gameplay
         if gameplay is not None and self._held_gameplay_inputs:
             events = sorted(
@@ -586,6 +603,42 @@ class TaxiHudState:
                     [replace(event, timestamp=np.uint64(0)) for event in events]
                 )
             )
+
+    def prepare_world_renderer(
+        self,
+        renderer_factory: Callable[[], LudusConditionRenderer],
+        trajectory: TrajectoryChunk,
+    ) -> None:
+        """Prepare visible world views on the UI stream before gameplay starts."""
+        self.attach_gameplay(None, renderer_factory=renderer_factory)
+        self._world_renderer = renderer_factory()
+        outputs = self._world_renderer.render_views(
+            trajectory, include_main=self.show_hdmap
+        )
+        for output in outputs:
+            if output is not None and output.is_cuda:
+                torch.cuda.current_stream(output.device).synchronize()
+                break
+
+    def render_gameplay_views(
+        self,
+    ) -> tuple[Tensor | None, Tensor | None, WorldSample | None]:
+        """Render the latest physics state without waiting for generated video."""
+        if self.gameplay is None or self._world_renderer_factory is None:
+            return None, None, None
+        latest = self.gameplay.timeline.latest
+        if latest is None:
+            return None, None, None
+        if self._world_renderer is None:
+            self._world_renderer = self._world_renderer_factory()
+        hdmap, bev = self._world_renderer.render_views(
+            latest.step.trajectory, include_main=self.show_hdmap
+        )
+        return (
+            None if hdmap is None else hdmap[0, 0, 0],
+            None if bev is None else bev[0],
+            latest,
+        )
 
     def consume_input_events(self, events: UserInputEvents) -> None:
         """Track responsive drive state and receipt times on the UI thread."""
@@ -1279,7 +1332,9 @@ class TaxiHudState:
                 color=_RESTART_NOTICE_RGBA,
             )
 
-    def draw_waypoints(self, imgui: Any, frame: Tensor) -> None:
+    def draw_waypoints(
+        self, imgui: Any, frame: Tensor, *, sample: WorldSample | None = None
+    ) -> None:
         """Draw cached world-marker projections aligned with ``frame``."""
         if not self.hud_enabled:
             return
@@ -1289,6 +1344,12 @@ class TaxiHudState:
         source = self._frames.get(int(frame.data_ptr()))
         if source is None:
             return
+        if sample is not None:
+            source = replace(
+                source,
+                snapshot=sample.step.game_frames[-1],
+                rig_pose_world=sample.step.trajectory.rig_poses_world[-1],
+            )
         if source is not self._waypoint_source:
             if isinstance(source.snapshot, TaxiGameSnapshot):
                 self._waypoint_projections = project_waypoints(
@@ -1385,6 +1446,7 @@ class TaxiHudState:
                     hud_frame,
                     snapshot=latest.step.game_frames[-1],
                     speed_mps=latest.step.trajectory.vehicle_states[-1].speed_mps,
+                    rig_pose_world=latest.step.trajectory.rig_poses_world[-1],
                     live_edit_status=latest.presentation.status
                     if latest.presentation is not None
                     else hud_frame.live_edit_status,
@@ -4139,9 +4201,17 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
         video = frames[0] if frames else None
         hdmap_frame = frames[1] if len(frames) > 1 else None
         bev_frame = frames[2] if len(frames) > 2 else None
+        waypoint_sample = None
+        if video is not None and self.state._menu_stage == "game":
+            live_hdmap, live_bev, sample = self.state.render_gameplay_views()
+            if live_hdmap is not None:
+                hdmap_frame = live_hdmap
+                waypoint_sample = sample
+            if self.state._world_renderer is not None:
+                bev_frame = live_bev
         if video is not None:
             self.state.select_presented_frame(video)
-            self.state.draw_waypoints(imgui, video)
+            self.state.draw_waypoints(imgui, video, sample=waypoint_sample)
         self.state.draw(imgui, step_index, bev_frame=bev_frame)
         if video is None:
             return None
@@ -4152,8 +4222,14 @@ class CrazyRobotaxiImGuiUILoop(ImGuiUILoop[TaxiHudState]):
 
     def reset(self) -> None:
         """Reset UI-owned state and retained renderer resources."""
+        self.state.attach_gameplay(None)
         self.state.reset()
         super().reset()
+
+    def close(self) -> None:
+        """Release the gameplay renderer on its owning UI thread."""
+        self.state.attach_gameplay(None)
+        super().close()
 
 
 def _log_chunk_trace(phase: str, *, time_ns: int, **fields: object) -> None:

@@ -33,6 +33,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 
 using namespace CR;
 using namespace FW;
@@ -286,6 +287,12 @@ static cudaTextureObject_t createLinearTexture(CUdeviceptr ptr, size_t bytes, cu
 
 bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t stream)
 {
+    // ponytail: the port's CUDA parameters and counters are module globals.
+    // Serialize raster draws until these become per-context kernel arguments;
+    // model inference on other streams remains independent.
+    static std::mutex rasterMutex;
+    std::lock_guard<std::mutex> rasterLock(rasterMutex);
+
     m_ranges = ranges;
     // TODO(port): peel - wire depth peeling through to the active rasterizer
     // path. See PORT_NOTES.md and the xfail-marked test_depth_peeling_* tests.
@@ -405,21 +412,21 @@ bool CudaRaster::drawTriangles(const int32_t* ranges, bool peel, cudaStream_t st
                 }
 
                 // Allocate intermediate buffers.
-                m_triSubtris->resizeDiscard(m_maxSubtris * sizeof(U8));
-                m_triHeader->resizeDiscard(m_maxSubtris * sizeof(CRTriangleHeader));
-                m_triData->resizeDiscard(m_maxSubtris * sizeof(CRTriangleData));
+                m_triSubtris->resizeDiscardCuda(m_maxSubtris * sizeof(U8), stream);
+                m_triHeader->resizeDiscardCuda(m_maxSubtris * sizeof(CRTriangleHeader), stream);
+                m_triData->resizeDiscardCuda(m_maxSubtris * sizeof(CRTriangleData), stream);
 
-                m_binFirstSeg->resizeDiscard(CR_MAXBINS_SQR * CR_BIN_STREAMS_SIZE * sizeof(S32));
-                m_binTotal->resizeDiscard(CR_MAXBINS_SQR * CR_BIN_STREAMS_SIZE * sizeof(S32));
-                m_binSegData->resizeDiscard(m_maxBinSegs * CR_BIN_SEG_SIZE * sizeof(S32));
-                m_binSegNext->resizeDiscard(m_maxBinSegs * sizeof(S32));
-                m_binSegCount->resizeDiscard(m_maxBinSegs * sizeof(S32));
+                m_binFirstSeg->resizeDiscardCuda(CR_MAXBINS_SQR * CR_BIN_STREAMS_SIZE * sizeof(S32), stream);
+                m_binTotal->resizeDiscardCuda(CR_MAXBINS_SQR * CR_BIN_STREAMS_SIZE * sizeof(S32), stream);
+                m_binSegData->resizeDiscardCuda(m_maxBinSegs * CR_BIN_SEG_SIZE * sizeof(S32), stream);
+                m_binSegNext->resizeDiscardCuda(m_maxBinSegs * sizeof(S32), stream);
+                m_binSegCount->resizeDiscardCuda(m_maxBinSegs * sizeof(S32), stream);
 
-                m_activeTiles->resizeDiscard(CR_MAXTILES_SQR * sizeof(S32));
-                m_tileFirstSeg->resizeDiscard(CR_MAXTILES_SQR * sizeof(S32));
-                m_tileSegData->resizeDiscard(m_maxTileSegs * CR_TILE_SEG_SIZE * sizeof(S32));
-                m_tileSegNext->resizeDiscard(m_maxTileSegs * sizeof(S32));
-                m_tileSegCount->resizeDiscard(m_maxTileSegs * sizeof(S32));
+                m_activeTiles->resizeDiscardCuda(CR_MAXTILES_SQR * sizeof(S32), stream);
+                m_tileFirstSeg->resizeDiscardCuda(CR_MAXTILES_SQR * sizeof(S32), stream);
+                m_tileSegData->resizeDiscardCuda(m_maxTileSegs * CR_TILE_SEG_SIZE * sizeof(S32), stream);
+                m_tileSegNext->resizeDiscardCuda(m_maxTileSegs * sizeof(S32), stream);
+                m_tileSegCount->resizeDiscardCuda(m_maxTileSegs * sizeof(S32), stream);
 
                 // Get buffer pointers (discard previous contents).
                 CUdeviceptr ptrTriSubtris = m_triSubtris->getMutableCudaPtrDiscard();

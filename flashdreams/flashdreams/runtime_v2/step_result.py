@@ -65,11 +65,14 @@ class StepResult:
         """Return the output device without scheduling a consumer dependency."""
         return self._output.device
 
+    def is_ready(self) -> bool:
+        """Return producer completion without waiting or touching a CUDA stream."""
+        return self._output_ready_event is None or self._output_ready_event.query()
+
     def wait_until_ready(self) -> None:
         """Wait for this output's producer event on the calling thread.
 
-        Model publication uses this boundary so unfinished GPU work does not
-        block UI presentation or get omitted from the measured chunk duration.
+        This is an explicit blocking operation; presentation polls ``is_ready``.
         CPU outputs are already ready. Other CUDA streams are not synchronized.
         """
         if self._output_ready_event is not None:

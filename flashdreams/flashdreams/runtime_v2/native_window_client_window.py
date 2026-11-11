@@ -902,12 +902,14 @@ class _PresentationContext:
             stream = torch.cuda.current_stream()
             stream_handle = int(stream.cuda_stream)
             if self._has_cuda_submission:
-                self._device.sync_to_cuda(stream_handle)
+                # Wait for graphics to finish reading before reusing the buffer.
+                self._device.sync_to_device(stream_handle)
             if not frame.is_contiguous():
                 frame = frame.contiguous()
             rgba[..., :3].copy_(frame, non_blocking=True)
             rgba[..., 3].fill_(255)
-            self._device.sync_to_device(stream_handle)
+            # Graphics must wait for the CUDA writes before reading the buffer.
+            self._device.sync_to_cuda(stream_handle)
         encoder.copy_buffer_to_texture(
             self._display_texture,
             0,

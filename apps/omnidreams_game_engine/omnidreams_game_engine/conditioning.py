@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Single-threaded Ludus conditioning owned by the V2 model thread."""
+"""Ludus conditioning with each renderer owned by its calling thread."""
 
 from __future__ import annotations
 
@@ -127,6 +127,14 @@ class LudusConditionRenderer(ConditionRenderer):
 
     def render(self, trajectory: TrajectoryChunk) -> ConditionBatch:
         """Render a model-ready camera tensor and an optional HUD BEV tensor."""
+        main, bev = self.render_views(trajectory)
+        assert main is not None
+        return ConditionBatch(hdmap_bvtchw=main, bev_tchw=bev)
+
+    def render_views(
+        self, trajectory: TrajectoryChunk, *, include_main: bool = True
+    ) -> tuple[Tensor | None, Tensor | None]:
+        """Render world views, omitting the full camera when only BEV is visible."""
         if self._closed:
             raise RuntimeError("Condition renderer is closed")
         if (
@@ -140,15 +148,17 @@ class LudusConditionRenderer(ConditionRenderer):
         poses = torch.from_numpy(
             np.ascontiguousarray(trajectory.rig_poses_world, dtype=np.float32)
         ).to(self._device)
-        main = self._render_camera(
-            poses=poses,
-            timestamps_us=trajectory.timestamps_us,
-            camera_id=self._camera_ids[self._selected_camera],
-            sensor_to_rig=self._sensor_to_rig[self._selected_camera],
-            camera_type=CAMERA_TYPE_REGULAR,
-            resolution=(self._raster.height, self._raster.width),
-        )
-        hdmap = _normalize_hwc(main).unsqueeze(0).unsqueeze(0)
+        hdmap = None
+        if include_main:
+            main = self._render_camera(
+                poses=poses,
+                timestamps_us=trajectory.timestamps_us,
+                camera_id=self._camera_ids[self._selected_camera],
+                sensor_to_rig=self._sensor_to_rig[self._selected_camera],
+                camera_type=CAMERA_TYPE_REGULAR,
+                resolution=(self._raster.height, self._raster.width),
+            )
+            hdmap = _normalize_hwc(main).unsqueeze(0).unsqueeze(0)
         bev = None
         if self._bev_camera_id is not None and self._bev_sensor_pose is not None:
             bev_hwc = self._render_camera(
@@ -164,7 +174,7 @@ class LudusConditionRenderer(ConditionRenderer):
             # instead of normalizing to BF16 only for presentation to reverse
             # the conversion before uploading the ImGui texture.
             bev = _bev_presentation_frames(bev_hwc)
-        return ConditionBatch(hdmap_bvtchw=hdmap, bev_tchw=bev)
+        return hdmap, bev
 
     def close(self) -> None:
         """Release all scene references on the owning thread."""

@@ -322,6 +322,8 @@ void Buffer::init(S64 size, U32 hints, int align)
     m_cpuBase   = NULL;
     m_cudaPtr   = 0;
     m_cudaBase  = 0;
+    m_cudaAllocationStream = NULL;
+    m_cudaStreamOrdered = false;
 }
 
 //------------------------------------------------------------------------
@@ -539,12 +541,43 @@ void Buffer::cudaAlloc(CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase, S64 size, in
 
 //------------------------------------------------------------------------
 
+// GPU-only scratch storage. The caller orders successive draws across streams.
+// Retiring an old allocation on that stream must not wait for unrelated model
+// inference, which can otherwise block the UI for an entire generated chunk.
+void Buffer::resizeDiscardCuda(S64 size, CUstream stream)
+{
+    FW_ASSERT(size >= 0);
+    FW_ASSERT(m_original == Module_None);
+    FW_ASSERT(m_exists == Module_None || m_exists == Cuda);
+    m_cudaAllocationStream = stream;
+    if (m_size == size && m_cudaStreamOrdered)
+        return;
+
+    deinit();
+    init(size, m_hints, m_align);
+    m_cudaAllocationStream = stream;
+    m_cudaStreamOrdered = true;
+    checkSize(size, 32, "cuMemAllocAsync");
+    checkCudaDriverError("cuMemAllocAsync", cuMemAllocAsync(&m_cudaBase,
+        max(1U, (U32)(size + m_align - 1)), stream));
+    m_cudaPtr = m_cudaBase + m_align - 1;
+    m_cudaPtr -= m_cudaPtr % (UPTR)m_align;
+    m_owner = Cuda;
+    m_exists = Cuda;
+    m_dirty = Module_All - Cuda;
+}
+
+//------------------------------------------------------------------------
+
 void Buffer::cudaFree(CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase)
 {
     FW_ASSERT((cudaPtr == 0) == (cudaBase == 0));
     if (cudaPtr)
     {
-        checkCudaDriverError("cuMemFree", cuMemFree(cudaBase));
+        if (m_cudaStreamOrdered)
+            checkCudaDriverError("cuMemFreeAsync", cuMemFreeAsync(cudaBase, m_cudaAllocationStream));
+        else
+            checkCudaDriverError("cuMemFree", cuMemFree(cudaBase));
         cudaPtr = 0;
         cudaBase = 0;
     }
