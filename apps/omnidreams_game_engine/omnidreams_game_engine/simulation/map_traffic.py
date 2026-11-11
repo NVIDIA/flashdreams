@@ -202,6 +202,35 @@ class MapTrafficController:
         self._states_by_id = {state.object_id: state for state in states}
         self._active_ids: frozenset[str] = frozenset()
 
+        if states:
+            tracks = [state.scene_object for state in states]
+            self._track_lengths = np.asarray([len(t.timestamps_us) for t in tracks])
+            self._track_starts = np.cumsum([0, *self._track_lengths[:-1]])
+            self._time_offsets = np.cumsum(
+                [0, *(s.duration_us + 1 for s in states[:-1])]
+            )
+            self._track_times = np.concatenate(
+                [
+                    track.timestamps_us + offset
+                    for track, offset in zip(tracks, self._time_offsets, strict=True)
+                ]
+            )
+            self._track_positions = np.concatenate([t.positions_m for t in tracks])
+            self._track_velocities = np.concatenate(
+                [
+                    np.vstack(
+                        (
+                            np.zeros((1, 3), dtype=np.float32),
+                            np.diff(t.positions_m, axis=0)
+                            / (np.diff(t.timestamps_us) / 1_000_000.0).astype(
+                                np.float32
+                            )[:, None],
+                        )
+                    )
+                    for t in tracks
+                ]
+            )
+
     @property
     def objects(self) -> tuple[SceneObject, ...]:
         """Return every procedural traffic object owned by this controller."""
@@ -302,42 +331,51 @@ class MapTrafficController:
         lookahead_us = _TRACK_LOOKAHEAD_S * 1_000_000.0 * state.velocity_scale
         return int((state.timestamp_us + lookahead_us) % state.duration_us)
 
-    def _observation(self, state: MapTrafficVehicleState) -> _TrafficObservation:
-        track = state.scene_object
-        timestamp_us = int(state.timestamp_us)
-        index = int(np.searchsorted(track.timestamps_us, timestamp_us, side="left"))
-        if index <= 0:
-            lo = hi = 0
-            alpha = 0.0
-        elif index >= len(track.timestamps_us):
-            lo = hi = len(track.timestamps_us) - 1
-            alpha = 0.0
-        else:
-            lo, hi = index - 1, index
-            span = int(track.timestamps_us[hi] - track.timestamps_us[lo])
-            alpha = (
-                0.0 if span == 0 else (timestamp_us - track.timestamps_us[lo]) / span
+    def _observations(self) -> dict[str, _TrafficObservation]:
+        """Sample all logical routes in one batch, retaining physical active poses."""
+        if not self._states:
+            return {}
+        timestamps = (
+            np.fromiter(
+                (int(state.timestamp_us) for state in self._states), dtype=np.int64
             )
-        if lo == hi:
-            velocity = np.zeros(3, dtype=np.float32)
-        else:
-            dt_s = (
-                float(track.timestamps_us[hi] - track.timestamps_us[lo]) / 1_000_000.0
-            )
-            velocity = ((track.positions_m[hi] - track.positions_m[lo]) / dt_s).astype(
-                np.float32
-            )
-        if state.object_id in self._active_ids:
-            position = state.position_m[:2]
-        else:
-            position = (
-                track.positions_m[lo] * (1.0 - alpha) + track.positions_m[hi] * alpha
-            ).astype(np.float32)[:2]
-        return _TrafficObservation(
-            position_xy=np.asarray(position, dtype=np.float32),
-            velocity_xy=np.asarray(velocity[:2], dtype=np.float32),
-            half_length_m=float(state.scene_object.model.half_extents_m[0]),
+            + self._time_offsets
         )
+        # Separate each route's timeline so one search handles unequal track lengths.
+        indices = np.searchsorted(self._track_times, timestamps, side="left")
+        ends = self._track_starts + self._track_lengths - 1
+        hi = np.clip(indices, self._track_starts, ends)
+        lo = np.maximum(hi - 1, self._track_starts)
+        lo[indices > ends] = hi[indices > ends]
+        spans = self._track_times[hi] - self._track_times[lo]
+        alpha = np.divide(
+            timestamps - self._track_times[lo],
+            spans,
+            out=np.zeros(len(self._states)),
+            where=spans != 0,
+        )[:, None]
+        positions = (
+            self._track_positions[lo] * (1.0 - alpha)
+            + self._track_positions[hi] * alpha
+        ).astype(np.float32)
+        velocities = self._track_velocities[hi].copy()
+        velocities[lo == hi] = 0.0
+        segments = np.clip(
+            hi + (self._track_times[hi] == timestamps) - self._track_starts - 1,
+            0,
+            self._track_lengths - 2,
+        )
+        observations = {}
+        for index, state in enumerate(self._states):
+            active = state.object_id in self._active_ids
+            if not active and state.phase is MapTrafficPhase.TRAVERSING:
+                state.route_segment_index = int(segments[index])
+            observations[state.object_id] = _TrafficObservation(
+                position_xy=state.position_m[:2] if active else positions[index, :2],
+                velocity_xy=velocities[index, :2],
+                half_length_m=float(state.scene_object.model.half_extents_m[0]),
+            )
+        return observations
 
     @staticmethod
     def _cyclic_timestamp_distance(
@@ -589,12 +627,7 @@ class MapTrafficController:
                     state.timestamp_us = (
                         state.timestamp_us + dt_s * 1_000_000.0 * state.velocity_scale
                     ) % state.duration_us
-                    state.route_segment_index = self._route_segment_index(
-                        state.scene_object, state.timestamp_us
-                    )
-        observations = {
-            state.object_id: self._observation(state) for state in self._states
-        }
+        observations = self._observations()
         ego_observation = _TrafficObservation(
             position_xy=np.asarray(ego.position_m[:2], dtype=np.float32),
             velocity_xy=np.asarray(ego.linear_velocity_mps[:2], dtype=np.float32),
@@ -605,20 +638,28 @@ class MapTrafficController:
             buckets.setdefault(self._grid_cell(observation.position_xy), []).append(
                 observation
             )
-        for state in self._states:
-            observation = observations[state.object_id]
-            cell_x, cell_y = self._grid_cell(observation.position_xy)
-            candidates = tuple(
+        neighbors = {
+            cell: tuple(
                 candidate
                 for offset_x in (-1, 0, 1)
                 for offset_y in (-1, 0, 1)
-                for candidate in buckets.get((cell_x + offset_x, cell_y + offset_y), ())
+                for candidate in buckets.get(
+                    (cell[0] + offset_x, cell[1] + offset_y), ()
+                )
             )
-            state.velocity_scale = (
-                0.0
-                if state.phase is MapTrafficPhase.COLLISION
-                else self._headway_scale(observation, candidates)
-            )
+            for cell in buckets
+        }
+        for state in self._states:
+            observation = observations[state.object_id]
+            candidates = neighbors[self._grid_cell(observation.position_xy)]
+            if state.phase is MapTrafficPhase.COLLISION:
+                state.velocity_scale = 0.0
+            elif len(candidates) == 1:
+                state.velocity_scale = float(
+                    math.hypot(*(float(v) for v in observation.velocity_xy)) > 1.0e-4
+                )
+            else:
+                state.velocity_scale = self._headway_scale(observation, candidates)
         targets = tuple(
             ActorTrackTarget(
                 object_id=state.object_id,
