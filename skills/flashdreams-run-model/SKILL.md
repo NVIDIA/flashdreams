@@ -23,7 +23,9 @@ packages or launching inference.
    Choose an explicit output path and run limit for files.
 3. In an installed environment, check runtime help and
    `flashdreams-run-v2 PRESET -- --help` for app arguments. Help does not test
-   generation; preload can load weights and execute model code.
+   generation. `--preload-application` initializes the installed application and,
+   by default, runs one model step; it can load weights and use the GPU.
+   Use preloading only for requested execution or preparation checks.
 4. For failures, follow `docs/source/troubleshooting.md`
    ([troubleshooting](https://flashdreams.org/main/troubleshooting/)). Check
    preset installation and argument placement before changing dependencies.
