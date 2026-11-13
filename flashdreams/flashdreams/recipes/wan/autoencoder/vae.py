@@ -321,7 +321,10 @@ class Resample(nn.Module):
         if prev is not None:
             # Steady-state body: in-place write to the existing slot.
             x_up = self._interleave_time(self.time_conv(x, prev), b, c, t, h, w)
-            set_or_copy(state, key, x[:, :, -CACHE_T:])
+            new_tail = x[:, :, -CACHE_T:]
+            if new_tail.shape[2] < CACHE_T:
+                new_tail = torch.cat([prev[:, :, -1:], new_tail], dim=2)
+            set_or_copy(state, key, new_tail)
             return x_up
 
         # Eager first-chunk path (shape varies, never captured).
