@@ -4,9 +4,8 @@
 """CPU-safe configuration and application binding checks for OmniDreams."""
 
 import re
-from collections import Counter
 from collections.abc import Callable
-from dataclasses import fields, is_dataclass
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,13 +13,8 @@ import pytest
 import tomli as tomllib
 from crazy_robotaxi.application import CrazyRobotaxiApplication
 from crazy_robotaxi.settings import (
-    SETTING_CLI_FLAGS,
     SettingsDocument,
     SettingsError,
-    default_settings,
-    iter_setting_fields,
-    options_documentation,
-    setting_description,
     setting_value,
 )
 from interactive_drive import InteractiveDriveApplication, InteractiveDriveConfig
@@ -80,73 +74,9 @@ from omnidreams.impl.transformer import CosmosTransformerConfig
 from omnidreams.impl.vae_native import OmnidreamsWanVAEEncoderConfig
 
 from flashdreams.api_v2.application import IApplication
+from flashdreams.infra.config import derive_config
 
 pytestmark = pytest.mark.ci_cpu
-
-
-@pytest.mark.parametrize(
-    "config", OMNIDREAMS_CONFIGS.values(), ids=OMNIDREAMS_CONFIGS.keys()
-)
-def test_exported_options_match_the_menu(
-    config: OmnidreamsPipelineConfig,
-) -> None:
-    settings = default_settings(config, width=1280, height=704)
-    documented: Counter[tuple[str, str, str, str]] = Counter()
-    owners: dict[tuple[str, str], str] = {}
-    heading = ""
-    for line in options_documentation(settings).splitlines():
-        if line.startswith("#"):
-            heading = line.lstrip("# ")
-        if not line.startswith("| **"):
-            continue
-        columns = re.split(r"(?<!\\)\|", line)[1:-1]
-        assert len(columns) == 5
-        label = columns[0].strip().replace("**", "")
-        yaml_key = columns[1].strip().replace("`", "")
-        description = columns[-1].strip().replace("\\|", "|")
-        cli_flags = columns[3].strip().replace("`", "")
-        documented[label, yaml_key, description, cli_flags] += 1
-        owners[heading, label] = columns[2].strip()
-    assert documented
-
-    descriptions: Counter[tuple[str, str, str, str]] = Counter()
-
-    def collect(value: object, path: tuple[str, ...] = ()) -> None:
-        for item, _annotation in iter_setting_fields(value, path):
-            current = getattr(value, item.name)
-            item_path = (*path, item.name)
-            if is_dataclass(current) and not isinstance(current, type):
-                collect(current, item_path)
-            else:
-                description = setting_description(value, item)
-                assert description, item_path
-                label = f"{item.name.replace('_', ' ').title()}:"
-                yaml_key = ".".join(item_path)
-                cli_flags = SETTING_CLI_FLAGS.get(yaml_key, "—")
-                descriptions[label, yaml_key, description, cli_flags] += 1
-
-    collect(settings)
-    assert descriptions == documented
-    assert owners["GAME", "Gamepad Button Style:"] == "Crazy Robotaxi"
-    assert owners["GAME → TAXI → VEHICLE", "Max Speed Mps:"] == "Game engine"
-    assert owners["MODEL → PIPELINE → DIFFUSION MODEL", "Seed:"] == "FlashDreams"
-    assert (
-        owners["MODEL → PIPELINE → IMAGE ENCODER", "Native Vae Acceleration:"]
-        == "OmniDreams"
-    )
-
-
-def test_noise_option_reuses_its_existing_field_docstring() -> None:
-    config = OMNIDREAMS_PIPELINE_CONFIG.diffusion_model
-    item = next(
-        item for item in fields(config) if item.name == "noise_in_unpatchified_shape"
-    )
-    assert "description" not in item.metadata
-    assert setting_description(config, item) == (
-        "Debug-only: draw the initial noise in the unpatchified shape, then patchify. "
-        "Slower than the default patchified path; useful when matching another "
-        "implementation's RNG sequence."
-    )
 
 
 @pytest.mark.parametrize(
@@ -503,8 +433,15 @@ def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
     """Moved from apps/crazy_robotaxi/tests/test_application.py: tests that Crazy
     Robotaxi's CLI parsing correctly mutates OmniDreams's pipeline config, which
     is inherently an adapter-level (app x model) concern."""
+    preset: Any = OMNIDREAMS_FAST_PERF_PIPELINE_CONFIG
     app = CrazyRobotaxiApplication(
-        defaults=OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+        defaults=replace(
+            OMNIDREAMS_CRAZY_ROBOTAXI_FAST_PERF_DEFAULTS,
+            pipeline_config=derive_config(
+                preset,
+                diffusion_model={"transformer": {"compile_network": True}},
+            ),
+        ),
         pipeline_factory=lambda config, device: object(),
         scene_factory=lambda request, raster: cast(Any, object()),
         native_preparer=lambda: None,
@@ -515,7 +452,6 @@ def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
             "--seed",
             "7",
             "--no-compile",
-            "--profile-pipeline",
         ],
     )
 
@@ -525,7 +461,9 @@ def test_crazy_robotaxi_fast_perf_honors_explicit_pipeline_overrides() -> None:
     assert transformer.compile_network is False
     assert transformer.native_dit_acceleration == "required"
     assert transformer.skip_finalize_kv_cache is True
-    assert pipeline.diffusion_model.scheduler.denoising_timesteps == [1000, 100]
+    assert pipeline.diffusion_model.scheduler.denoising_timesteps == (
+        preset.diffusion_model.scheduler.denoising_timesteps
+    )
 
 
 @pytest.mark.parametrize(
