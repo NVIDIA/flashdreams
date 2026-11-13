@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -39,3 +41,21 @@ def test_actor_targets_use_one_batched_track_progress_update() -> None:
             ("obstacle-b", 500_000, 1.0),
         )
     )
+
+
+def test_backend_prepares_native_module_before_constructing_world(monkeypatch) -> None:
+    from omnidreams_game_engine.simulation import gameplay_physx
+
+    calls = []
+    monkeypatch.setattr(
+        gameplay_physx, "prepare_physx", lambda: calls.append("prepare")
+    )
+
+    def initialize(world, *args, **kwargs):
+        assert calls == ["prepare"]
+        calls.append("world")
+        world._scene = SimpleNamespace(set_body_track_progress=lambda: None)
+
+    monkeypatch.setattr(PhysXWorld, "__init__", initialize)
+    GameplayPhysXWorld(cast(Any, object()), cast(Any, object()))
+    assert calls == ["prepare", "world"]

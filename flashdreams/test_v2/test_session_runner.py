@@ -11,6 +11,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import torch
@@ -147,8 +148,7 @@ def test_presentation_clock_uses_complete_model_and_postprocess_time() -> None:
     )
 
 
-def test_presentation_clock_caps_slow_observed_cadence() -> None:
-    """Do not let an early slow step create a visible presentation stall."""
+def test_presentation_clock_paces_even_very_slow_generation() -> None:
     clock = _PresentationClock(
         frames_per_second=16,
         maximum_frames_per_second=60,
@@ -157,10 +157,10 @@ def test_presentation_clock_caps_slow_observed_cadence() -> None:
     _observe_model_step(clock, 1.0, 1, 5.0)
     _observe_model_step(clock, 6.0, 1, 5.0)
 
-    assert clock.frames_per_second == pytest.approx(5.0)
+    assert clock.frames_per_second == pytest.approx(_presentation_fps(0.2))
     clock.mark_advanced(now=10.0)
-    assert not clock.is_due(now=10.199, generation=0)
-    assert clock.is_due(now=10.201, generation=0)
+    assert not clock.is_due(now=14.899, generation=0)
+    assert clock.is_due(now=14.901, generation=0)
 
 
 def test_presentation_clock_clamps_model_fps_to_ui_fps() -> None:
@@ -251,10 +251,16 @@ def test_presentation_clock_resets_estimate_for_a_new_generation() -> None:
     assert clock.frames_per_second == 16
 
 
+@pytest.mark.parametrize("output_wait_s", [0.0, 0.6])
 def test_model_loop_excludes_publish_stalls_from_step_timing(
     monkeypatch: pytest.MonkeyPatch,
+    output_wait_s: float,
 ) -> None:
     now = 0.0
+
+    def finish_output() -> None:
+        nonlocal now
+        now += output_wait_s
 
     class TimedModelLoop(IModelLoop[None]):
         def step(
@@ -265,14 +271,19 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
             nonlocal now
             del events
             now += 0.9
-            return [
-                StepResult(
-                    step_index=step_index,
-                    output=torch.zeros((1, 3, 1, 1, 1)),
-                    frame_count=1,
-                    output_layout=VideoTensorLayout.bcthw,
+            result = StepResult(
+                step_index=step_index,
+                output=torch.zeros((1, 3, 1, 1, 1)),
+                frame_count=1,
+                output_layout=VideoTensorLayout.bcthw,
+            )
+            if output_wait_s:
+                object.__setattr__(
+                    result,
+                    "_output_ready_event",
+                    Mock(synchronize=finish_output),
                 )
-            ]
+            return [result]
 
     monkeypatch.setattr("flashdreams.api_v2.loop.time.monotonic", lambda: now)
     failure_queue: queue.Queue[BaseException] = queue.Queue()
@@ -309,7 +320,7 @@ def test_model_loop_excludes_publish_stalls_from_step_timing(
 
     assert steps_run_out == [2]
     assert failure_queue.empty()
-    assert step_timings == pytest.approx([0.9, 0.9])
+    assert step_timings == pytest.approx([0.9] * 2)
     assert model_loop.inference_state is ModelInferenceState.FINISHED
 
 
@@ -852,6 +863,50 @@ def test_continuous_ui_processes_input_while_model_generation_waits() -> None:
     assert "ui_loop.step" in log.calls
 
 
+def test_ui_keeps_ticking_until_asynchronous_output_is_ready() -> None:
+    log = CallLog()
+    submitted = threading.Event()
+    ui_progress = threading.Event()
+    ready = threading.Event()
+    ui_ticks = 0
+
+    def finish_output() -> None:
+        raise AssertionError("Presentation must not synchronize pending output")
+
+    class AsyncSession(FakeSession):
+        def step(self, step_index: int, events: UserInputEvents) -> StepResult:
+            result = super().step(step_index, events)
+            object.__setattr__(
+                result,
+                "_output_ready_event",
+                Mock(query=ready.is_set, synchronize=finish_output),
+            )
+            submitted.set()
+            return result
+
+        def run_ui(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            nonlocal ui_ticks
+            if submitted.is_set() and not ready.is_set():
+                ui_ticks += 1
+                if ui_ticks == 4:
+                    ui_progress.set()
+                    ready.set()
+            result = super().run_ui(step_index, events)
+            if result:
+                assert ready.is_set(), "UI must only consume completed model output"
+            return result
+
+    session = AsyncSession(
+        _session_desc(presentation_mode=PresentationMode.CONTINUOUS), log
+    )
+    window = RecordingClientWindow(log)
+    run_session(session, window, steps=1)
+
+    assert ui_ticks >= 4
+    assert window.results
+    assert ui_progress.is_set()
+
+
 def test_each_message_queue_runs_on_its_owning_thread() -> None:
     log = CallLog()
 
@@ -1119,6 +1174,56 @@ def test_presentation_manager_advances_when_due_or_backlogged() -> None:
     manager.publish(0, [result(1, 1)])
     assert manager.is_backlogged
     assert manager.advance(0, now=1.01)[0]
+
+
+@pytest.mark.parametrize("model_fps", [3, 15])
+def test_slow_chunks_are_paced_across_queue_underruns(
+    monkeypatch: pytest.MonkeyPatch,
+    model_fps: int,
+) -> None:
+    manager = PresentationManager(device=torch.device("cpu"))
+    manager.configure(
+        backpressure_mode=BackpressureMode.BLOCK,
+        stop=threading.Event(),
+        put_timeout=0.01,
+        frames_per_second=30,
+        maximum_frames_per_second=60,
+    )
+    now = 0.0
+    monkeypatch.setattr(
+        "flashdreams.runtime_v2.presentation_manager.time.monotonic", lambda: now
+    )
+    advances: list[tuple[float, int]] = []
+    ticks_per_chunk = 8 * 60 // model_fps
+    for tick in range(ticks_per_chunk * 10 + 1):
+        now = tick / 60.0
+        if tick and tick % ticks_per_chunk == 0:
+            chunk = tick // ticks_per_chunk - 1
+            manager.publish(
+                0,
+                [
+                    StepResult(
+                        step_index=chunk,
+                        output=torch.arange(chunk * 8, (chunk + 1) * 8)
+                        .reshape(8, 1, 1, 1)
+                        .expand(-1, 3, -1, -1),
+                        frame_count=8,
+                        output_layout=VideoTensorLayout.tchw,
+                    )
+                ],
+                step_elapsed_s=8 / model_fps,
+            )
+        if manager.advance(0, now=now)[0]:
+            frame = manager.presented_frame(0)
+            assert frame is not None
+            advances.append((now, int(frame[0, 0, 0])))
+
+    steady_times = [when for when, frame in advances if 16 <= frame < 72]
+    intervals = [b - a for a, b in zip(steady_times, steady_times[1:])]
+    assert len(steady_times) == 56
+    assert min(intervals) >= 1 / model_fps - 1 / 60 - 1e-6
+    assert max(intervals) <= 1.16 / model_fps + 2 / 60 + 1e-6
+    assert [frame for _, frame in advances] == list(range(len(advances)))
 
 
 def test_presentation_manager_publish_updates_presentation_clock(
@@ -2229,3 +2334,42 @@ def test_run_session_reports_the_init_rather_than_the_session_close(
             run_session(session, RecordingClientWindow(log), steps=1)
 
     assert "session close failed" in caplog.text
+
+
+def test_slow_ui_ticks_do_not_add_an_extra_frame_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 0.0
+    waits: list[float] = []
+    log = CallLog()
+
+    class SlowUISession(FakeSession):
+        def run_ui(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
+            nonlocal now
+            result = super().run_ui(step_index, events)
+            now += 0.02  # Drawing already exceeds the 10 ms UI interval.
+            return result
+
+    session = SlowUISession(
+        _session_desc(ui_fps=100, presentation_mode=PresentationMode.CONTINUOUS), log
+    )
+    real_wait = session._shutdown_event.wait
+
+    def wait(timeout: float | None = None) -> bool:
+        nonlocal now
+        if (
+            threading.current_thread() is threading.main_thread()
+            and timeout is not None
+        ):
+            waits.append(timeout)
+            now += timeout
+            return real_wait(0.001)  # Let the model thread publish its next frame.
+        return real_wait(timeout)
+
+    monkeypatch.setattr(session._shutdown_event, "wait", wait)
+    clock = Mock()
+    clock.monotonic.side_effect = lambda: now
+    monkeypatch.setattr("flashdreams.runtime_v2.session_runner.time", clock)
+    run_session(session, RecordingClientWindow(log), steps=4)
+    assert len(waits) >= 3
+    assert waits[1:] == [0.0] * (len(waits) - 1)

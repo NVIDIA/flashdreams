@@ -415,17 +415,19 @@ class LiveEditObstacleConfig:
     materialization range."""
 
     stagger_chunks: int = 1
-    """Chunks between consecutive car spawns in one burst. ``0`` spawns
-    the whole burst in one chunk; a small stagger both eases the model into
-    the event and spreads the passes out on screen."""
+    """Delay between spawns in legacy 8/30-second units of simulation time.
+
+    ``0`` spawns the whole burst together, independent of generation speed.
+    """
 
     lateral_m: float = 0.0
     """Meters to the left (+) / right (-) of the ego heading at spawn."""
 
     active_chunks: int = 10
-    """Despawn each non-static event after this many generated chunks.
+    """Lifetime in legacy 8/30-second units of simulation time.
 
-    Source-track exhaustion can end an event sooner."""
+    Source-track exhaustion can end an event sooner.
+    """
 
     min_drift_m: float = 15.0
     """Minimum ground-plane displacement for a moving template."""
@@ -483,6 +485,16 @@ class LiveEditObstacleConfig:
     annotate: bool = False
     """Draw each event's projected 3D box outline into presented frames
     (evidence/demo aid)."""
+
+    @property
+    def stagger_interval_s(self) -> float:
+        """Return the simulation-time delay between obstacle spawns."""
+        return self.stagger_chunks * (8 / 30)
+
+    @property
+    def active_duration_s(self) -> float:
+        """Return the simulation-time lifetime of a moving obstacle."""
+        return self.active_chunks * (8 / 30)
 
     def __post_init__(self) -> None:
         """Validate obstacle values at configuration time."""
@@ -1066,7 +1078,7 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         "--live-edit-obstacle-stagger-chunks",
         type=int,
         default=1,
-        help=("Chunks between consecutive car spawns in one burst (0 = all at once)."),
+        help="Spawn delay in 8/30-second simulation-time units (0 = all at once).",
     )
     group.add_argument(
         "--live-edit-obstacle-ahead-m",
@@ -1078,7 +1090,7 @@ def add_live_edit_args(parser: argparse.ArgumentParser) -> None:
         "--live-edit-obstacle-chunks",
         type=int,
         default=10,
-        help="Chunks the obstacle event stays active before despawn.",
+        help="Obstacle lifetime in 8/30-second simulation-time units.",
     )
     group.add_argument(
         "--live-edit-obstacle-static-count",

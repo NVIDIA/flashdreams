@@ -77,3 +77,18 @@ def test_bev_road_surface_pool_triangulates_concave_pavement() -> None:
         * (triangle_points[:, 2, 0] - triangle_points[:, 0, 0])
     )
     assert torch.isclose(doubled_areas.sum() / 2.0, torch.tensor(7.0))
+
+
+def test_conditioning_does_not_extrapolate_past_recorded_actor_lifetimes(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from omnidreams_game_engine import conditioning
+    from omnidreams_game_engine.config import RasterConfig
+
+    context = MagicMock()
+    monkeypatch.setattr(conditioning.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        conditioning, "LudusCudaTimestampedContext", lambda **kwargs: context
+    )
+    conditioning.LudusConditionRenderer(RasterConfig())
+    context.set_max_extrapolation_us.assert_called_once_with(0)

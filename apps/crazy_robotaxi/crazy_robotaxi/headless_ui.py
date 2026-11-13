@@ -27,6 +27,7 @@ class CrazyRobotaxiHeadlessUILoop(BlitModelOutputToScreenLoop[TaxiHudState]):
 
     def frames_to_blit(self) -> tuple[Tensor, ...]:
         """Return the generated video channel alone."""
+        self.state.consume_input_events(self.user_events)
         return self.presented_model_frames()[:1]
 
     def reset(self) -> None:
