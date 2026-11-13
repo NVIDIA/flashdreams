@@ -22,8 +22,10 @@ from cosmos3_nano_sim_auto.impl.conditioning.camera_rig import CAMERAS as ALL_CA
 from interactive_drive.types import FrameChunk, PresentedFrame, VehicleState
 
 from flashdreams.runtime_v2.user_input_event import (
+    GameWheelUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
+    UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
@@ -72,6 +74,84 @@ def _chunk(views):
         for t in range(2)
     )
     return FrameChunk(frames, vehicle, "stub")
+
+
+@pytest.mark.parametrize("width", [480, 1280])
+@pytest.mark.parametrize("focus", [-1, 0])
+@pytest.mark.parametrize(
+    "keys,wheel,angle,brake_pressed,throttle_pressed",
+    [
+        ((), None, 0, False, False),
+        (("w", "a"), None, 90, False, True),
+        ((" ", "d"), None, -90, True, False),
+        ((), (-0.2, 0.5, 0.0), 36, False, True),
+        ((), (0.2, 0.0, 0.5), -36, True, False),
+    ],
+)
+def test_live_sidebar_draws_wheel_and_pedals_before_first_block(
+    tmp_path, width, focus, keys, wheel, angle, brake_pressed, throttle_pressed
+):
+    session = _session(tmp_path, CAMERAS)
+    ui = session.ui_loop
+    ui.state.focus_channel = focus
+    assert ui.state.telemetry is None
+    assert not ui.state.sprites
+    ui.get_ui_loop_size = Mock(return_value=(width, 704))
+    ui.presented_model_frame = Mock(return_value=None)
+    events: list[UserInputEvent] = [
+        KeyboardUserInputEvent(
+            timestamp=np.uint64(0), key=key, state=KeyboardInputState.PRESSED
+        )
+        for key in keys
+    ]
+    if wheel is not None:
+        events.append(
+            GameWheelUserInputEvent(
+                timestamp=np.uint64(0),
+                steering=wheel[0],
+                throttle=wheel[1],
+                brake=wheel[2],
+            )
+        )
+    sidebar = min(320.0, width * 0.4)
+    available = sidebar - 24.0
+    imgui = Mock()
+    imgui.WindowFlags_ = SimpleNamespace(
+        no_decoration=1, no_move=2, no_saved_settings=4, no_inputs=8
+    )
+    imgui.ImVec2.side_effect = lambda x, y: SimpleNamespace(x=x, y=y)
+    imgui.combo.side_effect = lambda label, index, options: (False, index)
+    imgui.button.return_value = False
+    imgui.selectable.return_value = (False, False)
+    imgui.is_item_hovered.return_value = False
+    imgui.get_content_region_avail.return_value.x = available
+    imgui.get_style.return_value.item_spacing.x = 8.0
+
+    ui.step_ui(imgui, 0, UserInputEvents(events))
+
+    position = imgui.set_next_window_pos.call_args_list[0].args[0]
+    assert (position.x, position.y) == pytest.approx((width - sidebar + 4, 4))
+    images = imgui.image.call_args_list
+    assert [image.args[0] for image in images] == [
+        "steering-wheel",
+        "brake-pedal",
+        "throttle-pedal",
+    ]
+    assert ui.state.wheel_cache_angle == angle
+    assert images[0].args[1] is ui.state.wheel_cache_pixels
+    for image, name in (
+        (images[1], "brake_pressed" if brake_pressed else "brake_unpressed"),
+        (images[2], "throttle_pressed" if throttle_pressed else "throttle_unpressed"),
+    ):
+        assert image.args[1] is ui.state.sprites[name]
+    sizes = [image.kwargs["size"] for image in images]
+    assert sum(w for w, _ in sizes) + 16.0 <= available
+    assert [w / h for w, h in sizes] == pytest.approx([1, 64 / 138, 64 / 138])
+    assert all(image.args[1].dtype == np.uint8 for image in images)
+    assert all(image.args[1].shape[-1] == 4 for image in images)
+    cached_wheel = ui.state.wheel_cache_pixels
+    ui.step_ui(imgui, 1, UserInputEvents([]))
+    assert ui.state.wheel_cache_pixels is cached_wheel
 
 
 @pytest.mark.parametrize("cameras", [CAMERAS[:1], tuple(reversed(CAMERAS))])
@@ -128,6 +208,8 @@ def test_live_step_emits_synchronized_sensors_in_cli_order(
     assert ui.state.telemetry.frames_in_chunk == 2
     assert ui.state.telemetry.warning == OUTSIDE_MAP_WARNING
     imgui = Mock()
+    imgui.get_content_region_avail.return_value.x = 300.0
+    imgui.get_style.return_value.item_spacing.x = 8.0
     ui._draw_drive_hud(imgui)
     imgui.text_wrapped.assert_has_calls(
         [call("MAP COVERAGE WARNING"), call(OUTSIDE_MAP_WARNING)]
