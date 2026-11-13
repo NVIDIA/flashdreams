@@ -119,6 +119,7 @@ struct BarrierRecord {
     float lengthSquared = 0.0f;
     float yaw = 0.0f;
     float thickness = 0.0f;
+    std::size_t queryOrder = 0;
 };
 
 struct TrackSample {
@@ -132,6 +133,13 @@ using StepClock = std::chrono::steady_clock;
 double elapsedMs(const StepClock::time_point& begin, const StepClock::time_point& end)
 {
     return std::chrono::duration<double, std::milli>(end - begin).count();
+}
+
+float verticalHalfExtent(const PxTransform& pose, const PxVec3& half)
+{
+    return std::abs(pose.q.rotate(PxVec3(half.x, 0.0f, 0.0f)).z)
+        + std::abs(pose.q.rotate(PxVec3(0.0f, half.y, 0.0f)).z)
+        + std::abs(pose.q.rotate(PxVec3(0.0f, 0.0f, half.z)).z);
 }
 
 float yawFromQuaternion(const PxQuat& quaternion)
@@ -512,9 +520,10 @@ public:
             throw std::runtime_error("failed to create PhysX barrier");
         }
         actor->attachShape(*shape);
+        shape->setQueryFilterData(PxFilterData(1, 0, 0, 0));
         shape->release();
         mScene->addActor(*actor);
-        mBarriers.emplace(
+        auto& barrier = mBarriers.emplace(
             barrierId,
             BarrierRecord{
                 actor,
@@ -530,7 +539,9 @@ public:
                     std::max(start.data()[1], end.data()[1])),
                 length * length,
                 yaw,
-                thickness});
+                thickness}).first->second;
+        actor->userData = &barrier;
+        mBarrierQueryDirty = true;
     }
 
     void removeBarrier(std::int64_t barrierId)
@@ -542,6 +553,7 @@ public:
         found->second.actor->release();
         found->second.material->release();
         mBarriers.erase(found);
+        mBarrierQueryDirty = true;
     }
 
     void step(float dt)
@@ -774,6 +786,47 @@ public:
     }
 
 private:
+    const std::vector<const BarrierRecord*>& nearbyBarriers(
+        const PxTransform& pose, const BodyRecord& body)
+    {
+        mBarrierCandidates.clear();
+        if (mBarrierQueryDirty) {
+            mMaxBarrierHalfThickness = 0.0f;
+            std::size_t order = 0;
+            for (auto& entry : mBarriers) {
+                entry.second.queryOrder = order++;
+                mMaxBarrierHalfThickness = std::max(
+                    mMaxBarrierHalfThickness, entry.second.thickness * 0.5f);
+            }
+            // One shape per barrier; this buffer can hold every possible hit.
+            mBarrierHits.resize(mBarriers.size());
+            mBarrierQueryDirty = false;
+        }
+        if (mBarriers.empty())
+            return mBarrierCandidates;
+
+        // Enclose the legacy endpoint/contact tolerance, including wall thickness.
+        // The existing narrow-phase tests still decide whether contact occurred.
+        const float radius = std::hypot(body.halfExtents.x, body.halfExtents.y)
+            + 0.05f + mMaxBarrierHalfThickness + 0.001f;
+        PxOverlapBuffer hits(mBarrierHits.data(), static_cast<PxU32>(mBarrierHits.size()));
+        PxQueryFilterData filter;
+        filter.data.word0 = 1; // Authored barriers only; exclude the ground mesh.
+        filter.flags = PxQueryFlag::eSTATIC | PxQueryFlag::eNO_BLOCK;
+        mScene->overlap(
+            PxBoxGeometry(radius, radius, verticalHalfExtent(pose, body.halfExtents) + 0.001f),
+            PxTransform(pose.p), hits, filter);
+        for (PxU32 index = 0; index < hits.nbTouches; ++index)
+            mBarrierCandidates.push_back(
+                static_cast<const BarrierRecord*>(hits.touches[index].actor->userData));
+        // Match the original scan's tie-breaking and first-contact rebound order.
+        std::sort(mBarrierCandidates.begin(), mBarrierCandidates.end(),
+            [](const BarrierRecord* a, const BarrierRecord* b) {
+                return a->queryOrder < b->queryOrder;
+            });
+        return mBarrierCandidates;
+    }
+
     void simulateSubsteps(float dt)
     {
         constexpr float maxSubstepS = 1.0f / 120.0f;
@@ -807,8 +860,8 @@ private:
             const float bodyRadius = std::sqrt(
                 body.halfExtents.x * body.halfExtents.x
                 + body.halfExtents.y * body.halfExtents.y) + 0.05f;
-            for (const auto& barrierEntry : mBarriers) {
-                const BarrierRecord& barrier = barrierEntry.second;
+            for (const BarrierRecord* candidate : nearbyBarriers(pose, body)) {
+                const BarrierRecord& barrier = *candidate;
                 const float broadPhaseRadius =
                     bodyRadius + barrier.thickness * 0.5f;
                 if (position.x < barrier.minimum.x - broadPhaseRadius
@@ -1205,7 +1258,7 @@ private:
         const PxTransform& egoTransform,
         const PxVec3& egoVelocity,
         const BodyRecord& ego,
-        PxVec3& rebound) const
+        PxVec3& rebound)
     {
         const PxVec2 position(egoTransform.p.x, egoTransform.p.y);
         const float yaw = yawFromQuaternion(egoTransform.q);
@@ -1214,8 +1267,8 @@ private:
         const float egoRadius = std::sqrt(
             ego.halfExtents.x * ego.halfExtents.x
             + ego.halfExtents.y * ego.halfExtents.y) + 0.05f;
-        for (const auto& entry : mBarriers) {
-            const BarrierRecord& barrier = entry.second;
+        for (const BarrierRecord* candidate : nearbyBarriers(egoTransform, ego)) {
+            const BarrierRecord& barrier = *candidate;
             const float broadPhaseRadius = egoRadius + barrier.thickness * 0.5f;
             if (position.x < barrier.minimum.x - broadPhaseRadius
                 || position.x > barrier.maximum.x + broadPhaseRadius
@@ -1365,6 +1418,10 @@ private:
     std::vector<std::uint8_t> mStruck;
     std::unordered_map<std::int64_t, BodyRecord> mBodies;
     std::unordered_map<std::int64_t, BarrierRecord> mBarriers;
+    bool mBarrierQueryDirty = true;
+    float mMaxBarrierHalfThickness = 0.0f;
+    std::vector<PxOverlapHit> mBarrierHits;
+    std::vector<const BarrierRecord*> mBarrierCandidates;
 };
 
 } // namespace
