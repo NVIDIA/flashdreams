@@ -3069,6 +3069,11 @@ holds resources shared by its sessions. Keep the constructor and
 before <code>init()</code>. Here <code>init()</code> parses arguments and creates the pipeline;
 <code>create_session()</code> validates dimensions, layout, and frame rate before creating
 an uninitialized session. <code>close()</code> releases the shared pipeline reference.</p>
+<p>Complete one-time downloads, compilation, native loading and model construction
+before <code>init()</code> returns, including waiting for preparation workers. Work started
+inside <code>init()</code> is still subject to the preparation guard after it returns.
+Session loops consume prepared resources; missing assets should produce an
+error rather than a download during generation.</p>
 <p>The adapter supplies <code>pipeline_config</code>, a <code>SessionDesc</code>, and <code>total_blocks</code>,
 the maximum blocks <strong>per prompt</strong>. This app requires <code>tchw</code> output and a pipeline
 with <code>initialize_cache</code>, <code>generate</code>, and <code>finalize</code> methods.</p>

@@ -86,7 +86,8 @@
     <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
     <div data-md-component="skip">
       
-        <a href="#__skip" class="md-skip">
+        
+        <a href="#test-ownership-and-environment" class="md-skip">
           Skip to content
         </a>
       
@@ -2610,6 +2611,23 @@
       
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Testing
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="././" class="md-nav__link md-nav__link--active">
         
   
@@ -2625,6 +2643,46 @@
   
 
       </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#test-ownership-and-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Test ownership and environment
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ci-markers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CI markers
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2769,6 +2827,11 @@
                     
                     
                     
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
                   
                   <div class="md-sidebar__inner">
                     
@@ -2778,6 +2841,36 @@
   
   
   
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#test-ownership-and-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Test ownership and environment
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ci-markers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CI markers
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -2824,6 +2917,16 @@ that flag.</p>
 change. The root <code>pyproject.toml</code> skips <code>parity_check</code>,
 <code>parity_check_v2</code>, <code>baseline_fastvideo</code>, and <code>baseline_lightx2v</code> via
 <code>norecursedirs</code>.</p>
+<h2 id="test-ownership-and-environment">Test ownership and environment</h2>
+<p>Put V2 runtime/protocol tests in <code>flashdreams/test_v2/</code>, app tests in
+<code>apps/&lt;name&gt;/tests/</code>, and model/adapter tests in <code>integrations_v2/&lt;model&gt;/tests/</code>.
+App tests use stub pipelines and must not import model integrations. Keep
+checkpoint downloads, CUDA execution and native GUI dependencies out of CPU tests.</p>
+<p>For source inspection on a CPU-only host, read manifests and contracts before
+syncing dependencies: a workspace sync can build CUDA packages. In an already
+installed environment, application <code>-- --help</code> checks parsing without model
+construction. Preload is not a CPU dry run and does not establish real generation.</p>
+<h2 id="ci-markers">CI markers</h2>
 <p>Every test function must be marked with exactly one <strong>CI tier marker</strong>.
 A pytest plugin (<code>flashdreams._pytest_plugins.marker_enforcement</code>)
 enforces this at collection time -- tests without a marker are

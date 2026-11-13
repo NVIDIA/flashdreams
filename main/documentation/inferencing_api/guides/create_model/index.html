@@ -3063,7 +3063,8 @@ exactly one of <code>ci_cpu</code>, <code>ci_gpu</code>, or <code>manual</code>.
 <ul>
 <li>package imports and metadata;</li>
 <li>config names, component types, and derived-variant independence;</li>
-<li>matching checkpoint keys and tensor shapes;</li>
+<li>checkpoint-transform keys and tensor shapes, including duplicate destination
+  detection so dictionary overwrites cannot hide a many-to-one mapping;</li>
 <li>small-tensor component shapes and cache/reset behavior;</li>
 <li>pipeline execution with a fake model;</li>
 <li>application adapter flow with the reusable app's testing helpers.</li>

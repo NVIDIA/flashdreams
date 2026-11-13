@@ -2023,6 +2023,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#comparing-a-performance-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Comparing a performance change
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#using-your-own-profiler" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2884,6 +2895,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#comparing-a-performance-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Comparing a performance change
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#using-your-own-profiler" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2996,6 +3018,13 @@ produced the frame, such as <code>present.frame [step 5]</code>, so you can foll
 on screen back to the step that made it.</p>
 <p>FlashVSR and SwiftVR use their own <code>generate</code> method, so their reports have no
 <code>pipeline.*</code> ranges.</p>
+<h2 id="comparing-a-performance-change">Comparing a performance change</h2>
+<p>Record the command, commit, model/checkpoint, inputs, precision and hardware for
+both runs. Measure startup/compilation separately from warmed steady-state timing.
+Check the proposed change against the same reference: decode identical latents
+for decoder comparisons, and exercise cache/window boundaries and reset for
+streaming changes. Keep quality artifacts alongside timing results; faster
+presentation caused by dropping frames is not a generation-speed improvement.</p>
 <h2 id="using-your-own-profiler">Using your own profiler</h2>
 <p>A session runs with the profiler the application runner creates. To use your
 own, assign it at the start of <code>init()</code>, before registering a loop:</p>
