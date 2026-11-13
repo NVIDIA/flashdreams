@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
+import shapely
 import torch
 from ludus_renderer import (
     PRIM_BEV_ROAD_SURFACE,
@@ -17,7 +19,7 @@ from ludus_renderer import (
     TimestampedScene,
 )
 from ludus_renderer import load_scene as load_ludus_scene
-from ludus_renderer._ops import _triangulate_polygon_ear_clipping
+from ludus_renderer._ops import _triangulate_polygon_ear_clipping, primitives
 from ludus_renderer.render_utils import SceneAdapter
 from ludus_renderer.torch.ops import CAMERA_TYPE_BEV, CAMERA_TYPE_REGULAR
 from shapely.geometry import Polygon
@@ -27,6 +29,8 @@ from omnidreams_game_engine.config import BevConfig, RasterConfig
 from omnidreams_game_engine.contracts import ConditionRenderer
 from omnidreams_game_engine.dynamic_scene import MutableObjectSceneBuffer
 from omnidreams_game_engine.game_map.types import GameMapElement
+from omnidreams_game_engine.patterns import triangulate_polygon_xy
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import (
     ConditionBatch,
     SceneDefinition,
@@ -36,6 +40,26 @@ from omnidreams_game_engine.types import (
 _BEV_CAMERA_NAME = "game_engine_bev"
 _BEV_ROAD_SIMPLIFY_M = 0.05
 _BEV_ROAD_DEPTH_OFFSET_M = -0.01
+_ROAD_SURFACE_TYPES = frozenset(
+    (
+        primitives.PRIM_ROAD_BOUNDARY,
+        primitives.PRIM_LANE_LINE,
+        primitives.PRIM_CROSSWALK,
+        primitives.PRIM_WAIT_LINE,
+        primitives.PRIM_ROAD_MARKING,
+        primitives.PRIM_LANE_BOUNDARY,
+        primitives.PRIM_INTERSECTION,
+        primitives.PRIM_ROAD_ISLAND,
+        primitives.PRIM_BUFFER_ZONE,
+        primitives.PRIM_LANE_LINE_WHITE_SOLID,
+        primitives.PRIM_LANE_LINE_WHITE_DASHED,
+        primitives.PRIM_LANE_LINE_YELLOW_SOLID,
+        primitives.PRIM_LANE_LINE_YELLOW_DASHED,
+        primitives.PRIM_DOT_YELLOW,
+        primitives.PRIM_DOT_WHITE,
+    )
+)
+"""Ludus road boundaries, paint, crosswalks, islands, and surface markings."""
 
 
 class LudusConditionRenderer(ConditionRenderer):
@@ -105,11 +129,17 @@ class LudusConditionRenderer(ConditionRenderer):
             )
             self._sensor_to_rig[_BEV_CAMERA_NAME] = self._bev_sensor_pose
         self._context.upload_cameras(cameras)
-        base_scene = loaded.timestamped_scene
+        base_scene = _with_road_surface_sides(
+            loaded.timestamped_scene,
+            scene.ground_mesh_vertices,
+            scene.ground_mesh_faces,
+        )
         if self._bev.enabled and scene.game_map is not None:
             road_surface_pool = _build_bev_road_surface_pool(
                 scene.game_map.elements,
                 self._device,
+                ground_vertices=scene.game_map.ground_vertices,
+                ground_faces=scene.game_map.ground_faces,
             )
             if road_surface_pool is not None:
                 base_scene = TimestampedScene(
@@ -228,16 +258,88 @@ def _bev_presentation_frames(frames: Tensor) -> Tensor:
     return frames.permute(0, 3, 1, 2).contiguous()
 
 
+def _with_road_surface_sides(
+    scene: TimestampedScene,
+    ground_vertices: np.ndarray | None,
+    ground_faces: np.ndarray | None,
+) -> TimestampedScene:
+    """Attach local upward road planes once, before uploading semantic geometry.
+
+    The renderer evaluates sidedness per camera without a CPU visibility pass.
+    Geometry outside the supplied ground mesh retains its existing visibility.
+    """
+    if ground_vertices is None or ground_faces is None or not len(ground_faces):
+        return scene
+    ground = GroundSnapper(ground_vertices, ground_faces)
+
+    def sided(
+        pool: primitives.TimestampedPolylinePool | TimestampedPolygonPool,
+    ):
+        if pool.prim_type_id not in _ROAD_SURFACE_TYPES:
+            return pool
+        points = pool.vertices.cpu().numpy()
+        planes = np.zeros((len(points), 4), dtype=np.float32)
+        planes[:, 3] = 1.0  # Ungrounded geometry remains visible.
+        for index, (x, y, z) in enumerate(points):
+            surface = ground.ground_surface_at(float(x), float(y), float(z))
+            if surface is not None:
+                height, normal = surface
+                planes[index, :3] = normal
+                planes[index, 3] = -np.dot(normal, (x, y, height))
+        return replace(
+            pool, surface_planes=torch.from_numpy(planes).to(pool.vertices.device)
+        )
+
+    return TimestampedScene(
+        polyline_pools=[sided(pool) for pool in scene.polyline_pools],
+        polygon_pools=[sided(pool) for pool in scene.polygon_pools],
+        cube_pools=scene.cube_pools,
+    )
+
+
 def _build_bev_road_surface_pool(
     elements: tuple[GameMapElement, ...],
     device: torch.device,
+    *,
+    ground_vertices: np.ndarray | None = None,
+    ground_faces: np.ndarray | None = None,
 ) -> TimestampedPolygonPool | None:
     """Build a lightweight black paved-surface layer for BEV alpha coverage."""
     vertices: list[Tensor] = []
     triangles: list[Tensor] = []
     vertex_counts: list[int] = []
     triangle_counts: list[int] = []
-    for element in elements:
+    elevated = ground_vertices is not None and np.ptp(ground_vertices[:, 2]) > 0
+    if elevated:
+        assert ground_vertices is not None and ground_faces is not None
+        ground = ground_vertices[ground_faces].astype(np.float64)
+        ground_polygons = shapely.polygons(ground[:, :, :2])
+        ground_index = shapely.STRtree(ground_polygons)
+        for element in elements:
+            pavement = Polygon(element.surface_world[:, :2])
+            ground_ids = ground_index.query(pavement, predicate="intersects")
+            pieces = shapely.intersection(pavement, ground_polygons[ground_ids])
+            for piece, ground_id in zip(pieces, ground_ids, strict=True):
+                face = ground[ground_id]
+                normal = np.cross(face[1] - face[0], face[2] - face[0])
+                for part in shapely.get_parts(piece):
+                    if part.geom_type != "Polygon" or part.area == 0:
+                        continue
+                    xy = np.asarray(part.exterior.coords[:-1])
+                    z = face[0, 2] - (xy - face[0, :2]) @ normal[:2] / normal[2]
+                    xyz = np.column_stack((xy, z + _BEV_ROAD_DEPTH_OFFSET_M))
+                    clipped = triangulate_polygon_xy(xyz).reshape(-1, 3)
+                    if not len(clipped):
+                        continue
+                    # Each ground piece gets its own bounds and CUDA work block.
+                    # A map-wide polygon disables culling and serializes the mesh.
+                    vertices.append(torch.from_numpy(clipped))
+                    triangles.append(
+                        torch.arange(len(clipped), dtype=torch.int32).reshape(-1, 3)
+                    )
+                    vertex_counts.append(len(clipped))
+                    triangle_counts.append(len(clipped) // 3)
+    for element in () if elevated else elements:
         surface = np.asarray(element.surface_world, dtype=np.float32)
         polygon = Polygon(surface[:, :2]).simplify(
             _BEV_ROAD_SIMPLIFY_M,
