@@ -9,14 +9,14 @@ compiler:
 
 profiles:
   raceway:
-    lane_width_m: 5.5
-    curb_offset_m: 1.5
+    lane_width_m: 3.6
+    curb_offset_m: 0.6
     lanes: [backward, backward, forward, forward]
     speed_limit_mps: 24.0
     lane_marking: {style: DASHED_SINGLE, color: WHITE}
     divider_markings:
       - {style: DASHED_SINGLE, color: WHITE}
-      - {style: DASHED_SINGLE, color: WHITE}
+      - {style: DASHED_SINGLE, color: YELLOW}
       - {style: DASHED_SINGLE, color: WHITE}
 
 nodes:
@@ -41,8 +41,9 @@ roads:
     to: start_finish
     profile: raceway
     prompt_context: >-
-      The start-finish straight runs past packed grandstands, pit garages,
-      timing towers, sponsor gantries, and spectator terraces.
+      Covered grandstands full of spectators and glazed pit garages flank
+      the broad start-finish straight behind pale concrete walls and tall
+      catch fencing. Glass city towers rise beyond the circuit.
 
   - id: main_straight
     from: start_finish
@@ -134,7 +135,7 @@ roads:
     to: top_straight_entry
     profile: raceway
     prompt_context: >-
-      The broad sweeper curves along a sunny waterfront with a marina,
+      The broad sweeper curves along a waterfront with a marina,
       sailboats, palms, promenade crowds, and the city skyline across the bay.
     bezier:
       - control_points:
@@ -219,15 +220,16 @@ race_courses:
 
 spawns:
   - id: race_start
-    road: main_straight
+    road: start_finish_straight
     lane: 2
-    distance_m: 130
-    image: package://omnidreams_game_engine/screenshot.jpg
+    distance_m: 220
+    image: flashdreams_raceway_initial_frame.png
     prompt: >-
-      A forward-facing view from a taxi on a wide closed Formula-style
-      road circuit in daylight, with varied-radius corners, technical
-      esses, hairpins, safety barriers, grandstands, sponsor banners,
-      and a clear start-finish straight.
+      Onboard footage of a taxi driving through a motor-racing circuit. The circuit
+      has a broad four-lane asphalt roadway with dashed white lane dividers. Covered
+      spectator grandstands, pit garages, trees and city buildings. Asphalt, concrete
+      barriers and catch fences. Car hood visible. The view follows the steering
+      and movement of the car.
     prompt_context: >-
-      A forward-facing view from a taxi on a wide road racing circuit
-      through a city in daylight.
+      Onboard footage of a taxi driving through a motor-racing circuit. Car hood
+      visible. The view follows the steering and movement of the car.
