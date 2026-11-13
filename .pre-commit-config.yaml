@@ -6,6 +6,8 @@ exclude: |
     ^agents/|
     /protos/|
     ^docker/model_specific/cfg_parallel_state\.py$|
+    # Preserve NVSkills-generated signatures byte-for-byte.
+    ^skills/[^/]+/skill\.oms\.sig$|
     # Preserve the pinned vLLM-Omni implementation for source/license review.
     # Local adapter and tests remain covered by the hooks.
     ^integrations_v2/cosmos_interactive/cosmos_interactive/_lidar_codec/(transformer_vae|rope|encoding|neighborhood_attention)\.py$|
