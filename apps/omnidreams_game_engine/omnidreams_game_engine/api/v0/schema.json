@@ -1,0 +1,873 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "omnidreams-engine/0/schema.json",
+  "title": "External-engine protocol omnidreams-engine/0: message headers",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/hello"
+    },
+    {
+      "$ref": "#/$defs/start"
+    },
+    {
+      "$ref": "#/$defs/frame"
+    },
+    {
+      "$ref": "#/$defs/pong"
+    },
+    {
+      "$ref": "#/$defs/config"
+    },
+    {
+      "$ref": "#/$defs/seed_req"
+    },
+    {
+      "$ref": "#/$defs/frame_req"
+    },
+    {
+      "$ref": "#/$defs/gen_frame"
+    },
+    {
+      "$ref": "#/$defs/input"
+    },
+    {
+      "$ref": "#/$defs/cancel"
+    },
+    {
+      "$ref": "#/$defs/ping"
+    },
+    {
+      "$ref": "#/$defs/hold"
+    },
+    {
+      "$ref": "#/$defs/release"
+    },
+    {
+      "$ref": "#/$defs/restart"
+    },
+    {
+      "$ref": "#/$defs/end"
+    },
+    {
+      "$ref": "#/$defs/status"
+    },
+    {
+      "$ref": "#/$defs/error"
+    },
+    {
+      "$ref": "#/$defs/views"
+    },
+    {
+      "$ref": "#/$defs/view_frame"
+    },
+    {
+      "type": "object",
+      "description": "A type this version does not define; receivers ignore it.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "not": {
+            "enum": [
+              "hello",
+              "start",
+              "frame",
+              "pong",
+              "config",
+              "seed_req",
+              "frame_req",
+              "gen_frame",
+              "input",
+              "cancel",
+              "ping",
+              "hold",
+              "release",
+              "restart",
+              "end",
+              "status",
+              "error",
+              "views",
+              "view_frame"
+            ]
+          }
+        }
+      },
+      "required": [
+        "type"
+      ]
+    }
+  ],
+  "$defs": {
+    "hello": {
+      "type": "object",
+      "description": "Sent by: engine.",
+      "properties": {
+        "type": {
+          "const": "hello"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "session": {
+          "type": "string"
+        },
+        "api": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state_format": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "level": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "layout_crc32": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "driver": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sim_hz": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": 60
+        },
+        "tick": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": 0
+        },
+        "front_mount": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "wide_seed": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "engine_build": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "t_engine_us": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "session"
+      ],
+      "additionalProperties": true
+    },
+    "start": {
+      "type": "object",
+      "description": "Sent by: engine.",
+      "properties": {
+        "type": {
+          "const": "start"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tick": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "start"
+        }
+      },
+      "required": [
+        "type",
+        "tick"
+      ],
+      "additionalProperties": true
+    },
+    "frame": {
+      "type": "object",
+      "description": "Sent by: engine.",
+      "properties": {
+        "type": {
+          "const": "frame"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "epoch": {
+          "type": "integer"
+        },
+        "g": {
+          "type": "integer"
+        },
+        "tick": {
+          "type": "integer"
+        },
+        "state": {
+          "type": "object"
+        },
+        "seed": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": false
+        },
+        "encoding": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "height": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "t_engine_us": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "epoch",
+        "g",
+        "tick",
+        "state"
+      ],
+      "additionalProperties": true
+    },
+    "pong": {
+      "type": "object",
+      "description": "Sent by: engine.",
+      "properties": {
+        "type": {
+          "const": "pong"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "t_host_us": {
+          "type": "integer"
+        },
+        "t_engine_us": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "t_host_us"
+      ],
+      "additionalProperties": true
+    },
+    "config": {
+      "type": "object",
+      "description": "Sent by: host.",
+      "properties": {
+        "type": {
+          "const": "config"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "session": {
+          "type": "string"
+        },
+        "api": {
+          "type": "string"
+        },
+        "model_fps": {
+          "type": "integer"
+        },
+        "frame_ticks": {
+          "type": "integer"
+        },
+        "chunk_plan": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "lead_chunks": {
+          "type": "integer"
+        },
+        "display_delay_ticks": {
+          "type": "integer"
+        },
+        "return_encoding": {
+          "type": "string"
+        },
+        "return_width": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "return_height": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "return_quality": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "render": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "off"
+        },
+        "preset": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "host_build": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "session",
+        "api",
+        "model_fps",
+        "frame_ticks",
+        "chunk_plan",
+        "lead_chunks",
+        "display_delay_ticks",
+        "return_encoding"
+      ],
+      "additionalProperties": true
+    },
+    "seed_req": {
+      "type": "object",
+      "description": "Sent by: host.",
+      "properties": {
+        "type": {
+          "const": "seed_req"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "epoch": {
+          "type": "integer"
+        },
+        "tick": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "start"
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "height": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fov_deg": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "epoch",
+        "tick"
+      ],
+      "additionalProperties": true
+    },
+    "frame_req": {
+      "type": "object",
+      "description": "Sent by: host.",
+      "properties": {
+        "type": {
+          "const": "frame_req"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "epoch": {
+          "type": "integer"
+        },
+        "chunk": {
+          "type": "integer"
+        },
+        "index": {
+          "type": "integer"
+        },
+        "g": {
+          "type": "integer"
+        },
+        "tick": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "epoch",
+        "chunk",
+        "index",
+        "g",
+        "tick"
+      ],
+      "additionalProperties": true
+    },
+    "gen_frame": {
+      "type": "object",
+      "description": "Sent by: host.",
+      "properties": {
+        "type": {
+          "const": "gen_frame"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "epoch": {
+          "type": "integer"
+        },
+        "chunk": {
+          "type": "integer"
+        },
+        "g": {
+          "type": "integer"
+        },
+        "tick": {
+          "type": "integer"
+        },
+        "encoding": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "t_host_us": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "epoch",
+        "chunk",
+        "g",
+        "tick",
+        "encoding",
+        "width",
+        "height"
+      ],
+      "additionalProperties": true
+    },
+    "input": {
+      "type": "object",
+      "description": "Sent by: host.",
+      "properties": {
+        "type": {
+          "const": "input"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "action": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "t_host_us": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "action",
+        "phase"
+      ],
+      "additionalProperties": true
+    },
+    "cancel": {
+      "type": "object",
+      "description": "Sent by: host.",
+      "properties": {
+        "type": {
+          "const": "cancel"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "epoch": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": true
+    },
+    "ping": {
+      "type": "object",
+      "description": "Sent by: host.",
+      "properties": {
+        "type": {
+          "const": "ping"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "t_host_us": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "t_host_us"
+      ],
+      "additionalProperties": true
+    },
+    "hold": {
+      "type": "object",
+      "description": "Sent by: both.",
+      "properties": {
+        "type": {
+          "const": "hold"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tick": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": true
+    },
+    "release": {
+      "type": "object",
+      "description": "Sent by: both.",
+      "properties": {
+        "type": {
+          "const": "release"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tick": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": true
+    },
+    "restart": {
+      "type": "object",
+      "description": "Sent by: both.",
+      "properties": {
+        "type": {
+          "const": "restart"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "restart"
+        },
+        "tick": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "epoch": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": true
+    },
+    "end": {
+      "type": "object",
+      "description": "Sent by: both.",
+      "properties": {
+        "type": {
+          "const": "end"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tick": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": true
+    },
+    "status": {
+      "type": "object",
+      "description": "Sent by: both.",
+      "properties": {
+        "type": {
+          "const": "status"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tick": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "object",
+      "description": "Sent by: both.",
+      "properties": {
+        "type": {
+          "const": "error"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": ""
+        }
+      },
+      "required": [
+        "type",
+        "code"
+      ],
+      "additionalProperties": true
+    },
+    "views": {
+      "type": "object",
+      "description": "Sent by: engine.",
+      "properties": {
+        "type": {
+          "const": "views"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "views": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "t_engine_us": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": true
+    },
+    "view_frame": {
+      "type": "object",
+      "description": "Sent by: host.",
+      "properties": {
+        "type": {
+          "const": "view_frame"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "view": {
+          "type": "string"
+        },
+        "epoch": {
+          "type": "integer"
+        },
+        "chunk": {
+          "type": "integer"
+        },
+        "g": {
+          "type": "integer"
+        },
+        "tick": {
+          "type": "integer"
+        },
+        "encoding": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "t_host_us": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "view",
+        "epoch",
+        "chunk",
+        "g",
+        "tick",
+        "encoding",
+        "width",
+        "height"
+      ],
+      "additionalProperties": true
+    }
+  }
+}
