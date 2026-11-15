@@ -186,9 +186,11 @@ def entrypoint(argv: list[str] | None = None) -> None:
             "flashdreams.runner_configs or set FLASHDREAMS_RUNNER_CONFIGS."
         )
         if "-h" in normalized_args or "--help" in normalized_args:
-            print(message)
+            if _is_rank_zero():
+                print(message)
             return
-        print(message, file=sys.stderr)
+        if _is_rank_zero():
+            print(message, file=sys.stderr)
         raise SystemExit(2)
     selected_runner_name = next(
         (value for value in normalized_args if value in runners),

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from flashdreams.runtime import InMemoryMetricsRecorder
+from flashdreams.runtime.metrics import InMemoryMetricsRecorder
 from flashdreams.serving.realtime.timing import (
     ChunkTimes,
     VideoModelTimings,

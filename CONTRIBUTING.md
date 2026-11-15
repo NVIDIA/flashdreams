@@ -268,7 +268,7 @@ flashdreams/flashdreams/        # the framework package
   recipes/                      # built-in reusable recipe code (WAN, Cosmos, TAEHV, ...)
   api_v2/                       # protocols an application implements
   runtime_v2/                   # the two-thread loop that runs an application
-  runtime/                      # experimental inference runtime API envelope (v0, pre-v2)
+  runtime/                      # shared keyboard and metrics helpers
   serving/                      # shared realtime, network, and runner launch utilities
   accelerated/                  # accelerated kernels (quantization, multi-head attention)
   quality/                      # output-quality regression utilities (video, CLIP compare)

@@ -105,8 +105,12 @@ registry therefore has no model commands to list. Use
 `uv run flashdreams-run-v2 --help` for current applications.
 
 The old `flashdreams.demo`, `flashdreams.runtime.demo`, and
-`flashdreams.serving.webrtc` packages have been removed. These remaining command
-callers need migration:
+`flashdreams.serving.webrtc` packages have been removed, along with the unused
+v0 inference protocols, worker, input mappings, output targets, and LingBot
+runtime adapter. `flashdreams.runtime` retains shared keyboard and metrics
+modules used by current applications. Inference results live in
+`flashdreams.infra.results`; application sessions use `flashdreams.api_v2`.
+These remaining command callers need migration:
 
 | Caller | Migration |
 | --- | --- |

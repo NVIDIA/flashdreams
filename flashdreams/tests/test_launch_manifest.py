@@ -66,7 +66,8 @@ def _install_launchable_runner(monkeypatch: pytest.MonkeyPatch) -> str:
     return name
 
 
-def test_entrypoint_reports_empty_runner_registry() -> None:
+@pytest.mark.parametrize("rank", [0, 1])
+def test_entrypoint_reports_empty_runner_registry(rank: int) -> None:
     for arguments, expected_code in (
         (["--help"], 0),
         (["-h"], 0),
@@ -77,6 +78,7 @@ def test_entrypoint_reports_empty_runner_registry() -> None:
             [
                 sys.executable,
                 "-c",
+                f"import os; os.environ['LOCAL_RANK'] = '{rank}'; "
                 "from flashdreams.scripts import cli; "
                 "cli.all_runners = lambda: {}; cli.entrypoint()",
                 *arguments,
@@ -87,8 +89,11 @@ def test_entrypoint_reports_empty_runner_registry() -> None:
         )
         output = result.stdout + result.stderr
         assert result.returncode == expected_code, output
-        assert "No v1 runners are registered" in output
-        assert "flashdreams-run-v2 --help" in output
+        if rank == 0:
+            assert "No v1 runners are registered" in output
+            assert "flashdreams-run-v2 --help" in output
+        else:
+            assert output == ""
 
 
 def test_entrypoint_resolves_runner_without_instantiating(
