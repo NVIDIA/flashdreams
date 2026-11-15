@@ -30,7 +30,7 @@ device settings. Diffusion seed and denoising schedule remain standard
 
 The HandDreams demo selects checkpoint alias `cosmos3_nano_sim_bimanual_ga`,
 the iteration-1380 EMA export. It resolves to the transformer index in
-[`nvidia/Cosmos3-Nano-Sim-Bimanual` at revision `304bf3dc45901793f0782254a5270cc087b9a157`](https://huggingface.co/nvidia/Cosmos3-Nano-Sim-Bimanual/tree/304bf3dc45901793f0782254a5270cc087b9a157).
+[`nvidia/Cosmos3-Nano-Sim-Bimanual` at revision `da4d2c09175e2a6dd5b237265318066d5134312e`](https://huggingface.co/nvidia/Cosmos3-Nano-Sim-Bimanual/tree/da4d2c09175e2a6dd5b237265318066d5134312e).
 Do not substitute `main`: other revisions can use a different action contract.
 
 FlashDreams' checkpoint loader downloads the six indexed shards (~30.3 GB),
