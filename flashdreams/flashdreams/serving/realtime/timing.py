@@ -11,8 +11,6 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Protocol
 
-from flashdreams.runtime.metrics import MetricsRecorder
-
 TraceComponentValue = str | int | float | bool | None
 
 
@@ -404,36 +402,6 @@ def summarize_chunk_history(chunks: Iterable[ChunkTimes]) -> RecentTimingSummary
     )
 
 
-def record_chunk_timing_metrics(
-    metrics: MetricsRecorder,
-    chunk: ChunkTimes,
-) -> None:
-    """Record available chunk timing durations to a session metrics recorder."""
-
-    _record_stage_timing_metrics(
-        metrics,
-        prefix="realtime.chunk",
-        durations_ms=chunk.stage_durations_ms(),
-        step_index=chunk.chunk_index,
-    )
-
-
-def record_video_model_timing_metrics(
-    metrics: MetricsRecorder,
-    timings: VideoModelTimings,
-    *,
-    chunk_index: int | None = None,
-) -> None:
-    """Record backend-visible video model stage durations to session metrics."""
-
-    _record_stage_timing_metrics(
-        metrics,
-        prefix="realtime.model",
-        durations_ms=timings.stage_durations_ms(),
-        step_index=chunk_index,
-    )
-
-
 class RollingChunkTimingSummary:
     def __init__(self, capacity: int) -> None:
         self._chunks: deque[ChunkTimes] = deque(maxlen=capacity)
@@ -548,24 +516,6 @@ def _add_optional_trace_range(
         depends_on=depends_on,
         chunk_index=chunk_index,
     )
-
-
-def _record_stage_timing_metrics(
-    metrics: MetricsRecorder,
-    *,
-    prefix: str,
-    durations_ms: Mapping[str, float],
-    step_index: int | None,
-) -> None:
-    for stage_name, duration_ms in durations_ms.items():
-        try:
-            metrics.record_timing(
-                f"{prefix}.{stage_name}",
-                float(duration_ms) / 1000.0,
-                step_index=step_index,
-            )
-        except Exception:
-            return
 
 
 def _summarize_values(values: list[float]) -> StageDurationSummary:
