@@ -65,6 +65,15 @@ on screen back to the step that made it.
 FlashVSR and SwiftVR use their own `generate` method, so their reports have no
 `pipeline.*` ranges.
 
+## Comparing a performance change
+
+Record the command, commit, model/checkpoint, inputs, precision and hardware for
+both runs. Measure startup/compilation separately from warmed steady-state timing.
+Check the proposed change against the same reference: decode identical latents
+for decoder comparisons, and exercise cache/window boundaries and reset for
+streaming changes. Keep quality artifacts alongside timing results; faster
+presentation caused by dropping frames is not a generation-speed improvement.
+
 ## Using your own profiler
 
 A session runs with the profiler the application runner creates. To use your

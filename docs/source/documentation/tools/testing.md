@@ -25,6 +25,20 @@ change. The root `pyproject.toml` skips `parity_check`,
 `parity_check_v2`, `baseline_fastvideo`, and `baseline_lightx2v` via
 `norecursedirs`.
 
+## Test ownership and environment
+
+Put V2 runtime/protocol tests in `flashdreams/test_v2/`, app tests in
+`apps/<name>/tests/`, and model/adapter tests in `integrations_v2/<model>/tests/`.
+App tests use stub pipelines and must not import model integrations. Keep
+checkpoint downloads, CUDA execution and native GUI dependencies out of CPU tests.
+
+For source inspection on a CPU-only host, read manifests and contracts before
+syncing dependencies: a workspace sync can build CUDA packages. In an already
+installed environment, application `-- --help` checks parsing without model
+construction. Preload is not a CPU dry run and does not establish real generation.
+
+## CI markers
+
 Every test function must be marked with exactly one **CI tier marker**.
 A pytest plugin (`flashdreams._pytest_plugins.marker_enforcement`)
 enforces this at collection time -- tests without a marker are

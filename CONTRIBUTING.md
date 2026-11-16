@@ -27,12 +27,13 @@ Setup and build instructions:
 6. [File Tree Of FlashDreams](#file-tree-of-flashdreams)
 7. [Adding documentation](#adding-documentation)
 8. [Coding conventions](#coding-conventions)
-9. [Testing](#testing)
-10. [Dependency version bounds](#dependency-version-bounds)
-11. [Working with a single integration package](#working-with-a-single-integration-package)
-12. [Licensing of contributions](#licensing-of-contributions)
-13. [Reporting issues](#reporting-issues)
-14. [Code of Conduct](#code-of-conduct)
+9. [Agent skills](#agent-skills)
+10. [Testing](#testing)
+11. [Dependency version bounds](#dependency-version-bounds)
+12. [Working with a single integration package](#working-with-a-single-integration-package)
+13. [Licensing of contributions](#licensing-of-contributions)
+14. [Reporting issues](#reporting-issues)
+15. [Code of Conduct](#code-of-conduct)
 
 ## Ways to contribute
 
@@ -283,6 +284,13 @@ tests/                          # repo-wide test-runner scripts + meta checks, n
 docs/source/                    # Zensical Markdown sources
 ```
 
+Dependency direction follows that layout: `infra` depends on `core`, while
+recipes and integrations may use both. Shared framework code must not import
+model integrations. Reusable apps depend on the framework and accept a
+model-neutral interface; an integration depends on the app it adapts. Keep
+model defaults and factory registration in the integration's adapter, and test
+apps with stubs rather than importing model packages.
+
 ## Adding documentation
 
 Write documentation for users and contributors as a website article under
@@ -349,6 +357,111 @@ Build or preview the site with the commands in
   Preserve existing copyright notices when modifying a file; multiple
   `SPDX-FileCopyrightText` lines are allowed. The longer Apache-2.0
   boilerplate is accepted but not preferred.
+
+## Agent skills
+
+Product workflow skills live in `skills/<name>/`; repository-maintenance skills
+live in `contributor-skills/<name>/` and are excluded from catalog registration.
+Each `SKILL.md` owns its activation description. Keep the workflow concise and
+link to maintained product guides instead of duplicating tutorials or inventories.
+
+### Local discovery
+
+Use the discovery directory supported by your agent. For product skills only,
+run from the repository root:
+
+```bash
+mkdir -p .agents
+ln -s ../skills .agents/skills
+```
+
+For a selective mix, use a real `.agents/skills` directory instead and link
+individual skills, including contributor skills as needed:
+
+```bash
+mkdir -p .agents/skills
+ln -s ../../skills/flashdreams-integrate-model .agents/skills/flashdreams-integrate-model
+ln -s ../../contributor-skills/python-docstring-style .agents/skills/python-docstring-style
+```
+
+These are alternatives. If `.agents/skills` is already a whole-directory symlink,
+replace that local symlink with a real directory before adding individual links;
+otherwise the links would be created inside the canonical `skills/` directory.
+Use `.claude` or `.cursor` instead when required by the client. These directories
+are gitignored. Update local links when skills move; do not assume every agent
+loads the repository's skill folders automatically.
+
+### Authoring and evaluation
+
+Follow the [Agent Skills specification](https://agentskills.io/specification).
+The directory name must match frontmatter `name`; `description` identifies the
+task and its boundaries. Keep `SKILL.md` under 500 lines, use `flashdreams-` names
+for public skills, and retain the repository's license and team attribution.
+Source paths refer to the user's checkout, not the installed skill's parent.
+Public skills must work without the unpublished contributor skills.
+
+Public skills ship reviewed `evals/evals.json` cases with positive tasks and
+negative triggers. `expected_skill: null` means the target skill should not load.
+Run the local metadata, dataset and link checks without syncing GPU dependencies:
+
+```bash
+PYTHONPATH=flashdreams uv run --no-project --with pytest python -m pytest tests/test_agent_skills.py -q
+```
+
+With [SkillEvaluator](https://github.com/NVIDIA/SkillEvaluator) installed:
+
+```bash
+skillevaluator validate skills/ --external --tiers 1 --output-dir /tmp/flashdreams-skill-validation
+for skill in skills/*/SKILL.md; do
+  skillevaluator tier3 validate "${skill%/SKILL.md}" --strict
+done
+```
+
+Inspect scanner reports: incomplete reference analysis is not a security pass.
+These commands do not execute agents or prove that a skill helps.
+
+The current cases are CPU command/design reviews that consult the product source
+and docs. Use `--copy-repo` to stage repository context at `/workspace/repo` in
+both arms while excluding evaluator-owned answers. SkillEvaluator 0.8.0 rejects
+symlinks during staging, so use a temporary checkout without the unrelated
+HandDreams controller lockfile symlink. Commit the changes to evaluate first;
+this copies committed content without altering the working checkout:
+
+```bash
+(
+  set -e
+  eval_revision=$(git rev-parse HEAD)
+  eval_checkout=$(mktemp -d)
+  git clone --local --no-hardlinks . "$eval_checkout"
+  git -C "$eval_checkout" checkout --detach "$eval_revision"
+  rm -- "$eval_checkout/apps/handdreams/controller_input/uv.lock"
+  cd "$eval_checkout"
+  for skill in skills/*/SKILL.md; do
+    skillevaluator tier3 evaluate "${skill%/SKILL.md}" \
+      --agents codex,claude-code --env-mode docker --copy-repo \
+      --results-dir /tmp/flashdreams-skill-evals
+  done
+)
+```
+
+Both arms use that same revision and reference material; the baseline must not
+receive the target skill. Record the omitted symlink with the evaluation setup;
+these source-review tasks do not install or run the HandDreams controller.
+
+This requires the Tier 3 dependencies, Docker and approved provider credentials.
+Inspect generated tasks to confirm docs/source context and baseline isolation.
+If publishing CI does not supply that context, configure it or provide supported
+team-run evidence; a skill-only sandbox cannot validate these cases as written.
+Record the product/evaluator revisions, agent/model settings, trigger and task
+results, token usage and elapsed time. Inspect the verdict, not just the exit code.
+
+These cases do not establish GPU correctness or offline portability. Add runtime
+evidence appropriate to each published workflow: real generation, adapter parity,
+a demo with a stub and real model, or a clean network-disabled bundle test.
+Report checks that were not run. Follow the [NVIDIA catalog](https://github.com/NVIDIA/skills)
+publication process for onboarding, evaluation reports and signatures; do not
+invent passing artifacts. Register only explicit public skill paths. Refresh
+skills with product changes, rerun affected evaluations and re-sign before publishing.
 
 ## Testing
 
