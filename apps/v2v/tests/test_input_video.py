@@ -83,19 +83,22 @@ def test_load_input_video(
         video = _load_input_video(
             "https://example.test/download" if extensionless else path, max_frames
         )
+        assert reader_spy.__next__.call_count == 1
+        container_spy.close.assert_called_once_with()
+        frames = torch.stack(list(video.frames()))
 
     expected_count = frame_count if max_frames is None else min(frame_count, max_frames)
-    assert video.frames.shape == (expected_count, 3, 16, 16)
+    assert frames.shape == (expected_count, 3, 16, 16)
     assert (video.spec.width, video.spec.height) == (16, 16)
     assert video.spec.fps == (1.0 if frame_count == 1 else 12.0)
-    assert video.frames.dtype == torch.float32
-    assert video.frames.is_contiguous()
-    assert -1.0 <= video.frames.min() <= video.frames.max() <= 1.0
-    container_spy.close.assert_called_once_with()
+    assert frames.dtype == torch.float32
+    assert frames.is_contiguous()
+    assert -1.0 <= frames.min() <= frames.max() <= 1.0
+    assert container_spy.close.call_count == 2
     if max_frames is not None and max_frames < frame_count:
-        assert reader_spy.__next__.call_count == max_frames
+        assert reader_spy.__next__.call_count == max_frames + 1
     if expected_count > 1:
-        assert video.frames[0].mean() < video.frames[-1].mean()
+        assert frames[0].mean() < frames[-1].mean()
 
 
 @pytest.mark.parametrize("rotation", [90, -90, 180, 45])
@@ -135,10 +138,11 @@ def test_load_input_video_preserves_display_rotation(
         reader.close()
 
     video = _load_input_video(rotated, 1)
+    frames = torch.stack(list(video.frames()))
 
     assert (video.spec.width, video.spec.height) == (width, height)
-    assert video.frames.shape == (1, 3, height, width)
-    actual = video.frames[0].permute(1, 2, 0).numpy() * 127.5 + 127.5
+    assert frames.shape == (1, 3, height, width)
+    actual = frames[0].permute(1, 2, 0).numpy() * 127.5 + 127.5
     np.testing.assert_allclose(actual, expected, atol=2)
 
 
@@ -157,9 +161,10 @@ def test_load_input_video_prefers_highest_resolution_track(tmp_path: Path) -> No
                 container.mux(packet)
 
     video = _load_input_video(path, None)
+    frames = torch.stack(list(video.frames()))
 
     assert (video.spec.width, video.spec.height) == (32, 16)
-    assert video.frames.shape == (1, 3, 16, 32)
+    assert frames.shape == (1, 3, 16, 32)
 
 
 def test_load_input_video_falls_back_to_guessed_frame_rate(tmp_path: Path) -> None:
