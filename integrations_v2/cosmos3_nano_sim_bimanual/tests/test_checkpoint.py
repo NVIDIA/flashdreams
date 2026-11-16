@@ -71,7 +71,7 @@ def test_checkpoint_credentials_prefer_explicit_then_environment_then_local(
 def test_ga_checkpoint_alias() -> None:
     uri = (
         "https://huggingface.co/nvidia/Cosmos3-Nano-Sim-Bimanual/resolve/"
-        "304bf3dc45901793f0782254a5270cc087b9a157/"
+        "da4d2c09175e2a6dd5b237265318066d5134312e/"
         "transformer/diffusion_pytorch_model.safetensors.index.json"
     )
     assert HAND_CHECKPOINT_URL == uri
@@ -150,7 +150,7 @@ def test_hf_default_matches_ga_sampling_and_action_contract() -> None:
         "agibot_chunk2_tf_dcm_4step",
         "/cache/stage3_sfdmd_chunk2_mecka_agibot_480p_step42__iter_000002000",
         HAND_CHECKPOINT_URL.replace(
-            "304bf3dc45901793f0782254a5270cc087b9a157",
+            "da4d2c09175e2a6dd5b237265318066d5134312e",
             "1d95a0b5b19d49a24aceebf578cf5e85db310ac0",
         ),
     ],

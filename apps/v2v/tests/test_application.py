@@ -104,7 +104,11 @@ def _loaded_video(frame_count: int, spec: VideoSpec = _INPUT_SPEC) -> LoadedVide
         1.0,
         steps=frame_count * 3 * spec.height * spec.width,
     ).reshape(frame_count, 3, spec.height, spec.width)
-    return LoadedVideo(frames=frames, spec=spec)
+
+    def reopen():
+        yield from frames
+
+    return LoadedVideo(frames=reopen, spec=spec)
 
 
 def _application(
@@ -257,3 +261,101 @@ def test_create_session_rejects_an_incompatible_layout() -> None:
 
     with pytest.raises(ValueError, match="bcthw"):
         application.create_session(incompatible)
+
+
+@pytest.mark.parametrize("frame_count", [1, 12, 13, 14, 29, 30, 35])
+def test_streaming_preserves_frames_and_flushes_exact_and_partial_tails(frame_count):
+    sessions = []
+    app = _application([], sessions, full_frame_count=frame_count)
+    app.init(["--video-path", "input.mp4"])
+    session = app.create_session(app.session_desc())
+    session.init()
+    index = 0
+    outputs = []
+    while not session.model_loop.is_finished():
+        outputs.append(session.model_loop.step(index, UserInputEvents([]))[0])
+        index += 1
+    assert sum(result.frame_count for result in outputs) == frame_count
+    assert sessions[0].flushed
+    assert [chunk.metadata["input_start"] for chunk in sessions[0].inputs] == [
+        sum(result.frame_count for result in outputs[:i]) for i in range(len(outputs))
+    ]
+    session.close()
+
+
+def test_streaming_reads_one_lookahead_frame_and_closes_on_reset_and_shutdown():
+    reads = []
+    closed = []
+
+    def frames():
+        try:
+            for index in range(10_800):  # Three minutes at 60 FPS.
+                reads.append(index)
+                yield torch.full((3, 64, 128), index / 10_800)
+        finally:
+            closed.append(True)
+
+    app = V2VApplication(
+        defaults=V2VApplicationDefaults(
+            processor=_FakeProcessorConfig(),
+            first_chunk_size=13,
+            steady_chunk_size=16,
+            model_name="fake-2x",
+        ),
+        input_loader=lambda *_: LoadedVideo(frames=frames, spec=_INPUT_SPEC),
+    )
+    app.init(["--video-path", "long.mp4"])
+    session = app.create_session(app.session_desc())
+    session.init()
+    assert reads == []
+    first = session.model_loop.step(0, UserInputEvents([]))[0].read_output()
+    assert reads == list(range(14))
+    session.model_loop.step(1, UserInputEvents([]))
+    assert reads == list(range(30))
+    session.model_loop.reset()
+    assert len(closed) == 1
+    repeated = session.model_loop.step(0, UserInputEvents([]))[0].read_output()
+    assert torch.equal(first, repeated)
+    session.close()
+    session.close()
+    assert len(closed) == 2
+
+
+@pytest.mark.parametrize("failure", ["decode", "shape", "process"])
+def test_streaming_closes_decoder_on_failure(failure, monkeypatch):
+    closed = []
+
+    def frames():
+        try:
+            for index in range(40):
+                if failure == "decode" and index == 20:
+                    raise ValueError("decode failed")
+                height = 32 if failure == "shape" and index == 20 else 64
+                yield torch.zeros(3, height, 128)
+        finally:
+            closed.append(True)
+
+    app = V2VApplication(
+        defaults=V2VApplicationDefaults(
+            processor=_FakeProcessorConfig(),
+            first_chunk_size=13,
+            steady_chunk_size=16,
+            model_name="fake-2x",
+        ),
+        input_loader=lambda *_: LoadedVideo(frames=frames, spec=_INPUT_SPEC),
+    )
+    app.init(["--video-path", "input.mp4"])
+    session = app.create_session(app.session_desc())
+    session.init()
+    session.model_loop.step(0, UserInputEvents([]))
+    if failure == "process":
+
+        def fail(self, chunk):
+            raise ValueError("processor failed")
+
+        monkeypatch.setattr(_FakeProcessorSession, "process", fail)
+    with pytest.raises(ValueError):
+        session.model_loop.step(1, UserInputEvents([]))
+    assert closed == [True]
+    assert session.model_loop.is_finished()
+    session.close()
