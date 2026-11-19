@@ -91,8 +91,6 @@ pytestmark = pytest.mark.ci_cpu
 
 _RACE_MAP = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
 
-_RACE_MAP = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
-
 
 @dataclass(kw_only=True)
 class _StubTransformerConfig(TransformerConfig):
@@ -1127,9 +1125,7 @@ def test_cli_selection_starts_game_with_or_without_ui(
             "cpu",
             "--prewarm-blocks",
             "0",
-            "--no-ui",
-            "--total-blocks",
-            "4",
+            *(["--no-ui", "--total-blocks", "4"] if no_ui else []),
             "--game-mode",
             game_mode,
             *(["--race-course", "test-loop"] if game_mode == "race" else []),
@@ -1138,13 +1134,15 @@ def test_cli_selection_starts_game_with_or_without_ui(
         ]
     )
     assert app._config is not None
-    assert app._config.no_ui
+    assert app._config.no_ui is no_ui
 
     session = app.create_session(app.session_desc())
     session.init()
     ui_loop, model_loop = session._take_loops()
 
-    assert isinstance(ui_loop, CrazyRobotaxiHeadlessUILoop)
+    assert isinstance(
+        ui_loop, CrazyRobotaxiHeadlessUILoop if no_ui else CrazyRobotaxiImGuiUILoop
+    )
     assert isinstance(model_loop, CrazyRobotaxiModelLoop)
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.initial_game_mode == game_mode
