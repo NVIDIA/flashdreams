@@ -312,11 +312,10 @@ class CaptureRecorder:
 
     def _pixels(self, result: StepResult) -> np.ndarray:
         stream = None
-        device = result.device
+        device = result.read_output(sync_with_event=False).device
         if device.type == "cuda":
             # The default stream can already contain the next model chunk.
             # Wait only for this snapshot, then copy on the writer's own stream.
-            result.wait_until_ready()
             stream = self._copy_streams.get(device)
             if stream is None:
                 stream = self._copy_streams[device] = torch.cuda.Stream(device=device)

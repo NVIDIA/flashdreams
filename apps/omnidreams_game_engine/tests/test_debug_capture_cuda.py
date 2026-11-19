@@ -31,7 +31,7 @@ def test_capture_copies_ready_snapshot_without_waiting_for_next_chunk(
                 frame_count=1,
                 output_layout=VideoTensorLayout.tchw,
             )
-            result.wait_until_ready()
+            torch.cuda.synchronize()
             # Warm the capture stream and transfer path before timing isolation.
             recorder._pixels(result)
             torch.cuda._sleep(1_000_000_000)

@@ -63,11 +63,15 @@ class DebugCaptureWindow(IClientWindow):
         record_buffer_events: int = 256,
         strict: bool = False,
         generation_delays_ms: tuple[float, ...] = (0.0,),
+        input_clock: str = "wall",
     ) -> None:
         if image_buffer_chunks <= 0:
             raise ValueError("image_buffer_chunks must be positive")
         if record_buffer_events <= 0:
             raise ValueError("record_buffer_events must be positive")
+        if input_clock not in {"wall", "simulation"}:
+            raise ValueError("input_clock must be wall or simulation")
+        self.input_clock = input_clock
         self.image_buffer_chunks = image_buffer_chunks
         self.record_buffer_events = record_buffer_events
         self.capture_images = capture_images
@@ -100,6 +104,7 @@ class DebugCaptureWindow(IClientWindow):
         self._paired_views = metadata.get("paired_views", False)
         self.control = session_desc.metadata.get(DEBUG_CONTROL_KEY, self.control)
         self.control.generation_delays_ms = self.generation_delays_ms
+        self.control.input_clock = self.input_clock
         if session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("Debug capture requires tchw output")
         if session_desc.video_width % 2 or session_desc.video_height % 2:
@@ -317,6 +322,8 @@ class DebugCaptureWindow(IClientWindow):
             "debug_view": "paired" if self._paired_views else "gameplay",
             "generation_delays_ms": self.generation_delays_ms,
             "ready_ns": self.control.ready_ns,
+            "input_clock": self.control.input_clock,
+            "simulation_time_us": self.control.simulation_time_us,
             "model_native_thread_id": self.control.native_thread_id,
         }
         if self.recorder is not None:

@@ -21,7 +21,9 @@ from omnidreams_game_engine.engine import EngineStep, GameEngine
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.model import WorldModelRollout
 from omnidreams_game_engine.scene import SceneRequest
-from omnidreams_game_engine.simulation.ego_vehicle_kinematics import EgoVehicleKinematics
+from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
+    EgoVehicleKinematics,
+)
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition
 
@@ -107,6 +109,7 @@ class ModelState:
     blocks_generated: int = 0
     last_debug_record: dict[str, Any] | None = None
     debug_frames: int = 0
+    debug_action_events: list[Any] = field(default_factory=list)
     debug_ground: GroundSnapper | None = None
     rollout_epoch: int = 0
     """Incremented whenever mutable game and model state is reset."""
@@ -168,13 +171,13 @@ class ModelState:
                     self.debug_ground = GroundSnapper(
                         scene.ground_mesh_vertices, scene.ground_mesh_faces
                     )
+        if not self.prewarm_complete:
+            self._prewarm_rollout()
         if capture:
             # Rollout resets recreate the simulation, so enable capture on the
             # active engine rather than retaining the previous engine's flag.
             simulation = cast(GameEngine, self.rollout.engine).simulation
             cast(EgoVehicleKinematics, simulation).set_physx_debug_enabled(True)
-        if not self.prewarm_complete:
-            self._prewarm_rollout()
         if isinstance(control, HeadlessInput):
             control.start()
         return self.rollout
@@ -391,10 +394,26 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
         control = state.session_desc.metadata.get(DEBUG_CONTROL_KEY)
         runtime_generation = getattr(self, "_generation", 0)
         trace_enabled = getattr(state.config, "profile_input_latency", False)
+        simulation_window = None
+        simulation_clock = (
+            isinstance(control, HeadlessInput) and control.input_clock == "simulation"
+        )
+        if simulation_clock and state.game_selected:
+            state.ensure_rollout()
+            events = UserInputEvents([*events.get_events(), *control.simulation_due()])
+            if control.termination_reason == "close_command":
+                state.finished = True
+                return []
         # Match Interactive Drive: apply every unread edge before rollout setup,
         # reset handling, or simulation reads the retained command.
         input_times_s = state.driver_input.apply(events)
-        control_actions = state.control_actions.apply(events)
+        action_events = UserInputEvents(
+            [*getattr(state, "debug_action_events", []), *events.get_events()]
+        )
+        state.debug_action_events = []
+        control_actions = state.control_actions.apply(action_events)
+        if isinstance(control, HeadlessInput):
+            control.consumed(events, step=step_index)
         if not state.game_selected:
             return state.menu_result(step_index)
         rollout = state.ensure_rollout()
@@ -429,13 +448,27 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
                         live_edit.request_action(action)
             autoregressive_index = state.blocks_generated
             frame_count = rollout.frame_count(autoregressive_index)
-            input_window = state.input_timeline.next_window(
+            seed_frame = state.blocks_generated == 0
+            if simulation_clock and frame_count > int(seed_frame):
+                simulation_window, scheduled = control.simulation_window(
+                    frame_count - int(seed_frame),
+                    round(1e6 / state.session_desc.frames_per_second_for_step),
+                )
+                state.driver_input.apply(scheduled)
+                control.consumed(scheduled, step=step_index)
+                # Driving uses frame timestamps; discrete actions wait until the
+                # next chunk boundary instead of firing before their timestamp.
+                state.debug_action_events = list(scheduled.get_events())
+            input_window = simulation_window or state.input_timeline.next_window(
                 frame_count,
                 input_times_s=input_times_s,
             )
             sampled_commands, transition_timestamps_us = state.driver_input.sample(
                 input_window
             )
+            if simulation_window is not None and seed_frame:
+                sampled_commands = (DriverCommand(), *sampled_commands)
+                transition_timestamps_us = (None, *transition_timestamps_us)
             commands = tuple(
                 _taxi_driver_command(command) for command in sampled_commands
             )
@@ -467,6 +500,8 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
 
             def observe(engine_step: EngineStep) -> None:
                 nonlocal debug_records
+                if isinstance(control, HeadlessInput) and simulation_window is not None:
+                    control.complete_simulation()
                 debug_records = simulation_records(
                     engine_step,
                     commands=commands,

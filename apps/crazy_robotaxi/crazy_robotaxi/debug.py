@@ -143,6 +143,12 @@ class RobotaxiDebugMode(ClientWindowMode):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
+            "--debug-input-clock",
+            choices=("wall", "simulation"),
+            default="wall",
+            help="Schedule timestamps against elapsed wall time (default) or physics time, which pauses during generation. Driving edges use physics frames; close and menu actions use chunk boundaries.",
+        )
+        parser.add_argument(
             "--debug-output-dir",
             type=Path,
             help="Fresh directory for Robotaxi debug observations.",
@@ -228,6 +234,7 @@ class RobotaxiDebugMode(ClientWindowMode):
             record_buffer_events=parsed_args.debug_record_buffer_events,
             strict=parsed_args.debug_strict_capture,
             generation_delays_ms=tuple(parsed_args.debug_generation_delay_ms),
+            input_clock=parsed_args.debug_input_clock,
         )
 
     def finished(self, client_window: IClientWindow) -> str:

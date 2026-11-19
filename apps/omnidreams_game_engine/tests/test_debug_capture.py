@@ -985,3 +985,97 @@ def test_capture_recorded_world_without_native_physics(tmp_path, monkeypatch):
     assert set(manifest["views"]) == {"generated", "hdmap"}
     summary = json.loads((window.directory / "timing_summary.json").read_text())
     assert summary["physics_progress"] == []
+
+
+def test_simulation_playback_has_identical_physics_despite_generation_waits():
+    from omnidreams_game_engine.config import VehicleConfig
+    from omnidreams_game_engine.input import DriverInput
+    from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
+        EgoVehicleKinematics,
+    )
+
+    def run(delays):
+        wall = [0]
+        control = HeadlessInput(lambda: wall[0])
+        control.input_clock = "simulation"
+        driver = DriverInput()
+        simulation = EgoVehicleKinematics(
+            initial_state=VehicleState(0, 0, 0, 0, 0, 0),
+            initial_timestamp_us=0,
+            vehicle_config=VehicleConfig(),
+            ground_snapper=None,
+        )
+        for identifier, timestamp, key, pressed in (
+            ("gas", 0, "w", True),
+            ("left", 166665, "a", True),
+            ("straight", 399996, "a", False),
+            ("coast", 666660, "w", False),
+        ):
+            control.accept(
+                dict(
+                    id=identifier,
+                    timestamp_us=timestamp,
+                    type="keyboard",
+                    key=key,
+                    pressed=pressed,
+                )
+            )
+        control.start()
+        states, commands = [], []
+        for chunk, delay in enumerate(delays):
+            window, events = control.simulation_window(8, 33333)
+            driver.apply(events)
+            sampled, _ = driver.sample(window)
+            control.consumed(events, step=chunk)
+            trajectory = simulation.pose_chunk(
+                commands=sampled,
+                chunk_size=8,
+                frame_interval_s=1 / 30,
+                extrapolation_offset_s=0,
+            )
+            control.complete_simulation()
+            states.extend(trajectory.vehicle_states)
+            commands.extend(sampled)
+            wall[0] += delay
+            assert control.due() == []
+        assert control.input_time_us() == 32 * 33333
+        assert states[-1].x_m != states[0].x_m
+        assert any(command.steer != 0 for command in commands)
+        simulation.close()
+        return states, commands
+
+    assert run([0, 0, 0, 0]) == run(
+        [900_000_000, 2_000_000_000, 1_000_000, 4_000_000_000]
+    )
+
+
+def test_simulation_clock_rejects_reserved_intervals_and_keeps_boundary_edges():
+    from flashdreams.runtime_v2.user_input_events import UserInputEvents
+
+    now = [1000]
+    control = HeadlessInput(lambda: now[0])
+    control.input_clock = "simulation"
+    control.start()
+    command = dict(
+        id="boundary", timestamp_us=100000, type="keyboard", key="w", pressed=True
+    )
+    control.accept(command)
+    _, first = control.simulation_window(3, 33333)
+    assert not first.get_events()
+    now[0] += 10_000_000_000
+    control.accept({**command, "id": "late", "timestamp_us": 99998})
+    control.accept({**command, "id": "next", "timestamp_us": 99999})
+    control.complete_simulation()
+    assert control.elapsed_us() == 10_000_000
+    assert control.input_time_us() == 99999
+    _, second = control.simulation_window(3, 33333)
+    assert [int(e.timestamp) for e in second.get_events()] == [99999, 100000]
+    control.consumed(UserInputEvents(list(second.get_events())), step=1)
+    messages = []
+    while not control.messages.empty():
+        messages.append(control.messages.get()[1])
+    assert next(m for m in messages if m.get("id") == "late")["reason"] == "late"
+    assert [m["id"] for m in messages if m["status"] == "consumed"] == [
+        "next",
+        "boundary",
+    ]

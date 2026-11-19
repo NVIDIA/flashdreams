@@ -168,7 +168,8 @@ their state until a release event, just as a person holding a key would.
 Send JSON datagrams to `<output-dir>/control.sock`. Bind a local Unix datagram
 reply socket before sending to receive acknowledgments. A `status` request
 returns `loading` with `elapsed_us: null`, or `ready` with the current
-`elapsed_us`. Schedule commands ahead of that time, allowing for transport and
+`elapsed_us`, `input_clock`, and `input_time_us`. Schedule commands ahead of
+`input_time_us`, allowing for transport and
 UI polling latency:
 
 ```python
@@ -182,7 +183,7 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as agent:
     agent.sendto(b'{"id":"clock","type":"status"}', game)
     clock = json.loads(agent.recv(4096))
     assert clock["status"] == "ready"  # Query again while loading.
-    event = {"id": "forward", "timestamp_us": clock["elapsed_us"] + 500_000,
+    event = {"id": "forward", "timestamp_us": clock["input_time_us"] + 500_000,
              "type": "keyboard", "key": "w", "pressed": True}
     agent.sendto(json.dumps(event).encode(), game)
     print(json.loads(agent.recv(4096)))  # accepted or rejected
@@ -213,6 +214,26 @@ and a short press may be sampled later. This deliberately preserves native input
 behavior, allowing headless captures to expose responsiveness regressions.
 Acknowledgments measure that latency; they do not claim sub-chunk physics updates.
 The queue accepts at most 100,000 unique command IDs per capture.
+
+For repeatable driving when generation cannot keep up, select
+`--debug-input-clock simulation` before `--`. Input timestamps then refer to
+elapsed physics time. The clock advances only when the engine advances; loading,
+generation, encoding, and presentation waits do not advance it. The first seed
+frame does not count as a physics step. Keyboard/gamepad driving edges use the
+same retained input and frame sampling code, with events supplied before their
+physics intervals are simulated. File and socket commands use the same queue.
+
+A chunk reserves its input intervals before simulation. Commands arriving after
+that reservation are rejected as late even if generation is still running.
+Send interactive commands ahead of the reported input time, or preload the file.
+Close events end at the next chunk boundary. Menu actions also operate at chunk
+boundaries. This mode reproduces driving inputs; use the default
+`--debug-input-clock wall` to measure human input latency through UI dispatch.
+
+Acknowledgment and presentation times remain wall-clock measurements in both
+modes. The manifest labels `input_clock`; simulation-mode reports leave
+scheduled-to-wall latency fields unset rather than subtracting incompatible
+clocks. Physics-to-presentation measurements remain available.
 
 For unattended runs, add `--drive-script path/to/inputs.yaml` after `--`. The file
 preloads the same commands before the ready clock starts:

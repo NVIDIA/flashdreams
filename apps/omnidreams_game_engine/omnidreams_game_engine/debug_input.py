@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Scheduled headless input on the gameplay-ready monotonic clock."""
+"""Scheduled headless input on wall time or simulation time."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from flashdreams.api_v2.user_input_event import UserInputEvent
+from flashdreams.runtime_v2.input_timeline import InputWindow
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
     FocusUserInputEvent,
@@ -99,6 +100,9 @@ class HeadlessInput:
     """
 
     def __init__(self, clock_ns: Callable[[], int] = time.monotonic_ns) -> None:
+        self.input_clock = "wall"
+        self.simulation_time_us = 0
+        self._reserved_us = 0
         self.presentation_source: dict[str, Any] | None = None
         self.presentation_feedback: dict[str, Any] | None = None
         """Values submitted to the ordinary HUD draw calls on this UI tick."""
@@ -121,6 +125,51 @@ class HeadlessInput:
         return (
             None if self.ready_ns is None else (self.clock_ns() - self.ready_ns) // 1000
         )
+
+    def input_time_us(self) -> int | None:
+        """Return the scheduling clock; simulation time excludes generation waits."""
+        if self.ready_ns is None:
+            return None
+        return (
+            self.simulation_time_us
+            if self.input_clock == "simulation"
+            else self.elapsed_us()
+        )
+
+    def simulation_due(self) -> list[UserInputEvent]:
+        """Take commands at the current physics boundary before choosing a chunk."""
+        with self._lock:
+            return self._due(self.simulation_time_us)
+
+    def simulation_window(
+        self, count: int, interval_us: int
+    ) -> tuple[InputWindow, UserInputEvents]:
+        """Reserve the next physics intervals and return their queued input edges.
+
+        Inputs received after reservation cannot change already sampled motion.
+        Driving edges are quantized by DriverInput to physics-frame starts.
+        Close events are dispatched at chunk boundaries, after prior output.
+        """
+        if self.input_clock != "simulation" or count <= 0 or interval_us <= 0:
+            raise ValueError(
+                "Simulation playback requires positive intervals and simulation clock"
+            )
+        with self._lock:
+            start = self.simulation_time_us
+            end = start + count * interval_us
+            events = self._due(end - 1, close_deadline=start)
+            self._reserved_us = end
+            window = InputWindow(
+                start / 1e6,
+                end / 1e6,
+                tuple((start + (i + 1) * interval_us) / 1e6 for i in range(count)),
+            )
+            return window, UserInputEvents(events)
+
+    def complete_simulation(self) -> None:
+        """Advance the playback clock after the engine has produced conditioning."""
+        with self._lock:
+            self.simulation_time_us = self._reserved_us
 
     def delay_generation(self, chunk: int, stop: threading.Event) -> None:
         """Delay a captured chunk after conditioning, without delaying UI dispatch.
@@ -154,7 +203,17 @@ class HeadlessInput:
                 self.ready_ns = self.clock_ns()
                 self.model_ident = threading.get_ident()
                 self.native_thread_id = threading.get_native_id()
-                self.messages.put((None, {"status": "ready", "elapsed_us": 0}))
+                self.messages.put(
+                    (
+                        None,
+                        {
+                            "status": "ready",
+                            "elapsed_us": 0,
+                            "input_clock": self.input_clock,
+                            "input_time_us": 0,
+                        },
+                    )
+                )
 
     def accept(self, payload: Any, peer: str | None = None) -> None:
         """Accept a future event or report a late, duplicate, or invalid command."""
@@ -165,6 +224,11 @@ class HeadlessInput:
             response: dict[str, Any] = {
                 "id": identifier if valid_id else None,
                 "received_us": now,
+                "input_clock": self.input_clock,
+                "input_time_us": self.input_time_us(),
+                "reserved_until_us": self._reserved_us
+                if self.input_clock == "simulation"
+                else None,
             }
             if (
                 valid_id
@@ -190,7 +254,9 @@ class HeadlessInput:
                     raise ValueError("duplicate_id")
                 if len(self._seen) >= 100_000:
                     raise ValueError("command_limit")
-                if now is not None and int(event.timestamp) < now:
+                if now is not None and int(event.timestamp) < (
+                    self._reserved_us if self.input_clock == "simulation" else now
+                ):
                     raise ValueError("late")
             except (ValueError, TypeError) as error:
                 self.messages.put(
@@ -206,21 +272,45 @@ class HeadlessInput:
             self.messages.put((peer, {**response, "status": "accepted"}))
 
     def due(self) -> list[UserInputEvent]:
-        """Dispatch due events in timestamp order, retaining their original time."""
+        """Dispatch wall-clock events through the UI's normal runtime buffer."""
         with self._lock:
             now = self.elapsed_us()
-            events = []
-            while now is not None and self._pending and self._pending[0][0] <= now:
-                _, _, event, response, peer = heapq.heappop(self._pending)
-                if isinstance(event, CloseUserInputEvent):
-                    self.termination_reason = "close_command"
-                if not isinstance(event, CloseUserInputEvent):
-                    self._dispatched[id(event)] = (response, peer)
-                self.messages.put(
-                    (peer, {**response, "status": "dispatched", "dispatched_us": now})
+            return (
+                []
+                if now is None or self.input_clock == "simulation"
+                else self._due(now)
+            )
+
+    def _due(
+        self, deadline: int, *, close_deadline: int | None = None
+    ) -> list[UserInputEvent]:
+        events = []
+        while self._pending and self._pending[0][0] <= deadline:
+            timestamp, _, event, response, peer = self._pending[0]
+            if (
+                isinstance(event, CloseUserInputEvent)
+                and close_deadline is not None
+                and timestamp > close_deadline
+            ):
+                break
+            heapq.heappop(self._pending)
+            if isinstance(event, CloseUserInputEvent):
+                self.termination_reason = "close_command"
+            else:
+                self._dispatched[id(event)] = (response, peer)
+            self.messages.put(
+                (
+                    peer,
+                    {
+                        **response,
+                        "status": "dispatched",
+                        "dispatched_us": self.elapsed_us(),
+                        "input_time_us": self.input_time_us(),
+                    },
                 )
-                events.append(event)
-            return events
+            )
+            events.append(event)
+        return events
 
     def consumed(
         self,

@@ -41,6 +41,7 @@ def write_timing_report(directory: Path) -> dict[str, Any]:
     """
     manifest = json.loads((directory / "manifest.json").read_text())
     ready_ns = manifest.get("ready_ns")
+    input_clock = manifest.get("input_clock", "wall")
     inputs: dict[str, dict[str, Any]] = {}
     timestamp_ids: dict[int, set[str]] = defaultdict(set)
     generated = {}
@@ -216,7 +217,9 @@ def write_timing_report(directory: Path) -> dict[str, Any]:
         ):
             value = result.get(key)
             result["scheduled_to_" + key.removesuffix("_us") + "_ms"] = (
-                None if value is None else (value - timestamp) / 1000
+                None
+                if value is None or input_clock != "wall"
+                else (value - timestamp) / 1000
             )
         input_results.append(result)
 
@@ -238,6 +241,7 @@ def write_timing_report(directory: Path) -> dict[str, Any]:
         )
     report = {
         "format_version": 1,
+        "input_clock": input_clock,
         "capture_complete": manifest.get("capture_complete", False),
         "run_complete": manifest.get("complete", False),
         "termination_reason": manifest.get("termination_reason"),

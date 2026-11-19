@@ -59,6 +59,9 @@ from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
 from omnidreams_game_engine.input import DriverInput
 from omnidreams_game_engine.renderer_settings import RendererSettings
+from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
+    EgoVehicleKinematics,
+)
 from omnidreams_game_engine.simulation.game_physics import (
     GamePhysicsWorld,
     _body_state_from_vehicle,
@@ -66,7 +69,6 @@ from omnidreams_game_engine.simulation.game_physics import (
 from omnidreams_game_engine.simulation.map_traffic import MapTrafficController
 from omnidreams_game_engine.types import (
     CameraCalibration,
-    ConditionBatch,
     DriverCommand,
     PhysicsDebugFrame,
     SceneDefinition,
@@ -90,6 +92,8 @@ from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
+
+_RACE_MAP = Path(__file__).parent / "maps" / "race_course.robotaxi.yaml"
 
 _DEMO_RACE_MAP = (
     Path(__file__).parents[1]
@@ -1498,11 +1502,13 @@ def test_cli_rejects_removed_gameplay_mode_switch(flag):
 
 @pytest.mark.parametrize("game_mode", ["taxi", "race", "free-roam"])
 @pytest.mark.parametrize("source", ["file", "socket"])
+@pytest.mark.parametrize("input_clock", ["wall", "simulation"])
 def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     game_mode: str,
     source: str,
+    input_clock: str,
 ) -> None:
     import json
     import socket
@@ -1707,6 +1713,7 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
         snapshot_every=2,
         cpu_sample_ms=10,
         generation_delays_ms=(120, 0),
+        input_clock=input_clock,
     )
     ApplicationRunner(app, window).run(
         app.session_desc(),
@@ -1797,8 +1804,18 @@ def test_scripted_game_runs_through_runtime_with_all_views_and_aligned_telemetry
     by_id = {row["id"]: row for row in report["inputs"]}
     press = by_id["press"]
     assert press["physics_association"] == "observed"
-    assert press["dispatched_us"] < press["consumed_us"] <= press["physics_started_us"]
-    assert press["scheduled_to_physics_started_ms"] > 100
+    assert press["dispatched_us"] <= press["consumed_us"] <= press["physics_started_us"]
+    if input_clock == "wall":
+        assert press["scheduled_to_physics_started_ms"] > 100
+    else:
+        assert report["input_clock"] == "simulation"
+        assert press["scheduled_to_physics_started_ms"] is None
+        # First frame is the seed. Later frames integrate intervals of 33333 us.
+        assert [i for i, command in enumerate(applied) if command.throttle] == list(
+            range(5, 14)
+        )
+        assert manifest["complete"]
+        assert manifest["script_complete"] is (True if source == "file" else None)
     assert press["generation_returned_us"] >= press["physics_completed_us"]
     assert press["first_presentation_us"] >= press["generation_returned_us"]
     captured_settings = window.directory / "inputs/settings.yaml"
