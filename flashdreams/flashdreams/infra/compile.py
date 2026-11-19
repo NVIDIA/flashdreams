@@ -38,6 +38,23 @@ CompileMode = Literal[
 """
 
 
+def _configure_dynamo_cache() -> None:
+    """Apply explicit FlashDreams overrides to Dynamo's cache limits."""
+    from torch._dynamo import config
+
+    for name in ("recompile_limit", "accumulated_recompile_limit"):
+        env_name = f"FLASHDREAMS_{name.upper()}"
+        value = os.environ.get(env_name)
+        if value is not None:
+            try:
+                limit = int(value)
+            except ValueError:
+                raise ValueError(f"{env_name} must be a nonnegative integer") from None
+            if limit < 0:
+                raise ValueError(f"{env_name} must be a nonnegative integer")
+            setattr(config, name, limit)
+
+
 def _configure_inductor_cache() -> None:
     """Place Inductor artifacts in the persistent FlashDreams cache by default."""
     from torch._inductor.runtime.cache_dir_utils import default_cache_dir
@@ -125,6 +142,10 @@ def compile_module(
     forward signature mirrors the wrapped module; the static type widens.
     This helper hides that single cast at one site so callers stay clean.
 
+    ``FLASHDREAMS_RECOMPILE_LIMIT`` and
+    ``FLASHDREAMS_ACCUMULATED_RECOMPILE_LIMIT`` override Dynamo's cache limits.
+    Unset variables preserve the existing limits.
+
     Args:
         module: ``nn.Module`` to compile.
         mode: One of the four ``torch.compile`` modes; see :data:`CompileMode`.
@@ -134,6 +155,7 @@ def compile_module(
         The compiled module, statically typed as the same ``M`` so attribute
         access on the wrapped module continues to type-check at call sites.
     """
+    _configure_dynamo_cache()
     _configure_inductor_cache()
     _patch_triton_bundle_collection()
     return cast(M, torch.compile(module, mode=mode, dynamic=dynamic))

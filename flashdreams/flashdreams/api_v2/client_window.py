@@ -3,13 +3,28 @@
 
 """Client window abstract interface."""
 
+import logging
 import math
-from abc import ABC
-from dataclasses import dataclass
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import final
 from urllib.parse import urlsplit
+
+from numpy import uint64
+
+from flashdreams.runtime_v2.selected_file import (
+    FileSelectionRequest,
+    SelectedFile,
+    SelectedFilesStatus,
+    selected_files_policy_status,
+)
+from flashdreams.runtime_v2.user_input_event import SelectedFilesUserInputEvent
 
 from .input_source import InputSource
 from .output_sink import OutputSink
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +104,10 @@ class IClientWindow(InputSource, OutputSink, ABC):
     One thread makes every call on a window, so an implementation needs no
     locking except when its backend delivers input from another thread.
 
+    A window with a file picker implements :meth:`_request_file_selector`, and
+    :meth:`_cancel_active_file_selectors` if it can withdraw a shown picker. It
+    reports results on the UI thread.
+
     Created by the runtime, never by an application.
     """
 
@@ -117,3 +136,117 @@ class IClientWindow(InputSource, OutputSink, ABC):
             new_window_size: Requested ``(width, height)`` in pixels.
         """
         pass
+
+    # File Selector Methods & Members
+    _active_file_selector: tuple[int, FileSelectionRequest] | None = None
+    _last_file_selector_id = 0
+
+    @final
+    def request_file_selector(self, request: FileSelectionRequest) -> None:
+        """Request for IClientWindow to open a file selector; the result of the
+        user interaction arrives later as a ``SelectedFilesUserInputEvent`` via
+        :meth:`InputSource.get_user_input_events`.
+
+        A request made while a picker is open is answered with a status of
+        ``SelectedFilesStatus.BUSY``.
+
+        Args:
+            request: Selector request queued by the UI loop.
+        """
+        if self._active_file_selector is not None:
+            self.put_user_input_event(
+                _selected_files_event(request, SelectedFilesStatus.BUSY)
+            )
+            return
+        selector_id = self._last_file_selector_id + 1
+        self._last_file_selector_id = selector_id
+        self._active_file_selector = (selector_id, request)
+        try:
+            self._request_file_selector(selector_id, request)
+        except Exception:
+            _LOGGER.exception("File selector %r failed to start.", request.request_id)
+            self._complete_file_selector(selector_id, SelectedFilesStatus.UNAVAILABLE)
+
+    @final
+    def flush_file_selectors(self) -> None:
+        """Forget the open picker without a result, for a session that ended.
+
+        The window withdraws a picker still on screen where it can; whatever
+        that picker returns is dropped.
+        """
+        active = self._active_file_selector
+        self._active_file_selector = None
+        if active is not None:
+            self._cancel_active_file_selectors()
+
+    # Optional to implement
+    def _request_file_selector(
+        self, selector_id: int, request: FileSelectionRequest
+    ) -> None:
+        """Show a picker for ``request`` without blocking.
+
+        Call :meth:`_complete_file_selector` with ``selector_id`` on the UI
+        thread when the user finishes. The default has no picker and completes
+        as ``UNAVAILABLE``.
+        """
+        del request
+        self._complete_file_selector(selector_id, SelectedFilesStatus.UNAVAILABLE)
+
+    # Optional to implement
+    def _cancel_active_file_selectors(self) -> None:
+        """Withdraw the picker that was flushed."""
+        pass
+
+    @final
+    def _complete_file_selector(
+        self,
+        selector_id: int,
+        status: SelectedFilesStatus,
+        files: tuple[SelectedFile, ...] = (),
+    ) -> None:
+        """Report the result for ``selector_id``; a stale id is dropped.
+
+        A result that breaks the request's rules (type, size, count) is
+        reported by the status it earns instead.
+        """
+        active = self._active_file_selector
+        if active is None or active[0] != selector_id:
+            return
+        self._active_file_selector = None
+        request = active[1]
+        status, files = _check_file_selection_result(request, status, files)
+        self.put_user_input_event(_selected_files_event(request, status, files))
+
+
+def _selected_files_event(
+    request: FileSelectionRequest,
+    status: SelectedFilesStatus,
+    files: tuple[SelectedFile, ...] = (),
+) -> SelectedFilesUserInputEvent:
+    """Return the event answering ``request``."""
+    return SelectedFilesUserInputEvent(
+        timestamp=uint64(0),
+        request_id=request.request_id,
+        status=status,
+        files=files,
+    )
+
+
+def _check_file_selection_result(
+    request: FileSelectionRequest,
+    status: SelectedFilesStatus,
+    files: tuple[SelectedFile, ...],
+) -> tuple[SelectedFilesStatus, tuple[SelectedFile, ...]]:
+    """Return the status and files a window's result earns under ``request``."""
+    if status is not SelectedFilesStatus.OK:
+        return status, ()
+    if not files:
+        _LOGGER.warning("File selector %r returned no valid set.", request.request_id)
+        return SelectedFilesStatus.UNAVAILABLE, ()
+    files = tuple(replace(chosen, name=Path(chosen.name).name) for chosen in files)
+    rejected = selected_files_policy_status(
+        [(chosen.name, len(chosen.data)) for chosen in files], request
+    )
+    if rejected is not None:
+        return rejected, ()
+    return status, files

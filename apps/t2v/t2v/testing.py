@@ -21,6 +21,7 @@ import numpy.typing as npt
 import torch
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
     BlitModelOutputToScreenLoop,
 )
@@ -409,6 +410,9 @@ class _DiscardingClientWindow(IClientWindow):
 
     def get_user_input_events(self) -> UserInputEvents:
         return UserInputEvents([])
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        del event
 
     def open(self, session_desc: SessionDesc) -> None:
         del session_desc

@@ -31,6 +31,69 @@ CAMERAS = (
 )
 
 
+@pytest.fixture
+def browser_window():
+    pytest.importorskip("aiortc")
+    from flashdreams.runtime_v2.session_desc import SessionDesc
+    from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+    from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
+
+    window = WebRTCClientWindow()
+    window.open(
+        SessionDesc(output_layout=VideoTensorLayout.tchw, video_width=4, video_height=4)
+    )
+    try:
+        yield window
+    finally:
+        window.close()
+
+
+@pytest.mark.parametrize(
+    ("size", "valid"),
+    [
+        ((1920, 912), True),
+        ((720, 1080), True),
+        ((True, 900), False),
+        ((1920.5, 900), False),
+        ((0, 100), False),
+        ((5000, 900), False),
+        ((4096, 4096), False),
+    ],
+)
+def test_browser_viewport_is_validated_before_entering_ui_event_stream(
+    browser_window, size, valid
+):
+    from flashdreams.runtime_v2.user_input_event import ViewportSizeUserInputEvent
+
+    payload = json.dumps(dict(type="viewport_size", width=size[0], height=size[1]))
+    if valid:
+        browser_window.server._buffer_browser_message(payload)
+        [event] = browser_window.get_user_input_events().get_events()
+        assert isinstance(event, ViewportSizeUserInputEvent)
+        assert (event.width, event.height) == size
+    else:
+        with pytest.raises(ValueError, match="Viewport"):
+            browser_window.server._buffer_browser_message(payload)
+        assert browser_window.get_user_input_events().get_events() == []
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"type": "game_wheel", "action": "update"},
+        {"type": "game_wheel", "reverse": "false"},
+        {"type": "game_wheel", "gear": "X"},
+        {"type": "select_camera", "view_index": True},
+        {"type": "select_camera", "view_index": "1"},
+        {"type": "select_camera", "camera": {}},
+    ],
+)
+def test_cockpit_rejects_invalid_control_and_camera_fields(browser_window, message):
+    with pytest.raises(ValueError):
+        browser_window.server._buffer_browser_message(json.dumps(message))
+    assert browser_window.get_user_input_events().get_events() == []
+
+
 @pytest.mark.asyncio
 async def test_web_cockpit_video_controls_and_native_bev_transport(tmp_path):
     aiohttp = pytest.importorskip("aiohttp")

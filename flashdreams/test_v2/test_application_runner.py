@@ -16,6 +16,7 @@ from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.loop import IModelLoop, IUILoop
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.core.distributed.parallel import ParallelContext
 from flashdreams.runtime_v2.application_runner import ApplicationRunner
 from flashdreams.runtime_v2.metrics_output_sink import MetricsOutputSink
@@ -157,6 +158,9 @@ class _Window(IClientWindow):
                 ]
             )
         return UserInputEvents([])
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        del event
 
     def open(self, session_desc: SessionDesc) -> None:
         del session_desc

@@ -45,6 +45,7 @@ path = [
     "tests/run_tests_*.sh",
     "assets/*.sh",
     "skills/**",
+    "contributor-skills/**",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved."

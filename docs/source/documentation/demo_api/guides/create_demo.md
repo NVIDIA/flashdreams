@@ -52,6 +52,12 @@ before `init()`. Here `init()` parses arguments and creates the pipeline;
 `create_session()` validates dimensions, layout, and frame rate before creating
 an uninitialized session. `close()` releases the shared pipeline reference.
 
+Complete one-time downloads, compilation, native loading and model construction
+before `init()` returns, including waiting for preparation workers. Work started
+inside `init()` is still subject to the preparation guard after it returns.
+Session loops consume prepared resources; missing assets should produce an
+error rather than a download during generation.
+
 The adapter supplies `pipeline_config`, a `SessionDesc`, and `total_blocks`,
 the maximum blocks **per prompt**. This app requires `tchw` output and a pipeline
 with `initialize_cache`, `generate`, and `finalize` methods.

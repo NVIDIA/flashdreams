@@ -44,6 +44,7 @@ class ActionEventAccumulator:
     """Accumulate v2 keyboard and mouse events into per-step action snapshots."""
 
     def __init__(self) -> None:
+        self._focused = True
         self._held_keys: set[str] = set()
         self._held_mouse_buttons: set[int] = set()
         self._pointer_position: tuple[float, float] | None = None
@@ -60,9 +61,12 @@ class ActionEventAccumulator:
                 self.reset()
                 mouse_dx = mouse_dy = wheel_x = wheel_y = 0.0
             elif isinstance(event, FocusUserInputEvent):
+                self._focused = event.focused
                 if not event.focused:
                     self.reset()
                     mouse_dx = mouse_dy = wheel_x = wheel_y = 0.0
+            elif not self._focused:
+                continue
             elif isinstance(event, KeyboardUserInputEvent):
                 key = normalize_key(event.key)
                 if event.state is KeyboardInputState.PRESSED:

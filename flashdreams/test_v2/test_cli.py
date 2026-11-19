@@ -18,6 +18,7 @@ import pytest
 from flashdreams.api_v2.application import IApplication
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.session import ISession
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2 import cli, client_window_factory
 from flashdreams.runtime_v2.application_runner import ApplicationRunner, Unbound
 from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
@@ -41,6 +42,9 @@ class _StubApplication(IApplication):
 class _StubWindow(IClientWindow):
     def get_user_input_events(self) -> UserInputEvents:
         return UserInputEvents([])
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        del event
 
     def open(self, session_desc: SessionDesc) -> None:
         del session_desc
@@ -88,14 +92,18 @@ def _record_run(
     return received
 
 
-def test_mp4_requires_timeout_or_total_model_steps(
+@pytest.mark.parametrize("file_mode", ["mp4", "webm"])
+def test_file_output_requires_timeout_or_total_model_steps(
+    file_mode: str,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Omitting both is the case ``--mode mp4`` refuses."""
+    """File output needs an explicit stopping policy."""
     _record_run(monkeypatch)
     with pytest.raises(SystemExit):
-        cli.entrypoint(["stub", "--mode", "mp4", "--output-path", "out.mp4"])
+        cli.entrypoint(
+            ["stub", "--mode", file_mode, "--output-path", "out." + file_mode]
+        )
 
     assert "requires --timeout and/or --total-model-steps" in capsys.readouterr().err
 

@@ -11,6 +11,7 @@ from numpy import uint64
 from flashdreams.api_v2.client_window import IClientWindow
 from flashdreams.api_v2.input_source import InputSource
 from flashdreams.api_v2.output_sink import OutputSink
+from flashdreams.api_v2.user_input_event import UserInputEvent
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -35,6 +36,9 @@ class FakeClientWindow(IClientWindow):
 
     def get_user_input_events(self) -> UserInputEvents:
         return self._input
+
+    def put_user_input_event(self, event: UserInputEvent) -> None:
+        del event
 
     def open(self, session_desc: SessionDesc) -> None:
         self.session_desc = session_desc

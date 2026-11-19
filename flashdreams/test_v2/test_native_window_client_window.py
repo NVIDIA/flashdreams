@@ -8,8 +8,10 @@ from __future__ import annotations
 import queue
 import sys
 import threading
+import time
 import webbrowser
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock, call
@@ -22,6 +24,11 @@ from flashdreams.runtime_v2 import native_window_client_window as native_window_
 from flashdreams.runtime_v2.native_window_client_window import (
     NativeWindowClientWindow,
 )
+from flashdreams.runtime_v2.selected_file import (
+    DEFAULT_MAX_FILE_BYTES,
+    FileSelectionRequest,
+    SelectedFilesStatus,
+)
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -31,6 +38,7 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    SelectedFilesUserInputEvent,
 )
 from flashdreams.runtime_v2.video_encoder import result_to_rgb24_tensor
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -39,6 +47,40 @@ if TYPE_CHECKING:
     import slangpy as spy
 
 pytestmark = pytest.mark.ci_cpu
+
+
+def _file_request(
+    request_id: str,
+    initial_path: str,
+    *,
+    accept: tuple[str, ...] = (),
+    max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
+    max_file_count: int = 1,
+) -> FileSelectionRequest:
+    return FileSelectionRequest(
+        request_id=request_id,
+        initial_path=initial_path,
+        accept=accept,
+        max_file_bytes=max_file_bytes,
+        max_file_count=max_file_count,
+    )
+
+
+def _fake_dialog(
+    monkeypatch: pytest.MonkeyPatch,
+    choose: Callable[[FileSelectionRequest], list[str]],
+) -> None:
+    """Run ``choose`` on the dialog thread instead of Tk."""
+    monkeypatch.setattr(native_window_module, "_choose_paths", choose)
+
+
+def _wait_for_input_events(window: NativeWindowClientWindow) -> list[object]:
+    for _ in range(500):
+        events = window.get_user_input_events().get_events()
+        if events:
+            return list(events)
+        time.sleep(0.01)
+    return []
 
 
 @pytest.mark.parametrize("fullscreen", [False, True])
@@ -964,6 +1006,187 @@ def test_native_link_warns_when_browser_is_unavailable(
     open_browser.assert_called_once_with("https://example.com")
     assert "open link" in caplog.text
     window.close()
+
+
+def test_native_window_reports_a_selected_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    chosen = tmp_path / "seed.png"
+    chosen.write_bytes(b"png-bytes")
+    _fake_dialog(monkeypatch, lambda _: [str(chosen)])
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_file_selector(_file_request("open-1", str(tmp_path)))
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.OK
+    assert event.files[0].name == "seed.png"
+    assert event.files[0].data == b"png-bytes"
+
+
+def test_native_window_reports_cancelled_file_selection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _fake_dialog(monkeypatch, lambda _: [])
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_file_selector(_file_request("open-1", str(tmp_path)))
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.CANCELLED
+    assert event.files == ()
+
+
+def test_native_window_reports_unavailable_when_picker_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def no_display(_: FileSelectionRequest) -> list[str]:
+        raise RuntimeError("Tk cannot open a display.")
+
+    _fake_dialog(monkeypatch, no_display)
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_file_selector(_file_request("open-1", str(tmp_path)))
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.request_id == "open-1"
+    assert event.status is SelectedFilesStatus.UNAVAILABLE
+    assert event.files == ()
+
+
+def test_selected_files_from_paths_skips_unreadable_and_oversize(
+    tmp_path: Path,
+) -> None:
+    def load(
+        path: Path, **limits: Any
+    ) -> tuple[tuple[object, ...], SelectedFilesStatus]:
+        return native_window_module._selected_files_from_paths(
+            (str(path),), _file_request("open-1", str(tmp_path), **limits)
+        )
+
+    files, status = load(tmp_path / "gone.png")
+    assert files == ()
+    assert status is SelectedFilesStatus.UNAVAILABLE
+
+    too_big = tmp_path / "big.bin"
+    too_big.write_bytes(b"abcd")
+    files, status = load(too_big, max_file_bytes=3)
+    assert files == ()
+    assert status is SelectedFilesStatus.TOO_LARGE
+
+    wrong_type = tmp_path / "notes.txt"
+    wrong_type.write_bytes(b"hi")
+    files, status = load(wrong_type, accept=(".png",))
+    assert files == ()
+    assert status is SelectedFilesStatus.DISALLOWED_TYPE
+
+    too_big_wrong_type = tmp_path / "huge.txt"
+    too_big_wrong_type.write_bytes(b"abcd")
+    files, status = load(too_big_wrong_type, accept=(".png",), max_file_bytes=1)
+    assert files == ()
+    assert status is SelectedFilesStatus.DISALLOWED_TYPE
+
+
+@pytest.mark.skipif(not Path("/dev/zero").exists(), reason="needs /dev/zero")
+def test_selected_files_from_paths_rejects_a_non_regular_file(tmp_path: Path) -> None:
+    endless = tmp_path / "endless.bin"
+    endless.symlink_to("/dev/zero")
+    files, status = native_window_module._selected_files_from_paths(
+        (str(endless),), _file_request("open-1", str(tmp_path), accept=(".bin",))
+    )
+    assert files == ()
+    assert status is SelectedFilesStatus.UNAVAILABLE
+
+
+def test_native_window_reports_multiple_selected_files(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    first = tmp_path / "a.bin"
+    second = tmp_path / "b.bin"
+    first.write_bytes(b"one")
+    second.write_bytes(b"two")
+    _fake_dialog(monkeypatch, lambda _: [str(first), str(second)])
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(
+        presenter_factory=_presenter_factory(presenter),
+    )
+    window.open(_session_desc())
+    window.request_file_selector(
+        _file_request("open-1", str(tmp_path), max_file_count=2)
+    )
+    events = _wait_for_input_events(window)
+    window.close()
+
+    assert len(events) == 1
+    event = events[0]
+    assert isinstance(event, SelectedFilesUserInputEvent)
+    assert event.status is SelectedFilesStatus.OK
+    assert [chosen.name for chosen in event.files] == ["a.bin", "b.bin"]
+    assert [chosen.data for chosen in event.files] == [b"one", b"two"]
+
+
+def test_native_window_drops_a_flushed_dialog_and_is_busy_until_it_closes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    chosen = tmp_path / "stale.png"
+    chosen.write_bytes(b"png")
+    user_closes = threading.Event()
+
+    def choose(_: FileSelectionRequest) -> list[str]:
+        user_closes.wait(5)
+        return [str(chosen)]
+
+    _fake_dialog(monkeypatch, choose)
+    read: list[object] = []
+    monkeypatch.setattr(
+        native_window_module,
+        "_selected_files_from_paths",
+        lambda paths, request: read.append(paths) or ((), SelectedFilesStatus.OK),
+    )
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    window.request_file_selector(_file_request("open-1", str(tmp_path)))
+    window.flush_file_selectors()
+
+    window.request_file_selector(_file_request("open-2", str(tmp_path)))
+    busy = window.get_user_input_events().get_events()
+    user_closes.set()
+    thread = window._file_dialog_thread
+    assert thread is not None
+    thread.join(5)
+    stale = window.get_user_input_events().get_events()
+    window.close()
+
+    assert len(busy) == 1
+    assert isinstance(busy[0], SelectedFilesUserInputEvent)
+    assert busy[0].request_id == "open-2"
+    assert busy[0].status is SelectedFilesStatus.BUSY
+    assert stale == []
+    assert read == [], "a flushed dialog's files are never read"
 
 
 def test_native_window_reports_standard_gamepad_events() -> None:
