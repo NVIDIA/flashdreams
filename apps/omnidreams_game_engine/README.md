@@ -49,15 +49,18 @@ FlashDreams input and presentation paths:
 | `debug_input.py`, `driving_script.py` | Validate and schedule timestamped runtime events, reject late commands, and report dispatch and consumption. Live socket commands and preloaded files use the same schema. |
 | `debug_window.py` | Headless client window, control socket, model-thread samples, presentation records, and capture manifest. |
 | `debug_capture.py` | Bounded background recording of observations, generated/semantic frames, optional native physics views, and presentation output. |
-| `debug_observation.py` | Convert recorded trajectories into observations and connect `GameplayProcess` to capture through `GameplayCapture`. Native physics diagnostics are optional. |
+| `debug_observation.py` | Convert engine trajectories into observations. Native physics diagnostics are optional. |
 | `debug_report.py` | Join input, physics, generation, and presentation timestamps without treating selected-frame metadata as measured visual response. |
 | `debug_engine.py` | `SemanticDebugPipeline`, which presents conditioning frames without loading a world model. |
 
 `DebugCaptureWindow` reads its configuration from `SessionDesc.metadata` under
 `debug_window.DEBUG_METADATA_KEY`. The shared `HeadlessInput` belongs under
 `debug_input.DEBUG_CONTROL_KEY`. Its clock starts after initialization and warmup;
-`GameplayCapture` starts it when the physics worker is ready. Applications using
-other simulation owners can acknowledge events and submit observations directly.
+applications start it when the engine is ready and acknowledge consumed events.
+Wall-clock playback dispatches through the runtime UI input buffer. Simulation-clock
+playback reserves each upcoming physics interval before advancing the engine, so
+generation waits do not change the scripted driving timeline. The capture keeps
+wall time and simulation time separate.
 
 Robotaxi supplies the `robotaxi-debug` mode, HUD adapters, archived map/settings
 inputs, race and taxi outcome reports, and debug-map scenarios. Those remain in

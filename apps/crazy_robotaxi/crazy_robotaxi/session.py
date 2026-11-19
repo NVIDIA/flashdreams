@@ -411,6 +411,13 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             [*getattr(state, "debug_action_events", []), *events.get_events()]
         )
         state.debug_action_events = []
+        if simulation_clock and action_events.get_events():
+            invoke_async(
+                state.ui_loop,
+                lambda ui_state, events=action_events: ui_state.consume_input_events(
+                    events
+                ),
+            )
         control_actions = state.control_actions.apply(action_events)
         if isinstance(control, HeadlessInput):
             control.consumed(events, step=step_index)
