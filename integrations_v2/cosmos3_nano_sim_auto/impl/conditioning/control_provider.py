@@ -97,9 +97,7 @@ class EncodedControls:
         """
         if geometry.frames_per_view is None:
             raise ValueError("Encoded controls require a finite clip")
-        expected = (
-            geometry.num_views * geometry.frames_per_view * geometry.spatial_tokens
-        )
+        expected = geometry.tokens_per_frame * geometry.frames_per_view
         if tokens.ndim != 2 or tokens.shape[0] != expected:
             raise ValueError(
                 f"expected [{expected}, width] control tokens for "
@@ -124,6 +122,24 @@ class EncodedControls:
             )
         if (start, end) == (0, geometry.frames_per_view):
             return self._tokens
+        if geometry.view_grids is not None:
+            return torch.cat(
+                [
+                    view.reshape(self._frames, spatial, -1)[start:end].reshape(
+                        -1, self._tokens.shape[-1]
+                    )
+                    for view, spatial in zip(
+                        self._tokens.split(
+                            [
+                                self._frames * count
+                                for count in geometry.view_spatial_tokens
+                            ]
+                        ),
+                        geometry.view_spatial_tokens,
+                        strict=True,
+                    )
+                ]
+            )
         per_view = self._frames, geometry.spatial_tokens
         return (
             self._tokens.reshape(geometry.num_views, *per_view, -1)[:, start:end]
@@ -182,6 +198,7 @@ class RenderedControls:
         latent_patch_size: int,
         parallel: ParallelContext | None = None,
         worker: Any | None = None,
+        view_sizes: Sequence[tuple[int, int]] | None = None,
     ) -> None:
         """
         Args:
@@ -225,6 +242,7 @@ class RenderedControls:
         self._parallel = parallel
         self._worker = worker
         self._cursor = 0
+        self._view_sizes = view_sizes
 
     def tokens(self, start: int, end: int) -> Tensor:
         """Render, encode and patchify the control for frames ``[start, end)``.
@@ -255,9 +273,10 @@ class RenderedControls:
                 else self._render(first, last, views=owned)
             )
             latents = self._encoded(frames, pixel_frames=last - first, owned=owned)
-        if latents.shape[2] != end - start:
+        encoded_frames = [view.shape[1] for view in latents]
+        if any(frames != end - start for frames in encoded_frames):
             raise ValueError(
-                f"encoding {last - first} pixel frames gave {latents.shape[2]} "
+                f"encoding {last - first} pixel frames gave {encoded_frames} "
                 f"latent frame(s), expected {end - start} for [{start}, {end})."
             )
         self._cursor = end
@@ -298,7 +317,7 @@ class RenderedControls:
 
     def _encoded(
         self, frames: Tensor, *, pixel_frames: int, owned: list[int]
-    ) -> Tensor:
+    ) -> Tensor | list[Tensor]:
         """``[len(owned)*T, H, W, C]`` uint8 -> ``[V, C, T_lat, H_lat, W_lat]``.
 
         One camera through its own stream, because the encoder's temporal state
@@ -314,6 +333,7 @@ class RenderedControls:
             num_views=self._geometry.num_views,
             frames=-(-pixel_frames // WAN_TEMPORAL_COMPRESSION),
             parallel=self._parallel,
+            view_sizes=self._view_sizes,
         )
 
     def _gathered(self, latents: list[Tensor], *, pixel_frames: int) -> Tensor:

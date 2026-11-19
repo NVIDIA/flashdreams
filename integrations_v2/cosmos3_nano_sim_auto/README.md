@@ -97,8 +97,11 @@ reuse the cached assets. To use a local bundle, pass `--scene /path/to/bundle`;
 local paths bypass downloads. Keep the whole folder, including `scene.json`,
 `sample.json`, geometry JSON files, `initial_rgb/`, its README and
 `LIDAR-PROFILE-LICENSE.txt`.
-Custom bundles must use the same seven-camera rig, coordinates and hashed asset
-inventory; see the [prepared-scene format](impl/conditioning/world_scenario/prepared_scene.py).
+Custom bundles may use an ordered subset of canonical camera IDs, with front-wide
+as the preparation anchor and matching calibration, coordinates and hashed assets;
+see the [prepared-scene format](impl/conditioning/world_scenario/prepared_scene.py).
+Mapping a different physical rig onto those learned IDs is experimental and needs
+generation-quality validation; preserve the physical rig's actual calibration.
 
 ## Run in a browser
 
@@ -134,11 +137,22 @@ The warning clears when you return to map coverage or the new rollout begins.
 
 ### Check driving and the UI
 
+- The cockpit is drawn on an independent canvas with a large Front Wide image,
+  six labeled camera thumbnails, a compact speed/steering/pedal panel and a
+  World Scenario view. Click any camera tile to make it primary; **Front Wide**
+  restores the default. Images fill their tiles with a centered crop, preserving
+  their proportions.
+- The browser reports its viewport so the dashboard rearranges across the full
+  available area. Only UI presentation changes; model camera resolution stays
+  fixed. UI rendering is capped at 1920 by 1080 while retaining viewport aspect.
+- The map uses the original World Scenario/Ludus BEV camera, uploaded scene,
+  palette and timestamped actors. It follows position and heading at each video
+  frame, with pitch and roll removed. It is a separate synchronized presentation
+  channel, alongside the generated cameras. No CPU road drawing or replacement
+  map is used, and map pixels never enter the model's RGB output.
 - Use **W/S** for forward/reverse, **A/D** to steer and **Space** to brake.
-- Switch between residential, rain and snow in **Scene**; check weather and
+- Open **Settings** to switch between residential, rain and snow in **Scene**; check weather and
   driving. Leave **Variant** at `default`.
-- Try both **Layout** options, focus individual cameras/sensors, then return
-  to the overview.
 - Toggle **RGB/HDMAP** with **View** or **1/2**; check the map and RGB correspond.
 - Press **R** or click **Restart rollout** to start a fresh drive from the scene's
   opening images. The shortcut also works with `--no-ui`.
@@ -168,8 +182,8 @@ Leave `--start-frame` at its default of zero to align the map with the opening i
 On a machine with a display,
 replace `--mode webrtc` with `--mode native-window` to open a desktop window.
 
-`--views 1`, `4` and `7` select fixed camera presets in rig order. For a custom
-ordered subset, use `--camera` instead, for example
+`--views 1`, `4`, `6` and `7` select fixed camera presets in rig order. Six omits
+front-tele. For a custom ordered subset, use `--camera` instead, for example
 `--camera camera_front_wide_120fov,camera_rear_tele_30fov`.
 Do not combine `--views` and `--camera`.
 
@@ -186,6 +200,107 @@ LiDAR weights; `LIDAR_CHECKPOINT` optionally overrides them.
 For longer sessions, add `--compile-denoise default --decoder-compile --compile-control-encode`
 after `--` to enable model compilation.
 Cold compilation can take several minutes.
+
+### Front-wide priority with seven generated cameras
+
+The experimental `--auxiliary-scale 0.5` option keeps front-wide at 832x480
+and generates the other cameras at 416x256, rounded up to the model's patch grid.
+All cameras remain in the same joint autoregressive rollout and keep the same
+frame timestamps. Auxiliary images are enlarged for presentation after decode.
+Their controls and opening images are resized before encoding, so this reduces
+transformer work rather than just shrinking the displayed images.
+
+```bash
+uv run --no-sync flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto \
+  --mode webrtc --host 0.0.0.0 --port 8089 -- \
+  --scene clipgt-residential-iter1500 --views 7 \
+  --auxiliary-scale 0.5 --compile-denoise off --denoise-steps 2
+```
+
+This mode currently requires single-GPU RGB without compilation or control
+prefetch. The default scale is `1.0`, preserving the original path. At scale
+`0.5`, spatial tokens per latent frame drop from 2730 to 1014; this is a shape
+count, not a measured speedup. Lower-resolution context can also change the
+front-wide image, despite its unchanged resolution. Two denoising steps trade
+quality for speed; use four to retain the reference denoising schedule.
+
+Validation status: **Deferred** pending real-checkpoint GPU timing and quality
+checks. CPU tests cover mixed-size generation, camera identities, rolling
+caches, encoding sizes and decoder history. No GPU speedup or image-quality
+result is claimed. Input still changes only at generation-step boundaries.
+
+For lower keyboard-control latency, add `--chunk-frames 1 --direct-steering`
+to the command above. Each step then generates four video frames instead of
+twelve. The opening contains five frames, including the conditioning image.
+Keyboard steering applies directly at each step and centers when released,
+without the default gradual return; wheel/gamepad commands are unchanged.
+
+Live RGB now prefills only the opening frame's map. Map controls for generated
+frames are filled after the app supplies that step's vehicle trajectory, so
+the first steering commands are no longer discarded in favor of startup
+extrapolation. Explicit control prefetch retains its delayed behavior.
+
+Short chunks are **experimental**, below the checkpoint's trained three-latent
+chunk size. They can reduce image stability and throughput. GPU latency and
+quality have not been validated here; CPU tests cover initial steering,
+alternating commands, fixed cache storage and release behavior. A key received
+during generation still waits for the next step and its output. Shorter chunks
+reduce this wait, but do not provide instantaneous control.
+
+```bash
+uv run --no-sync flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto \
+  --mode webrtc --host 0.0.0.0 --port 8089 -- \
+  --scene clipgt-residential-iter1500 --views 7 --auxiliary-scale 0.5 \
+  --compile-denoise off --denoise-steps 2 --chunk-frames 1 --direct-steering
+```
+
+Use `--chunk-frames 3` and omit `--direct-steering` to retain the reference chunk
+size and gradual keyboard steering. To compare short-chunk videos at the same
+241-frame duration, use 60 blocks for `--chunk-frames 1` and 20 blocks for
+`--chunk-frames 3`, with the seed and other settings fixed. Compare per-step
+wall time and input-to-visible latency as well as FPS.
+
+For a controlled comparison, run these short fixed-seed drives without input:
+
+```bash
+mkdir -p artifacts/mixed-resolution
+for scale in 1.0 0.5; do
+  uv run --no-sync flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto \
+    --mode mp4 --output-path "artifacts/mixed-resolution/scale-$scale.mp4" --timeout unbound -- \
+    --scene clipgt-residential-iter1500 --views 7 --no-ui --total-blocks 20 \
+    --world-model-seed 0 --denoise-steps 2 --compile-denoise off --auxiliary-scale "$scale" \
+    2>&1 | tee "artifacts/mixed-resolution/scale-$scale.log"
+done
+```
+
+Compare median/p90 `total_ms`, `model_ms`, `draw_ms` and `decode_ms` after the
+first five chunks, keeping startup separate. Record the commit, checkpoint,
+GPU, driver and PyTorch/CUDA versions. Inspect front-wide detail, auxiliary
+motion and cross-camera consistency, then check steering, restart and scene
+changes in WebRTC before using the mode for longer sessions.
+
+### Colored patches, repeated edges or smeared images
+
+The default front-wide generation is 832 by 480. Enlarging it on a monitor
+does not recover missing detail. Colored shapes and unstable scene geometry
+require a separate generation-quality check: the fast command above combines
+two denoising passes, a one-latent chunk and mixed camera resolutions. The
+model reads its generated history, so errors can persist across later chunks.
+CPU shape/cache checks do not establish real-checkpoint visual quality.
+
+Restart with `--denoise-steps 4 --chunk-frames 3 --auxiliary-scale 1.0` for the
+reference settings, keeping the scene, seed and drive fixed. It will be slower.
+Then change one option per comparison. If artifacts remain, compare the saved
+camera output before WebRTC encoding with the browser image before attributing
+them to either generation or compression. The dashboard does not fix model
+quality by changing its layout.
+
+### Separate web cockpit
+
+For the Vite cockpit in `apps/interactive_drive/web`, use `--web-ui` after `--`.
+This streams camera video, vehicle telemetry, and the native WorldScenario BEV
+without the ImGui overlay. See [the cockpit startup instructions](../../apps/interactive_drive/web/README.md)
+for the two-terminal setup and control mappings. `--no-ui` streams video only.
 
 ### Run without the UI
 

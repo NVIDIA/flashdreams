@@ -78,6 +78,7 @@ class _ImGui:
         return self._imgui.image(
             self._bridge.texture_ref(texture),
             self._imgui.ImVec2(*size),
+            **kwargs,
         )
 
     def clear_textures(self) -> None:
@@ -107,6 +108,8 @@ class _ImGuiUIRenderer:
             raise ValueError("ImGui UI rendering requires a CUDA device.")
         self.width = int(width)
         self.height = int(height)
+        self.font_path: str | None = None
+        """Optional application font, loaded before the first UI frame."""
         self._cuda_device = resolved_cuda_device
         self._slangpy = slangpy_module
         self._imgui = imgui_module
@@ -354,6 +357,11 @@ class _ImGuiUIRenderer:
         )
         ui_context = slangpy.ui.Context(device)
         imgui_context = bridge.create_imgui_context(self.width, self.height)
+        if self.font_path is not None:
+            imgui.set_current_context(imgui_context)
+            imgui.get_io().font_default = imgui.get_io().fonts.add_font_from_file_ttf(
+                self.font_path, 18.0
+            )
 
         self._slangpy = slangpy
         self._imgui = imgui

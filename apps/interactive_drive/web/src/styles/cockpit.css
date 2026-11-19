@@ -1,0 +1,1029 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+:root {
+  /* Emil Kowalski Custom Curves */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Accent Colors */
+  --accent-blue: #007aff;
+  --accent-cyan: #00e5ff;
+  --accent-green: #30d158;
+  --accent-orange: #ff9f0a;
+  --accent-red: #ff453a;
+
+  /* Typography */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+/* Dark Theme (Default) */
+:root, [data-theme="dark"] {
+  --bg-primary: #0a0d12;
+  --bg-secondary: #121720;
+  --panel-bg: rgba(22, 28, 36, 0.78);
+  --panel-solid: #151a22;
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --card-bg: rgba(255, 255, 255, 0.04);
+  --card-hover: rgba(255, 255, 255, 0.08);
+  --text-primary: #ffffff;
+  --text-secondary: #8e8e93;
+  --text-muted: #636366;
+  --icon-inactive: #8e8e93;
+  --alert-bg: rgba(255, 255, 255, 0.94);
+  --alert-text: #1c1c1e;
+  --alert-subtext: #636366;
+  --alert-btn-bg: #e5e5ea;
+  --header-bg: rgba(12, 16, 22, 0.85);
+  --footer-bg: rgba(12, 16, 22, 0.85);
+  --input-bg: rgba(0, 0, 0, 0.4);
+}
+
+/* Light Theme (白座舱系统) */
+[data-theme="light"] {
+  --bg-primary: #f2f4f7;
+  --bg-secondary: #e5e9f0;
+  --panel-bg: rgba(255, 255, 255, 0.88);
+  --panel-solid: #ffffff;
+  --panel-border: rgba(0, 0, 0, 0.08);
+  --card-bg: rgba(0, 0, 0, 0.03);
+  --card-hover: rgba(0, 0, 0, 0.06);
+  --text-primary: #1c1c1e;
+  --text-secondary: #6e6e73;
+  --text-muted: #8e8e93;
+  --icon-inactive: #c7c7cc;
+  --alert-bg: rgba(255, 255, 255, 0.98);
+  --alert-text: #1c1c1e;
+  --alert-subtext: #636366;
+  --alert-btn-bg: #e5e5ea;
+  --header-bg: rgba(255, 255, 255, 0.92);
+  --footer-bg: rgba(255, 255, 255, 0.92);
+  --input-bg: rgba(0, 0, 0, 0.05);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--bg-primary);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out);
+}
+
+/* === TOP BAR (车机状态栏) === */
+.cockpit-header {
+  height: 54px;
+  background: var(--header-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--panel-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  z-index: 100;
+}
+
+.header-left, .header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* === OEM CABIN CLUSTER (Image 6 Style) === */
+.oem-dash-cluster {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-right: 18px;
+  border-right: 1px solid var(--panel-border);
+}
+
+.oem-speed-tag {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+.oem-speed-tag small {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.oem-gear-box {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1.5px solid var(--panel-border);
+  background: var(--input-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent-blue);
+}
+
+.oem-pedal-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 32px;
+  position: relative;
+}
+
+.oem-pedal-svg {
+  width: 100%;
+  height: 100%;
+  color: var(--icon-inactive);
+  opacity: 0.35;
+  transition: all 80ms var(--ease-out);
+}
+.oem-pedal-svg.active-brake {
+  color: var(--accent-red);
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(255, 69, 58, 0.9));
+}
+.oem-pedal-svg.active-throttle {
+  color: var(--accent-green);
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(48, 209, 88, 0.9));
+}
+
+.oem-steer-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+.oem-steer-svg {
+  width: 100%;
+  height: 100%;
+  color: var(--text-primary);
+  opacity: 0.85;
+  transition: transform 60ms linear;
+}
+
+.oem-lcc-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lcc-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-blue);
+  box-shadow: 0 0 8px rgba(0, 122, 255, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lcc-text {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--accent-blue);
+}
+
+.gear-icon-p {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  color: var(--icon-inactive);
+  opacity: 0.35;
+  font-size: 13px;
+  font-weight: 800;
+  transition: all 180ms var(--ease-out);
+}
+.gear-icon-p.active {
+  color: var(--accent-red);
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(255, 69, 58, 0.8));
+}
+
+.warning-cluster {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.warning-icon {
+  width: 22px;
+  height: 22px;
+  color: var(--icon-inactive);
+  opacity: 0.35;
+  transition: all 180ms var(--ease-out);
+}
+
+.warning-icon.active {
+  color: var(--accent-red);
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(255, 69, 58, 0.8));
+}
+
+.warning-icon.active.orange {
+  color: var(--accent-orange);
+  filter: drop-shadow(0 0 6px rgba(255, 159, 10, 0.8));
+}
+
+.status-pill {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: rgba(48, 209, 88, 0.15);
+  color: var(--accent-green);
+  font-weight: 600;
+  border: 1px solid rgba(48, 209, 88, 0.25);
+}
+
+.gamepad-pill {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--accent-blue);
+  font-weight: 600;
+  border: 1px solid rgba(0, 122, 255, 0.25);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.gamepad-pill.offline {
+  background: rgba(142, 142, 147, 0.12);
+  color: var(--text-muted);
+  border-color: rgba(142, 142, 147, 0.2);
+}
+
+.recording-toolbar { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.recording-toolbar button, .recording-toolbar a { color: var(--text-primary); background: transparent; border: 1px solid var(--border-color, #334452); border-radius: 6px; padding: 7px 9px; text-decoration: none; cursor: pointer; font: inherit; }
+.recording-toolbar button:disabled { opacity: .4; cursor: default; }
+.recording-toolbar [hidden] { display: none; }
+.recording-toolbar #record-session-status { color: var(--text-muted); max-width: 180px; }
+.recording-toolbar :focus-visible { outline: 2px solid #39c7aa; outline-offset: 3px; }
+@media (max-width: 1100px) { .recording-toolbar #record-session-status { display: none; } }
+
+.header-right {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.header-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--panel-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+.icon-btn:hover {
+  background: var(--card-hover);
+}
+.icon-btn:active {
+  transform: scale(0.95);
+}
+
+/* === MAIN WORKSPACE (核心视窗与左侧切片) === */
+.cockpit-workspace {
+  flex: 1;
+  position: relative;
+  display: flex;
+  overflow: hidden;
+  padding: 12px;
+  gap: 12px;
+}
+
+/* Left Sidebar (7视角与场景切片) */
+.camera-sidebar {
+  width: 250px;
+  flex-shrink: 0;
+  min-height: 0;
+  background: var(--panel-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 10;
+}
+
+.sidebar-title {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.camera-list {
+  flex: 1;
+  min-height: 0;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-muted) transparent;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.camera-card {
+  flex: 0 0 auto;
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--card-bg);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+
+.camera-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.camera-card:focus-visible, .gear-item:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+.camera-card:hover {
+  background: var(--card-hover);
+  transform: translateY(-1px);
+}
+
+.camera-card:active {
+  transform: scale(0.97);
+}
+
+.camera-card.active {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 12px rgba(0, 122, 255, 0.35);
+}
+
+.camera-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--panel-solid);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  gap: 2px;
+}
+
+.camera-badge {
+  color: #fff;
+  position: absolute;
+  bottom: 5px;
+  left: 6px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #fff;
+}
+
+/* Center Stage (视频主画面) */
+.stage-container {
+  flex: 1;
+  position: relative;
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Floating View Badge in Video */
+.view-tag {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(16px);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  z-index: 5;
+}
+
+/* Center Play Button Overlay */
+.play-overlay {
+  position: absolute;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
+  z-index: 5;
+}
+.play-overlay:hover {
+  transform: scale(1.06);
+  background: rgba(0, 0, 0, 0.65);
+}
+.play-overlay:active {
+  transform: scale(0.95);
+}
+
+/* Top Right Video Actions */
+.video-actions {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 5;
+}
+.action-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+.action-btn:active {
+  transform: scale(0.95);
+}
+
+/* === FLOATING ALERT MODAL (车辆告警卡片) === */
+.alert-card {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%) scale(1);
+  width: 440px;
+  background: var(--alert-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: 18px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3), 0 0 1px rgba(0, 0, 0, 0.2);
+  color: var(--alert-text);
+  padding: 20px 24px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  opacity: 1;
+  transition: transform 240ms var(--ease-out), opacity 240ms var(--ease-out);
+}
+
+.alert-card.entering {
+  transform: translateX(-50%) scale(0.95);
+  opacity: 0;
+}
+
+.alert-body {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.alert-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(255, 69, 58, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-red);
+  flex-shrink: 0;
+}
+
+.alert-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.alert-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.alert-subtitle {
+  font-size: 13px;
+  color: var(--alert-subtext);
+  line-height: 1.4;
+}
+
+.alert-action-btn {
+  width: 100%;
+  height: 40px;
+  border-radius: 20px;
+  background: var(--alert-btn-bg);
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1c1c1e;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+.alert-action-btn:hover {
+  background: #d1d1d6;
+}
+.alert-action-btn:active {
+  transform: scale(0.97);
+}
+
+/* Right Rail (World Scenario & 动力学仪表盘) */
+.telemetry-rail {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 10;
+}
+
+.instrument-card {
+  background: var(--panel-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Speedometer & Gear */
+.speed-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.speed-value {
+  font-size: 52px;
+  font-weight: 700;
+  letter-spacing: -1.5px;
+  line-height: 1;
+}
+
+.speed-unit {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+.gear-selector {
+  display: flex;
+  gap: 4px;
+  background: var(--input-bg);
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+.gear-item {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 160ms var(--ease-out);
+}
+.gear-item:hover {
+  color: var(--text-primary);
+  background: var(--card-hover);
+}
+.gear-item:active {
+  transform: scale(0.95);
+}
+.gear-item.active {
+  background: var(--accent-blue);
+  color: #fff;
+  box-shadow: 0 0 10px rgba(0, 122, 255, 0.4);
+}
+
+/* Automotive Dual Power/Brake Gauge Bar */
+.cockpit-power-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0 6px 0;
+}
+.cockpit-power-bar {
+  height: 6px;
+  background: var(--input-bg);
+  border-radius: 3px;
+  position: relative;
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+}
+.power-bar-center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.4);
+  transform: translateX(-50%);
+  z-index: 2;
+}
+.power-bar-fill {
+  height: 100%;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  transition: width 60ms linear;
+}
+.power-bar-fill.brake {
+  right: 50%;
+  background: linear-gradient(90deg, #ff453a, #ff9f0a);
+  border-radius: 3px 0 0 3px;
+}
+.power-bar-fill.throttle {
+  left: 50%;
+  background: linear-gradient(90deg, #30d158, #00e5ff);
+  border-radius: 0 3px 3px 0;
+}
+.cockpit-power-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Steering Wheel & Pedals */
+.dynamics-grid {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 0;
+}
+
+.steering-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.steering-wheel-svg {
+  width: 64px;
+  height: 64px;
+  transition: transform 60ms linear;
+}
+
+.steer-angle-text {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.pedals-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pedal-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pedal-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.pedal-track {
+  height: 8px;
+  background: rgba(142, 142, 147, 0.2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.pedal-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 60ms linear;
+}
+.pedal-fill.throttle { background: var(--accent-green); }
+.pedal-fill.brake { background: var(--accent-red); }
+
+/* World Scenario BEV Image Stream Container */
+.minimap-container {
+  flex: 1;
+  min-height: 220px;
+  background: var(--panel-solid);
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--panel-border);
+}
+
+.bev-stream-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.bev-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 16px;
+}
+
+.minimap-header-tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  padding: 2px 8px;
+  border-radius: 4px;
+  z-index: 2;
+}
+
+/* === SETTINGS MODAL / PANEL === */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  transition: opacity 200ms var(--ease-out);
+}
+.modal-overlay.hidden {
+  display: none;
+}
+
+.settings-modal {
+  width: 520px;
+  background: var(--panel-solid);
+  border: 1px solid var(--panel-border);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: scale(1);
+  transition: transform 200ms var(--ease-out);
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--panel-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setting-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.setting-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.setting-input {
+  flex: 1;
+  height: 38px;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+.setting-input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.btn {
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+.btn:hover { background: var(--card-hover); }
+.btn:active { transform: scale(0.97); }
+.btn.primary {
+  background: var(--accent-blue);
+  color: #fff;
+  border-color: var(--accent-blue);
+}
+.btn.primary:hover {
+  background: #0069d9;
+}
+
+/* Template Slot Selector in Settings */
+.template-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.template-card {
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--panel-border);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: transform 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+.template-card:hover { border-color: var(--accent-blue); transform: translateY(-1px); }
+.template-card.active { border-color: var(--accent-blue); background: rgba(0, 122, 255, 0.1); }
+.template-name { font-size: 13px; font-weight: 600; }
+.template-desc { font-size: 11px; color: var(--text-muted); }
+
+.add-template-btn {
+  border: 1.5px dashed var(--panel-border);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  gap: 6px;
+  transition: border-color 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+.add-template-btn:hover {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+/* === BOTTOM STATUS BAR === */
+.cockpit-footer {
+  height: 40px;
+  background: var(--footer-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--panel-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.key-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: rgba(142, 142, 147, 0.15);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}

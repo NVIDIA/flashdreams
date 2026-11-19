@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -89,12 +89,14 @@ class LudusControls:
         frames: Sequence[int] | np.ndarray | None = None,
         note: Callable[[str], None] = lambda _: None,
         drive: PoseSource | None = None,
+        scene_data: Any | None = None,
     ) -> None:
         """
         Args:
             context: a ludus ``LudusCudaTimestampedContext``, with the palette
                 uploaded and the scene already on it.
             scene_id: what ``upload_scene`` returned for that scene.
+            scene_data: Uploaded scene pools retained for native BEV ego updates.
             cameras: the rig, in the order the views are fed in.
             start_us: the clip's first timestamp, which frame 0 sits at.
             fps: the rate the recorded track was sampled at.
@@ -143,6 +145,8 @@ class LudusControls:
             )
         self._context = context
         self._scene_id = scene_id
+        self._scene_data = scene_data
+        self._bev_ego_capacity = 0
         self._cameras = list(cameras)
         self._start_us = start_us
         self._fps = float(fps)
@@ -281,6 +285,88 @@ class LudusControls:
         """The timestamp of one of the clip's own frames, in microseconds."""
         return self._start_us + round(frame * 1e6 / self._fps)
 
+    def render_bev(
+        self,
+        rig_poses: Tensor,
+        timestamps_us: Tensor,
+        *,
+        width: int = 512,
+        height: int = 512,
+        height_m: float = 75.0,
+        fov_degrees: float = 60.0,
+        ego_dimensions_lwh: tuple[float, float, float] | None = None,
+    ) -> Tensor:
+        """Render the existing World Scenario scene through its native BEV camera.
+
+        Reuse the uploaded geometry, palette and timestamped actors. Input rig
+        poses retain planar heading; the caller removes pitch and roll.
+        """
+        from interactive_drive.config import BevConfig
+        from interactive_drive.rasterizer import (
+            _bev_sensor_to_rig,
+            _build_bev_camera,
+            _build_bev_ego_car_pool,
+        )
+        from ludus_renderer import PRIM_EGO_OBSTACLE
+        from ludus_renderer.torch.ops import CAMERA_TYPE_BEV
+
+        query_times = timestamps_us.to(device=self._device, dtype=torch.int64)
+        if ego_dimensions_lwh is not None:
+            if self._scene_data is None:
+                raise RuntimeError("BEV ego rendering requires the uploaded scene data")
+            capacity = max(self._bev_ego_capacity, len(rig_poses))
+            pool = _build_bev_ego_car_pool(
+                rig_poses=rig_poses,
+                timestamps_us=query_times,
+                dimensions_lwh=ego_dimensions_lwh,
+                track_capacity=capacity,
+            )
+            if capacity > self._bev_ego_capacity:
+                self._scene_data = replace(
+                    self._scene_data,
+                    cube_pools=[
+                        *(
+                            p
+                            for p in (self._scene_data.cube_pools or ())
+                            if p.prim_type_id != PRIM_EGO_OBSTACLE
+                        ),
+                        pool,
+                    ],
+                )
+                self._context.replace_scene(self._scene_id, self._scene_data)
+                self._bev_ego_capacity = capacity
+            elif not self._context.update_cube_pool(
+                self._scene_id, PRIM_EGO_OBSTACLE, pool
+            ):
+                raise RuntimeError("Could not update the BEV ego-car track")
+        else:
+            query_times = query_times.clamp_max(self._at(int(self._map[-1])))
+        camera = _build_bev_camera(
+            BevConfig(
+                width=width, height=height, height_m=height_m, fov_deg=fov_degrees
+            ),
+            self._device,
+        )
+        self._context.upload_cameras([camera])
+        self._context.upload_width_table(self._widths)
+        sensor_to_rig = _bev_sensor_to_rig(height_m=height_m, device=self._device)
+        count = len(rig_poses)
+        images = self._context.render(
+            scene_ids=torch.full(
+                (count,), self._scene_id, dtype=torch.int32, device=self._device
+            ),
+            camera_ids=torch.zeros(count, dtype=torch.int32, device=self._device),
+            timestamps_us=query_times,
+            camera_type_ids=torch.full(
+                (count,), CAMERA_TYPE_BEV, dtype=torch.int32, device=self._device
+            ),
+            camera_poses=torch.linalg.inv(rig_poses.to(self._device) @ sensor_to_rig),
+            resolution=(height, width),
+        )
+        if self._context.needs_vflip:
+            images = images.flip(1)
+        return images[..., :3].contiguous()
+
     def _poses(
         self,
         camera: DrawnCamera,
@@ -376,7 +462,8 @@ def open_clip(
     context = LudusCudaTimestampedContext(device=device)
     prepared_scene.configure(context)
     context.upload_color_palette(prepared.palette)
-    scene_id = context.upload_scene(prepared.upload_data(device))
+    scene_data = prepared.upload_data(device)
+    scene_id = context.upload_scene(scene_data)
     built = []
     for name in cameras:
         intrinsics = prepared.intrinsics(name)
@@ -404,4 +491,5 @@ def open_clip(
         frames=mapping,
         note=note if span_note is None else span_note,
         drive=drive,
+        scene_data=scene_data,
     )

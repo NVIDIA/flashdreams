@@ -579,9 +579,8 @@ __device__ static uint32_t cube_face_mask(
     return mask;
 }
 
-// How near the camera a drawn point may sit, which is the reference's own
-// near plane.
-constexpr float NEAR_DEPTH = 1e-3f;
+// Clip in camera space at the reference renderer's five-centimeter near plane.
+constexpr float NEAR_DEPTH = 5e-2f;
 
 // How far in front of the camera a world point sits, negative behind it.
 __device__ static __forceinline__ float camera_depth(
@@ -597,7 +596,8 @@ __device__ static bool cube_in_front_euler(
 __device__ static bool face_in_front(
     const float3* corners, const float* __restrict__ poseData, int culling);
 __device__ static int near_clipped_triangle(
-    const float3* wp, const float* __restrict__ poseData, int culling, float3 out[2][3]);
+    const float3* wp, const float* __restrict__ poseData, int culling, float3 out[2][3],
+    const float* attributes = nullptr, float (*outAttributes)[3] = nullptr);
 __device__ static void clip_to_near(
     float3& from, float3& to, const float* __restrict__ poseData, int culling);
 
@@ -983,8 +983,8 @@ __device__ static __forceinline__ int subdiv_for_crossing(
 // Whether one piece of a face stands wholly in front of the near plane, which
 // cuts the face down to what was ever visible. Depth is affine in world
 // position, so a piece's depth is the barycentric blend of the face's corner
-// depths and nothing need be projected to judge it. The cut follows the
-// tessellation, so it falls up to CROSSING_SUBDIV shy of the plane itself.
+// depths and nothing need be projected to judge it. Crossing pieces are sent
+// through emit_clipped_subtriangle to preserve their visible portions.
 __device__ static __forceinline__ bool subtri_in_front(
     int3 idx, int subdiv, float d0, float d1, float d2, int culling)
 {
@@ -1025,32 +1025,89 @@ __device__ static float3 pulled_to_near(
 // what comes out is wound as what went in, and one plane cuts a triangle into
 // at most a quad -- hence two.
 __device__ static int near_clipped_triangle(
-    const float3* wp, const float* __restrict__ poseData, int culling, float3 out[2][3])
+    const float3* wp, const float* __restrict__ poseData, int culling, float3 out[2][3],
+    const float* attributes, float (*outAttributes)[3])
 {
     if (culling) {
         float3 kept[4];
+        float values[4];
         int n = 0;
         for (int i = 0; i < 3 && n < 4; i++) {
             float3 here = wp[i], next = wp[(i + 1) % 3];
             bool here_in = camera_depth(here, poseData) > NEAR_DEPTH;
             bool next_in = camera_depth(next, poseData) > NEAR_DEPTH;
-            if (here_in)
-                kept[n++] = here;
-            if (here_in != next_in && n < 4)
-                kept[n++] = here_in ? pulled_to_near(here, next, poseData)
-                                    : pulled_to_near(next, here, poseData);
+            if (here_in) {
+                kept[n] = here;
+                if (attributes) values[n] = attributes[i];
+                ++n;
+            }
+            if (here_in != next_in && n < 4) {
+                kept[n] = here_in ? pulled_to_near(here, next, poseData)
+                                  : pulled_to_near(next, here, poseData);
+                if (attributes) {
+                    float t = (camera_depth(kept[n], poseData) - camera_depth(here, poseData)) /
+                              (camera_depth(next, poseData) - camera_depth(here, poseData));
+                    values[n] = attributes[i] + t * (attributes[(i + 1) % 3] - attributes[i]);
+                }
+                ++n;
+            }
         }
         if (n < 3)
             return 0;
         out[0][0] = kept[0]; out[0][1] = kept[1]; out[0][2] = kept[2];
+        if (attributes && outAttributes) {
+            outAttributes[0][0] = values[0]; outAttributes[0][1] = values[1]; outAttributes[0][2] = values[2];
+        }
         if (n == 3)
             return 1;
         out[1][0] = kept[0]; out[1][1] = kept[2]; out[1][2] = kept[3];
+        if (attributes && outAttributes) {
+            outAttributes[1][0] = values[0]; outAttributes[1][1] = values[2]; outAttributes[1][2] = values[3];
+        }
         return 2;
     }
 
     out[0][0] = wp[0]; out[0][1] = wp[1]; out[0][2] = wp[2];
+    if (attributes && outAttributes)
+        for (int i = 0; i < 3; ++i) outAttributes[0][i] = attributes[i];
     return 1;
+}
+
+// Clip crossing tessellation cells instead of deleting their visible portions.
+// Both timestamped cube paths share the same camera-space cut and color blend.
+__device__ static void emit_clipped_subtriangle(
+    int3 idx, int subdiv, const float3* triangle, const float* gradient,
+    float3 front, float3 back, const float* poseData, const float* camData,
+    int culling, float4* outVerts, int* outIndices, uint32_t* outVertColors,
+    int* atomicVerts, int* atomicTris)
+{
+    int indices[3] = {idx.x, idx.y, idx.z};
+    float3 wp[3];
+    float attributes[3];
+    for (int i = 0; i < 3; ++i) {
+        float2 uv = bary_vertex_uv(indices[i], subdiv);
+        float w = 1.0f - uv.x - uv.y;
+        wp[i] = make_float3(w*triangle[0].x + uv.x*triangle[1].x + uv.y*triangle[2].x,
+                            w*triangle[0].y + uv.x*triangle[1].y + uv.y*triangle[2].y,
+                            w*triangle[0].z + uv.x*triangle[1].z + uv.y*triangle[2].z);
+        attributes[i] = w*gradient[0] + uv.x*gradient[1] + uv.y*gradient[2];
+    }
+    float3 kept[2][3];
+    float colors[2][3];
+    int pieces = near_clipped_triangle(wp, poseData, culling, kept, attributes, colors);
+    for (int piece = 0; piece < pieces; ++piece) {
+        int vb = atomicAdd(atomicVerts, 3), tb = atomicAdd(atomicTris, 1);
+        if (!geometry_reservation_fits(vb, 3, tb, 1, atomicVerts, atomicTris))
+            continue;
+        for (int i = 0; i < 3; ++i) {
+            outVerts[vb + i] = ftheta_project(kept[piece][i], poseData, camData);
+            float t = colors[piece][i];
+            outVertColors[vb + i] = pack_rgba8(back.x + t*(front.x-back.x),
+                                             back.y + t*(front.y-back.y),
+                                             back.z + t*(front.z-back.z));
+            outIndices[tb*3 + i] = vb + i;
+        }
+    }
 }
 
 //------------------------------------------------------------------------
@@ -1274,10 +1331,14 @@ __global__ void cubePoolFusedKernel(
                 float d2 = camera_depth(v2, poseData);
                 for (int ti = 0; ti < nT; ti++) {
                     int3 idx = bary_triangle_indices(ti, faceSubdiv);
-                    // A piece reaching behind the camera collapses to a point
-                    // rather than going unwritten, its room being reserved.
-                    if (!subtri_in_front(idx, faceSubdiv, d0, d1, d2, cullBehind))
+                    if (!subtri_in_front(idx, faceSubdiv, d0, d1, d2, cullBehind)) {
+                        float3 triangle[3] = {v0, v1, v2};
+                        float gradient[3] = {t0, t1, t2};
+                        emit_clipped_subtriangle(idx, faceSubdiv, triangle, gradient,
+                            fc_col, bc_col, poseData, camData, cullBehind,
+                            outVerts, outIndices, outVertColors, atomicVerts, atomicTris);
                         idx = make_int3(idx.x, idx.x, idx.x);
+                    }
                     outIndices[(toff + ti)*3 + 0] = voff + idx.x;
                     outIndices[(toff + ti)*3 + 1] = voff + idx.y;
                     outIndices[(toff + ti)*3 + 2] = voff + idx.z;
@@ -2282,11 +2343,14 @@ __global__ void cubePoolFlatKernel(
                 float d2 = camera_depth(tw[2], poseData);
                 for (int ti = 0; ti < nT; ti++) {
                     int3 idx = bary_triangle_indices(ti, faceSubdiv);
-                    // A piece reaching behind the camera collapses to a point
-                    // rather than going unwritten, its room being reserved.
                     if (!subtri_in_front(idx, faceSubdiv, d0, d1, d2,
-                                         params.cullBehindCamera))
+                                         params.cullBehindCamera)) {
+                        emit_clipped_subtriangle(idx, faceSubdiv, tw, tt,
+                            make_float3(fc_r, fc_g, fc_b), make_float3(bc_r, bc_g, bc_b),
+                            poseData, camData, params.cullBehindCamera,
+                            outVerts, outIndices, outVertColors, atomicVerts, atomicTris);
                         idx = make_int3(idx.x, idx.x, idx.x);
+                    }
                     outIndices[(triBase+ti)*3+0]=vbase+idx.x;
                     outIndices[(triBase+ti)*3+1]=vbase+idx.y;
                     outIndices[(triBase+ti)*3+2]=vbase+idx.z;

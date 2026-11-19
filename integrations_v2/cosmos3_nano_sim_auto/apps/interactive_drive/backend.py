@@ -23,20 +23,16 @@ that by admitting steps in lockstep. A thread that decides for itself when to
 generate takes that guarantee away. A render backend is called from the step,
 so lockstep is the default rather than something to arrange.
 
-On the RGB-only path, the chunk sizes do not line the
-two up. The rollout draws its whole control window while it is being built,
-which is several chunks of map before the first chunk is generated and before
-the app has sampled any trajectory at all. So the opening is drawn along the
-path the scene was already on, the app's first commands land on ground whose map
-is drawn, and steering reaches the picture a window later. That is the demo's
-behaviour, and undoing it means teaching the rollout to leave control slots
-unfilled rather than anything here. Joint RGB/LiDAR instead consumes only the
-current control chunk: an opening frame, then twelve camera frames with four
-completed LiDAR sweeps. Both renderers receive the same supplied vehicle path.
+Live RGB prefills only the opening frame's map. The remaining control slots
+stay masked until a step receives its trajectory, so opening steering is not
+replaced by a path extrapolated during scene loading. Explicit control prefetch
+still follows its delayed path. Joint RGB/LiDAR consumes only the current chunk:
+an opening frame, then twelve camera frames with four completed LiDAR sweeps.
 """
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -47,7 +43,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from interactive_drive.backends.base import RenderBackend
-from interactive_drive.config import ChunkConfig, RasterConfig
+from interactive_drive.config import BevConfig, ChunkConfig, RasterConfig, VehicleConfig
 from interactive_drive.types import (
     FrameChunk,
     PresentedFrame,
@@ -73,6 +69,7 @@ from cosmos3_nano_sim_auto.impl.conditioning.control_provider import (
 from cosmos3_nano_sim_auto.impl.conditioning.ludus_controls import open_clip
 from cosmos3_nano_sim_auto.impl.decode import (
     decoded_views,
+    make_mixed_resolution_chunk_decoder,
     make_multiview_chunk_decoder,
 )
 from cosmos3_nano_sim_auto.impl.distributed.parallel import (
@@ -82,6 +79,7 @@ from cosmos3_nano_sim_auto.impl.distributed.parallel import (
 from cosmos3_nano_sim_auto.impl.packing import DEFAULT_CHUNK_FRAMES, ClipGeometry
 from cosmos3_nano_sim_auto.impl.transformer.mask import AttentionScope
 from cosmos3_nano_sim_auto.inputs import (
+    WAN_SPATIAL_COMPRESSION,
     WAN_TEMPORAL_COMPRESSION,
     MultiviewSample,
     camera_view_ids,
@@ -140,6 +138,8 @@ class MultiViewSettings:
     maskless_attention: bool = True
     fused_attention_merge: bool = True
     temporal_window_seconds: float = DEFAULT_TEMPORAL_WINDOW_SECONDS
+    auxiliary_scale: float = 1.0
+    """Scale cameras other than front-wide before encoding and generation."""
 
     lidar_checkpoint: Path | None = None
     """Enable live joint generation with this trained LiDAR codec."""
@@ -204,9 +204,14 @@ class MultiViewRenderBackend(RenderBackend):
         raster: RasterConfig,
         *,
         settings: MultiViewSettings | None = None,
+        bev: BevConfig | None = None,
+        vehicle: VehicleConfig | None = None,
     ) -> None:
         super().__init__(chunk, raster)
         self._settings = settings or MultiViewSettings()
+        self._bev = bev
+        self._vehicle = vehicle or VehicleConfig()
+        self._bev_renderer: Any = None
         if self._settings.lidar_checkpoint is not None and (
             chunk.fps != 30
             or self._settings.frames_per_chunk != 3
@@ -218,6 +223,22 @@ class MultiViewRenderBackend(RenderBackend):
                 "one opening frame and decomposed attention"
             )
         mesh = self._settings.parallel
+        if (
+            not math.isfinite(self._settings.auxiliary_scale)
+            or not 0 < self._settings.auxiliary_scale <= 1
+        ):
+            raise ValueError("auxiliary_scale must be finite and in (0, 1]")
+        if self._settings.auxiliary_scale != 1 and (
+            self._settings.lidar_checkpoint is not None
+            or (mesh is not None and mesh.world_size > 1)
+            or self._settings.prefetch_controls
+            or self._settings.compile_denoise is not None
+            or self._settings.compile_control_encode
+            or self._settings.decoder_compile
+        ):
+            raise ValueError(
+                "Mixed resolutions require single-GPU RGB without compilation or control prefetch"
+            )
         # Refused here, before 28 GiB of weights load, rather than by the rollout.
         if (
             self._settings.compile_denoise is not None
@@ -254,10 +275,8 @@ class MultiViewRenderBackend(RenderBackend):
     def initial_chunk_frames(self) -> int:
         """Pixel frames the first chunk presents: the opening frame and a chunk.
 
-        Not the control window, which is several chunks longer and is drawn
-        while the rollout is built, before the app has a trajectory to sample.
-        What the app must supply is what this hands back, and that is the chunk
-        the rollout generates first.
+        The host supplies exactly the poses for the pictures returned, including
+        the conditioning image decoded alongside the first generated frames.
         """
         if not self._first_chunk_frames:
             raise RuntimeError("load_scene() must run before the first chunk.")
@@ -349,6 +368,7 @@ class MultiViewRenderBackend(RenderBackend):
         """
         self._rollout = None
         self._decode = None
+        self._bev_renderer = None
         self._drawn = None
         self._lidar = None
         self._poses = None
@@ -371,6 +391,7 @@ class MultiViewRenderBackend(RenderBackend):
 
     def close(self) -> None:
         self._rollout = None
+        self._bev_renderer = None
         self._decode = None
         self._drawn = None
         self._lidar = None
@@ -408,10 +429,14 @@ class MultiViewRenderBackend(RenderBackend):
             else self._lidar.start_decode(rollout.last_lidar)
         )
         if self._decode is not None:
-            pixels = decoded_views(
-                latent,
-                self._decode,
-                parallel=mesh if self._settings.parallel_decode else None,
+            pixels = (
+                self._decode(latent)
+                if isinstance(latent, list)
+                else decoded_views(
+                    latent,
+                    self._decode,
+                    parallel=mesh if self._settings.parallel_decode else None,
+                )
             )
         if not _presents(mesh):
             # The app presents on rank 0 alone, and reads nothing a worker returns.
@@ -460,6 +485,33 @@ class MultiViewRenderBackend(RenderBackend):
                 .sub(1)
             )
             profiler.record("lidar_render")
+        bev_pixels = None
+        if self._bev_renderer is not None:
+            from interactive_drive.rasterizer import _level_rig_poses_for_bev
+
+            config = self._bev
+            assert config is not None
+            rig = _level_rig_poses_for_bev(
+                torch.as_tensor(
+                    trajectory.rig_poses_world, dtype=torch.float32, device=self._device
+                )
+            )
+            bev_pixels = self._bev_renderer.render_bev(
+                rig,
+                torch.as_tensor(trajectory.timestamps_us, device=self._device),
+                width=config.width,
+                height=config.height,
+                height_m=config.height_m,
+                fov_degrees=config.fov_deg,
+                ego_dimensions_lwh=(
+                    self._vehicle.aabb_length_m,
+                    self._vehicle.aabb_width_m,
+                    self._vehicle.aabb_height_m,
+                )
+                if config.show_ego_car
+                else None,
+            )
+            profiler.record("bev")
         stages = profiler.sync_and_summarize()
 
         frames = int(pixels.shape[1])
@@ -476,6 +528,8 @@ class MultiViewRenderBackend(RenderBackend):
             "decode_ms": stages["decode"],
             "total_ms": sum(stages.values()),
         }
+        if bev_pixels is not None:
+            self._timings["bev_ms"] = stages["bev"]
         if self._lidar is not None:
             self._timings.update(rollout.last_metrics)
             self._timings.update(self._lidar.last_metrics)
@@ -490,6 +544,14 @@ class MultiViewRenderBackend(RenderBackend):
             drawn=drawn.take(frames),
             timestamps_us=trajectory.timestamps_us,
         )
+        if bev_pixels is not None:
+            bev_frames = lazy_rgb_frames_from_video_tensor(
+                bev_pixels.permute(0, 3, 1, 2), layout="tchw"
+            )
+            presented = tuple(
+                replace(frame, bev_host_uint8=bev_frames[i])
+                for i, frame in enumerate(presented)
+            )
         if lidar_pixels is not None:
             assert control_pixels is not None
             sensor = lazy_rgb_frames_from_video_tensor(lidar_pixels, layout="tchw")
@@ -593,6 +655,21 @@ class MultiViewRenderBackend(RenderBackend):
         geometry = _geometry(
             scene, settings, latent_patch_size=patch, fps=float(self._chunk.fps)
         )
+        view_sizes = (
+            None
+            if geometry.view_grids is None
+            else tuple(
+                (
+                    w * patch * WAN_SPATIAL_COMPRESSION,
+                    h * patch * WAN_SPATIAL_COMPRESSION,
+                )
+                for h, w in geometry.view_grids
+            )
+        )
+        if view_sizes is not None:
+            _note(
+                f"[cosmos3-nano-sim-auto] mixed_resolution cameras={dict(zip((camera.clipgt_name for camera in scene.cameras), view_sizes, strict=True))} tokens_per_frame={geometry.tokens_per_frame} denoise_steps={settings.denoise_steps} chunk_latents={settings.frames_per_chunk}"
+            )
 
         mesh = settings.parallel
         presents = _presents(mesh)
@@ -601,10 +678,8 @@ class MultiViewRenderBackend(RenderBackend):
             self._coverage = MapCoverage(prepared.scene)
         cameras = [camera.clipgt_name for camera in scene.cameras]
         lidar = settings.lidar_checkpoint is not None
-        # The rig frame is the anchor camera's, which the scene loader arranges,
-        # so the car's pose is already the anchor's and there is nothing to bolt.
         self._poses = SuppliedPoses(
-            np.eye(4, dtype=np.float32),
+            scene.cameras[0].sensor_to_rig_flu,
             opening_rig_to_world=np.asarray(
                 scene.initial_rig_to_world, dtype=np.float32
             ),
@@ -644,6 +719,18 @@ class MultiViewRenderBackend(RenderBackend):
                 parallel=mesh,
             )
 
+        if presents and self._bev is not None and self._bev.enabled:
+            self._bev_renderer = self._drawn._ludus
+            if self._bev_renderer is None:
+                # Prefetched conditioning owns its context in the worker process.
+                self._bev_renderer = open_clip(
+                    scene.scene_path,
+                    cameras[:1],
+                    device=self._device,
+                    prepared=prepared,
+                    requested_fps=float(self._chunk.fps),
+                )
+
         encode = make_control_encode_fn(
             dtype=self._network.config.dtype, device=self._device
         )
@@ -652,6 +739,7 @@ class MultiViewRenderBackend(RenderBackend):
                 _condition_clips(scene, geometry, device=self._device),
                 encode,
                 geometry=geometry,
+                view_sizes=view_sizes,
             ),
             latent_patch_size=patch,
         )
@@ -659,6 +747,7 @@ class MultiViewRenderBackend(RenderBackend):
             scene,
             fps=float(self._chunk.fps),
             lidar=lidar,
+            view_sizes=view_sizes,
         )
         if settings.prefetch_controls:
             from cosmos3_nano_sim_auto.impl.conditioning.control_worker import (
@@ -713,6 +802,7 @@ class MultiViewRenderBackend(RenderBackend):
                 geometry=geometry,
                 latent_patch_size=patch,
                 parallel=mesh,
+                view_sizes=view_sizes,
             )
         common: dict[str, Any] = dict(
             geometry=geometry,
@@ -769,6 +859,7 @@ class MultiViewRenderBackend(RenderBackend):
                 attention_scope=settings.attention_scope,
                 maskless_attention=settings.maskless_attention,
                 compile_denoise=settings.compile_denoise,
+                lazy_controls=not settings.prefetch_controls,
             )
         self._decoded_to = 0
         self._first_chunk_frames = (
@@ -785,12 +876,23 @@ class MultiViewRenderBackend(RenderBackend):
                 device=self._device,
                 compile=settings.decoder_compile,
             )
-            if decode_views and (decoding is not None or presents)
+            if view_sizes is None
+            and decode_views
+            and (decoding is not None or presents)
             else None
         )
-        # Building the rollout prefills it, which draws the whole control window
-        # before any chunk is generated. Read that here or the first chunk is
-        # charged for it, and its model stage understated by the same amount.
+        if view_sizes is not None:
+            self._decode = make_mixed_resolution_chunk_decoder(
+                view_sizes=view_sizes,
+                output_size=(
+                    int(scene.initial_rgbs[0].shape[1]),
+                    int(scene.initial_rgbs[0].shape[0]),
+                ),
+                dtype=self._network.config.dtype,
+                device=self._device,
+            )
+        # Prefill drawing belongs to initialization rather than the first
+        # chunk, including the opening frame in the live RGB path.
         if self._device.type == "cuda":
             torch.cuda.synchronize(self._device)
         self._window_ms = self._drawn.take_drawn_ms()
@@ -804,10 +906,9 @@ class _DrawnRig:
     double the one stage of a chunk that is ours, so each span is kept on the
     way past.
 
-    A queue rather than a single span, because control runs ahead of what is
-    shown: the whole window is drawn before the first chunk is generated, so the
-    frames a chunk presents were drawn some chunks ago. Spans arrive in frame
-    order and contiguously, which is what lets this be a queue and nothing more.
+    A queue rather than a single span: the opening map and a generated chunk's
+    map arrive separately, and explicit prefetch can run ahead of presentation.
+    Spans arrive contiguously in frame order.
 
     On a mesh the two readers want different things, which is the whole reason
     this sits between them. The encoder wants the cameras this rank owns and
@@ -1102,6 +1203,23 @@ def _geometry(
     patch_h, patch_w = patch_grid(
         int(frame.shape[0]), int(frame.shape[1]), latent_patch_size=latent_patch_size
     )
+    view_grids = None
+    if settings.auxiliary_scale != 1:
+        if not any(
+            camera.clipgt_name == "camera_front_wide_120fov" for camera in scene.cameras
+        ):
+            raise ValueError(
+                "Mixed resolutions require camera_front_wide_120fov in the rig"
+            )
+        view_grids = tuple(
+            (patch_h, patch_w)
+            if camera.clipgt_name == "camera_front_wide_120fov"
+            else (
+                max(1, math.ceil(patch_h * settings.auxiliary_scale)),
+                max(1, math.ceil(patch_w * settings.auxiliary_scale)),
+            )
+            for camera in scene.cameras
+        )
     return ClipGeometry(
         num_views=len(scene.cameras),
         frames_per_view=None,
@@ -1111,6 +1229,7 @@ def _geometry(
         condition_frames=settings.condition_frames,
         seconds_per_frame=WAN_TEMPORAL_COMPRESSION / fps,
         rig_view_ids=camera_view_ids([camera.clipgt_name for camera in scene.cameras]),
+        view_grids=view_grids,
     )
 
 
@@ -1133,7 +1252,11 @@ def _condition_clips(
 
 
 def _prompt(
-    scene: SceneBundle, *, fps: float, lidar: bool = False
+    scene: SceneBundle,
+    *,
+    fps: float,
+    lidar: bool = False,
+    view_sizes: Sequence[tuple[int, int]] | None = None,
 ) -> tuple[torch.Tensor, tuple[int, ...] | None]:
     """The words this drive conditions on, as token ids.
 
@@ -1159,5 +1282,11 @@ def _prompt(
     # captions carries the span they were written against. A drive has no end
     # of its own to state, so that span is the pairing training would have had.
     first, last = sample.frame_range or (0, 0)
-    prompt = prompt_token_ids(sample, pixel_frames=last - first, fps=fps, lidar=lidar)
+    prompt = prompt_token_ids(
+        sample,
+        pixel_frames=last - first,
+        fps=fps,
+        lidar=lidar,
+        **({"view_sizes": view_sizes} if view_sizes is not None else {}),
+    )
     return prompt.text_ids, prompt.view_text_tokens

@@ -131,6 +131,60 @@ def rewrite(root, name, data):
         prepared.write_json(root / "scene.json", manifest)
 
 
+@pytest.mark.parametrize("ids,fps", [(tuple(range(6)), 10), ((0, 2, 4), 30)])
+def test_camera_subsets_preserve_calibration_geometry_and_clock(bundle, ids, fps):
+    from cosmos3_nano_sim_auto.inputs import MultiviewSample
+
+    cameras = [prepared.CAMERAS[index] for index in ids]
+    poses = prepared.read_json(bundle / "poses.json")
+    rewrite(bundle, "poses.json", {name: poses[name] for name in cameras})
+    sample = prepared.read_json(bundle / "sample.json")
+    sample["multiview"]["views"] = [
+        view for view in sample["multiview"]["views"] if view["camera_key"] in cameras
+    ]
+    sample["scene_start"]["timestamp_us"] = str(1_000_000 + round(1e6 / fps))
+    rewrite(bundle, "sample.json", sample)
+    manifest = prepared.read_json(bundle / "scene.json")
+    calibration = {name: manifest["cameras"][name] for name in cameras}
+    manifest["camera_order"] = cameras
+    manifest["cameras"] = calibration
+    manifest["end_us"] = str(1_000_000 + round(manifest["frames"] * 1e6 / fps))
+    for name in set(prepared.CAMERAS[:7]) - set(cameras):
+        for directory in ("controls", "initial_rgb"):
+            del manifest["files_sha256"][f"{directory}/{name}.png"]
+    rewrite(bundle, "scene.json", manifest)
+
+    result = prepared.load(bundle)
+    assert tuple(result.tracks) == tuple(cameras)
+    for name in cameras:
+        np.testing.assert_array_equal(result.tracks[name], poses[name])
+        np.testing.assert_array_equal(
+            result.intrinsics(name), calibration[name]["intrinsics"]
+        )
+    assert prepared.map_data(result.scene) == prepared.read_json(bundle / "map.json")
+    geometry = MultiviewSample.load(bundle / "sample.json").geometry(
+        pixel_frames=13, latent_patch_size=2, frames_per_chunk=3, fps=fps
+    )
+    assert geometry.rig_view_ids == ids
+    assert geometry.seconds_per_frame == pytest.approx(4 / fps)
+
+    (bundle / "map.json").write_text("{}")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        prepared.load(bundle)
+
+
+@pytest.mark.parametrize(
+    "cameras",
+    [[], ["CAM_FRONT"], [prepared.CAMERAS[0]] * 2, list(prepared.CAMERAS[1::-1])],
+)
+def test_invalid_camera_subsets_are_refused(bundle, cameras):
+    manifest = prepared.read_json(bundle / "scene.json")
+    manifest["camera_order"] = cameras
+    rewrite(bundle, "scene.json", manifest)
+    with pytest.raises(ValueError):
+        prepared.load(bundle)
+
+
 def test_round_trip_preserves_float_bits_timestamps_and_light_lifetimes(bundle):
     scene = prepared.load(bundle)
     assert prepared.map_data(scene.scene) == prepared.read_json(bundle / "map.json")
@@ -371,6 +425,62 @@ def test_interactive_scene_uses_recorded_opening_and_shared_cpu_geometry(
     np.testing.assert_array_equal(result.initial_rig_to_world[:3, 3], [1, 0, 0])
     np.testing.assert_allclose(
         result.cameras[1].sensor_to_rig_flu[:3, 3], [0, 0, -0.25]
+    )
+
+
+def test_calibrated_vehicle_frame_reconstructs_every_recorded_camera(
+    bundle, monkeypatch
+):
+    from cosmos3_nano_sim_auto.apps.interactive_drive import scene as app
+    from cosmos3_nano_sim_auto.apps.interactive_drive.poses import SuppliedPoses
+    from interactive_drive.config import RasterConfig
+    from interactive_drive.math3d import (
+        euler_xyz_degrees_to_matrix,
+        rig_pose_from_state,
+        transform_from_rt,
+    )
+
+    mount = {"roll-pitch-yaw": [2, -3, 5], "t": [1.9, 0.2, 0.7]}
+    sensor_to_rig = transform_from_rt(
+        euler_xyz_degrees_to_matrix(mount["roll-pitch-yaw"]), mount["t"]
+    )
+    vehicle = rig_pose_from_state(10, 20, 1, 0.3, 0.04, -0.02)
+    poses = {}
+    for i, name in enumerate(prepared.CAMERAS[:7]):
+        camera_mount = sensor_to_rig.copy()
+        camera_mount[1, 3] += i * 0.3
+        pose = vehicle @ camera_mount @ prepared.camera_math.RDF_TO_FLU
+        poses[name] = np.repeat(pose[None], 4, axis=0).tolist()
+    rewrite(bundle, "poses.json", poses)
+    manifest = prepared.read_json(bundle / "scene.json")
+    manifest["cameras"][prepared.CAMERAS[0]]["virtual_camera"] = {
+        "nominalSensor2Rig_FLU": mount
+    }
+    rewrite(bundle, "scene.json", manifest)
+    monkeypatch.setattr(
+        app,
+        "_opening_frames",
+        lambda *a, **kw: tuple(np.zeros((8, 8, 3), np.uint8) for _ in range(7)),
+    )
+    scene = app.load_scene_bundle(
+        bundle, prepared.CAMERAS[:7], "default", None, RasterConfig()
+    )
+    np.testing.assert_allclose(scene.initial_rig_to_world, vehicle, atol=2e-6)
+    for camera in scene.cameras:
+        recorded = (
+            scene.initial_rig_to_world
+            @ camera.sensor_to_rig_flu
+            @ prepared.camera_math.RDF_TO_FLU
+        )
+        np.testing.assert_allclose(recorded, poses[camera.clipgt_name][1], atol=4e-6)
+    supplied = SuppliedPoses(
+        scene.cameras[0].sensor_to_rig_flu,
+        opening_rig_to_world=scene.initial_rig_to_world,
+        speed_mps=3,
+        seconds_per_frame=0.1,
+    )
+    np.testing.assert_allclose(
+        supplied.poses(0, 1)[0], poses[prepared.CAMERAS[0]][1], atol=4e-6
     )
 
 

@@ -4,8 +4,8 @@
 """Load prepared scene bundles into Interactive Drive's scene contract.
 
 The bundle supplies the model's palette, geometry, calibration and opening RGB.
-The anchor camera defines the rig frame, with other camera offsets derived from
-the recorded tracks. Source conversion and image generation happen offline.
+Explicit camera-to-vehicle calibration defines the rig frame when available;
+otherwise the anchor camera does. Source conversion happens offline.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 from interactive_drive.config import AppConfig, RasterConfig
+from interactive_drive.math3d import euler_xyz_degrees_to_matrix, transform_from_rt
 from interactive_drive.types import CameraCalibration, SceneBundle
 
 from cosmos3_nano_sim_auto.impl.conditioning import camera_rig
@@ -58,7 +59,7 @@ def _calibration(
     clip: Path,
     name: str,
     track: np.ndarray,
-    anchor: np.ndarray,
+    rig_to_world: np.ndarray,
     opening: int,
     intrinsics: np.ndarray,
 ) -> CameraCalibration:
@@ -81,7 +82,7 @@ def _calibration(
     distortion = (
         intrinsics[11:14] if intrinsics.size >= 14 else np.array([1.0, 0.0, 0.0])
     )
-    sensor_to_rig = np.linalg.inv(anchor[opening]) @ track[opening]
+    sensor_to_rig = np.linalg.inv(rig_to_world) @ track[opening] @ _FLU_FROM_RECORDED
     return CameraCalibration(
         clipgt_name=name,
         logical_name=name,
@@ -92,9 +93,7 @@ def _calibration(
         polynomial=intrinsics[4:10].astype(np.float32),
         is_backward_polynomial=bool(intrinsics[10] > 0),
         linear_cde=np.asarray(distortion, dtype=np.float32),
-        sensor_to_rig_flu=(RDF_TO_FLU @ sensor_to_rig @ _FLU_FROM_RECORDED).astype(
-            np.float32
-        ),
+        sensor_to_rig_flu=sensor_to_rig.astype(np.float32),
     )
 
 
@@ -120,7 +119,20 @@ def _prepared_bundle(
         raise ValueError(f"Prepared scene requires {fps:.6f} FPS")
     sample = MultiviewSample.load(root / "sample.json")
     anchor = prepared.tracks[cameras[0]]
-    rig_to_world = anchor[posed] @ _FLU_FROM_RECORDED
+    rig_track = anchor @ _FLU_FROM_RECORDED
+    mount = (
+        manifest["cameras"][cameras[0]]
+        .get("virtual_camera", {})
+        .get("nominalSensor2Rig_FLU")
+    )
+    if mount is not None:
+        sensor_to_rig = transform_from_rt(
+            euler_xyz_degrees_to_matrix(mount["roll-pitch-yaw"]), mount["t"]
+        )
+        if not np.isfinite(sensor_to_rig).all():
+            raise ValueError("Camera-to-vehicle calibration must be finite")
+        rig_track = rig_track @ np.linalg.inv(sensor_to_rig)
+    rig_to_world = rig_track[posed]
     return SceneBundle(
         scene_path=root,
         scene_id=sample.name,
@@ -137,7 +149,7 @@ def _prepared_bundle(
                 root,
                 name,
                 prepared.tracks[name],
-                anchor,
+                rig_to_world,
                 posed,
                 prepared.intrinsics(name),
             )
@@ -146,7 +158,9 @@ def _prepared_bundle(
         initial_rig_to_world=rig_to_world.astype(np.float32),
         initial_timestamp_us=int(manifest["start_us"]) + round(posed * 1e6 / fps),
         initial_yaw_rad=_yaw_of(rig_to_world),
-        initial_speed_mps=recorded_speed(anchor, fps, first=posed),
+        initial_speed_mps=recorded_speed(
+            rig_track, fps, first=posed, over=max(1, round(fps))
+        ),
         initial_rgbs=_opening_frames(sample, cameras, start_frame=0, raster=raster),
         prompt=("" if sample.view_captions else sample.prompt)
         if prompt_override is None

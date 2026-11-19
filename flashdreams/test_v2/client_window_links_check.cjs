@@ -42,8 +42,9 @@ video.videoHeight = 200;
 let viewport = {left: 10, top: 20, width: 1000, height: 1000};
 video.getBoundingClientRect = () => viewport;
 const status = new Element();
+const recording = new Map(["recording-controls", "recording-start", "recording-stop", "recording-download", "recording-status"].map(id => [id, new Element()]));
 const document = {
-  getElementById: id => id === "video" ? video : status,
+  getElementById: id => id === "video" ? video : id === "status" ? status : recording.get(id),
   createElement: () => assert.fail("The viewer must not create link overlays"),
   hasFocus: () => true,
 };
@@ -51,6 +52,8 @@ const opened = [];
 const window = new Element();
 window.requestAnimationFrame = () => 1;
 window.cancelAnimationFrame = () => {};
+window.clearTimeout = () => {};
+window.setTimeout = handler => { handler(); return 1; };
 // noopener may return null on success as well as when a popup is blocked.
 window.open = (...args) => { opened.push(args); return null; };
 const context = vm.createContext({
@@ -141,3 +144,45 @@ assert.deepEqual(channels[0].sent.slice(-2), [
   {type: "touch", action: "start", touch_id: 7, x: 0.5, y: 0.5, in_content: true, pressure: 0.5, primary: true},
   {type: "touch", action: "end", touch_id: 7, x: 0.5, y: 0.5, in_content: true, pressure: 0.5, primary: false},
 ]);
+
+// Viewport changes resize UI presentation, preserving the browser aspect ratio.
+window.innerWidth = 3840;
+window.innerHeight = 1822;
+channels[0].emit("open");
+assert.deepEqual(channels[0].sent.at(-1), {type: "viewport_size", width: 1920, height: 912});
+window.innerWidth = 1440;
+window.innerHeight = 900;
+window.emit("resize");
+assert.deepEqual(channels[0].sent.at(-1), {type: "viewport_size", width: 1440, height: 900});
+
+const recordingMessage = payload => channels[0].emit("message", {data: JSON.stringify(payload)});
+recordingMessage({type: "recording", state: "idle"});
+assert.equal(recording.get("recording-controls").hidden, false);
+assert.equal(recording.get("recording-start").disabled, false);
+recording.get("recording-start").emit("click");
+assert.deepEqual(channels[0].sent.at(-1), {type: "recording", action: "start"});
+assert.equal(recording.get("recording-start").disabled, true);
+recordingMessage({type: "recording", state: "recording", frames: 5});
+assert.equal(recording.get("recording-stop").disabled, false);
+recording.get("recording-stop").emit("click");
+assert.deepEqual(channels[0].sent.at(-1), {type: "recording", action: "stop"});
+assert.equal(recording.get("recording-stop").disabled, true);
+recordingMessage({type: "recording", state: "ready", frames: 5});
+const archive = "/api/downloads/" + "a".repeat(43);
+recordingMessage({type: "download_ready", id: "drive-test", name: "drive-test.zip", url: archive});
+assert.equal(recording.get("recording-download").href, archive);
+assert.equal(recording.get("recording-download").hidden, false);
+for (const url of ["javascript:alert(1)", "https://evil.test/", "/etc/passwd", "/api/downloads/../private"]) {
+  recordingMessage({type: "download_ready", url});
+  assert.equal(recording.get("recording-download").href, archive);
+}
+const toolbarTarget = {closest: () => recording.get("recording-controls")};
+window.emit("keydown", {target: video, code: "KeyW", key: "w"});
+window.emit("keyup", {target: toolbarTarget, code: "KeyW", key: "w"});
+assert.deepEqual(channels[0].sent.slice(-2), [
+  {type: "keyboard", key: "w", pressed: true},
+  {type: "keyboard", key: "w", pressed: false},
+]);
+const sentCount = channels[0].sent.length;
+window.emit("keydown", {target: toolbarTarget, code: "Space", key: " "});
+assert.equal(channels[0].sent.length, sentCount, "Toolbar activation must not apply the driving brake");

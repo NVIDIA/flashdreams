@@ -3,6 +3,7 @@
 
 import math
 import time
+from dataclasses import replace
 from collections.abc import Sequence
 
 import numpy as np
@@ -39,6 +40,13 @@ def integrate_vehicle(
     dt_s: float,
     vehicle: VehicleConfig,
 ) -> VehicleState:
+    # ponytail: Fixed 120 Hz substeps cover the current tire/suspension stiffness;
+    # stiffer vehicle models need a smaller step or an implicit solver.
+    if dt_s > 1.0 / 120.0:
+        substeps = math.ceil(dt_s * 120.0)
+        for _ in range(substeps):
+            state = integrate_vehicle(state, command, dt_s / substeps, vehicle)
+        return state
     steer_rad = state.steer_rad
     if command.steer_is_direct:
         max_steer = 0.4 if command.manual_control else vehicle.max_steer_rad
@@ -330,12 +338,13 @@ def sample_chunk_trajectory(
         )
     timestamps = np.array(
         [
-            start_timestamp_us + frame_idx * chunk_config.frame_interval_us
+            start_timestamp_us + round(frame_idx * chunk_config.frame_interval_s * 1e6)
             for frame_idx in range(chunk_size)
         ],
         dtype=np.int64,
     )
     poses = np.zeros((chunk_size, 4, 4), dtype=np.float32)
+    vehicle_states = []
 
     state = VehicleState(**start_state.__dict__)
     actor_samples: list[tuple[tuple[str, np.ndarray, np.ndarray, bool], ...]] = []
@@ -362,6 +371,16 @@ def sample_chunk_trajectory(
     command_index = 0
     integrated_s = 0.0
     for frame_idx in range(chunk_size):
+        vehicle_states.append(replace(state))
+        # A pose stamped t must precede integration over [t, t + dt).
+        poses[frame_idx] = rig_pose_from_state(
+            x_m=state.x_m,
+            y_m=state.y_m,
+            z_m=state.z_m,
+            yaw_rad=state.yaw_rad,
+            pitch_rad=state.pitch_rad + state.suspension_pitch_rad,
+            roll_rad=state.roll_rad + state.suspension_roll_rad,
+        )
         frame_end_s = (frame_idx + 1) * chunk_config.frame_interval_s
         while integrated_s < frame_end_s:
             next_command_s = (
@@ -408,14 +427,6 @@ def sample_chunk_trajectory(
                 physics_debug_frames.append(physics_world.debug_frame(state))
         if ground_snapper is not None:
             state = ground_snapper.snap(state, vehicle_config)
-        poses[frame_idx] = rig_pose_from_state(
-            x_m=state.x_m,
-            y_m=state.y_m,
-            z_m=state.z_m,
-            yaw_rad=state.yaw_rad,
-            pitch_rad=state.pitch_rad + state.suspension_pitch_rad,
-            roll_rad=state.roll_rad + state.suspension_roll_rad,
-        )
 
     dynamic_actors = (
         physics_world.build_trajectories(timestamps, actor_samples)
@@ -426,6 +437,7 @@ def sample_chunk_trajectory(
         timestamps_us=timestamps,
         rig_poses_world=poses,
         boundary_state_after_chunk=state,
+        vehicle_states=tuple(vehicle_states),
         dynamic_actors=dynamic_actors,
         physics_debug_frames=tuple(physics_debug_frames),
         actor_collision_detected=actor_collision_detected,
@@ -459,6 +471,11 @@ def state_from_initial_pose(
         y_m=float(initial_rig_to_world[1, 3]),
         z_m=float(initial_rig_to_world[2, 3]),
         yaw_rad=initial_yaw_rad,
+        pitch_rad=math.atan2(
+            -initial_rig_to_world[2, 0],
+            math.hypot(initial_rig_to_world[0, 0], initial_rig_to_world[1, 0]),
+        ),
+        roll_rad=math.atan2(initial_rig_to_world[2, 1], initial_rig_to_world[2, 2]),
         speed_mps=initial_speed_mps,
         steer_rad=0.0,
         velocity_x_mps=math.cos(initial_yaw_rad) * initial_speed_mps,

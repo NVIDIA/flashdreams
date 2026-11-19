@@ -7,6 +7,12 @@ const pointerControls = peer.createDataChannel("pointer-controls");
 peer.addTransceiver("video", {direction: "recvonly"});
 const video = document.getElementById("video");
 const status = document.getElementById("status");
+const recordingControls = document.getElementById("recording-controls");
+const recordingStart = document.getElementById("recording-start");
+const recordingStop = document.getElementById("recording-stop");
+const recordingDownload = document.getElementById("recording-download");
+const recordingStatus = document.getElementById("recording-status");
+let recordingState = "idle";
 const pressedKeys = new Map();
 const pressedButtons = new Set();
 const gamepadSnapshots = new Map();
@@ -48,6 +54,37 @@ const send = (payload, channel = controls) => {
   }
 };
 
+const renderRecording = payload => {
+  recordingControls.hidden = false;
+  recordingState = payload.state;
+  const active = recordingState === "recording";
+  const connected = controls.readyState === "open";
+  recordingStart.disabled = !connected || active;
+  recordingStop.disabled = !connected || !active;
+  const frames = Number.isSafeInteger(payload.frames) ? payload.frames : 0;
+  recordingStatus.textContent = active ? `正在录制 · ${frames} 帧`
+    : recordingState === "ready" ? `已保存 ${frames} 帧，原始数据保留在服务器`
+    : recordingState === "error" ? `录制失败：${payload.message || "请检查服务器数据目录"}`
+    : "相机帧 / 位姿 / 控制 / 地图";
+};
+
+const requestRecording = action => {
+  if (!send({type: "recording", action})) {
+    recordingStatus.textContent = "连接未就绪，请等待连接恢复后重试";
+    return;
+  }
+  recordingStart.disabled = true;
+  recordingStop.disabled = true;
+  recordingStatus.textContent = action === "start" ? "等待模型边界开始录制…" : "正在保存并归档…";
+};
+recordingStart.addEventListener("click", () => requestRecording("start"));
+recordingStop.addEventListener("click", () => requestRecording("stop"));
+controls.addEventListener("close", () => {
+  recordingStart.disabled = true;
+  recordingStop.disabled = true;
+  if (recordingState === "recording") recordingStatus.textContent = "连接断开；服务器继续保存录制，请重新连接后停止";
+});
+
 const sendInput = (
   payload,
   {
@@ -60,6 +97,25 @@ const sendInput = (
   }
   return send(payload, channel);
 };
+
+const sendViewportSize = () => {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  if (!width || !height) return;
+  // Keep the viewport's aspect ratio without rendering the dashboard at 4K.
+  const scale = Math.min(1, 1920 / width, 1080 / height);
+  send({
+    type: "viewport_size",
+    width: Math.max(64, Math.round(width * scale / 2) * 2),
+    height: Math.max(64, Math.round(height * scale / 2) * 2),
+  });
+};
+let viewportResizeTimer;
+controls.addEventListener("open", sendViewportSize);
+window.addEventListener("resize", () => {
+  window.clearTimeout(viewportResizeTimer);
+  viewportResizeTimer = window.setTimeout(sendViewportSize, 150);
+});
 
 const updateCursorVisibility = () => {
   video.style.cursor = hideCursor && document.hasFocus() ? "none" : "";
@@ -83,6 +139,19 @@ controls.addEventListener("message", event => {
   }
   try {
     const payload = JSON.parse(event.data);
+    if (payload?.type === "recording") {
+      renderRecording(payload);
+      return;
+    }
+    if (payload?.type === "download_ready") {
+      if (typeof payload.url === "string" && /^\/api\/downloads\/[A-Za-z0-9_-]{43}$/.test(payload.url)) {
+        recordingControls.hidden = false;
+        recordingDownload.href = payload.url;
+        recordingDownload.download = payload.name;
+        recordingDownload.hidden = false;
+      }
+      return;
+    }
     if (payload?.type === "cursor_options") {
       applyCursorOptions(payload);
       return;
@@ -123,6 +192,7 @@ peer.addEventListener("connectionstatechange", () => {
 });
 
 window.addEventListener("keydown", event => {
+  if (event.target?.closest?.("#recording-controls")) return;
   const keyId = event.code || event.key;
   if (pressedKeys.has(keyId)) {
     return;

@@ -737,13 +737,13 @@ class _DrivenPipe:
 
 
 def _host(frames: range) -> np.ndarray:
-    """The host's path at a metre a frame, its frame 0 one frame past the opening.
+    """The host's path at a metre a frame, with frame 0 at the opening.
 
     Straight for the first 13 frames, then drifting a metre left a frame, so a
     drawn frame's sideways position says which host frame it was drawn from.
     """
     path = np.repeat(np.eye(4, dtype=np.float32)[None], len(frames), axis=0)
-    path[:, 0, 3] = [frame + 1 for frame in frames]
+    path[:, 0, 3] = list(frames)
     path[:, 1, 3] = [max(frame - 12, 0) for frame in frames]
     return path
 
@@ -826,7 +826,7 @@ def test_prefetch_draws_the_next_chunk_a_chunk_late_along_the_hosts_own_path() -
     forward = [int(frame[0][0, 0, 0]) for frame in frames]
     sideways = [int(frame[0][0, 0, 1]) for frame in frames]
     # One path, every frame once, in order and without a jump...
-    assert forward == list(range(1, 62))
+    assert forward == list(range(61))
     # ...on which the host's steering arrives exactly one chunk late.
     assert sideways == [max(frame - 24, 0) for frame in range(61)]
 
@@ -842,7 +842,7 @@ def test_with_no_delay_a_request_waits_for_the_hosts_poses_and_then_uses_them() 
     controls.tokens(0, 1)
 
     assert pipe.sent == [(0, 1)]
-    assert int(drawn.take(1)[0][0][0, 0, 0]) == 1
+    assert int(drawn.take(1)[0][0][0, 0, 0]) == 0
 
 
 def test_a_worker_rank_decodes_its_own_cameras_and_presents_nothing(

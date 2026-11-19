@@ -17,6 +17,7 @@ produces. Over a chunk it is not, a chunk not knowing where its frames start, so
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 import torch
 from torch import Tensor
@@ -96,6 +97,27 @@ def _mrope_ids(
     """``[3, N]`` position ids -- temporal, height, width -- in packed token order."""
     if fps <= 0:
         raise ValueError(f"fps must be positive, got {fps}.")
+    if geometry.view_grids is not None:
+        return torch.cat(
+            [
+                _mrope_ids(
+                    replace(
+                        geometry,
+                        num_views=1,
+                        patch_h=h,
+                        patch_w=w,
+                        rig_view_ids=None,
+                        view_grids=None,
+                    ),
+                    frames,
+                    fps=fps,
+                    temporal_offset=temporal_offset,
+                    base_fps=base_fps,
+                )
+                for h, w in geometry.view_grids
+            ],
+            dim=1,
+        )
     patch_h, patch_w = geometry.patch_h, geometry.patch_w
     spatial = patch_h * patch_w
 

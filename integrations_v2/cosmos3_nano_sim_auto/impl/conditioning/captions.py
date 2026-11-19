@@ -61,14 +61,36 @@ _AV_WSM_CONTROL_INSTRUCTION = (
     "Use captions for appearance and unconstrained background details; WSM takes precedence in any conflict."
 )
 
-AV_MULTIVIEW_TRANSFER_SYSTEM_PROMPT = (
+_AV_WSM_OPENING_PRIORITY_INSTRUCTION = (
+    "Follow WSM controls for vehicles (including trucks), cyclists, pedestrians, "
+    "traffic lights, and traffic signs. Keep the road markings, lane boundaries, and road "
+    "boundaries that are visible in the opening frames, even where WSM omits them; do not "
+    "add road features in these categories that are absent from both WSM and the opening "
+    "frames. Use captions for appearance and unconstrained background details; WSM takes "
+    "precedence for vehicles and other controlled objects, and the opening frames take "
+    "precedence for road features missing from WSM."
+)
+"""Recorded-scene variant: static road features follow the opening frames rather than
+an incomplete WSM, so a map that failed to draw real markings cannot erase them."""
+
+_MULTIVIEW_TRANSFER_PREAMBLE = (
     "You are a helpful assistant that generates temporally synchronized, geometrically consistent autonomous-driving "
     "videos from per-camera scene descriptions and World Scenario Map (WSM) control videos depicting the controlled "
     "objects and road layout. Treat all camera views as simultaneous observations of the same driving scene, "
     "preserving each camera's viewpoint, shared ego motion, road layout, object identity and motion, weather, "
-    f"lighting, and cross-view consistency.\n\n{_AV_WSM_CONTROL_INSTRUCTION}"
+    "lighting, and cross-view consistency.\n\n"
+)
+
+AV_MULTIVIEW_TRANSFER_SYSTEM_PROMPT = (
+    f"{_MULTIVIEW_TRANSFER_PREAMBLE}{_AV_WSM_CONTROL_INSTRUCTION}"
 )
 """Exact ``av_multiview_transfer`` system message for RGB generation."""
+
+AV_MULTIVIEW_TRANSFER_OPENING_PRIORITY_SYSTEM_PROMPT = (
+    f"{_MULTIVIEW_TRANSFER_PREAMBLE}{_AV_WSM_OPENING_PRIORITY_INSTRUCTION}"
+)
+"""The multiview transfer message with the opening-priority WSM instruction, for
+recorded scenes whose WSM omits road features the opening frames actually show."""
 
 AV_JOINT_CAMERA_LIDAR_TRANSFER_SYSTEM_PROMPT = (
     "You are a helpful assistant that jointly generates temporally synchronized, geometrically consistent "

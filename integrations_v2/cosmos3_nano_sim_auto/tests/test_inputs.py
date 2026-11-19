@@ -21,6 +21,7 @@ import torch
 from cosmos3_nano_sim_auto import inputs as inputs_module
 from cosmos3_nano_sim_auto.impl.conditioning.captions import (
     AV_JOINT_CAMERA_LIDAR_TRANSFER_SYSTEM_PROMPT,
+    AV_MULTIVIEW_TRANSFER_OPENING_PRIORITY_SYSTEM_PROMPT,
     AV_MULTIVIEW_TRANSFER_SYSTEM_PROMPT,
     CAMERA_CAPTION_PREFIXES,
     caption_json,
@@ -740,6 +741,44 @@ def test_system_message_reaches_chat_template_for_every_caption_path(
             assert sample.prompt in messages[1]["content"]
     assert prompt.text_ids.tolist() == [10, 11, 12] * len(conversations)
     assert prompt.view_text_tokens == ((3,) * views if per_view_captions else None)
+
+
+def test_an_explicit_system_prompt_replaces_the_training_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The opening-priority variant reaches the chat template verbatim, and a
+    ``None`` system prompt keeps the exact training message. The two differing
+    is what makes the recorded-scene experiment a real comparison."""
+    from cosmos_interactive import _tokenizer
+
+    conversations: list[list[dict[str, str]]] = []
+
+    def apply_chat_template(
+        messages: list[dict[str, str]], **kwargs: object
+    ) -> list[int]:
+        conversations.append(messages)
+        return [10, 11]
+
+    tokenizer = SimpleNamespace(apply_chat_template=apply_chat_template)
+    monkeypatch.setattr(_tokenizer, "load_tokenizer", lambda _: tokenizer)
+    monkeypatch.setattr(_tokenizer, "generation_special_token_ids", lambda _: [12])
+    sample = dataclasses.replace(_sample(), prompt="A rainy residential street.")
+
+    prompt_token_ids(
+        sample,
+        pixel_frames=200,
+        system_prompt=AV_MULTIVIEW_TRANSFER_OPENING_PRIORITY_SYSTEM_PROMPT,
+    )
+    prompt_token_ids(sample, pixel_frames=200)
+
+    systems = {messages[0]["content"] for messages in conversations}
+    assert systems == {
+        AV_MULTIVIEW_TRANSFER_OPENING_PRIORITY_SYSTEM_PROMPT,
+        AV_MULTIVIEW_TRANSFER_SYSTEM_PROMPT,
+    }
+    assert conversations[0][0]["content"] == (
+        AV_MULTIVIEW_TRANSFER_OPENING_PRIORITY_SYSTEM_PROMPT
+    )
 
 
 def test_720p_padding_preserves_seven_camera_latents_and_token_order():

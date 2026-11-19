@@ -16,11 +16,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
 from importlib.resources import files
+from pathlib import Path
+from secrets import token_urlsafe
 from typing import Any, Literal, cast
 
 import numpy as np
 import torch
 from aiohttp import web
+from aiohttp.helpers import content_disposition_header
 from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
@@ -40,9 +43,12 @@ from flashdreams.runtime_v2.user_input_event import (
     KeyboardUserInputEvent,
     MouseUserInputEvent,
     QueryStringUserInputEvent,
+    RecordingUserInputEvent,
     ResetUserInputEvent,
+    SelectCameraUserInputEvent,
     TouchUserInputEvent,
     UserInputEvent,
+    ViewportSizeUserInputEvent,
     XRControllerUserInputEvent,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -334,6 +340,10 @@ class WebRTCServer:
         self._peer_connection: RTCPeerConnection | None = None
         self._control_channel: Any | None = None
         self._sent_cursor_options: tuple[bool, bool] | None = None
+        self._last_client_data: str | None = None
+        self._download_paths: dict[str, tuple[Path, str]] = {}
+        self._downloads: dict[str, Path] = {}
+        self._sent_downloads: set[str] = set()
         self._link_lock = threading.Lock()
         self._links: tuple[ClientWindowLink, ...] = ()
         self._pressed_link: tuple[str, int, ClientWindowLink] | None = None
@@ -650,6 +660,68 @@ class WebRTCServer:
         )
         track.enqueue(queued_frame)
 
+        channel = self._control_channel
+        if (
+            self._loop is not None
+            and channel is not None
+            and channel.readyState == "open"
+            and (result.client_data is not None or result.client_files)
+        ):
+            messages = (
+                result.client_data
+                if isinstance(result.client_data, list)
+                else [result.client_data]
+                if result.client_data is not None
+                else []
+            )
+            packets = [json.dumps(message, allow_nan=False) for message in messages]
+            payload = "\n".join(packets)
+            approved_files = dict(result.client_files)
+
+            def send() -> None:
+                if self._control_channel is channel and channel.readyState == "open":
+                    if payload != self._last_client_data:
+                        self._last_client_data = payload
+                        for packet in packets:
+                            channel.send(packet)
+                    self._send_downloads(channel, approved_files)
+
+            self._loop.call_soon_threadsafe(send)
+
+    def _send_downloads(self, channel: Any, approved: dict[str, Path]) -> None:
+        """Grant opaque download capabilities for application-approved files."""
+        for identifier, candidate in approved.items():
+            path = candidate.resolve()
+            if not path.is_file():
+                continue
+            previous = self._download_paths.get(identifier)
+            if previous is None or previous[0] != path:
+                if previous is not None:
+                    self._downloads.pop(previous[1], None)
+                    self._sent_downloads.discard(previous[1])
+                token = token_urlsafe(32)
+                self._download_paths[identifier] = (path, token)
+                self._downloads[token] = path
+                if len(self._download_paths) > 64:
+                    oldest = next(iter(self._download_paths))
+                    _, expired = self._download_paths.pop(oldest)
+                    self._downloads.pop(expired, None)
+                    self._sent_downloads.discard(expired)
+            else:
+                token = previous[1]
+            if token not in self._sent_downloads:
+                channel.send(
+                    json.dumps(
+                        {
+                            "type": "download_ready",
+                            "id": identifier,
+                            "name": path.name,
+                            "url": f"/api/downloads/{token}",
+                        }
+                    )
+                )
+                self._sent_downloads.add(token)
+
     def close(self) -> None:
         """Close the peer connection and stop the WebRTC server."""
         if self._closed:
@@ -785,7 +857,9 @@ class WebRTCServer:
         app.router.add_get("/", self._serve_browser)
         app.router.add_get("/app.js", self._serve_browser_script)
         app.router.add_get("/healthz", self._health)
+        app.router.add_get("/api/downloads/{token}", self._download)
         app.router.add_post("/api/webrtc/offer", self._offer)
+        app.router.add_options("/api/webrtc/offer", self._options_offer)
         runner = web.AppRunner(app)
         await runner.setup()
         address_family = socket.AF_INET6 if ":" in self._host else socket.AF_INET
@@ -812,6 +886,22 @@ class WebRTCServer:
         """Return the browser client's JavaScript."""
         return web.Response(text=_BROWSER_SCRIPT, content_type="text/javascript")
 
+    async def _download(self, request: web.Request) -> web.FileResponse:
+        """Serve only a file explicitly published by the running application."""
+        path = self._downloads.get(request.match_info["token"])
+        if path is None or not path.is_file():
+            raise web.HTTPNotFound()
+        return web.FileResponse(
+            path,
+            headers={
+                "Content-Disposition": content_disposition_header(
+                    "attachment", filename=path.name
+                ),
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
     async def _health(self, _: web.Request) -> web.Response:
         """Report whether the server has an open session and client."""
         return web.json_response(
@@ -820,6 +910,16 @@ class WebRTCServer:
                 "client_connected": self._client_connected,
                 "hide_cursor": self._hide_cursor,
                 "lock_cursor_to_window": self._lock_cursor_to_window,
+            }
+        )
+
+    async def _options_offer(self, _: web.Request) -> web.Response:
+        """Handle CORS preflight requests."""
+        return web.Response(
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
             }
         )
 
@@ -871,6 +971,8 @@ class WebRTCServer:
                         self._control_channel = channel
 
                         self._sent_cursor_options = None
+                        self._last_client_data = None
+                        self._sent_downloads.clear()
                         self._cancel_link_press()
 
                     @channel.on("open")
@@ -964,6 +1066,8 @@ class WebRTCServer:
                 self._media_connected.set()
             self._control_channel = control_channel
             self._sent_cursor_options = None
+            self._last_client_data = None
+            self._sent_downloads.clear()
             self._cancel_link_press()
             if control_channel is not None and control_channel.readyState == "open":
                 self._send_cursor_options()
@@ -978,7 +1082,8 @@ class WebRTCServer:
                         )
                     )
             return web.json_response(
-                {"sdp": local_description.sdp, "type": local_description.type}
+                {"sdp": local_description.sdp, "type": local_description.type},
+                headers={"Access-Control-Allow-Origin": "*"},
             )
 
     def _buffer_browser_message(
@@ -1000,7 +1105,42 @@ class WebRTCServer:
         if timestamp_us is None:
             return
 
-        if event_type == "keyboard":
+        if event_type == "viewport_size":
+            width, height = payload.get("width"), payload.get("height")
+            if any(
+                type(value) is not int or not 64 <= value <= 4096
+                for value in (width, height)
+            ):
+                raise ValueError(
+                    "Viewport dimensions must be integers between 64 and 4096."
+                )
+            if width * height > 8_294_400:
+                raise ValueError("Viewport must not exceed 8294400 pixels.")
+            event = ViewportSizeUserInputEvent(
+                timestamp=timestamp_us, width=width, height=height
+            )
+        elif event_type == "recording":
+            action = payload.get("action")
+            if action not in ("start", "stop"):
+                raise ValueError("Recording action must be start or stop.")
+            event = RecordingUserInputEvent(timestamp=timestamp_us, action=action)
+        elif event_type == "select_camera":
+            camera = _string(
+                payload.get("camera", payload.get("camera_name", "")), label="camera"
+            )
+            view_index = payload.get("view_index", 0)
+            if (
+                isinstance(view_index, bool)
+                or not isinstance(view_index, int)
+                or view_index < -1
+            ):
+                raise ValueError(
+                    "Camera view_index must be an integer greater than or equal to -1."
+                )
+            event = SelectCameraUserInputEvent(
+                timestamp=timestamp_us, camera=camera, view_index=view_index
+            )
+        elif event_type == "keyboard":
             key = payload.get("key")
             pressed = payload.get("pressed")
             if not isinstance(key, str) or not key:
@@ -1115,7 +1255,15 @@ class WebRTCServer:
                 pressed=pressed,
             )
         elif event_type == "game_wheel":
+            reverse = payload.get("reverse", False)
+            if not isinstance(reverse, bool):
+                raise ValueError("Wheel reverse must be a boolean.")
+            gear = payload.get("gear")
+            if gear is not None and gear not in ("P", "R", "N", "D"):
+                raise ValueError("Wheel gear must be P, R, N, or D.")
             event = GameWheelUserInputEvent(
+                gear=gear,
+                reverse=reverse,
                 timestamp=timestamp_us,
                 action=_controller_action(payload),
                 index=_nonnegative_int(payload.get("index", 0), label="index"),
@@ -1194,6 +1342,11 @@ class WebRTCServer:
         if not is_active and detached_video_track is None:
             return
         if is_active:
+            timestamp_us = self._timestamp_us()
+            if timestamp_us is not None:
+                self._append_event(
+                    FocusUserInputEvent(timestamp=timestamp_us, focused=False)
+                )
             self._peer_connection = None
             self._media_connected.clear()
             self._client_connected = False
@@ -1201,6 +1354,8 @@ class WebRTCServer:
             self._control_channel = None
             self._video_track = None
             self._sent_cursor_options = None
+            self._last_client_data = None
+            self._sent_downloads.clear()
             self._cancel_link_press()
         else:
             track = detached_video_track

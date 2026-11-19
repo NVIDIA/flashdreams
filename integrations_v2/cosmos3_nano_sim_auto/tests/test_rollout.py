@@ -21,6 +21,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
+import numpy as np
 import pytest
 import torch
 from cosmos3_nano_sim_auto.impl import rollout as rollout_module
@@ -91,6 +92,247 @@ def build(seed: int = 0) -> CosmosMoTNetwork:
         .setup()
         .eval()
     )
+
+
+@pytest.mark.parametrize("chunk_frames", [1, 3])
+@pytest.mark.parametrize("maskless", [False, True])
+def test_live_controls_use_current_steering_from_the_first_chunk(
+    chunk_frames, maskless
+):
+    from cosmos3_nano_sim_auto.apps.interactive_drive.poses import SuppliedPoses
+    from cosmos3_nano_sim_auto.impl.conditioning.control_provider import (
+        pixel_span_for_latents,
+    )
+
+    geometry = ClipGeometry(
+        num_views=1,
+        frames_per_view=None,
+        patch_h=1,
+        patch_w=1,
+        frames_per_chunk=chunk_frames,
+        condition_frames=1,
+    )
+    poses = SuppliedPoses(
+        np.eye(4), opening_rig_to_world=np.eye(4), speed_mps=0, seconds_per_frame=1 / 30
+    )
+    requested = []
+    drawn = []
+
+    class Controls:
+        def tokens(self, start, end):
+            requested.append((start, end))
+            drawn.append(poses.poses(*pixel_span_for_latents(start, end)))
+            return torch.zeros((end - start, PATCH_DIM))
+
+    rollout = ChunkRollout(
+        build(),
+        geometry=geometry,
+        control_tokens=Controls(),
+        condition_tokens=torch.zeros(1, PATCH_DIM),
+        text_ids=torch.tensor([1, 2, 3]),
+        history_frames=3,
+        token_frames=1 + chunk_frames,
+        lazy_controls=True,
+        t_list=[1.0, 0.5],
+        attention_scope="decomposed",
+        maskless_attention=maskless,
+    )
+    assert requested == [(0, 1)]
+    assert poses.next_frame == 1
+    assert (rollout._memory().stream.token_role_id == ROLE_PADDING).any()
+    pointers = [key.data_ptr() for key in rollout._cache._k]
+    given = 0
+    for index in range(6):
+        count = 4 * chunk_frames + int(index == 0)
+        trajectory = np.repeat(np.eye(4)[None], count, axis=0)
+        trajectory[:, 0, 3] = np.arange(given, given + count)
+        trajectory[:, 1, 3] = 1 if index % 2 == 0 else -1
+        poses.supply(trajectory)
+        trace, _tokens = rollout.step()
+        assert requested[-1] == (trace.start, trace.end)
+        expected = trajectory[1:] if index == 0 else trajectory
+        np.testing.assert_allclose(drawn[-1][:, :2, 3], expected[:, :2, 3])
+        assert poses.next_frame == poses.supplied == given + count
+        assert [key.data_ptr() for key in rollout._cache._k] == pointers
+        given += count
+
+
+@pytest.mark.parametrize("maskless", [False, True])
+def test_mixed_resolution_stream_keeps_cameras_and_frames_after_cache_wrap(maskless):
+    from cosmos3_nano_sim_auto.impl.conditioning.control_provider import (
+        RenderedControls,
+    )
+    from cosmos3_nano_sim_auto.inputs import condition_latents, control_tokens
+
+    network = build()
+    network.rig_view_embed = torch.nn.Embedding(12, SPEC.llm.hidden_size)
+    geometry = ClipGeometry(
+        num_views=2,
+        frames_per_view=None,
+        patch_h=2,
+        patch_w=2,
+        frames_per_chunk=3,
+        condition_frames=1,
+        rig_view_ids=(6, 0),
+        view_grids=((2, 2), (1, 1)),
+    )
+    sizes = ((64, 64), (32, 32))
+    encoded_sizes = []
+
+    def encode(clip):
+        encoded_sizes.append(tuple(clip.shape[-2:]))
+        pixels = torch.nn.functional.avg_pool2d(clip[::4], 16)
+        return torch.cat((pixels, pixels[:, :1]), dim=1).permute(1, 0, 2, 3)
+
+    controls = RenderedControls(
+        lambda first, last: torch.full(
+            (2 * (last - first), 64, 64, 3), 127, dtype=torch.uint8
+        ),
+        [encode, encode],
+        geometry=geometry,
+        latent_patch_size=2,
+        view_sizes=sizes,
+    )
+    conditions = control_tokens(
+        condition_latents(
+            [torch.zeros(1, 3, 64, 64)] * 2,
+            encode,
+            geometry=geometry,
+            view_sizes=sizes,
+        ),
+        latent_patch_size=2,
+    )
+    rollout = ChunkRollout(
+        network,
+        geometry=geometry,
+        control_tokens=controls,
+        condition_tokens=conditions,
+        text_ids=torch.tensor([1, 2, 3]),
+        t_list=[1.0, 0.5],
+        history_frames=3,
+        token_frames=4,
+        maskless_attention=maskless,
+        attention_scope="decomposed",
+    )
+    for chunk in range(5):
+        trace, tokens = rollout.step()
+        assert tokens.shape == (15, PATCH_DIM)
+        start = 0 if chunk == 0 else trace.start
+        latents = rollout.latent_for(start, trace.end)
+        frames = 4 if chunk == 0 else 3
+        assert [tuple(view.shape) for view in latents] == [
+            (4, frames, 4, 4),
+            (4, frames, 2, 2),
+        ]
+        assert all(torch.isfinite(view).all() for view in latents)
+        if chunk:
+            torch.testing.assert_close(
+                control_tokens(latents, latent_patch_size=2), tokens
+            )
+    assert encoded_sizes == [(64, 64), (32, 32)] * (len(encoded_sizes) // 2)
+    assert (
+        rollout_module._rig_token_ids((6, 0), 15, torch.device("cpu"), (4, 1)).tolist()
+        == [6] * 12 + [0] * 3
+    )
+
+
+def test_mixed_decoder_preserves_camera_order_and_per_group_history(monkeypatch):
+    from cosmos3_nano_sim_auto.impl import decode as decode_module
+
+    calls = []
+
+    def make_decoder(*, num_views, **_kwargs):
+        seen = 0
+
+        def decode(latents):
+            nonlocal seen
+            seen += 1
+            calls.append((num_views, seen))
+            return latents.permute(0, 2, 1, 3, 4)
+
+        return decode
+
+    monkeypatch.setattr(decode_module, "make_multiview_chunk_decoder", make_decoder)
+    decode = decode_module.make_mixed_resolution_chunk_decoder(
+        view_sizes=((2, 2), (4, 4), (2, 2)),
+        output_size=(4, 4),
+        dtype=torch.float32,
+        device="cpu",
+    )
+    latents = [
+        torch.full((3, 2, size, size), float(index))
+        for index, size in enumerate((2, 4, 2))
+    ]
+    for _ in range(2):
+        pixels = decode(latents)
+        assert pixels.shape == (3, 2, 3, 4, 4)
+        for index, camera in enumerate(pixels):
+            torch.testing.assert_close(camera, torch.full_like(camera, index))
+    assert calls == [(2, 1), (1, 1), (2, 2), (1, 2)]
+
+
+def test_auxiliary_scale_preserves_front_wide_and_reduces_real_tokens():
+    from types import SimpleNamespace
+    from cosmos3_nano_sim_auto.apps.interactive_drive.backend import (
+        MultiViewSettings,
+        _geometry,
+    )
+    from cosmos3_nano_sim_auto.impl.conditioning.camera_rig import CAMERAS
+
+    scene = SimpleNamespace(
+        initial_rgbs=[torch.zeros(480, 832, 3)],
+        cameras=[SimpleNamespace(clipgt_name=name) for name in CAMERAS[:7]],
+    )
+    geometry = _geometry(
+        scene, MultiViewSettings(auxiliary_scale=0.5), latent_patch_size=2, fps=30
+    )
+    assert geometry.view_grids == ((15, 26),) + ((8, 13),) * 6
+    assert geometry.tokens_per_frame == 1014
+    assert geometry.tokens_per_frame < 7 * 390 / 2
+
+
+def test_mixed_resolution_cli_and_unsupported_combinations(tmp_path):
+    from cosmos3_nano_sim_auto.apps.interactive_drive.adapter import create_app
+    from cosmos3_nano_sim_auto.apps.interactive_drive.backend import (
+        MultiViewRenderBackend,
+        MultiViewSettings,
+    )
+    from interactive_drive.config import ChunkConfig, RasterConfig
+
+    app = create_app()
+    app.init(
+        [
+            "--scene",
+            str(tmp_path),
+            "--views",
+            "7",
+            "--auxiliary-scale",
+            "0.5",
+            "--compile-denoise",
+            "off",
+            "--denoise-steps",
+            "2",
+            "--chunk-frames",
+            "1",
+            "--direct-steering",
+        ]
+    )
+    assert app._backend._settings.auxiliary_scale == 0.5
+    assert app._backend._settings.denoise_steps == 2
+    assert app._backend.chunk_frames == 4
+    assert app._config.app.keyboard_direct_steering
+    for overrides in (
+        {"compile_denoise": "default"},
+        {"compile_control_encode": True},
+        {"decoder_compile": True},
+        {"prefetch_controls": True},
+    ):
+        with pytest.raises(ValueError, match="Mixed resolutions require"):
+            MultiViewRenderBackend(
+                ChunkConfig(),
+                RasterConfig(),
+                settings=MultiViewSettings(auxiliary_scale=0.5, **overrides),
+            )
 
 
 def inputs(seed: int = 1):

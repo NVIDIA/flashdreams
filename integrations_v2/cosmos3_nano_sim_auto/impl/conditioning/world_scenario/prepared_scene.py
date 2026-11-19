@@ -25,7 +25,7 @@ from ludus_renderer import (
     TimestampedScene,
 )
 
-from cosmos3_nano_sim_auto.impl.conditioning.camera_rig import CAMERAS
+from cosmos3_nano_sim_auto.impl.conditioning.camera_rig import CAMERAS, view_ids
 
 from . import camera as camera_math
 
@@ -387,13 +387,16 @@ def load(root: Path) -> PreparedScene:
         raise ValueError("Unsupported prepared scene format/version")
     if manifest["render_settings"] != RENDER_SETTINGS:
         raise ValueError("Unsupported prepared scene rendering settings")
+    cameras = manifest["camera_order"]
     if (
-        manifest["camera_order"] != list(CAMERAS[:7])
-        or manifest["preparation_anchor"] != CAMERAS[0]
+        not isinstance(cameras, list)
+        or not cameras
+        or any(not isinstance(name, str) for name in cameras)
     ):
-        raise ValueError(
-            "Expected the canonical seven-camera rig and front-wide preparation anchor"
-        )
+        raise ValueError("Expected a nonempty ordered list of camera names")
+    view_ids(cameras)
+    if cameras[0] != CAMERAS[0] or manifest["preparation_anchor"] != CAMERAS[0]:
+        raise ValueError("Expected the front-wide camera as preparation anchor")
     if manifest["coordinates"] != "metres; OpenCV RDF camera-to-world":
         raise ValueError("Unsupported scene coordinates")
     count, opening = manifest["frames"], manifest["opening_frame"]
@@ -414,7 +417,7 @@ def load(root: Path) -> PreparedScene:
     expected_files.update(
         f"{directory}/{name}.png"
         for directory in ("initial_rgb", "controls")
-        for name in CAMERAS[:7]
+        for name in cameras
     )
     if set(manifest["files_sha256"]) != expected_files:
         raise ValueError("Incomplete prepared scene asset inventory")
@@ -446,9 +449,9 @@ def load(root: Path) -> PreparedScene:
         raise ValueError("Invalid primitive width")
     poses = read_json(root / "poses.json")
     tracks = {}
-    if set(poses) != set(CAMERAS[:7]) or set(manifest["cameras"]) != set(poses):
+    if set(poses) != set(cameras) or set(manifest["cameras"]) != set(poses):
         raise ValueError("Missing or unexpected camera pose tracks")
-    for name in CAMERAS[:7]:
+    for name in cameras:
         track = _array(poses[name], (count, 4, 4))
         rotation = track[:, :3, :3]
         if (
@@ -499,7 +502,7 @@ def load(root: Path) -> PreparedScene:
             "image_path": f"initial_rgb/{name}.png",
             "control_path": f"controls/{name}.png",
         }
-        for name in CAMERAS[:7]
+        for name in cameras
     ]
     views = sample["multiview"]["views"]
     captions = [view.get("caption") for view in views if "caption" in view]

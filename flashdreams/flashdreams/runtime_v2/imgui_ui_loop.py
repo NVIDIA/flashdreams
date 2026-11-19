@@ -4,7 +4,7 @@
 """Immediate Dear ImGui UI loop rendered through SlangPy."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar, cast, final
+from typing import Any, Generic, TypeVar, final
 
 from torch import Tensor
 
@@ -12,6 +12,7 @@ from flashdreams.api_v2.loop import IUILoop
 from flashdreams.runtime_v2.imgui_ui_renderer import _ImGuiUIRenderer
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.ui_compositing import prepare_ui_back_buffer
+from flashdreams.runtime_v2.user_input_event import ViewportSizeUserInputEvent
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 _StateT = TypeVar("_StateT")
@@ -67,10 +68,17 @@ class ImGuiUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
     @final
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Render and composite one ImGui frame."""
-        # User choses when to resize the UI, UI
-        # must never resize the UI loop itself.
-        # User may want to stretch the UI to fill
-        # the overly-sized window.
+        # Browser resize requests change presentation, never model tensor shapes.
+        sizes = [
+            event
+            for event in events.get_events()
+            if isinstance(event, ViewportSizeUserInputEvent)
+        ]
+        if sizes:
+            size = (sizes[-1].width, sizes[-1].height)
+            if size != self.get_ui_loop_size():
+                self.resize_ui_loop(*size)
+                self.request_new_window_size(size)
         back_buffer: Tensor | None = None
 
         def draw(imgui: Any, index: int, current_events: UserInputEvents) -> None:
@@ -86,6 +94,8 @@ class ImGuiUILoop(IUILoop[_StateT], ABC, Generic[_StateT]):
                 output=frame.unsqueeze(0),
                 frame_count=1,
                 output_layout=self.output_layout,
+                client_data=self.client_data(),
+                client_files=self.client_files(),
             )
         ]
 

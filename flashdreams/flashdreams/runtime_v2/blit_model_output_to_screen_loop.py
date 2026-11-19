@@ -45,6 +45,8 @@ class BlitModelOutputToScreenLoop(IUILoop[_StateT], Generic[_StateT]):
                 output=_frame_to_layout(output, self.output_layout),
                 frame_count=1,
                 output_layout=self.output_layout,
+                client_data=self.client_data(),
+                client_files=self.client_files(),
             )
         ]
 

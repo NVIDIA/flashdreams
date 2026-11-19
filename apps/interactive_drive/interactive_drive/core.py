@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import math
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from functools import partial
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
 
@@ -18,6 +20,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 import torch.distributed as dist
+from PIL import Image
 from torch import Tensor
 from torch.nn import functional as F
 
@@ -40,6 +43,8 @@ from flashdreams.runtime_v2.user_input_event import (
     GameWheelUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
+    RecordingUserInputEvent,
+    SelectCameraUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -59,6 +64,7 @@ from interactive_drive.input.keyboard import command_from_snapshot
 from interactive_drive.math3d import normalize_camera_name
 from interactive_drive.scene_download import download_default_scene
 from interactive_drive.scene_loader import load_scene_bundle
+from interactive_drive.recording import DriveRecording
 from interactive_drive.simulation.ego_vehicle_kinematics import (
     build_ground_snapper,
     sample_chunk_trajectory,
@@ -195,18 +201,10 @@ class InteractiveDriveApplicationDefaults:
     """
 
     parallel_context: ParallelContext | None = None
-    """The mesh the model runs on, for an integration that shards one.
+    """The mesh the model runs on, for an integration that shards one."""
 
-    The app does nothing with the axes and should not know what they are: how a
-    model divides itself is the model's business, and the two here are a
-    checkpoint's own. What the app does with this is the one fact a mesh implies
-    for a user interface, that a drive has a single window and a single driver
-    however many ranks are generating it, so ranks other than zero present
-    nothing and build no HUD.
-
-    ``None`` is a drive on one card, which is every integration that has not
-    asked otherwise.
-    """
+    present_camera: str | None = None
+    """Default camera to present alone, if any."""
 
     def __post_init__(self) -> None:
         if self.backend_factory is not None and self.pipeline_config is not None:
@@ -222,6 +220,7 @@ class InteractiveDriveConfig:
     total_blocks: int
     view_mode: ViewMode
     no_ui: bool = False
+    web_ui: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +237,13 @@ class DriveTelemetry:
     model_loop_ms: float
     warning: str | None = None
     """Backend guidance associated with the latest generated block."""
+    bev_image: str | None = None
+    steer: float = 0.0
+    throttle: float = 0.0
+    brake: float = 0.0
+    active_view: str = "all"
+    gear: str = "D"
+    camera_previews: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(slots=True)
@@ -264,14 +270,19 @@ class DriveInputState:
             elif isinstance(event, FocusUserInputEvent):
                 if not event.focused:
                     self.pressed_keys.clear()
+                    self.controller_command = None
             elif isinstance(event, GameWheelUserInputEvent):
                 self.controller_command = (
                     None
                     if event.action == "disconnected"
                     else DriverCommand(
-                        throttle=event.throttle,
-                        brake=event.brake,
+                        throttle=0.0 if event.gear in ("P", "N") else event.throttle,
+                        brake=1.0 if event.gear == "P" else event.brake,
                         steer=-event.steering,
+                        reverse=event.gear == "R"
+                        if event.gear is not None
+                        else event.reverse,
+                        gear=event.gear,
                         steer_is_direct=True,
                         manual_control=True,
                     )
@@ -356,6 +367,27 @@ class InteractiveDriveModelState:
     """The mesh, so a rank can tell whether anybody is watching it."""
 
     physics_world: GamePhysicsWorld | None = None
+    recording_requested: bool = False
+    recording: DriveRecording | None = None
+
+    def publish_recording(self, status: dict[str, Any]) -> None:
+        """Send recording progress independently of generated-video telemetry."""
+        if self.ui_loop is not None:
+            invoke_async(
+                self.ui_loop,
+                lambda state, status=status: state.set_recording_status(status),
+            )
+
+    def finish_recording(self, error: str | None = None) -> None:
+        """Finalize the current recording while preserving partial data on failure."""
+        recording, self.recording = self.recording, None
+        if recording is not None:
+            try:
+                self.publish_recording(recording.close(error=error))
+            except Exception as failure:
+                self.publish_recording(
+                    {"state": "error", "message": str(failure), "id": recording.id}
+                )
 
     def restart(self, prompt: str | None = None) -> None:
         """Start the drive again, on a new prompt only if one is given.
@@ -485,6 +517,17 @@ class InteractiveDriveModelState:
         """Send controls, vehicle state, and chunk metrics to the UI."""
         if self.ui_loop is None or self.vehicle is None:
             return
+        bev_image = None
+        previews = ()
+        if self.config.web_ui and chunk.frames:
+            frame = chunk.frames[-1]
+            if frame.bev_host_uint8 is not None:
+                bev_image = _jpeg_data_url(frame.bev_host_uint8, (512, 512))
+            views = frame.view_model_rgb_host_uint8 or frame.view_rgb_host_uint8
+            previews = tuple(
+                (name, _jpeg_data_url(pixels, (256, 160)))
+                for name, pixels in zip(self.config.app.camera_names, views)
+            )
         telemetry = DriveTelemetry(
             speed_mps=self.vehicle.speed_mps,
             reverse=self.last_command.reverse or self.vehicle.speed_mps < -0.01,
@@ -495,10 +538,33 @@ class InteractiveDriveModelState:
             postprocess_enabled=self.postprocess_enabled,
             model_loop_ms=model_loop_ms,
             warning=chunk.warning,
+            bev_image=bev_image,
+            steer=self.last_command.steer,
+            throttle=self.last_command.throttle,
+            brake=self.last_command.brake,
+            active_view=self.config.app.present_camera or "all",
+            gear=self.last_command.gear or ("R" if self.last_command.reverse else "D"),
+            camera_previews=previews,
         )
         invoke_async(
             self.ui_loop,
             lambda state, telemetry=telemetry: state.set_drive_telemetry(telemetry),
+        )
+
+
+def _jpeg_data_url(pixels: Any, size: tuple[int, int]) -> str:
+    image = Image.fromarray(np.asarray(pixels)[..., :3])
+    image.thumbnail(size, Image.Resampling.LANCZOS)
+    while True:
+        with BytesIO() as buffer:
+            image.save(buffer, format="JPEG", quality=75)
+            data = buffer.getvalue()
+        # Leave room for JSON/base64 within the negotiated 64 KiB SCTP message.
+        if len(data) <= 45_000:
+            return "data:image/jpeg;base64," + base64.b64encode(data).decode("ascii")
+        image = image.resize(
+            (max(1, image.width * 3 // 4), max(1, image.height * 3 // 4)),
+            Image.Resampling.LANCZOS,
         )
 
 
@@ -515,6 +581,17 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
         assert state.scene is not None
         assert state.vehicle is not None
         assert state.backend is not None
+        if state.recording_requested and state.recording is None:
+            try:
+                state.recording = DriveRecording(
+                    state.config.app.export_dir, state.config.app, state.scene
+                )
+                state.publish_recording(state.recording.status())
+            except Exception as error:
+                state.recording_requested = False
+                state.publish_recording({"state": "error", "message": str(error)})
+        elif not state.recording_requested:
+            state.finish_recording()
         chunk_size = (
             state.backend.initial_chunk_frames
             if state.first_chunk
@@ -561,6 +638,16 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
             # part of a worker's step that buys nothing, so it stops here. No
             # result reads to the runtime as a step that presented nothing.
             return []
+        if state.recording is not None:
+            try:
+                state.recording.append(chunk, trajectory, commands, command_times_s)
+                state.publish_recording(state.recording.status())
+            except Exception as error:
+                state.recording_requested = False
+                state.finish_recording(str(error))
+            if finished:
+                state.recording_requested = False
+                state.finish_recording()
         state._notify(
             "Rollout complete."
             if finished
@@ -636,6 +723,7 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
         self.state.reset_pending = True
 
     def close(self) -> None:
+        self.state.finish_recording()
         if self.state.backend is not None and self.state.owns_backend:
             self.state.backend.close()
         self.state.backend = None
@@ -652,6 +740,7 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
 
     def _initialize_rollout(self) -> None:
         state = self.state
+        state.finish_recording()
         app_config = state.config.app
         prompt = state.pending_prompt
         state._notify("Loading scene conditioning on the model loop...")
@@ -666,6 +755,8 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
             app_config.raster,
             config=app_config,
         )
+        if app_config.initial_speed_mps is not None:
+            scene = replace(scene, initial_speed_mps=app_config.initial_speed_mps)
         if state.scene is None:
             backend.warmup_model()
         else:
@@ -696,7 +787,10 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
     def _apply_events(self, events: UserInputEvents) -> None:
         state = self.state
         for event in events.get_events():
-            if isinstance(event, FocusUserInputEvent):
+            if isinstance(event, RecordingUserInputEvent):
+                if state.parallel_context is None or state.parallel_context.is_main:
+                    state.recording_requested = event.action == "start"
+            elif isinstance(event, FocusUserInputEvent):
                 if not event.focused:
                     state.keyboard_reset_pressed = False
             elif isinstance(event, KeyboardUserInputEvent):
@@ -720,6 +814,20 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
                     state.reset_pending = True
                     state._notify("Restart queued.")
                 state.controller_reset_pressed = reset_pressed
+        for event in events.get_events():
+            if isinstance(event, SelectCameraUserInputEvent):
+                cameras = state.config.app.camera_names
+                if event.camera in ("all", "mosaic", "grid") or event.view_index == -1:
+                    camera = None
+                elif event.camera in cameras:
+                    camera = event.camera
+                elif not event.camera and 0 <= event.view_index < len(cameras):
+                    camera = cameras[event.view_index]
+                else:
+                    continue
+                state.config = replace(
+                    state.config, app=replace(state.config.app, present_camera=camera)
+                )
         state.drive_input.apply(events)
         keyboard_events = [
             event
@@ -793,11 +901,22 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
     def _command(self, command: DriverCommand | None = None) -> DriverCommand:
         if command is None:
             command = self.state.drive_input.command()
+        if (
+            self.state.config.app.keyboard_direct_steering
+            and self.state.drive_input.controller_command is None
+        ):
+            command = replace(command, steer_is_direct=True)
         if command.reverse and not self.state.config.app.reverse:
             # Braking rather than nothing: the keyboard reads S as reverse and
             # gives it full throttle, so dropping the gear alone would send the
             # car forwards on the key a driver pressed to go back.
-            return replace(command, throttle=0.0, brake=1.0, reverse=False)
+            return replace(
+                command,
+                throttle=0.0,
+                brake=1.0,
+                reverse=False,
+                gear="D" if command.gear is not None else None,
+            )
         return command
 
 
@@ -824,6 +943,7 @@ class _InteractiveDriveApplicationBase(IApplication):
         self._bev = defaults.bev
         self._full_size_hud = defaults.full_size_hud
         self._parallel_context = defaults.parallel_context
+        self._default_present_camera = getattr(defaults, "present_camera", None)
         self._initial_session_video_size = (defaults.width, defaults.height)
         self._backend_factory: BackendFactory = defaults.backend_factory or partial(
             _build_backend,
@@ -886,6 +1006,17 @@ class _InteractiveDriveApplicationBase(IApplication):
         )
         parser.add_argument("--prompt")
         parser.add_argument(
+            "--export-dir",
+            type=Path,
+            default=Path("artifacts/drive-exports"),
+            help="Directory for Web-requested session recordings.",
+        )
+        parser.add_argument(
+            "--initial-speed-mps",
+            type=float,
+            help="Initial forward speed in m/s, finite and >= 0; defaults to the scene recording.",
+        )
+        parser.add_argument(
             "--camera",
             default="camera_front_wide_120fov",
             help=(
@@ -895,10 +1026,16 @@ class _InteractiveDriveApplicationBase(IApplication):
         )
         parser.add_argument(
             "--present-camera",
+            default=self._default_present_camera,
             help=(
                 "Present this camera alone, at its own size, instead of the grid. "
                 "It is still conditioned on alongside the rest of the rig."
             ),
+        )
+        parser.add_argument(
+            "--cockpit",
+            action="store_true",
+            help="Present main camera large on top with other cameras in a row below.",
         )
         parser.add_argument("--variant", default="default")
         parser.add_argument("--total-blocks", type=int, default=self._default_blocks)
@@ -909,6 +1046,11 @@ class _InteractiveDriveApplicationBase(IApplication):
             "--view", choices=view_modes_for(self._physics), default="rgb"
         )
         parser.add_argument(
+            "--web-ui",
+            action="store_true",
+            help="Stream video, telemetry, and native BEV to the separate web cockpit.",
+        )
+        parser.add_argument(
             "--no-ui",
             action="store_true",
             help="Disable the application UI and present model output directly.",
@@ -917,6 +1059,11 @@ class _InteractiveDriveApplicationBase(IApplication):
             "--game-mode",
             action="store_true",
             help=("Enable the vehicle speed limit and actor/static collisions."),
+        )
+        parser.add_argument(
+            "--direct-steering",
+            action="store_true",
+            help="Apply keyboard steering immediately at each generation step; releasing A/D centers the steering without a gradual return.",
         )
         parser.add_argument(
             "--postprocess-preset",
@@ -970,13 +1117,17 @@ class _InteractiveDriveApplicationBase(IApplication):
         )
         app_config = AppConfig(
             scene_path=scene,
+            export_dir=args.export_dir,
             sample_path=args.sample,
             start_frame=args.start_frame,
+            initial_speed_mps=args.initial_speed_mps,
             physics=self._physics,
             reverse=self._reverse,
+            keyboard_direct_steering=args.direct_steering,
             game_mode=args.game_mode,
             camera_names=_camera_rig(args.camera),
             present_camera=args.present_camera,
+            cockpit=args.cockpit,
             variant=args.variant,
             prompt_override=args.prompt,
             chunk=chunk,
@@ -1001,7 +1152,8 @@ class _InteractiveDriveApplicationBase(IApplication):
             # it, so a rank nobody is watching builds no HUD rather than
             # building one and throwing it away. `--no-ui` on rank zero still
             # means what it says.
-            no_ui=args.no_ui or (mesh is not None and not mesh.is_main),
+            no_ui=args.no_ui or args.web_ui or (mesh is not None and not mesh.is_main),
+            web_ui=args.web_ui and (mesh is None or mesh.is_main),
         )
         output_spec = postprocess.output_spec(
             VideoSpec(
@@ -1013,13 +1165,21 @@ class _InteractiveDriveApplicationBase(IApplication):
         # A presented frame is a camera's frame, or a grid of them, so the
         # session reports the grid's size rather than one camera's.
         layout = app_config.presentation
-        width = output_spec.width * layout.columns
-        height = output_spec.height * layout.rows
+        if layout.cockpit and len(app_config.camera_names) > 1:
+            n_sub = len(app_config.camera_names) - 1
+            w_sub = 320
+            h_sub = int(round(w_sub * (output_spec.height / output_spec.width)))
+            width = n_sub * w_sub
+            h_main = int(round(width * (output_spec.height / output_spec.width)))
+            height = h_main + h_sub
+        else:
+            width = output_spec.width * layout.columns
+            height = output_spec.height * layout.rows
         # The driver's own flag rather than `self._config.no_ui`, which is also
         # set for a rank nobody is watching: those ranks present nothing at all,
         # so the size they declare costs nothing, and deriving it per rank would
         # leave the mesh disagreeing about the session for no gain.
-        if self._full_size_hud and not args.no_ui:
+        if self._full_size_hud and not (args.no_ui or args.web_ui):
             width, height = hud_canvas(width, height)
         self._desc = replace(
             self._desc,
@@ -1041,11 +1201,18 @@ def _build_backend(
         raise ValueError(
             "The application defaults must provide pipeline_config for model rendering."
         )
+    num_views = len(config.camera_names)
+    diffusion_model_overrides: dict[str, Any] = dict(
+        seed=(42 if config.world_model_seed is None else config.world_model_seed)
+    )
+    if num_views > 1:
+        diffusion_model_overrides["transformer"] = dict(
+            num_views=num_views,
+            native_dit_acceleration="disabled",
+        )
     resolved_pipeline_config = derive_config(
         pipeline_config,
-        diffusion_model=dict(
-            seed=(42 if config.world_model_seed is None else config.world_model_seed)
-        ),
+        diffusion_model=diffusion_model_overrides,
     )
     world_model_device = torch.device(config.world_model_device)
     with torch.cuda.device(world_model_device):
@@ -1196,6 +1363,28 @@ def _mosaic(cells: Sequence[Tensor], *, columns: int, rows: int) -> Tensor:
     )
 
 
+def _cockpit_composite(cells: Sequence[Tensor]) -> Tensor:
+    """Composite with one large main camera on top and the rest squeezed into a bottom row."""
+    main_cell = cells[0].unsqueeze(0).float()
+    sub_cells = [c.unsqueeze(0).float() for c in cells[1:]]
+    n_sub = len(sub_cells)
+    w_sub = 320
+    h_sub = int(round(w_sub * (main_cell.shape[-2] / main_cell.shape[-1])))
+    w_main = n_sub * w_sub
+    h_main = int(round(w_main * (main_cell.shape[-2] / main_cell.shape[-1])))
+    top_main = F.interpolate(
+        main_cell, size=(h_main, w_main), mode="bilinear", align_corners=False
+    ).squeeze(0)
+    resized_subs = [
+        F.interpolate(
+            sub, size=(h_sub, w_sub), mode="bilinear", align_corners=False
+        ).squeeze(0)
+        for sub in sub_cells
+    ]
+    bottom_row = torch.cat(resized_subs, dim=-1)
+    return torch.cat([top_main, bottom_row], dim=-2).to(dtype=cells[0].dtype)
+
+
 def _frame_chunk_tensor(
     chunk: FrameChunk,
     view_mode: ViewMode,
@@ -1213,7 +1402,10 @@ def _frame_chunk_tensor(
         cells = [
             _frame_view_tensor(frame, view, view_mode) for view in range(frame.views)
         ]
-        frames.append(_mosaic(cells, columns=layout.columns, rows=layout.rows))
+        if layout.cockpit and len(cells) > 1:
+            frames.append(_cockpit_composite(cells))
+        else:
+            frames.append(_mosaic(cells, columns=layout.columns, rows=layout.rows))
     if not frames:
         if output_size is None:
             raise ValueError("The world-model backend returned an empty frame chunk.")

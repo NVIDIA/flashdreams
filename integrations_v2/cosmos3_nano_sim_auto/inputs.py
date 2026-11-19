@@ -482,6 +482,8 @@ def prompt_token_ids(
     per_view_captions: bool = True,
     lidar: bool = False,
     parallel: ParallelContext | None = None,
+    view_sizes: Sequence[tuple[int, int]] | None = None,
+    system_prompt: str | None = None,
 ) -> Prompt:
     """The prompt as token ids, in whichever of two shapes fits.
 
@@ -508,7 +510,20 @@ def prompt_token_ids(
         lidar: Select the joint camera/LiDAR system message. RGB generation
             uses the multiview system message even when selecting one camera.
         parallel: Tokenize once on rank zero and share the token ids.
+        view_sizes: Optional per-camera ``(width, height)`` caption metadata.
+        system_prompt: Sent to the tokenizer in place of the lidar-selected
+            training message, for recorded-scene experiments that need a
+            different WSM scope. ``None`` keeps the message the checkpoint
+            was trained with.
     """
+    if view_sizes is not None and (
+        len(view_sizes) != sample.num_views
+        or any(len(size) != 2 or min(size) < 1 for size in view_sizes)
+        or not per_view_captions
+    ):
+        raise ValueError(
+            "Mixed resolutions need one positive (width, height) per camera and per-view captions"
+        )
     if parallel is not None and parallel.world_size > 1:
         payload = [
             prompt_token_ids(
@@ -518,6 +533,8 @@ def prompt_token_ids(
                 tokenizer_path=tokenizer_path,
                 per_view_captions=per_view_captions,
                 lidar=lidar,
+                view_sizes=view_sizes,
+                system_prompt=system_prompt,
             )
             if parallel.is_main
             else None
@@ -526,11 +543,12 @@ def prompt_token_ids(
         assert payload[0] is not None
         return payload[0]
     width, height = sample.view_size
-    system_prompt = (
-        AV_JOINT_CAMERA_LIDAR_TRANSFER_SYSTEM_PROMPT
-        if lidar
-        else AV_MULTIVIEW_TRANSFER_SYSTEM_PROMPT
-    )
+    if system_prompt is None:
+        system_prompt = (
+            AV_JOINT_CAMERA_LIDAR_TRANSFER_SYSTEM_PROMPT
+            if lidar
+            else AV_MULTIVIEW_TRANSFER_SYSTEM_PROMPT
+        )
     if not per_view_captions:
         if sample.view_captions:
             payload = multiview_caption(
@@ -561,31 +579,37 @@ def prompt_token_ids(
         )
 
     if sample.view_captions:
+        payloads = view_caption_payloads(
+            sample.view_captions,
+            sample.cameras,
+            num_frames=pixel_frames,
+            fps=fps,
+            pixel_height=height,
+            pixel_width=width,
+        )
+        if view_sizes is not None:
+            for payload, (view_width, view_height) in zip(
+                payloads, view_sizes, strict=True
+            ):
+                payload["resolution"] = {"H": view_height, "W": view_width}
         runs = [
             caption_token_ids(
                 payload,
                 tokenizer_path=tokenizer_path,
                 system_prompt=system_prompt,
             )
-            for payload in view_caption_payloads(
-                sample.view_captions,
-                sample.cameras,
-                num_frames=pixel_frames,
-                fps=fps,
-                pixel_height=height,
-                pixel_width=width,
-            )
+            for payload in payloads
         ]
     else:
         runs = [
             tokenize_prompt(
                 format_view_caption(sample.prompt, camera),
-                height=height,
-                width=width,
+                height=height if view_sizes is None else view_sizes[index][1],
+                width=width if view_sizes is None else view_sizes[index][0],
                 tokenizer_path=tokenizer_path,
                 system_prompt=system_prompt,
             )
-            for camera in sample.cameras
+            for index, camera in enumerate(sample.cameras)
         ]
     return Prompt(torch.cat(runs), tuple(int(run.shape[0]) for run in runs))
 
@@ -743,7 +767,8 @@ def condition_latents(
     *,
     geometry: ClipGeometry,
     parallel: ParallelContext | None = None,
-) -> Tensor:
+    view_sizes: Sequence[tuple[int, int]] | None = None,
+) -> Tensor | list[Tensor]:
     """Encode the supplied frames into ``[V, C, condition_frames, H_lat, W_lat]``.
 
     The same encoder as the control track, pointed at the real footage instead.
@@ -764,6 +789,7 @@ def condition_latents(
         encode_fn: from :func:`make_control_encode_fn`; there is one VAE.
         geometry: what the result is checked against.
         parallel: Divide the cameras across this mesh and share their latents.
+        view_sizes: Resize each clip before encoding and return a list of latents.
 
     Raises:
         ValueError: the geometry supplies no frames, or a shape disagrees.
@@ -778,6 +804,7 @@ def condition_latents(
         num_views=geometry.num_views,
         frames=geometry.condition_frames,
         parallel=parallel,
+        view_sizes=view_sizes,
     )
 
 
@@ -798,7 +825,8 @@ def _encoded_views(
     num_views: int,
     frames: int,
     parallel: ParallelContext | None = None,
-) -> Tensor:
+    view_sizes: Sequence[tuple[int, int]] | None = None,
+) -> Tensor | list[Tensor]:
     """Encode one clip per camera and stack, checking the count and each shape.
 
     One camera at a time rather than batched, because the encoder carries a
@@ -813,7 +841,22 @@ def _encoded_views(
         raise ValueError(f"expected {len(owned)} clips, got {len(clips)}.")
 
     encoded: list[Tensor | None] = [None] * num_views
+    if view_sizes is not None and (
+        len(view_sizes) != num_views
+        or any(len(size) != 2 or min(size) < 1 for size in view_sizes)
+    ):
+        raise ValueError("view_sizes requires one positive (width, height) per camera")
     for view, clip in zip(owned, clips, strict=True):
+        if view_sizes is not None:
+            width, height = view_sizes[view]
+            if clip.shape[-2:] != (height, width):
+                clip = torch.nn.functional.interpolate(
+                    clip,
+                    size=(height, width),
+                    mode="bilinear",
+                    align_corners=False,
+                    antialias=True,
+                )
         encoded[view] = encode_fn(clip)
     for view, latent in enumerate(encoded):
         if parallel is not None and world > 1:
@@ -841,7 +884,11 @@ def _encoded_views(
                 f"view {view} encoded to {latent.shape[1]} latent frames, "
                 f"but {frames} were expected."
             )
-    return torch.stack(cast(list[Tensor], encoded))
+    return (
+        cast(list[Tensor], encoded)
+        if view_sizes is not None
+        else torch.stack(cast(list[Tensor], encoded))
+    )
 
 
 def _object_device(parallel: ParallelContext) -> torch.device:
@@ -853,7 +900,9 @@ def _object_device(parallel: ParallelContext) -> torch.device:
     return parallel.device if dist.get_backend() == "nccl" else torch.device("cpu")
 
 
-def control_tokens(latents: Tensor, *, latent_patch_size: int) -> Tensor:
+def control_tokens(
+    latents: Tensor | Sequence[Tensor], *, latent_patch_size: int
+) -> Tensor:
     """``[V, C, T, H, W]`` latents -> ``[V*T*patch_h*patch_w, patch_latent_dim]``.
 
     Serves the control track and the supplied frames alike, both being
@@ -864,10 +913,12 @@ def control_tokens(latents: Tensor, *, latent_patch_size: int) -> Tensor:
     are generated in. ``patchify_latent`` gives frames then spatial within a
     view, and concatenating views in rig order gives the rest.
     """
-    if latents.ndim != 5:
+    if isinstance(latents, Tensor) and latents.ndim != 5:
         raise ValueError(
             f"expected [V, C, T, H, W] latents, got {tuple(latents.shape)}."
         )
+    if len(latents) == 0 or any(view.ndim != 4 for view in latents):
+        raise ValueError("latents requires one [C, T, H, W] tensor per camera")
     return torch.cat(
         [
             patchify_latent(

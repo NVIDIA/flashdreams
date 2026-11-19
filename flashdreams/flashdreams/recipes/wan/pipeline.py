@@ -348,10 +348,17 @@ class WanInferencePipeline(
         if cache.image is not None:
             input = self._preprocess_i2v_input(autoregressive_index, cache.image)
 
-        return super().generate(
+        def _free_before_decode() -> None:
+            if hasattr(self, "text_encoder") and self.text_encoder is not None:
+                self.text_encoder.to("cpu")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        return self._generate(
             autoregressive_index=autoregressive_index,
             cache=cache,
             input=input,
+            on_diffusion_complete=_free_before_decode,
         )
 
     def get_num_input_frames(self, autoregressive_index: int) -> int:

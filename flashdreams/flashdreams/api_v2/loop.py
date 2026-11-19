@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, final
 
 import torch
@@ -500,6 +501,14 @@ class IUILoop(ILoop[StateT], ABC):
     report whether more model frames are waiting and how many have been
     selected.
     """
+
+    def client_data(self) -> dict[str, object] | list[dict[str, object]] | None:
+        """Return optional JSON messages for a remote client."""
+        return None
+
+    def client_files(self) -> dict[str, Path]:
+        """Return completed files the application permits a client to download."""
+        return {}
 
     @abstractmethod
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:

@@ -54,6 +54,7 @@ DEFAULT_SAMPLE = DEFAULT_SCENE
 _VIEW_PRESETS = {
     1: CAMERAS[:1],
     4: tuple(CAMERAS[index] for index in (0, 1, 3, 5)),
+    6: CAMERAS[:6],
     7: CAMERAS[:7],
 }
 """Prepared-scene camera subsets; four views cover the front, right, rear and left."""
@@ -66,6 +67,8 @@ def build_backend(
     return MultiViewRenderBackend(
         config.chunk,
         config.raster,
+        bev=config.bev,
+        vehicle=config.vehicle,
         settings=replace(
             settings,
             device=config.world_model_device,
@@ -95,10 +98,8 @@ def defaults(
         # a collider from. The scene bundle says as much with empty layers.
         physics=False,
         reverse=True,
-        # The overhead view is a camera the app's rasterizer appends to the rig
-        # it renders, and this checkpoint's rig is ours. Nothing generates one,
-        # so the panel would read the second camera of the drive instead.
-        bev=False,
+        # The backend renders the native World Scenario BEV separately from RGB.
+        bev=True,
         # A view is 832x480, so a rig of one would draw the HUD at 0.65 and
         # leave whatever is displaying the stream to magnify the text back up.
         # Four views already tile past the HUD's own size and pay nothing here.
@@ -143,7 +144,7 @@ class CosmosInteractiveDriveApplication(InteractiveDriveApplication):
             type=int,
             choices=tuple(_VIEW_PRESETS),
             help="Camera preset: 1 front-wide (default), 4 front/right/rear/left, "
-            "or all 7 prepared-scene cameras. Use instead of --camera.",
+            "6 without front-tele, or all 7 cameras. Use instead of --camera.",
         )
         cameras.add_argument("--camera", help=argparse.SUPPRESS)
         parser.add_argument(
@@ -240,6 +241,26 @@ class CosmosInteractiveDriveApplication(InteractiveDriveApplication):
             help="Put the worker on this rank's GPU plus N, modulo the node's; "
             "at least the per-node rank count keeps it off model GPUs",
         )
+        parser.add_argument(
+            "--denoise-steps",
+            type=int,
+            default=self._settings.denoise_steps,
+            help="Denoising steps per chunk: 4 is full quality, 2 or 1 for fast interactive response",
+        )
+        parser.add_argument(
+            "--auxiliary-scale",
+            type=float,
+            choices=(0.25, 0.5, 1.0),
+            default=self._settings.auxiliary_scale,
+            help="Experimental: scale every generated camera except front-wide; 0.5 uses about a quarter of the auxiliary spatial tokens. Single-GPU RGB, no compilation or prefetch.",
+        )
+        parser.add_argument(
+            "--chunk-frames",
+            type=int,
+            choices=(1, 2, 3),
+            default=self._settings.frames_per_chunk,
+            help="RGB latent frames per generation step: 3 (default) produces 12 video frames; 1 produces 4 for lower control latency. Shorter chunks are experimental and may reduce quality and throughput.",
+        )
         args, shared = parser.parse_known_args(list(commandline_args))
         if args.views is not None:
             shared.extend(("--camera", ",".join(_VIEW_PRESETS[args.views])))
@@ -286,6 +307,9 @@ class CosmosInteractiveDriveApplication(InteractiveDriveApplication):
             prefetch_controls=args.prefetch_controls
             or self._settings.prefetch_controls,
             prefetch_controls_gpu_offset=args.prefetch_controls_gpu_offset,
+            denoise_steps=args.denoise_steps,
+            auxiliary_scale=args.auxiliary_scale,
+            frames_per_chunk=args.chunk_frames,
         )
         if (
             settings.optimized_lidar_renderer
@@ -358,7 +382,7 @@ class CosmosInteractiveDriveApplication(InteractiveDriveApplication):
             layout = app.presentation
             width, height = output.width * layout.columns, output.height * layout.rows
             # A worker's automatic UI suppression must not change mesh geometry.
-            if self._full_size_hud and not args.no_ui:
+            if self._full_size_hud and not self._config.no_ui:
                 width, height = hud_canvas(width, height)
             self._desc = replace(self._desc, video_width=width, video_height=height)
 

@@ -3,8 +3,6 @@
 
 """CPU tests for the V2 Dear ImGui renderer and loop contracts."""
 
-import queue
-import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -20,16 +18,14 @@ from flashdreams.runtime_v2.imgui_ui_renderer import (
     _rgba_pixels,
     _route_imgui_input_events,
 )
-from flashdreams.runtime_v2.presentation_manager import PresentationManager
 from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
+    ViewportSizeUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -158,6 +154,40 @@ def test_imgui_pixel_images_reuse_textures_with_the_same_shape() -> None:
     device.create_texture.assert_called_once()
     assert texture.copy_from_numpy.call_count == 2
     imgui.image.assert_called_with(("texture", texture), (120.0, 80.0))
+    ui.image("bev", pixels, size=(120.0, 80.0), uv0=(0.1, 0.0), uv1=(0.9, 1.0))
+    imgui.image.assert_called_with(
+        ("texture", texture), (120.0, 80.0), uv0=(0.1, 0.0), uv1=(0.9, 1.0)
+    )
+
+
+def test_browser_viewport_resizes_ui_and_presentation_without_changing_model_shape():
+    renderer = Mock(width=4, height=3)
+    renderer.resize.side_effect = lambda w, h: (
+        setattr(renderer, "width", w),
+        setattr(renderer, "height", h),
+    )
+    renderer.render.side_effect = lambda *_: torch.zeros(
+        4, renderer.height, renderer.width
+    )
+    loop = _Loop(renderer=renderer)
+    manager = Mock()
+    manager.composite.side_effect = (
+        lambda background, overlay: overlay[:3] if background is None else background
+    )
+    desc = SessionDesc(video_width=4, video_height=3)
+    loop.register_session_ui_loop_objects(
+        session_desc=desc, presentation_manager=manager
+    )
+    events = UserInputEvents(
+        [ViewportSizeUserInputEvent(timestamp=uint64(0), width=8, height=6)]
+    )
+    result = loop.step(0, events)[0]
+    assert result._output.shape[-2:] == (6, 8)
+    assert loop.flush_ui_loop_requests().new_window_size == (8, 6)
+    assert (desc.video_width, desc.video_height) == (4, 3)
+    loop.step(1, events)
+    renderer.resize.assert_called_once_with(8, 6)
+    assert loop.flush_ui_loop_requests() is None
 
 
 class _Renderer:

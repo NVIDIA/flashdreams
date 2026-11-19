@@ -379,7 +379,7 @@ class _TokenWindow:
         *,
         num_views: int,
         frames: int,
-        spatial: int,
+        spatial: int | tuple[int, ...],
         width: int,
         device: torch.device,
         dtype: torch.dtype,
@@ -387,6 +387,9 @@ class _TokenWindow:
         if frames < 1:
             raise ValueError(f"a window must hold at least one frame, got {frames}.")
         self._frames = frames
+        self._view_spatial = spatial if isinstance(spatial, tuple) else None
+        if self._view_spatial is not None:
+            num_views, spatial = 1, sum(self._view_spatial)
         # [V, T, S, D]: the packer's order, with the frame axis exposed so that
         # a range of frames is an index into one axis.
         self._store = torch.zeros(
@@ -425,6 +428,17 @@ class _TokenWindow:
             raise ValueError(
                 f"{end - start} frames at once do not fit a {self._frames}-frame window."
             )
+        if self._view_spatial is not None:
+            parts = tokens.split(
+                [(end - start) * count for count in self._view_spatial]
+            )
+            tokens = torch.cat(
+                [
+                    part.reshape(end - start, count, -1)
+                    for part, count in zip(parts, self._view_spatial, strict=True)
+                ],
+                dim=1,
+            ).unsqueeze(0)
         self._store[:, self._ring(start, end)] = tokens
         self._end = end
 
@@ -447,7 +461,15 @@ class _TokenWindow:
                 f"[{start}, {end}) reaches back past frame {self.start}, which is "
                 f"as far as a {self._frames}-frame window goes."
             )
-        return self._store[:, self._ring(start, end)]
+        result = self._store[:, self._ring(start, end)]
+        if self._view_spatial is not None:
+            return torch.cat(
+                [
+                    part.reshape(-1, result.shape[-1])
+                    for part in result[0].split(self._view_spatial, dim=1)
+                ]
+            )
+        return result
 
     def _ring(self, start: int, end: int) -> Tensor:
         """Where frames ``[start, end)`` sit in the store.
@@ -471,7 +493,7 @@ class Rollout:
         trace: one entry per autoregressive step.
     """
 
-    latent: Tensor
+    latent: Tensor | list[Tensor]
     tokens: Tensor
     trace: tuple[ChunkTrace, ...]
 
@@ -510,6 +532,7 @@ class ChunkRollout:
         accelerated_rms_norm: bool = False,
         attention_kv_arena: bool = False,
         history_frames: int | None = None,
+        lazy_controls: bool = False,
         token_frames: int | None = None,
         compile_denoise: str | None = None,
         attention_scope: AttentionScope = "all_views",
@@ -535,6 +558,10 @@ class ChunkRollout:
                 conditioning frames plus one chunk, which is the least a single
                 decode can use. Generation never reads these back, so this
                 cannot change the picture.
+
+            lazy_controls: Prefill only the opening map and reserve the rest of
+                the control window for trajectories supplied before each step.
+                Requires bounded history and one conditioning frame.
 
             Everything else: see :func:`run_rollout`, which takes the same set.
 
@@ -602,6 +629,10 @@ class ChunkRollout:
         if history_frames is not None and history_frames <= 0:
             raise ValueError(
                 f"history_frames must be positive or None, got {history_frames}"
+            )
+        if lazy_controls and (history_frames is None or geometry.condition_frames != 1):
+            raise ValueError(
+                "lazy_controls requires bounded history and one opening conditioning frame"
             )
 
         # Everything an endless run needs is something it cannot have from the
@@ -692,6 +723,9 @@ class ChunkRollout:
             accelerated_rms_norm=accelerated_rms_norm,
             compile_denoise=compile_denoise,
             rig_view_ids=geometry.rig_view_ids,
+            view_spatial_tokens=geometry.view_spatial_tokens
+            if geometry.view_grids
+            else None,
             ctx=self._ctx,
         )
 
@@ -706,7 +740,7 @@ class ChunkRollout:
         self._slots = -(-kept // geometry.frames_per_chunk)
 
         chunk = geometry.frames_per_chunk
-        per_frame = geometry.num_views * self._spatial
+        per_frame = geometry.tokens_per_frame
         # Control has to reach a chunk further than history does: a chunk reads
         # the map for its own frames, which are not history yet. Its slots
         # follow the same partition the rollout generates in, so a slot holds
@@ -728,6 +762,11 @@ class ChunkRollout:
             if self._control_ranges
             else geometry.frames_per_view
         )
+        if lazy_controls:
+            if not streaming:
+                raise ValueError("lazy_controls requires a streaming control window")
+            self._control_ranges = [(0, 1)]
+            self._control_frames = 1
 
         assert self._control_frames is not None
 
@@ -765,6 +804,7 @@ class ChunkRollout:
                 accelerated_rms_norm=accelerated_rms_norm,
                 control_ranges=self._control_ranges,
                 control_slot_frames=chunk if streaming else None,
+                control_slot_count=self._control_slots if lazy_controls else None,
                 scope=attention_scope,
                 maskless=maskless_attention,
                 deduplicate_cross_view=self._deduplicate_cross_view,
@@ -811,18 +851,23 @@ class ChunkRollout:
         self._tokens = _TokenWindow(
             num_views=geometry.num_views,
             frames=self._token_frames,
-            spatial=self._spatial,
+            spatial=geometry.view_spatial_tokens
+            if geometry.view_grids
+            else self._spatial,
             width=width,
             device=self._device,
             dtype=network.config.dtype,
         )
         if condition_tokens is not None:
+            condition_tokens = condition_tokens.to(
+                device=self._device, dtype=network.config.dtype
+            )
             self._tokens.append(
                 0,
                 geometry.condition_frames,
-                condition_tokens.to(
-                    device=self._device, dtype=network.config.dtype
-                ).reshape(
+                condition_tokens
+                if geometry.view_grids
+                else condition_tokens.reshape(
                     geometry.num_views, geometry.condition_frames, self._spatial, width
                 ),
             )
@@ -855,6 +900,7 @@ class ChunkRollout:
             control_slot_frames=(
                 self._geometry.frames_per_chunk if self._control_ranges else None
             ),
+            control_slot_count=self._control_slots if self._control_ranges else None,
             history_frame_ranges=self._history,
             history_slot_frames=self._geometry.frames_per_chunk,
             device=self._device,
@@ -870,7 +916,12 @@ class ChunkRollout:
             self._network,
             patches,
             view_ids=_rig_token_ids(
-                self._geometry.rig_view_ids, patches.shape[0], self._device
+                self._geometry.rig_view_ids,
+                patches.shape[0],
+                self._device,
+                self._geometry.view_spatial_tokens
+                if self._geometry.view_grids
+                else None,
             ),
             is_noisy=torch.zeros(
                 patches.shape[0], dtype=torch.bool, device=self._device
@@ -1012,7 +1063,7 @@ class ChunkRollout:
                     fused_merge=self._fused_merge,
                     decomposed_temporal_window_seconds=self._window,
                     query_range=local_query_range(
-                        geometry.num_views * (end - start) * self._spatial, self._ctx
+                        geometry.tokens_per_frame * (end - start), self._ctx
                     ),
                 ),
                 attention_implementation=self._attention_impl,
@@ -1021,7 +1072,10 @@ class ChunkRollout:
                 ctx=self._ctx,
             )
             slot = self._cache.replace_control(control_kv)
-            self._control_ranges[slot] = (start, end)
+            if slot == len(self._control_ranges):
+                self._control_ranges.append((start, end))
+            else:
+                self._control_ranges[slot] = (start, end)
             self._control_next = end
         # The chunk after this one reads the map for frames the clip and the
         # car decide, never this chunk's pixels, so a provider that can draw
@@ -1058,7 +1112,7 @@ class ChunkRollout:
         geometry = self._geometry
         start, end = chunk
         frames = end - start
-        count = geometry.num_views * frames * self._spatial
+        count = geometry.tokens_per_frame * frames
 
         self._top_up_control(end)
         memory = self._memory()
@@ -1161,12 +1215,13 @@ class ChunkRollout:
         )
         if padded:
             denoised = pack(denoised)
+        stored = denoised.to(self._network.config.dtype)
         self._tokens.append(
             start,
             end,
-            denoised.to(self._network.config.dtype).reshape(
-                geometry.num_views, frames, self._spatial, self._width
-            ),
+            stored
+            if geometry.view_grids
+            else stored.reshape(geometry.num_views, frames, self._spatial, self._width),
         )
 
         # A clip with no end has no last chunk, so there is never one to skip:
@@ -1237,7 +1292,7 @@ class ChunkRollout:
         )
         self._slot_frames[self._cache.extend(chunk_kv)] = frames
 
-    def latent_for(self, start: int, end: int) -> Tensor:
+    def latent_for(self, start: int, end: int) -> Tensor | list[Tensor]:
         """``[V, C, t, H, W]`` for frames ``[start, end)``, ready for the decoder.
 
         The frames have to exist already, whether a :meth:`step` generated them
@@ -1432,11 +1487,23 @@ class FlowFn(Protocol):
 
 
 def _rig_token_ids(
-    camera_ids: tuple[int, ...] | None, count: int, device: torch.device
+    camera_ids: tuple[int, ...] | None,
+    count: int,
+    device: torch.device,
+    spatial_tokens: tuple[int, ...] | None = None,
 ) -> Tensor | None:
     """Expand physical camera IDs over a camera-major chunk."""
     if camera_ids is None:
         return None
+    if spatial_tokens is not None:
+        if len(spatial_tokens) != len(camera_ids) or count % sum(spatial_tokens):
+            raise ValueError("Camera token counts must match the rig and whole frames")
+        repeats = torch.tensor(spatial_tokens, device=device) * (
+            count // sum(spatial_tokens)
+        )
+        return torch.tensor(camera_ids, device=device).repeat_interleave(
+            repeats, output_size=count
+        )
     if count % len(camera_ids):
         raise ValueError("Camera-major tokens must divide evenly across the rig")
     return torch.tensor(camera_ids, device=device).repeat_interleave(
@@ -1452,6 +1519,7 @@ def _flow_fn(
     accelerated_rms_norm: bool,
     compile_denoise: str | None,
     rig_view_ids: tuple[int, ...] | None = None,
+    view_spatial_tokens: tuple[int, ...] | None = None,
     ctx: ParallelContext | None = None,
 ) -> FlowFn:
     """Embed a noisy latent, run the stack, read the flow off the end.
@@ -1496,7 +1564,9 @@ def _flow_fn(
                 network,
                 latent,
                 timestep=timestep,
-                view_ids=_rig_token_ids(rig_view_ids, latent.shape[0], latent.device),
+                view_ids=_rig_token_ids(
+                    rig_view_ids, latent.shape[0], latent.device, view_spatial_tokens
+                ),
             ),
             positions,
             text_kv=text_kv,
@@ -1592,6 +1662,7 @@ def _prefill(
     accelerated_rms_norm: bool,
     control_ranges: Sequence[tuple[int, int]] | None = None,
     control_slot_frames: int | None = None,
+    control_slot_count: int | None = None,
     scope: AttentionScope = "all_views",
     maskless: bool = False,
     deduplicate_cross_view: bool = False,
@@ -1717,8 +1788,9 @@ def _prefill(
         memory_kv = pad_control_slots(
             memory_kv,
             control_ranges=pack.control_ranges,
-            tokens_per_frame=geometry.num_views * geometry.spatial_tokens,
+            tokens_per_frame=geometry.tokens_per_frame,
             slot_frames=control_slot_frames,
+            slot_count=control_slot_count,
         )
     return text_kv, memory_kv, num_und, offset
 
@@ -1726,7 +1798,7 @@ def _prefill(
 def _check_tokens(
     tokens: Tensor, frames: int, geometry: ClipGeometry, width: int, name: str
 ) -> None:
-    expected = (geometry.num_views * frames * geometry.spatial_tokens, width)
+    expected = (geometry.tokens_per_frame * frames, width)
     if tuple(tokens.shape) != expected:
         raise ValueError(
             f"{name} is {tuple(tokens.shape)}; for {geometry.num_views} views x {frames} frames "
@@ -1761,13 +1833,32 @@ def _sde_noise_fn(
 
 def _to_latent(
     tokens: Tensor, geometry: ClipGeometry, *, channels: int, patch: int
-) -> Tensor:
+) -> Tensor | list[Tensor]:
     """``[V, T, S, D]`` tokens -> ``[V, C, T, H, W]`` latents, per camera.
 
     ``grid_t`` comes from the tokens rather than from ``geometry`` so that a
     slice of the clip converts as readily as the whole of it, which is what
     decoding a chunk at a time needs.
     """
+    if geometry.view_grids is not None:
+        frames = tokens.shape[0] // geometry.tokens_per_frame
+        return [
+            unpatchify_latent(
+                view,
+                channels=channels,
+                grid_t=frames,
+                grid_h=h,
+                grid_w=w,
+                patch_spatial=patch,
+            )
+            for view, (h, w) in zip(
+                tokens.split(
+                    [frames * count for count in geometry.view_spatial_tokens]
+                ),
+                geometry.view_grids,
+                strict=True,
+            )
+        ]
     height, width = geometry.latent_hw(patch)
     return torch.stack(
         [

@@ -46,6 +46,7 @@ from flashdreams.runtime_v2.user_input_event import (
     MouseUserInputEvent,
     QueryStringUserInputEvent,
     TouchUserInputEvent,
+    ViewportSizeUserInputEvent,
     XRControllerUserInputEvent,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
@@ -422,6 +423,7 @@ def _link_server() -> tuple[webrtc_server.WebRTCServer, Mock, Mock]:
     server._link_lock = threading.Lock()
     server._links = ()
     server._pressed_link = None
+    server._sent_downloads = set()
     channel = Mock(readyState="open")
     server._control_channel = channel
     server._loop = Mock(spec=asyncio.AbstractEventLoop)
@@ -442,6 +444,32 @@ def _link_pointer(kind: str, action: str, **extra: object) -> str:
     else:
         payload.update(action=action, touch_id=7, primary=action == "start")
     return json.dumps({**payload, **extra})
+
+
+@pytest.mark.parametrize(
+    "size",
+    [
+        (1920, 912),
+        (720, 1080),
+        (True, 900),
+        (1920.5, 900),
+        (0, 100),
+        (5000, 900),
+        (4096, 4096),
+    ],
+)
+def test_browser_viewport_is_validated_before_entering_ui_event_stream(size):
+    server, _, callback = _link_server()
+    payload = json.dumps(dict(type="viewport_size", width=size[0], height=size[1]))
+    if size not in ((1920, 912), (720, 1080)):
+        with pytest.raises(ValueError, match="Viewport"):
+            server._buffer_browser_message(payload)
+        callback.assert_not_called()
+    else:
+        server._buffer_browser_message(payload)
+        event = callback.call_args.args[0]
+        assert isinstance(event, ViewportSizeUserInputEvent)
+        assert (event.width, event.height) == size
 
 
 @pytest.mark.parametrize("kind", ["mouse", "touch"])
@@ -645,9 +673,11 @@ async def test_browser_receives_link_commands_without_exposing_clicks_to_app() -
                 break
             await asyncio.sleep(0.01)
         assert [type(event) for event in events] == [
+            FocusUserInputEvent,
             MouseUserInputEvent,
             KeyboardUserInputEvent,
         ]
+        assert not events[0].focused
         assert messages.empty()
     finally:
         window.close()
@@ -743,7 +773,9 @@ async def test_peer_state_distinguishes_recovery_from_terminal_close(
         assert not window.server._client_connected
         assert window.server._peer_connection is None
         assert window.server._video_track is None
-        assert window.get_user_input_events().get_events() == []
+        events = window.get_user_input_events().get_events()
+        assert len(events) == 1 and isinstance(events[0], FocusUserInputEvent)
+        assert not events[0].focused
         peer.close.assert_awaited_once()
     finally:
         window.close()
@@ -760,7 +792,9 @@ async def test_browser_can_reconnect_without_restarting_the_server() -> None:
         second_peer, _, _ = await _connect_browser(window)
 
         assert window.server._peer_connection is not None
-        assert window.get_user_input_events().get_events() == []
+        events = window.get_user_input_events().get_events()
+        assert len(events) == 1 and isinstance(events[0], FocusUserInputEvent)
+        assert not events[0].focused
     finally:
         if first_peer is not None:
             await first_peer.close()
@@ -1360,3 +1394,21 @@ async def test_video_track_close_discards_both_queued_frames() -> None:
     assert metrics["webrtc_sender_dropped_for_lag_count"] == 0
     with pytest.raises(MediaStreamError):
         await track.recv()
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"type": "game_wheel", "action": "update"},
+        {"type": "game_wheel", "reverse": "false"},
+        {"type": "game_wheel", "gear": "X"},
+        {"type": "select_camera", "view_index": True},
+        {"type": "select_camera", "view_index": "1"},
+        {"type": "select_camera", "camera": {}},
+    ],
+)
+def test_cockpit_rejects_invalid_control_and_camera_fields(message):
+    server, _, callback = _link_server()
+    with pytest.raises(ValueError):
+        server._buffer_browser_message(json.dumps(message))
+    callback.assert_not_called()

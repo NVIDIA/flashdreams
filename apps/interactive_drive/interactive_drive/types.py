@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -188,6 +188,7 @@ class DriverCommand:
     reverse: bool = False
     steer_is_direct: bool = False
     manual_control: bool = False
+    gear: Literal["P", "R", "N", "D"] | None = None
 
 
 @dataclass
@@ -343,6 +344,9 @@ class TrajectoryChunk:
 
     physx_timings: PhysXChunkTimings | None = None
     """Detailed synchronization, native update, solve, and readback timings."""
+
+    vehicle_states: tuple[VehicleState, ...] = ()
+    """Vehicle state at each frame timestamp, before its integration step."""
 
 
 @dataclass
