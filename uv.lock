@@ -54,6 +54,7 @@ members = [
     "ludus-renderer",
     "omnidreams-game-engine",
 ]
+constraints = [{ name = "pyopenssl", specifier = ">=26.4.0" }]
 overrides = [
     { name = "anyio", specifier = ">=4.14.2" },
     { name = "cryptography", specifier = ">=50.0.0" },
