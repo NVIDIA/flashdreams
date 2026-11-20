@@ -5,7 +5,9 @@
 
 import json
 import sys
+from contextlib import contextmanager
 from dataclasses import asdict
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -14,6 +16,7 @@ from flashdreams.runtime_v2.serving.browser_input import (
     decode_browser_message,
     link_gesture,
     parse_browser_event,
+    parse_focus_context,
 )
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
@@ -28,6 +31,8 @@ from flashdreams.runtime_v2.user_input_event import (
     UserInputEvent,
     XRControllerUserInputEvent,
 )
+from flashdreams.runtime_v2.session_desc import SessionDesc
+from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -319,3 +324,105 @@ def test_link_gesture_flags_require_booleans(
     flag = next(key for key, item in payload.items() if item is None)
     with pytest.raises(ValueError, match="boolean"):
         _gesture({**payload, flag: value})
+
+
+def test_focus_context_is_optional_and_parsed() -> None:
+    assert parse_focus_context({"type": "keyboard"}) is None
+    context = {"generation": 3, "focused": True}
+    assert parse_focus_context({"focus_context": context}) == (3, True)
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        None,
+        [],
+        {},
+        {"generation": 1},
+        {"generation": 1, "focused": 1},
+        {"generation": -1, "focused": True},
+        {"generation": True, "focused": True},
+        {"generation": "1", "focused": True},
+    ],
+)
+def test_invalid_focus_context(context: object) -> None:
+    with pytest.raises(ValueError):
+        parse_focus_context({"focus_context": context})
+
+
+@contextmanager
+def _open_window():
+    pytest.importorskip("aiortc")
+    from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
+
+    window = WebRTCClientWindow()
+    window.open(
+        SessionDesc(output_layout=VideoTensorLayout.tchw, video_width=4, video_height=4)
+    )
+    try:
+        yield window
+    finally:
+        window.close()
+
+
+def test_server_checks_json_before_ignoring_events_without_a_session() -> None:
+    pytest.importorskip("aiortc")
+    from flashdreams.runtime_v2.serving import webrtc_server
+
+    server = webrtc_server.WebRTCServer()
+    callback = Mock()
+    server.register_input_callback(callback)
+    for message in (b"{}", "{", "[]"):
+        with pytest.raises(ValueError):
+            server._buffer_browser_message(message)
+    server._buffer_browser_message('{"type": "mouse", "action": []}')
+    server._buffer_browser_message('{"type": "close"}')
+    callback.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        (
+            {"type": "file_selector_result", "id": []},
+            "File selector result requires a non-empty id.",
+        ),
+        (
+            {"type": "file_selector_result", "id": "unused", "status": []},
+            "File selector result status is invalid.",
+        ),
+        (
+            {"type": "file_selector_result", "id": "unused", "status": "ok"},
+            "File selector result must not set status ok; send files "
+            "with POST /api/files.",
+        ),
+        (
+            {"type": "mouse", "action": []},
+            "Mouse event action must be 'move', 'button', or 'wheel'.",
+        ),
+        (
+            {"type": "mouse", "action": "move", "x": 10**400, "y": 0},
+            "Mouse x must be finite.",
+        ),
+        (
+            '{"type":"close","extra":' + "[" * 20_000 + "0" + "]" * 20_000 + "}",
+            "Browser event nesting is too deep.",
+        ),
+    ],
+)
+def test_invalid_browser_events_raise_and_allow_later_input(
+    message: object, expected: str
+) -> None:
+    with _open_window() as window:
+        payload = message if isinstance(message, str) else json.dumps(message)
+        with pytest.raises(ValueError) as error:
+            window.server._buffer_browser_message(payload)
+        assert str(error.value) == expected
+        assert window.get_user_input_events().get_events() == []
+
+        window.server._buffer_browser_message(
+            json.dumps({"type": "keyboard", "key": "w", "pressed": True})
+        )
+        (event,) = window.get_user_input_events().get_events()
+        assert isinstance(event, KeyboardUserInputEvent)
+        assert (event.key, event.state) == ("w", KeyboardInputState.PRESSED)

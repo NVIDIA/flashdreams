@@ -40,6 +40,7 @@ from flashdreams.runtime_v2.serving.browser_input import (
     decode_browser_message,
     link_gesture,
     parse_browser_event,
+    parse_focus_context,
 )
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
@@ -375,6 +376,7 @@ class WebRTCServer:
         self._peer_connection: RTCPeerConnection | None = None
         self._control_channel: Any | None = None
         self._sent_cursor_options: tuple[bool, bool] | None = None
+        self._browser_focus: tuple[int, bool] | None = None
         self._link_lock = threading.Lock()
         self._links: tuple[ClientWindowLink, ...] = ()
         self._pressed_link: tuple[str, int, ClientWindowLink] | None = None
@@ -424,6 +426,12 @@ class WebRTCServer:
     def url(self) -> str:
         """Return the browser URL for this server."""
         return f"http://{self._host}:{self._port}/"
+
+    @property
+    def browser_focused(self) -> bool | None:
+        """Return the last known viewport focus, or ``None`` before it is reported."""
+        context = self._browser_focus
+        return None if context is None else context[1]
 
     def metrics_snapshot(self) -> dict[str, float | int]:
         """Return non-blocking sender diagnostics."""
@@ -1195,6 +1203,7 @@ class WebRTCServer:
 
             self._media_connected.clear()
             self._final_video_track_metrics = None
+            self._browser_focus = None
             self._peer_connection = peer_connection
             self._video_track = video_track
             self._client_connected = has_reliable_control
@@ -1228,7 +1237,21 @@ class WebRTCServer:
         timestamp_us = self._timestamp_us()
         if timestamp_us is None:
             return
-        if payload.get("type") == "file_selector_result":
+        event_type = payload.get("type")
+        focus_context = parse_focus_context(payload)
+        if focus_context is not None:
+            generation, focused = focus_context
+            previous = self._browser_focus
+            if previous is not None:
+                if generation < previous[0]:
+                    return
+                if generation == previous[0] and focused != previous[1]:
+                    raise ValueError(
+                        "A focus generation cannot change its focused value."
+                    )
+            if event_type == "focus" and payload.get("focused") is not focused:
+                raise ValueError("Focus event and focus context must agree.")
+        if event_type == "file_selector_result":
             token = payload.get("id")
             if not isinstance(token, str) or not token:
                 raise ValueError("File selector result requires a non-empty id.")
@@ -1264,7 +1287,30 @@ class WebRTCServer:
             isinstance(event, FocusUserInputEvent) and not event.focused
         ):
             self._cancel_link_press()
+        self._apply_browser_focus(focus_context, timestamp_us)
+        if focus_context is not None and isinstance(event, FocusUserInputEvent):
+            return
         self._append_event(event)
+
+    def _apply_browser_focus(
+        self, context: tuple[int, bool] | None, timestamp_us: np.uint64
+    ) -> None:
+        """Publish a generation's focus before any input that depends on it."""
+        previous = self._browser_focus
+        if context is None or context == previous:
+            return
+        self._browser_focus = context
+        if previous is not None and previous[1] and context[1]:
+            # A faster channel can skip the intervening blur; release old holds.
+            self._cancel_link_press()
+            self._append_event(
+                FocusUserInputEvent(timestamp=timestamp_us, focused=False)
+            )
+        if not context[1]:
+            self._cancel_link_press()
+        self._append_event(
+            FocusUserInputEvent(timestamp=timestamp_us, focused=context[1])
+        )
 
     def _append_event(self, event: UserInputEvent) -> None:
         """Buffer one validated browser event."""

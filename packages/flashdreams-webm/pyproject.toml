@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["scikit-build-core>=0.11", "pybind11>=3.0", "meson>=1.6", "ninja>=1.11"]
+build-backend = "build_backend"
+backend-path = ["."]
+
+[project]
+name = "flashdreams-webm"
+version = "0.2.0"
+description = "FFmpeg-free SVT-AV1, libwebm and dav1d Python bindings"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+readme = "README.md"
+
+[tool.scikit-build]
+cmake.version = ">=3.24"
+cmake.args = ["-GNinja"]
+wheel.packages = ["flashdreams_webm"]
+build.targets = ["_native"]
+install.components = ["flashdreams-webm"]
+sdist.include = ["build_backend.py"]

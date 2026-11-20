@@ -212,6 +212,27 @@ def parse_browser_event(
     return event
 
 
+def parse_focus_context(payload: dict[str, object]) -> tuple[int, bool] | None:
+    """Return the optional ``(generation, focused)`` snapshot attached to a message.
+
+    Args:
+        payload: Object returned by ``decode_browser_message``.
+
+    Raises:
+        ValueError: The snapshot is present but malformed.
+    """
+    if "focus_context" not in payload:
+        return None
+    context = payload["focus_context"]
+    if not isinstance(context, dict):
+        raise ValueError("Focus context must be an object.")
+    generation = _nonnegative_int(context.get("generation"), label="Focus generation")
+    focused = context.get("focused")
+    if not isinstance(focused, bool):
+        raise ValueError("Focus context requires a boolean focused value.")
+    return generation, focused
+
+
 class LinkGesture(NamedTuple):
     """Primary-pointer gesture that a server-side link region may consume."""
 

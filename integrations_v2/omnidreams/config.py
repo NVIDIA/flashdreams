@@ -76,6 +76,7 @@ OMNIDREAMS_PIPELINE_CONFIG = OmnidreamsPipelineConfig(
             len_t=2,
             h_extrapolation_ratio=3.0,
             w_extrapolation_ratio=3.0,
+            spatial_rope_reference_grid=(44, 80),
             window_size_t=6,
             sink_size_t=0,
             compile_network=False,

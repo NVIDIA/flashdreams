@@ -391,3 +391,29 @@ def _resize_rgb24_frames(
     return (
         resized.round().clamp_(0, 255).to(torch.uint8).permute(0, 2, 3, 1).contiguous()
     )
+
+
+def rgb_to_yuv420(frame: npt.NDArray[np.uint8]) -> tuple[npt.NDArray[np.uint8], ...]:
+    """Convert packed RGB to limited-range BT.709 with averaged 2x2 chroma."""
+    yuv = frame.astype(np.float32) @ np.array(
+        [
+            [0.182586, -0.100644, 0.439216],
+            [0.614231, -0.338572, -0.398942],
+            [0.062007, 0.439216, -0.040274],
+        ],
+        dtype=np.float32,
+    )
+    yuv += np.array([16, 128, 128], dtype=np.float32)
+    chroma = np.pad(
+        yuv[:, :, 1:],
+        ((0, frame.shape[0] % 2), (0, frame.shape[1] % 2), (0, 0)),
+        mode="edge",
+    )
+    chroma = chroma.reshape(chroma.shape[0] // 2, 2, chroma.shape[1] // 2, 2, 2).mean(
+        axis=(1, 3)
+    )
+    return (
+        yuv[:, :, 0].round().clip(16, 235).astype(np.uint8),
+        chroma[:, :, 0].round().clip(16, 240).astype(np.uint8),
+        chroma[:, :, 1].round().clip(16, 240).astype(np.uint8),
+    )

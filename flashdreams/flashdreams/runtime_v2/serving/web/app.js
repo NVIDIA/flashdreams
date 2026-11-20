@@ -19,6 +19,9 @@ const gamepadSnapshots = new Map();
 let lastPointerPosition = {x: 0, y: 0};
 let hideCursor = false;
 let lockCursorToWindow = false;
+let pointerLocked = false;
+let pointerLockPending = false;
+let inputFocusContext = null;
 
 const MAX_NONCRITICAL_BUFFER_BYTES = 4 * 1024;
 
@@ -33,6 +36,15 @@ const cancelPendingPointerMove = () => {
     pointerMoveHandle = null;
   }
   pendingPointerMove = null;
+};
+
+const cancelPendingPointerInput = () => {
+  cancelPendingPointerMove();
+  if (wheelHandle !== null) {
+    window.cancelAnimationFrame(wheelHandle);
+    wheelHandle = null;
+  }
+  pendingWheel = null;
 };
 
 const showStatus = (message, isError = false) => {
@@ -64,18 +76,38 @@ const sendInput = (
   if (dropIfCongested && channel.bufferedAmount > MAX_NONCRITICAL_BUFFER_BYTES) {
     return false;
   }
-  return send(payload, channel);
+  const input = inputFocusContext === null ? payload : {...payload, focus_context: inputFocusContext};
+  return send(input, channel);
 };
 
 const updateCursorVisibility = () => {
-  video.style.cursor = hideCursor && document.hasFocus() ? "none" : "";
+  const canHideCursor = !lockCursorToWindow || document.pointerLockElement === video;
+  video.style.cursor = hideCursor && document.hasFocus() && canHideCursor ? "none" : "";
 };
 
 const applyCursorOptions = options => {
   hideCursor = options.hide_cursor === true;
   lockCursorToWindow = options.lock_cursor_to_window === true;
   updateCursorVisibility();
-  if (!lockCursorToWindow && document.pointerLockElement === video) {
+  if (lockCursorToWindow) {
+    lockPointerToWindow();
+  } else if (document.pointerLockElement === video) {
+    document.exitPointerLock();
+  }
+};
+
+const syncPointerLockState = () => {
+  const locked = document.pointerLockElement === video;
+  const released = !locked && (pointerLocked || pointerLockPending);
+  pointerLocked = locked;
+  pointerLockPending = false;
+  if (released && lockCursorToWindow) {
+    // Release real viewport focus so existing input handlers clear controls.
+    video.blur();
+  }
+  updateCursorVisibility();
+  // An asynchronous request can complete after the app cancelled it.
+  if (locked && !lockCursorToWindow) {
     document.exitPointerLock();
   }
 };
@@ -395,6 +427,8 @@ const openFileSelector = options => {
   }
 };
 
+document.addEventListener("pointerlockchange", syncPointerLockState);
+document.addEventListener("pointerlockerror", syncPointerLockState);
 window.addEventListener("focus", updateCursorVisibility);
 window.addEventListener("blur", updateCursorVisibility);
 
@@ -552,16 +586,19 @@ const activePointerPosition = event => {
 };
 
 const lockPointerToWindow = () => {
-  if (!lockCursorToWindow || document.pointerLockElement === video) {
+  if (!lockCursorToWindow || document.pointerLockElement === video || pointerLockPending) {
     return;
   }
+  pointerLockPending = true;
   try {
     const request = video.requestPointerLock();
     request?.catch(error => {
       console.debug("Unable to lock the cursor to the window.", error);
+      syncPointerLockState();
     });
   } catch (error) {
     console.debug("Unable to lock the cursor to the window.", error);
+    syncPointerLockState();
   }
 };
 
@@ -709,12 +746,17 @@ video.addEventListener("wheel", event => {
   event.preventDefault();
 }, {passive: false});
 
-video.addEventListener("focus", () => {
-  sendInput({type: "focus", focused: true});
-});
-video.addEventListener("blur", () => {
-  sendInput({type: "focus", focused: false});
-});
+const reportInputFocus = focused => {
+  inputFocusContext = {generation: (inputFocusContext?.generation ?? 0) + 1, focused};
+  if (!focused) {
+    releasePressedInputs();
+  } else {
+    cancelPendingPointerInput();
+  }
+  sendInput({type: "focus", focused});
+};
+video.addEventListener("focus", () => reportInputFocus(true));
+video.addEventListener("blur", () => reportInputFocus(false));
 
 const touchPayload = (event, touch, action) => {
   return {
@@ -778,8 +820,8 @@ const pollGamepads = () => {
 };
 window.requestAnimationFrame(pollGamepads);
 
-window.addEventListener("blur", () => {
-  cancelPendingPointerMove();
+const releasePressedInputs = () => {
+  cancelPendingPointerInput();
   for (const [keyId, key] of [...pressedKeys]) {
     const wasSent = sendInput({
       type: "keyboard",
@@ -806,7 +848,8 @@ window.addEventListener("blur", () => {
       pressedButtons.delete(button);
     }
   }
-});
+};
+window.addEventListener("blur", releasePressedInputs);
 
 const waitForIceGatheringComplete = async () => {
   if (peer.iceGatheringState === "complete") {

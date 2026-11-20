@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from pathlib import Path
 from typing import Any, cast
@@ -70,6 +71,108 @@ def test_event_accumulator_separates_held_and_transient_input() -> None:
     assert first.wheel_y == 1.5
     assert held == ActionSnapshot(keys=frozenset({"W"}), mouse_buttons=frozenset({0}))
     assert cleared == ActionSnapshot()
+
+
+def test_event_accumulator_ignores_input_until_focus_returns() -> None:
+    """Keep UI hover and clicks out of model actions after capture is released."""
+    accumulator = ActionEventAccumulator()
+    accumulator.consume(
+        _events(FocusUserInputEvent(timestamp=uint64(0), focused=False))
+    )
+    ignored = accumulator.consume(
+        _events(
+            KeyboardUserInputEvent(
+                timestamp=uint64(1), key="w", state=KeyboardInputState.PRESSED
+            ),
+            MouseUserInputEvent(timestamp=uint64(2), action="move", x=0.1, y=0.1),
+            MouseUserInputEvent(timestamp=uint64(3), action="move", x=0.9, y=0.9),
+            MouseUserInputEvent(
+                timestamp=uint64(4), action="button", button=0, pressed=True
+            ),
+            MouseUserInputEvent(timestamp=uint64(5), action="wheel", wheel_y=1),
+        )
+    )
+    assert ignored == ActionSnapshot()
+
+    resumed = accumulator.consume(
+        _events(
+            FocusUserInputEvent(timestamp=uint64(6), focused=True),
+            MouseUserInputEvent(timestamp=uint64(7), action="move", x=0.4, y=0.4),
+            MouseUserInputEvent(timestamp=uint64(8), action="move", x=0.5, y=0.6),
+            KeyboardUserInputEvent(
+                timestamp=uint64(9), key="w", state=KeyboardInputState.PRESSED
+            ),
+        )
+    )
+    assert resumed.keys == frozenset({"W"})
+    assert resumed.mouse_dx == pytest.approx(0.1)
+    assert resumed.mouse_dy == pytest.approx(0.2)
+    assert resumed.mouse_buttons == frozenset()
+
+
+@pytest.mark.parametrize("pointer_first", [False, True])
+@pytest.mark.parametrize("button_held", [False, True])
+def test_recapture_preserves_held_controls_across_channel_delivery_orders(
+    pointer_first: bool, button_held: bool
+) -> None:
+    """Keep the recapture press when either channel outruns the other's blur."""
+    pytest.importorskip("aiortc")
+    from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
+
+    window = WebRTCClientWindow()
+    inputs = ActionEventAccumulator()
+
+    def packet(generation: int, owns_focus: bool, **payload: Any) -> str:
+        return json.dumps(
+            {
+                **payload,
+                "focus_context": {"generation": generation, "focused": owns_focus},
+            }
+        )
+
+    press = {
+        "type": "mouse",
+        "action": "button",
+        "x": 0.5,
+        "y": 0.5,
+        "button": 0,
+        "pressed": True,
+    }
+    try:
+        window.open(
+            SessionDesc(
+                output_layout=VideoTensorLayout.tchw, video_width=4, video_height=4
+            )
+        )
+        window.server._buffer_browser_message(
+            packet(1, True, type="focus", focused=True)
+        )
+        window.server._buffer_browser_message(
+            packet(1, True, type="keyboard", key="w", pressed=True)
+        )
+        if button_held:
+            window.server._buffer_browser_message(packet(1, True, **press))
+        inputs.consume(window.get_user_input_events())
+        controls = [
+            packet(2, False, type="keyboard", key="w", pressed=False),
+            packet(2, False, type="focus", focused=False),
+            packet(3, True, type="focus", focused=True),
+            packet(3, True, type="keyboard", key="d", pressed=True),
+        ]
+        pointer = [packet(1, True, type="mouse", action="move", x=0.99, y=0.99)]
+        if button_held:
+            pointer.append(
+                packet(2, False, **{**press, "pressed": False, "cancelled": True})
+            )
+        pointer.append(packet(3, True, **press))
+        for message in pointer + controls if pointer_first else controls + pointer:
+            window.server._buffer_browser_message(message)
+        snapshot = inputs.consume(window.get_user_input_events())
+        assert snapshot.keys == frozenset({"D"})
+        assert snapshot.mouse_buttons == frozenset({0})
+        assert snapshot.mouse_dx == snapshot.mouse_dy == 0
+    finally:
+        window.close()
 
 
 class _DiffusionModel:
