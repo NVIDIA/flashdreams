@@ -26,7 +26,7 @@ _INFERRED_LANE_HALF_WIDTH_M = 2.0
 
 def _triangulate_clockwise_polygon(polygon: np.ndarray) -> tuple[np.ndarray, ...]:
     """Triangulate a simple clockwise polygon while preserving its full area."""
-    vertices = [np.asarray(point[:2], dtype=np.float64) for point in polygon]
+    vertices = [np.asarray(point, dtype=np.float64) for point in polygon]
     triangles: list[np.ndarray] = []
 
     def cross(first: np.ndarray, second: np.ndarray, third: np.ndarray) -> float:
@@ -369,6 +369,8 @@ class TaxiNavigationMap:
             points: list[np.ndarray] = []
             if region.kind == "area":
                 polygon = np.asarray(region.geometry_world[0], dtype=np.float64)
+                if polygon.shape[1] == 2:
+                    polygon = np.pad(polygon, ((0, 0), (0, 1)))
                 area = abs(
                     0.5
                     * float(
@@ -377,7 +379,7 @@ class TaxiNavigationMap:
                     )
                 )
                 count = max(1, int(math.ceil(area / (spacing_m * spacing_m))))
-                triangles = _triangulate_clockwise_polygon(polygon[:, :2])
+                triangles = _triangulate_clockwise_polygon(polygon)
                 triangle_areas = np.asarray(
                     [
                         abs(
@@ -402,7 +404,7 @@ class TaxiNavigationMap:
                         + root * (1.0 - second_random) * triangle[1]
                         + root * second_random * triangle[2]
                     )
-                    points.append(np.asarray([candidate[0], candidate[1], 0.0]))
+                    points.append(candidate)
             elif region.kind == "boundary":
                 offset = float(rng.uniform(0.0, spacing_m))
                 for polyline in region.geometry_world:
