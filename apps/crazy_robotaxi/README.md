@@ -40,8 +40,8 @@ Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
 connecting remotely. Choose **TAXI**, **RACE**, or **FREE-ROAM**, then a map;
 race mode also asks for a course. **CONTROLS** and **OPTIONS** are available from
 the mode menu.
-The application prepares maps and loads the world model before showing the
-menus. The first launch downloads missing model assets and may take time to
+The application reads map names and loads the world model before showing the
+menus. Selecting a map and spawn loads its driving scene. The first launch downloads missing model assets and may take time to
 compile and autotune kernels.
 
 ### Runner presets

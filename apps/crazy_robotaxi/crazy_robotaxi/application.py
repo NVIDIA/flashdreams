@@ -10,6 +10,7 @@ import logging
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
+from functools import cache
 from pathlib import Path
 from typing import Any, cast
 
@@ -229,7 +230,6 @@ class CrazyRobotaxiApplication(IApplication):
         self._native_preparer = native_preparer or prepare_ludus
         self._pipeline_config = self._application_defaults.pipeline_config
         self._pipeline: Any | None = None
-        self._scenes: dict[SceneRequest, SceneDefinition] = {}
         self._config: ApplicationConfig | None = None
         self._capture_settings: dict[str, object] = {}
         self._map_options: tuple[GameMapOption, ...] = ()
@@ -359,15 +359,16 @@ class CrazyRobotaxiApplication(IApplication):
         if initial_game_mode != "race" and initial_race_course_id is not None:
             raise ValueError("--race-course requires --game-mode race")
         map_path: Path = args.map
+        self._map_options = _discover_game_maps(map_path)
         if initial_game_mode == "race":
-            header = load_game_map_header(map_path.expanduser())
-            if not header.race_course_ids:
-                raise ValueError(f"Map {header.map_id!r} defines no race courses")
+            selected_map = self._map_options[0]
+            if not selected_map.race_course_ids:
+                raise ValueError(f"Map {selected_map.map_id!r} defines no race courses")
             if (
                 initial_race_course_id is not None
-                and initial_race_course_id not in header.race_course_ids
+                and initial_race_course_id not in selected_map.race_course_ids
             ):
-                available = ", ".join(header.race_course_ids)
+                available = ", ".join(selected_map.race_course_ids)
                 raise ValueError(
                     f"Unknown race course {initial_race_course_id!r}; available: {available}"
                 )
@@ -458,32 +459,6 @@ class CrazyRobotaxiApplication(IApplication):
             debug_capture=self._debug_capture,
             debug_engine_only=args.debug_engine_only,
         )
-        self._map_options = _discover_game_maps(map_path)
-        scene_requests = [self._config.scene_request]
-        for option in self._map_options:
-            requests = [
-                replace(
-                    self._config.scene_request, map_path=option.path, spawn_id=None
-                ),
-                *(
-                    replace(
-                        self._config.scene_request,
-                        map_path=option.path,
-                        spawn_id=course.spawn_id,
-                    )
-                    for course in option.race_courses
-                ),
-            ]
-            for request in requests:
-                if request not in scene_requests:
-                    scene_requests.append(request)
-        self._scenes = {
-            request: self._scene_factory(
-                request,
-                self._config.renderer.raster,
-            )
-            for request in scene_requests
-        }
         self._native_preparer()
         if args.debug_engine_only:
             from omnidreams_game_engine.debug_engine import SemanticDebugPipeline
@@ -631,8 +606,7 @@ class CrazyRobotaxiApplication(IApplication):
         if pipeline_config is None:
             raise RuntimeError("init() must select a pipeline before create_session()")
         pipeline = self._pipeline
-        scenes = self._scenes
-        if pipeline is None or not scenes:
+        if pipeline is None:
             raise RuntimeError("init() must prepare assets before create_session()")
         if session_desc.output_layout is not VideoTensorLayout.tchw:
             raise ValueError("Crazy Robotaxi produces tchw output")
@@ -686,7 +660,7 @@ class CrazyRobotaxiApplication(IApplication):
         )
         return CrazyRobotaxiSession(
             pipeline_factory=lambda: pipeline,
-            scene_factory=lambda request, _raster: scenes[request],
+            scene_factory=cache(self._scene_factory),
             map_options=self._map_options,
             config=config,
             session_desc=replace(
@@ -746,7 +720,6 @@ class CrazyRobotaxiApplication(IApplication):
         self._config = None
         self._map_options = ()
         self._pipeline = None
-        self._scenes = {}
         close = getattr(pipeline, "close", None)
         if callable(close):
             close()
@@ -786,6 +759,7 @@ def _discover_game_maps(selected_path: Path) -> tuple[GameMapOption, ...]:
             GameMapOption(
                 map_id=header.map_id,
                 name=header.name,
+                default_spawn_id=header.default_spawn_id,
                 path=header.source_path,
                 race_courses=tuple(
                     GameRaceCourseOption(
