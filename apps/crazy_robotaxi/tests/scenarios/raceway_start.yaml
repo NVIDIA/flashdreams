@@ -1,0 +1,4 @@
+# Hold forward for 3 seconds after gameplay is ready.
+events:
+  - {id: accelerate, timestamp_us: 0, type: keyboard, key: w, pressed: true}
+  - {id: end, timestamp_us: 3000000, type: close}

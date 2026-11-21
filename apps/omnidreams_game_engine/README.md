@@ -38,6 +38,34 @@ owns the model and UI loops, threads, client windows, and presentation.
 | `input.py` | `DriverInput`, which converts input events to normalized driver commands. |
 | `config.py`, `types.py` | Shared rendering, vehicle, scene, trajectory, and command data types. |
 
+## Headless diagnostics
+
+The engine supplies reusable capture and input scheduling. An application selects
+its scenarios, supplies game metadata, and connects these components to its normal
+FlashDreams input and presentation paths:
+
+| Module | Responsibility |
+| --- | --- |
+| `debug_input.py`, `driving_script.py` | Validate and schedule timestamped runtime events, reject late commands, and report dispatch and consumption. Live socket commands and preloaded files use the same schema. |
+| `debug_window.py` | Headless client window, control socket, model-thread samples, presentation records, and capture manifest. |
+| `debug_capture.py` | Bounded background recording of observations, generated/semantic frames, optional native physics views, and presentation output. |
+| `debug_observation.py` | Convert engine trajectories into observations. Native physics diagnostics are optional. |
+| `debug_report.py` | Join input, physics, generation, and presentation timestamps without treating selected-frame metadata as measured visual response. |
+| `debug_engine.py` | `SemanticDebugPipeline`, which presents conditioning frames without loading a world model. |
+
+`DebugCaptureWindow` reads its configuration from `SessionDesc.metadata` under
+`debug_window.DEBUG_METADATA_KEY`. The shared `HeadlessInput` belongs under
+`debug_input.DEBUG_CONTROL_KEY`. Its clock starts after initialization and warmup;
+applications start it when the engine is ready and acknowledge consumed events.
+Wall-clock playback dispatches through the runtime UI input buffer. Simulation-clock
+playback reserves each upcoming physics interval before advancing the engine, so
+generation waits do not change the scripted driving timeline. The capture keeps
+wall time and simulation time separate.
+
+Robotaxi supplies the `robotaxi-debug` mode, HUD adapters, archived map/settings
+inputs, race and taxi outcome reports, and debug-map scenarios. Those remain in
+[Crazy Robotaxi](../crazy_robotaxi/README.md#headless-driving-and-diagnosis).
+
 ## Authored maps
 
 Author node-graph YAML maps using the
