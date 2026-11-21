@@ -90,6 +90,9 @@ class GameMapNode:
     prompt_context: str | None = None
     """Optional authored environmental context appended to model prompts."""
 
+    z_m: float = 0.0
+    """Height of the level node surface in metres."""
+
 
 @dataclass(frozen=True, eq=False)
 class GameMapRoad:
@@ -200,6 +203,9 @@ class GameMapSpawn:
 
     prompt_context: str | None = None
     """Optional shorter base prompt used with dynamic map context."""
+
+    pitch_rad: float = 0.0
+    """Rig pitch following the grade of the directed spawn lane."""
 
 
 @dataclass(frozen=True)
@@ -477,6 +483,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                     "node_type": node.node_type,
                     "x_m": node.x_m,
                     "y_m": node.y_m,
+                    "z_m": node.z_m,
                     "profile_id": node.profile_id,
                     "attributes": _attributes_to_dict(node.attributes),
                     "geometry": node.geometry,
@@ -591,6 +598,7 @@ def game_map_to_dict(game_map: ResolvedGameMap) -> dict[str, Any]:
                 "distance_m": spawn.distance_m,
                 "position_world": spawn.position_world.tolist(),
                 "yaw_rad": spawn.yaw_rad,
+                "pitch_rad": spawn.pitch_rad,
                 "image": spawn.image,
                 "prompt": spawn.prompt,
                 "prompt_context": spawn.prompt_context,
@@ -694,6 +702,7 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
                 node_type=str(raw["node_type"]),
                 x_m=float(raw["x_m"]),
                 y_m=float(raw["y_m"]),
+                z_m=float(raw.get("z_m", 0.0)),
                 profile_id=(
                     None if raw.get("profile_id") is None else str(raw["profile_id"])
                 ),
@@ -825,6 +834,7 @@ def game_map_from_dict(value: dict[str, Any]) -> ResolvedGameMap:
             distance_m=float(raw["distance_m"]),
             position_world=np.asarray(raw["position_world"], dtype=np.float32),
             yaw_rad=float(raw["yaw_rad"]),
+            pitch_rad=float(raw.get("pitch_rad", 0.0)),
             image=None if raw.get("image") is None else str(raw["image"]),
             prompt=str(raw["prompt"]),
             prompt_context=(

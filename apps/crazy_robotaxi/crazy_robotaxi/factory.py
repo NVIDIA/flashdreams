@@ -84,6 +84,7 @@ def build_taxi_engine(
             active_scene,
             game_config.vehicle,
             curb_segments_world=scene_data.curb_segments_world,
+            ground_snapper=ground_snapper,
             actor_controllers=(*actor_controllers, *live_actor_controllers),
         ),
         physics_step_fn=step_taxi_physics_world,

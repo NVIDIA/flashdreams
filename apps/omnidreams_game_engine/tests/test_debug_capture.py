@@ -321,6 +321,12 @@ def test_ground_measurement_is_read_only_and_selects_nearest_surface() -> None:
     assert ground.ground_height_at(0.5, 0.5, 0) == pytest.approx(0.5)
     assert ground.ground_height_at(0.5, 0.5, 10) == pytest.approx(10.5)
     assert ground.ground_height_at(-1, -1, 0) is None
+    surface = ground.ground_surface_at(0.5, 0.5, 0)
+    assert surface is not None
+    height, normal = surface
+    assert height == pytest.approx(0.5)
+    np.testing.assert_allclose(normal, np.asarray([-1, 0, 1]) / np.sqrt(2))
+    assert ground.ground_surface_at(-1, -1, 0) is None
     assert ground._anchor_offset_m is None
 
 
