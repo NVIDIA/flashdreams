@@ -3,6 +3,7 @@
 
 """CPU test for the v2 session loop, independent of any application."""
 
+import json
 import logging
 import queue
 import threading
@@ -11,6 +12,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -35,6 +37,11 @@ from flashdreams.runtime_v2.presentation_manager import (
     _PRESENTATION_DRAIN_MARGIN,
     PresentationManager,
     _PresentationClock,
+)
+from flashdreams.runtime_v2.profiler import (
+    CompositeProfiler,
+    FrameRateProfiler,
+    InputLatencyProfiler,
 )
 from flashdreams.runtime_v2.selected_file import (
     FileSelectionRequest,
@@ -750,6 +757,85 @@ def _key_event() -> UserInputEvents:
             )
         ]
     )
+
+
+@pytest.mark.parametrize("fail_write", [False, True])
+@pytest.mark.parametrize("has_clock_origin", [False, True])
+def test_source_input_latency_waits_for_window_write_return(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fail_write: bool,
+    has_clock_origin: bool,
+) -> None:
+    from flashdreams.api_v2 import loop as loop_module
+    from flashdreams.runtime_v2 import profiler as profiler_module
+    from flashdreams.runtime_v2 import session_runner
+
+    origin_ns = 1 << 60
+    clock = [origin_ns + 2_000_000]
+    runtime_time = SimpleNamespace(
+        monotonic=time.monotonic, monotonic_ns=lambda: clock[0]
+    )
+    monkeypatch.setattr(session_runner, "time", runtime_time)
+    monkeypatch.setattr(profiler_module, "time", runtime_time)
+    monkeypatch.setattr(loop_module, "time", runtime_time)
+    profiler = CompositeProfiler((FrameRateProfiler(), InputLatencyProfiler()))
+    before_write: dict[str, float] = {}
+
+    class TimestampedWindow(RecordingClientWindow):
+        input_timestamp_origin_ns = origin_ns if has_clock_origin else None
+
+        def write(self, result: StepResult) -> None:
+            before_write.update(profiler.collect_input_latency_ms())
+            clock[0] += 5_000_000
+            if fail_write:
+                raise RuntimeError("window write failed")
+            super().write(result)
+
+    log = CallLog()
+    events = UserInputEvents(
+        [
+            KeyboardUserInputEvent(
+                timestamp=uint64(offset), key="w", state=KeyboardInputState.PRESSED
+            )
+            for offset in (0, 1)
+        ]
+    )
+    session = FakeSession(_session_desc(), log)
+    session._profiler = profiler
+    window = TimestampedWindow(log, [events])
+    path = tmp_path / "stats.json"
+    if fail_write:
+        with pytest.raises(RuntimeError, match="window write failed"):
+            run_session(
+                session, window, metrics_output_sink=MetricsOutputSink(path), steps=1
+            )
+    else:
+        run_session(
+            session, window, metrics_output_sink=MetricsOutputSink(path), steps=1
+        )
+    payload = json.loads(path.read_text())
+    measured = {sample["name"]: sample["value"] for sample in payload["samples"]}
+    if any(name.startswith("input.window_write") for name in before_write):
+        pytest.fail("Frame selection completed latency before window.write returned")
+    if has_clock_origin:
+        if before_write.get("input.ui_claim_avg_ms") != pytest.approx(1.9995):
+            pytest.fail(f"Source timestamps did not reach the UI claim: {before_write}")
+        if measured.get("input.ui_claim_avg_s") != pytest.approx(0.0019995):
+            pytest.fail(f"The final stats file lost claimed inputs: {measured}")
+        if not fail_write:
+            if measured.get("input.window_write_avg_s") != pytest.approx(0.0069995):
+                pytest.fail(f"Latency omitted time inside window.write: {measured}")
+            if measured.get("input.window_write_session_count") != 2:
+                pytest.fail(f"A claimed event was counted more than once: {measured}")
+    elif any(name.startswith("input.ui_claim") for name in measured):
+        pytest.fail("A source without a clock origin produced source latency")
+    if fail_write and any(name.startswith("input.window_write") for name in measured):
+        pytest.fail("A failed write produced completion measurements")
+    if payload["session"].get("client_window_type") != "TimestampedWindow":
+        pytest.fail("The stats file lost the window measurement context")
+    if log.calls[-2:] != ["window.close", "session.close"]:
+        pytest.fail(f"Session resources were not closed: {log.calls}")
 
 
 def _lifecycle_event(event_type: type[UserInputEvent]) -> UserInputEvents:

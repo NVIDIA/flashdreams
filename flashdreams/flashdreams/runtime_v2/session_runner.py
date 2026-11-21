@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from flashdreams.api_v2.client_window import IClientWindow
+from flashdreams.api_v2.input_source import TimestampedInputSource
 from flashdreams.api_v2.loop import (
     IModelLoop,
     IUILoop,
@@ -136,6 +137,7 @@ def run_session(
     stop: threading.Event | None = None
     presentation_manager = None
     trace_log: _ChunkTraceLog | None = None
+    input_timestamp_origin_ns: int | None = None
     # Input, presentation and cleanup report to the profiler the session gave
     # its loops.
     profiler = session._profiler
@@ -187,6 +189,7 @@ def run_session(
             if ui_loop is None or window is None:
                 return
             events, generation = event_buffer.read(_UI_READER_ID)
+            input_claimed_ns = time.monotonic_ns()
             result: list[StepResult] | None = None
             step_completed = False
             try:
@@ -202,7 +205,15 @@ def run_session(
                         next_session_desc = request.new_session
                         stop.set()
                         return
-                if loop_result.step_index is None or not step_requested:
+                if loop_result.step_index is None:
+                    return
+                profiler.ui_input_claimed(
+                    ui_loop.user_events,
+                    generation=generation,
+                    input_timestamp_origin_ns=input_timestamp_origin_ns,
+                    claimed_ns=input_claimed_ns,
+                )
+                if not step_requested:
                     return
                 with ui_loop.profiler.range("ui.step"):
                     raw_result = ui_loop.step(
@@ -228,6 +239,7 @@ def run_session(
                     ui_loop.request_new_session(request.new_session)
             if result:
                 window.write(result[0])
+                profiler.window_write_completed(generation, time.monotonic_ns())
 
         def publish_model_results(
             generation: int,
@@ -300,8 +312,11 @@ def run_session(
 
         if window is not None:
             window.open(session_desc)
+            if isinstance(window, TimestampedInputSource):
+                input_timestamp_origin_ns = window.input_timestamp_origin_ns
         if metrics_output_sink is not None:
             metrics_output_sink.open(session_desc)
+            metrics_output_sink.set_client_window_type(type(window).__name__)
         collect_input()
         tick_ui()
 

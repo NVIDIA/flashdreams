@@ -165,11 +165,13 @@ class _VideoTrack(MediaStreamTrack):
         self._enqueued_count = 0
         self._handed_off_count = 0
         self._dropped_for_lag = 0
+        self._discarded_on_disconnect_count = 0
         self._discarded_on_session_change_count = 0
         self._discarded_on_close_count = 0
         self._first_enqueued_at: float | None = None
         self._next_pts = 0
         self._frame_in_flight = False
+        self._media_connected = False
         self._closed = False
 
     def metrics_snapshot(self) -> dict[str, float | int]:
@@ -186,6 +188,9 @@ class _VideoTrack(MediaStreamTrack):
                 "webrtc_sender_enqueued_count": self._enqueued_count,
                 "webrtc_sender_handed_off_count": self._handed_off_count,
                 "webrtc_sender_dropped_for_lag_count": self._dropped_for_lag,
+                "webrtc_sender_discarded_on_disconnect_count": (
+                    self._discarded_on_disconnect_count
+                ),
                 "webrtc_sender_discarded_on_session_change_count": (
                     self._discarded_on_session_change_count
                 ),
@@ -203,7 +208,7 @@ class _VideoTrack(MediaStreamTrack):
             Whether the frame was admitted. A closed track rejects it.
         """
         with self._state_lock:
-            if self._closed:
+            if self._closed or not self._media_connected:
                 return False
             enqueued_at = time.monotonic()
             queued_frame = _QueuedRGBFrame(
@@ -221,6 +226,21 @@ class _VideoTrack(MediaStreamTrack):
         if schedule_wake:
             self._sender_loop.call_soon_threadsafe(self._finish_enqueue)
         return True
+
+    def set_media_connected(self, connected: bool) -> None:
+        """Admit frames only while the peer has an active media connection."""
+        with self._state_lock:
+            if self._closed or self._media_connected == connected:
+                return
+            self._media_connected = connected
+            if connected:
+                return
+            discarded_count = len(self._frames)
+            self._frames.clear()
+            self._discarded_on_disconnect_count += discarded_count
+            if not self._frame_in_flight:
+                self._sender_drained.set()
+        self._frame_available.clear()
 
     async def recv(self) -> VideoFrame:
         """Serialize aiortc demand for the bounded frame queue."""
@@ -274,6 +294,7 @@ class _VideoTrack(MediaStreamTrack):
             if self._closed:
                 return
             self._closed = True
+            self._media_connected = False
             self._wake_scheduled = False
             discarded_count = len(self._frames)
             self._frames.clear()
@@ -435,6 +456,11 @@ class WebRTCServer:
         context = self._browser_focus
         return None if context is None else context[1]
 
+    @property
+    def input_timestamp_origin_ns(self) -> int | None:
+        """Return the server event clock's monotonic origin."""
+        return self._event_origin_ns
+
     def metrics_snapshot(self) -> dict[str, float | int]:
         """Return non-blocking sender diagnostics."""
         track = self._video_track
@@ -449,6 +475,7 @@ class WebRTCServer:
                 "webrtc_sender_enqueued_count": 0,
                 "webrtc_sender_handed_off_count": 0,
                 "webrtc_sender_dropped_for_lag_count": 0,
+                "webrtc_sender_discarded_on_disconnect_count": 0,
                 "webrtc_sender_discarded_on_session_change_count": 0,
                 "webrtc_sender_discarded_on_close_count": 0,
                 "webrtc_sender_oldest_queue_age_s": 0.0,
@@ -1153,8 +1180,10 @@ class WebRTCServer:
                 if self._peer_connection is not peer_connection:
                     return
                 if peer_connection.connectionState == "connected":
+                    video_track.set_media_connected(True)
                     self._media_connected.set()
                 elif peer_connection.connectionState == "disconnected":
+                    video_track.set_media_connected(False)
                     self._media_connected.clear()
                     self._cancel_link_press()
                 elif peer_connection.connectionState in {"failed", "closed"}:
@@ -1204,12 +1233,14 @@ class WebRTCServer:
                     raise
 
             self._media_connected.clear()
+            video_track.set_media_connected(False)
             self._final_video_track_metrics = None
             self._browser_focus = None
             self._peer_connection = peer_connection
             self._video_track = video_track
             self._client_connected = has_reliable_control
             if peer_connection.connectionState == "connected":
+                video_track.set_media_connected(True)
                 self._media_connected.set()
             self._control_channel = control_channel
             self._sent_cursor_options = None
@@ -1529,6 +1560,8 @@ class WebRTCServer:
             self._media_connected.clear()
             self._client_connected = False
             track = self._video_track
+            if track is not None:
+                track.set_media_connected(False)
             self._control_channel = None
             self._video_track = None
             self._sent_cursor_options = None
