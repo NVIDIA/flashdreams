@@ -199,7 +199,7 @@ class ModelState:
         request = replace(
             self.config.scene_request,
             map_path=option.path,
-            spawn_id=None if course is None else course.spawn_id,
+            spawn_id=option.default_spawn_id if course is None else course.spawn_id,
         )
         scene = self.scene_factory(request, self.config.renderer.raster)
         self.close()

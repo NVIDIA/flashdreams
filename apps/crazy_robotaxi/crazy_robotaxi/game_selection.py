@@ -45,6 +45,9 @@ class GameMapOption:
     preview_image_path: Path | None = None
     """Resolved map menu thumbnail after applying authored fallback rules."""
 
+    default_spawn_id: str | None = None
+    """First authored spawn used by taxi and free-roam modes."""
+
     @property
     def race_course_ids(self) -> tuple[str, ...]:
         """Return ordered stable course identifiers."""

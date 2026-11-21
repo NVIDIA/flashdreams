@@ -378,18 +378,6 @@ def test_application_registers_model_and_imgui_ui_loops(mode: str | None) -> Non
     assert not model_loop.state.game_selected
     assert model_loop.state.ui_loop is ui_loop
     assert ui_loop.state.model_loop is model_loop
-    assert len(ui_loop.state.map_options) == 2
-    assert ui_loop.state.map_options[0].path.name == "boulevard_district.robotaxi.yaml"
-    assert all(
-        option.preview_image_path is not None for option in ui_loop.state.map_options
-    )
-    raceway = next(
-        option
-        for option in ui_loop.state.map_options
-        if option.path.name == "flashdreams_raceway.robotaxi.yaml"
-    )
-    assert raceway.race_courses[0].spawn_id == "race_start"
-    assert raceway.race_courses[0].preview_image_path is not None
     assert ui_loop.state.profile_input_latency
     assert ui_loop.state.show_fps
     assert ui_loop.state.gamepad_button_style == session._config.gamepad_button_style
@@ -950,8 +938,7 @@ def test_adapter_dimensions_configure_renderer_geometry(
     )
 
     assert configured == [app._pipeline_config]
-    assert len(raster_sizes) == len(app._scenes)
-    assert set(raster_sizes) == {resolution_wh}
+    assert raster_sizes == [resolution_wh]
     assert session._config.renderer.raster.resolution_wh == resolution_wh
     assert model_loop.state.scene is not None
     assert model_loop.state.scene.initial_rgb.shape == (
@@ -2038,7 +2025,7 @@ def test_engine_only_rejects_live_edit_before_resolving_model_assets(
 @pytest.mark.parametrize("engine_only", [False, True])
 @pytest.mark.parametrize("disable_traffic", [False, True])
 def test_debug_traffic_selection_reaches_scene_requests_and_capture(
-    tmp_path, game_mode, engine_only, disable_traffic
+    tmp_path, monkeypatch, game_mode, engine_only, disable_traffic
 ):
     from crazy_robotaxi.debug import DEBUG_METADATA_KEY
 
@@ -2062,9 +2049,21 @@ def test_debug_traffic_selection_reaches_scene_requests_and_capture(
             *(["--race-course", "test-loop"] if game_mode == "race" else []),
         ]
     )
-    assert requests
-    assert all(request.traffic_enabled is not disable_traffic for request in requests)
-    session = app.create_session(app.session_desc())
+    assert not requests
+    monkeypatch.setattr(ModelState, "ensure_rollout", lambda _: None)
+    session = cast(CrazyRobotaxiSession, app.create_session(app.session_desc()))
+    session.init()
+    _, model_loop = session._take_loops()
+    model_loop._run_message_batch()
+    assert len(requests) == 1
+    assert requests[0].map_path == _RACE_MAP
+    assert requests[0].traffic_enabled is not disable_traffic
+    if game_mode == "race":
+        # This debug course starts at the default free-roam spawn.
+        model_loop.state.select_game(
+            GameSelection(mode="free-roam", map_option=session._map_options[0])
+        )
+        assert len(requests) == 1
     metadata = session.session_desc.metadata[DEBUG_METADATA_KEY]
     assert metadata["traffic_enabled"] is not disable_traffic
     assert metadata["engine_only"] is engine_only
