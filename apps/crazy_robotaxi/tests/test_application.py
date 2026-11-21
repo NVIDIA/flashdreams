@@ -55,6 +55,7 @@ from crazy_robotaxi.settings import (
 from crazy_robotaxi.ui import CrazyRobotaxiImGuiUILoop, TaxiHudState
 from ludus_renderer.physx import PhysXStepTimings, _CompactPhysicsStep
 from omnidreams_game_engine.config import BevConfig, RasterConfig
+from omnidreams_game_engine.debug_input import DEBUG_CONTROL_KEY, HeadlessInput
 from omnidreams_game_engine.game_map.types import GameMapTrafficVehicle
 from omnidreams_game_engine.game_map.vicinity import GameMapVicinity
 from omnidreams_game_engine.input import DriverInput
@@ -738,7 +739,8 @@ def test_taxi_keyboard_restores_arcade_brake_reverse() -> None:
     assert not command.reverse
 
 
-def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
+@pytest.mark.parametrize("simulation_capture", [False, True])
+def test_leaderboard_ends_simulation_clock_capture(simulation_capture: bool) -> None:
     snapshot = TaxiGameSnapshot(
         phase="seeking_pickup",
         target_xyz_m=(25.0, 0.0, 0.0),
@@ -773,6 +775,8 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
             Any,
             SimpleNamespace(
                 total_blocks=None,
+                debug_capture=simulation_capture,
+                no_ui=False,
                 pipeline_profiling=False,
                 controls=ControlsConfig(),
             ),
@@ -798,8 +802,26 @@ def test_leaderboard_does_not_finish_the_v2_model_loop() -> None:
     loop = CrazyRobotaxiModelLoop()
     loop.state = state
 
+    control = HeadlessInput()
+    if simulation_capture:
+        control.input_clock = "simulation"
+        state.session_desc.metadata[DEBUG_CONTROL_KEY] = control
+        rollout.engine.simulation = SimpleNamespace(
+            set_physx_debug_enabled=lambda _: None
+        )
+        control.start()
+        control.simulation_window(30, 33_333)
+        control.complete_simulation()
+        control.accept({"id": "end", "type": "close", "timestamp_us": 1_000_000})
+
     results = loop.step(0, UserInputEvents([]))
 
+    if simulation_capture:
+        assert not results
+        assert loop.is_finished()
+        assert control.simulation_time_us == 999_990
+        assert control.termination_reason is None  # Scheduled close was never reached.
+        return
     assert len(results) == 2
     assert torch.all(results[1].read_output() == 1.0)
     assert not state.finished

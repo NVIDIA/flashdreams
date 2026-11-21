@@ -400,6 +400,7 @@ class GamePhysicsWorld:
         self.last_step_timings = None
         self.last_step_bridge_timings = None
         self.last_step_actor_collision = False
+        self._actor_struck_this_step = False
         self.last_step_static_barrier_collision = False
         self.last_step_static_barrier_impact = False
         self._static_barrier_contact_active = False
@@ -836,7 +837,7 @@ class GamePhysicsWorld:
             actor_ids=actor_ids,
             barrier_ids=barrier_ids,
             vehicle_state=state,
-            actor_collision=self.last_step_actor_collision,
+            actor_collision=self._actor_struck_this_step,
             static_barrier_collision=self.last_step_static_barrier_collision,
             ego_chassis_offset_m=(
                 None
@@ -921,6 +922,7 @@ class GamePhysicsWorld:
             and not self._static_barrier_contact_active
         )
         self._static_barrier_contact_active = self.last_step_static_barrier_collision
+        self._actor_struck_this_step = bool(physics_step.struck_object_ids)
         if physics_step.struck_object_ids:
             self._pending_struck_vehicle_ids.update(physics_step.struck_object_ids)
             self._visual_flare_collision_velocity_mps = (

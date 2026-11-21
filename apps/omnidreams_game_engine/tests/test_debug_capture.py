@@ -286,7 +286,7 @@ def test_observation_preserves_native_pose_before_game_policy() -> None:
     world._debug_barrier_heights = np.empty(0, dtype=np.float32)
     world._debug_barrier_bases = np.empty(0, dtype=np.float32)
     world._debug_barrier_ids = ()
-    world.last_step_actor_collision = False
+    world._actor_struck_this_step = False
     world.last_step_static_barrier_collision = True
     world._last_contact_resolved_state = VehicleState(10, 20, 0, 0, 8, 0)
     roll = 0.3

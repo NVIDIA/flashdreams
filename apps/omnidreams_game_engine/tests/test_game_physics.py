@@ -110,8 +110,10 @@ def _scalar_rebound(
     return reinforced, contact_detected
 
 
+@pytest.mark.parametrize("struck_ids", [frozenset(), frozenset({"traffic"})])
 def test_debug_observation_preserves_native_velocity_before_curb_rebound(
     monkeypatch: pytest.MonkeyPatch,
+    struck_ids: frozenset[str],
 ) -> None:
     native = MagicMock()
     native.collider_state_arrays.return_value = (
@@ -140,8 +142,8 @@ def test_debug_observation_preserves_native_velocity_before_curb_rebound(
         ego=body,
         actor_samples=(),
         track_samples=(),
-        struck_object_ids=frozenset(),
-        impact=False,
+        struck_object_ids=struck_ids,
+        impact=True,
         timings=PhysXStepTimings(0, 0, 0, 0, 0, 0, 0),
     )
     state = VehicleState(0, 0.2, 0, 0, 2, 0, velocity_x_mps=2, velocity_y_mps=-6)
@@ -150,6 +152,7 @@ def test_debug_observation_preserves_native_velocity_before_curb_rebound(
     body.linear_velocity_mps[:] = 99
     debug = world.debug_frame(resolved)
     assert debug.static_barrier_collision
+    assert debug.actor_collision == bool(struck_ids)
     np.testing.assert_array_equal(debug.ego_linear_velocity_mps, [2, -1, 0])
     assert debug.vehicle_state is not None
     assert debug.vehicle_state.velocity_y_mps == -1

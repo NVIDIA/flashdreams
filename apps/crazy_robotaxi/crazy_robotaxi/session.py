@@ -625,10 +625,10 @@ class CrazyRobotaxiModelLoop(IModelLoop[ModelState]):
             state.last_pose = poses[-1].copy()
             state.last_speed_mps = speeds_mps[-1]
         else:
-            if capture and state.config.no_ui:
+            if capture and (state.config.no_ui or simulation_clock):
                 if isinstance(control, HeadlessInput) and control.capture is not None:
                     control.capture.termination_reason = "game_ended"
-                # Paired observations stop when the game stops generating frames.
+                # A finished game produces no more frame pairs or simulation time.
                 state.finished = True
                 return []
             if (

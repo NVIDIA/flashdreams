@@ -38,6 +38,7 @@ def write_capture_overview(directory: Path) -> dict[str, Any]:
     sources: dict[int, str] = {}
     for record in _records(directory / "telemetry.jsonl"):
         epoch = int(record.get("rollout_epoch", 0))
+        record.pop("physics_colliders", None)
         records[epoch].append(record)
         sources[epoch] = "telemetry.jsonl"
     for path in directory.glob("gameplay-*.jsonl"):

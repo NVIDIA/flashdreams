@@ -41,7 +41,7 @@ DEBUG_METADATA_KEY = "omnidreams_debug"
 
 @dataclass(frozen=True, slots=True, match_args=False)
 class DebugFrameResult(StepResult):
-    """A generated/HD-map frame pair with its aligned simulation record."""
+    """A presented frame with its aligned simulation record."""
 
     record: dict[str, Any] | None = None
 

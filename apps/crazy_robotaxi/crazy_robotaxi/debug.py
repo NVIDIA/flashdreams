@@ -60,12 +60,12 @@ class RobotaxiDebugUILoop(IUILoop[TaxiHudState]):
             raise RuntimeError("Debug frame has no aligned game telemetry")
         if hud_frame.debug_record is None:
             raise RuntimeError("Paired capture requires physics observations")
-        # The public UI protocol carries one result. Preserve both channels in
-        # that result; the app-owned sink separates them before writing files.
+        # The recorder already has both model channels. The sink uses the
+        # presentation record to identify when this frame reached the UI.
         return [
             DebugFrameResult(
                 step_index=step_index,
-                output=torch.cat(frames[:2], dim=-1).unsqueeze(0),
+                output=frames[0].unsqueeze(0),
                 frame_count=1,
                 output_layout=VideoTensorLayout.tchw,
                 record=hud_frame.debug_record,

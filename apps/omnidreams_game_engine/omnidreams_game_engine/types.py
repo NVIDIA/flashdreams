@@ -171,7 +171,7 @@ class PhysicsDebugFrame:
     """Physical vehicle pose before gameplay policy and render ground alignment."""
 
     actor_collision: bool = False
-    """Actor response reported by the game for this physics frame."""
+    """Whether the native simulation registered a struck actor on this frame."""
 
     static_barrier_collision: bool = False
     """Static-barrier proximity response reported for this physics frame."""
