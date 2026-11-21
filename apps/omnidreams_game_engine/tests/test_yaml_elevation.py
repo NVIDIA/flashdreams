@@ -19,7 +19,7 @@ from omnidreams_game_engine.game_map import (
 )
 from omnidreams_game_engine.game_map.compiler import _boundary_chunks
 from omnidreams_game_engine.game_map.types import game_map_from_dict, game_map_to_dict
-from omnidreams_game_engine.scene import load_scene_bundle
+from omnidreams_game_engine.scene import SceneRequest, load_scene, load_scene_bundle
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from shapely.geometry import LineString, Polygon
 
@@ -284,3 +284,59 @@ def test_invalid_node_heights_fail_validation(tmp_path: Path, value) -> None:
     source.write_text(yaml.safe_dump(document))
     with pytest.raises(GameMapError, match="z_m"):
         load_game_map(source)
+
+
+def test_cached_elevation_map_skips_geometry_and_uses_current_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from omnidreams_game_engine import scene_loader
+    from omnidreams_game_engine.game_map import compiler
+    from PIL import Image
+
+    monkeypatch.setenv("FLASHDREAMS_CACHE_DIR", str(tmp_path / "cache"))
+    doc = yaml.safe_load((_MAPS / "debug_hill.robotaxi.yaml").read_text())
+    doc["spawns"][0]["image"] = "seed.png"
+    for subdir in ("first", "second"):
+        folder = tmp_path / subdir
+        folder.mkdir()
+        (folder / "hill.robotaxi.yaml").write_text(yaml.safe_dump(doc))
+        Image.new("RGB", (48, 32), (12, 34, 56)).save(folder / "seed.png")
+    source = tmp_path / "first/hill.robotaxi.yaml"
+    duplicate = tmp_path / "second/hill.robotaxi.yaml"
+    first = compiler.compile_game_map(source)
+
+    def unexpected_resolution(*args):
+        pytest.fail("Cache hit rebuilt terrain or reloaded an already resolved map")
+
+    monkeypatch.setattr(compiler, "resolve_game_map", unexpected_resolution)
+    monkeypatch.setattr(scene_loader, "game_map_from_dict", unexpected_resolution)
+    cached = compiler.compile_game_map(duplicate)
+    assert cached.cache_hit and cached.archive_path == first.archive_path
+    expected = game_map_to_dict(first.game_map)
+    expected["source_path"] = str(duplicate)
+    assert game_map_to_dict(cached.game_map) == expected
+    scene = load_scene(SceneRequest(duplicate), RasterConfig(width=64, height=32))
+    assert scene.game_map is not None and scene.game_map.source_path == duplicate
+    np.testing.assert_array_equal(scene.initial_rgb[0, 0], [12, 34, 56])
+
+
+def test_cache_rebuilds_after_seed_changes_or_archive_damage(tmp_path: Path) -> None:
+    from PIL import Image
+
+    source = tmp_path / "debug.robotaxi.yaml"
+    doc = yaml.safe_load(
+        (Path(__file__).parent / "maps/debug_flat.robotaxi.yaml").read_text()
+    )
+    doc["spawns"][0]["image"] = "seed.png"
+    source.write_text(yaml.safe_dump(doc))
+    seed = tmp_path / "seed.png"
+    Image.new("RGB", (48, 32), "black").save(seed)
+    first = compile_game_map(source, cache_root=tmp_path)
+    Image.new("RGB", (48, 32), "white").save(seed)
+    changed = compile_game_map(source, cache_root=tmp_path)
+    assert not changed.cache_hit and first.archive_path != changed.archive_path
+    changed.archive_path.write_bytes(b"damaged")
+    rebuilt = compile_game_map(source, cache_root=tmp_path)
+    assert not rebuilt.cache_hit and rebuilt.archive_path == changed.archive_path
+    assert compile_game_map(source, cache_root=tmp_path).cache_hit
+    assert not compile_game_map(source, cache_root=tmp_path, force=True).cache_hit

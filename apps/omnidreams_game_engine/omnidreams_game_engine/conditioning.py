@@ -301,11 +301,33 @@ def _build_bev_road_surface_pool(
     if elevated:
         assert ground_vertices is not None and ground_faces is not None
         ground = ground_vertices[ground_faces].astype(np.float64)
+        # Match the upward winding used for triangulated boundary pieces.
+        orientation = np.cross(
+            ground[:, 1] - ground[:, 0], ground[:, 2] - ground[:, 0]
+        )[:, 2]
+        clockwise = orientation < 0
+        ground[clockwise] = ground[clockwise, ::-1]
+        ground = ground[orientation != 0]
         ground_polygons = shapely.polygons(ground[:, :, :2])
         ground_index = shapely.STRtree(ground_polygons)
         for element in elements:
             pavement = Polygon(element.surface_world[:, :2])
             ground_ids = ground_index.query(pavement, predicate="intersects")
+            shapely.prepare(pavement)
+            inside = shapely.covers(pavement, ground_polygons[ground_ids])
+            complete = ground[ground_ids[inside]]
+            if len(complete):
+                complete[:, :, 2] += _BEV_ROAD_DEPTH_OFFSET_M
+                vertices.append(
+                    torch.from_numpy(complete.astype(np.float32).reshape(-1, 3))
+                )
+                triangles.append(
+                    torch.arange(3, dtype=torch.int32).expand(len(complete), 3)
+                )
+                # Each triangle remains its own culled polygon in the renderer.
+                vertex_counts.extend([3] * len(complete))
+                triangle_counts.extend([1] * len(complete))
+            ground_ids = ground_ids[~inside]
             pieces = shapely.intersection(pavement, ground_polygons[ground_ids])
             for piece, ground_id in zip(pieces, ground_ids, strict=True):
                 face = ground[ground_id]
@@ -357,7 +379,7 @@ def _build_bev_road_surface_pool(
     return TimestampedPolygonPool(
         timestamps_us=torch.tensor([0], dtype=torch.int64, device=device),
         timestamped_varrays_prefix_sum=torch.tensor(
-            [len(vertices)], dtype=torch.int32, device=device
+            [len(vertex_counts)], dtype=torch.int32, device=device
         ),
         varrays_prefix_sum=torch.tensor(
             np.cumsum(vertex_counts), dtype=torch.int32, device=device

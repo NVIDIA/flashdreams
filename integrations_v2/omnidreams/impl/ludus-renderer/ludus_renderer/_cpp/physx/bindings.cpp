@@ -228,6 +228,7 @@ public:
             parameters, description, mPhysics->getPhysicsInsertionCallback());
         if (!mesh)
             throw std::runtime_error("failed to cook ground triangle mesh");
+        const float lowestSurface = mesh->getLocalBounds().minimum.z;
         PxShape* shape = mPhysics->createShape(
             PxTriangleMeshGeometry(mesh, PxMeshScale(), PxMeshGeometryFlag::eDOUBLE_SIDED),
             *mGroundMaterial,
@@ -243,6 +244,17 @@ public:
             throw std::runtime_error("failed to create ground mesh actor");
         }
         shape->release();
+        // A vehicle can drive past the finite mesh. Keep its exterior floor
+        // below every authored face, including roads below world Z = 0.
+        PxShape* exterior = PxRigidActorExt::createExclusiveShape(
+            *ground, PxPlaneGeometry(), *mGroundMaterial);
+        if (!exterior) {
+            ground->release();
+            throw std::runtime_error("failed to create exterior ground plane");
+        }
+        constexpr float exteriorClearance = 0.10f;
+        exterior->setLocalPose(PxTransformFromPlaneEquation(
+            PxPlane(PxVec3(0.0f, 0.0f, 1.0f), exteriorClearance - lowestSurface)));
         mGround->release();
         mGround = ground;
         mScene->addActor(*mGround);

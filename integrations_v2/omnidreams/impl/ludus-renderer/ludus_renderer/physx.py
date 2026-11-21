@@ -242,7 +242,7 @@ class PhysXWorld:
         return self._state_buffer
 
     def set_ground_mesh(self, vertices: np.ndarray, faces: np.ndarray) -> None:
-        """Replace the flat fallback floor with scene triangle-mesh collision.
+        """Use the authored ground mesh with an exterior floor below its lowest face.
 
         Args:
             vertices: Finite world coordinates shaped ``[N, 3]``.

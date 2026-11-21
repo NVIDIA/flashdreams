@@ -122,6 +122,7 @@ def test_road_surface_planes_preserve_ungrounded_and_non_road_geometry() -> None
 @pytest.mark.parametrize(
     "surfaces",
     [
+        [Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])],
         [Polygon([(1, 1), (9, 8), (8.5, 9), (0.5, 2)])],
         [LineString([(1, 2), (4, 6), (8, 8)]).buffer(0.4)],
         [
@@ -152,7 +153,7 @@ def test_elevated_bev_clips_to_pavement_and_preserves_ground_height(
         elements,
         torch.device("cpu"),
         ground_vertices=ground,
-        ground_faces=np.asarray([[0, 1, 2], [0, 2, 3]], np.int32),
+        ground_faces=np.asarray([[2, 1, 0], [0, 2, 3]], np.int32),
     )
     assert pool is not None
     xyz = pool.vertices.numpy()
@@ -161,7 +162,13 @@ def test_elevated_bev_clips_to_pavement_and_preserves_ground_height(
     indices = (
         pool.triangles.numpy() + np.repeat(vertex_starts, triangle_counts)[:, None]
     )
-    rendered = shapely.union_all(shapely.polygons(xyz[indices, :2]))
+    assert int(pool.timestamped_varrays_prefix_sum[-1]) == len(vertex_starts)
+    triangles = xyz[indices]
+    normals = np.cross(
+        triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
+    )
+    assert np.all(normals[:, 2] > 0)
+    rendered = shapely.union_all(shapely.polygons(triangles[:, :, :2]))
     expected = shapely.union_all(surfaces)
     assert rendered.symmetric_difference(expected).area < 1e-5
     x, y = xyz[:, :2].T

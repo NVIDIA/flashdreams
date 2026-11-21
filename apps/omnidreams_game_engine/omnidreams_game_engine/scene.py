@@ -39,6 +39,7 @@ def load_scene(request: SceneRequest, raster: RasterConfig) -> SceneDefinition:
     )
     return load_scene_bundle(
         scene_path=compiled.archive_path,
+        game_map=compiled.game_map,
         camera_name=request.camera_name,
         raster=raster,
         traffic_enabled=request.traffic_enabled,

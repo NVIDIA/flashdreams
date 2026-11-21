@@ -2799,7 +2799,11 @@ def _spawn(
 def load_game_map(path: Path) -> ResolvedGameMap:
     """Parse and compile the current node-graph schema into runtime geometry."""
     source_path = Path(path).expanduser().resolve()
-    doc = _read_document(source_path)
+    return resolve_game_map(source_path, _read_document(source_path))
+
+
+def resolve_game_map(source_path: Path, doc: dict[str, Any]) -> ResolvedGameMap:
+    """Resolve one parsed node graph into playable geometry."""
     map_id, map_name = _parse_map_identity(doc)
     settings = _parse_compiler_settings(doc)
     profiles = _parse_profiles(doc)

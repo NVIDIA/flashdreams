@@ -3,10 +3,11 @@
 
 """Native CPU solver checks for authored ground and elevated walls.
 
-These manual tests build the pinned PhysX SDK on first use. They run without
+CPU CI prepares the pinned PhysX SDK. They run without
 CUDA, model weights, or a renderer.
 """
 
+import os
 from dataclasses import replace
 
 import numpy as np
@@ -21,11 +22,13 @@ from ludus_renderer import (
     prepare_physx,
 )
 
-pytestmark = pytest.mark.manual
+pytestmark = pytest.mark.ci_cpu
 
 
 @pytest.fixture(scope="module", autouse=True)
 def native_physx() -> None:
+    if os.environ.get("FLASHDREAMS_TEST_NATIVE_PHYSX") != "1":
+        pytest.skip("Native SDK preparation is enabled separately in CPU CI")
     prepare_physx()
 
 
@@ -140,5 +143,22 @@ def test_elevated_barrier_contacts_only_its_height_range(floor: float) -> None:
             assert body.position_m[1] > 0.7
         else:
             assert body.position_m[1] < -2
+    finally:
+        world.close()
+
+
+@pytest.mark.parametrize("floor", [-4.0, 0.0, 8.0])
+def test_driving_off_authored_mesh_stays_supported(floor: float) -> None:
+    model = RigidBodyModel(mass_kg=1500, half_extents_m=(1.4, 0.7, 0.5))
+    world = PhysXWorld(PhysicsObjectGraph(), model)
+    try:
+        world.set_ground_mesh(*_plane(floor))
+        body = _body(floor + 0.51)
+        for tick in range(150):
+            body.linear_velocity_mps[0] = 15
+            body = world.step_compact(body, tick * 33333, 1 / 30).ego
+        assert body.position_m[0] > 30
+        assert body.position_m[2] == pytest.approx(floor - 0.10 + 0.51, abs=0.03)
+        assert abs(body.linear_velocity_mps[2]) < 0.05
     finally:
         world.close()

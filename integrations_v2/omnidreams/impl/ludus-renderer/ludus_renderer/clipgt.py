@@ -40,6 +40,8 @@ import torch
 from scipy.spatial.transform import Rotation as R
 from torch import Tensor
 
+from ludus_renderer.util import polyline_slices
+
 from ._logging import logger
 from ._ops import (
     CUBE_FLAG_WIREFRAME,
@@ -690,31 +692,24 @@ def read_lane_line(
         # Convert to numpy for pattern processing
         pts_np = pts.numpy()
 
+        if style in {"SOLID_DASHED", "DASHED_SOLID"}:
+            solids = result.yellow_solid if color == "YELLOW" else result.white_solid
+            solid = pts
+            if not simplify_dual_lines:
+                dashed = (
+                    result.yellow_dashed if color == "YELLOW" else result.white_dashed
+                )
+                solid, strokes = _create_dual_line(
+                    pts_np, left_dashed=style == "SOLID_DASHED"
+                )
+                dashed.extend(strokes)
+            # Bound the continuous stripe only after the full path establishes dash phase.
+            solids.extend(solid[part] for part in polyline_slices(len(solid)))
+            continue
+
         # Categorize by color and apply appropriate pattern
         if color == "YELLOW":
-            if style == "SOLID_DASHED":
-                if simplify_dual_lines:
-                    # Simplify to single solid line
-                    result.yellow_solid.append(pts)
-                else:
-                    # Dual line: per reference config: ["long_dashed", "solid"] = left dashed, right solid
-                    solid_line, dashed_segments = _create_dual_line(
-                        pts_np, left_dashed=True
-                    )
-                    result.yellow_solid.append(solid_line)
-                    result.yellow_dashed.extend(dashed_segments)
-            elif style == "DASHED_SOLID":
-                if simplify_dual_lines:
-                    # Simplify to single solid line
-                    result.yellow_solid.append(pts)
-                else:
-                    # Dual line: per reference config: ["solid", "long_dashed"] = left solid, right dashed
-                    solid_line, dashed_segments = _create_dual_line(
-                        pts_np, left_dashed=False
-                    )
-                    result.yellow_solid.append(solid_line)
-                    result.yellow_dashed.extend(dashed_segments)
-            elif style == "SOLID_GROUP":
+            if style == "SOLID_GROUP":
                 if simplify_dual_lines:
                     # Simplify to single solid line
                     result.yellow_solid.append(pts)
@@ -745,27 +740,7 @@ def read_lane_line(
                 # Default to long dashed (LONG_DASHED_SINGLE, OTHER, etc.)
                 result.yellow_dashed.extend(_apply_long_dash_pattern(pts_np))
         else:  # WHITE or UNKNOWN
-            if style == "SOLID_DASHED":
-                if simplify_dual_lines:
-                    # Simplify to single solid line
-                    result.white_solid.append(pts)
-                else:
-                    solid_line, dashed_segments = _create_dual_line(
-                        pts_np, left_dashed=True
-                    )
-                    result.white_solid.append(solid_line)
-                    result.white_dashed.extend(dashed_segments)
-            elif style == "DASHED_SOLID":
-                if simplify_dual_lines:
-                    # Simplify to single solid line
-                    result.white_solid.append(pts)
-                else:
-                    solid_line, dashed_segments = _create_dual_line(
-                        pts_np, left_dashed=False
-                    )
-                    result.white_solid.append(solid_line)
-                    result.white_dashed.extend(dashed_segments)
-            elif style == "SOLID_GROUP":
+            if style == "SOLID_GROUP":
                 if simplify_dual_lines:
                     # Simplify to single solid line
                     result.white_solid.append(pts)

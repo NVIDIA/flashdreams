@@ -56,3 +56,45 @@ def test_compiled_markings_preserve_every_segment(count: int, style: str) -> Non
     assert all(
         row["lane_line"]["is_last_point_physical_end"] == "false" for row in rows[:-1]
     )
+
+
+@pytest.mark.parametrize("style", ["SOLID_DASHED", "DASHED_SOLID"])
+@pytest.mark.parametrize("simplified", [True, False])
+@pytest.mark.parametrize("color", ["YELLOW", "WHITE"])
+def test_long_mixed_stripes_preserve_endpoint_and_dash_phase(
+    tmp_path, style: str, simplified: bool, color: str
+) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from ludus_renderer.clipgt import _create_dual_line, read_lane_line
+
+    t = np.linspace(0, 2, 550)
+    points = np.column_stack((100 * np.cos(t), 100 * np.sin(t), 4 * t)).astype(
+        np.float32
+    )
+    marking = GameMapLineMarking("curve", points, style, color)
+    m = cast(
+        ResolvedGameMap,
+        SimpleNamespace(
+            map_id="debug", schema_version=2, lane_dividers=(), line_markings=(marking,)
+        ),
+    )
+    path = tmp_path / "lane_line.parquet"
+    pq.write_table(pa.Table.from_pylist(_lane_line_rows(m)), path)
+    paint = read_lane_line(path, simplify_dual_lines=simplified)
+    solid_stripes = paint.yellow_solid if color == "YELLOW" else paint.white_solid
+    dashed_stripes = paint.yellow_dashed if color == "YELLOW" else paint.white_dashed
+    assert all(len(rail) <= 256 for rail in solid_stripes)
+    solid = np.concatenate(
+        [solid_stripes[0], *(rail[3:] for rail in solid_stripes[1:])]
+    )
+    if simplified:
+        np.testing.assert_array_equal(solid, points)
+        assert not dashed_stripes
+    else:
+        expected_solid, expected_dashes = _create_dual_line(
+            points, left_dashed=style == "SOLID_DASHED"
+        )
+        np.testing.assert_array_equal(solid, expected_solid)
+        for actual, expected in zip(dashed_stripes, expected_dashes, strict=True):
+            np.testing.assert_array_equal(actual, expected)

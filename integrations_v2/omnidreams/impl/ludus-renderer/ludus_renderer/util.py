@@ -8,6 +8,17 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
+MAX_POLYLINE_POINTS = 256
+"""Point limit of the renderer's polyline geometry kernels."""
+
+
+def polyline_slices(count: int) -> list[slice]:
+    """Split a rendered rail while retaining three join points and their tangents."""
+    return [
+        slice(start, min(start + MAX_POLYLINE_POINTS, count))
+        for start in range(0, max(1, count - 3), MAX_POLYLINE_POINTS - 3)
+    ]
+
 
 def rgb(r: int, g: int, b: int) -> torch.Tensor:
     """Convert RGB values (0-255) to normalized float tensor."""
