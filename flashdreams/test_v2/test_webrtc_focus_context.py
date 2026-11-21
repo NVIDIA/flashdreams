@@ -3,6 +3,7 @@
 
 """CPU checks for focus ordering across WebRTC input channels."""
 
+import asyncio
 import json
 from contextlib import contextmanager
 
@@ -155,3 +156,26 @@ def test_focus_state_survives_a_session_handoff_and_legacy_input_still_works():
         send({"type": "keyboard", "key": "w", "pressed": True})
         [key] = window.get_user_input_events().get_events()
         assert key.key == "w"
+
+
+def test_video_track_rejects_frames_while_media_is_disconnected():
+    pytest.importorskip("aiortc")
+    from av import VideoFrame
+
+    from flashdreams.runtime_v2.serving.webrtc_server import _VideoTrack
+
+    async def exercise() -> None:
+        track = _VideoTrack(60)
+        frame = VideoFrame(width=1, height=1, format="rgb24")
+        assert track.enqueue(frame) is False
+        track.set_media_connected(True)
+        assert track.enqueue(frame) is True
+        track.set_media_connected(False)
+        assert track.enqueue(frame) is False
+        assert (
+            track.metrics_snapshot()["webrtc_sender_discarded_on_disconnect_count"]
+            == 1
+        )
+        await track.close()
+
+    asyncio.run(exercise())
