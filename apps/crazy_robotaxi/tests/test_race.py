@@ -172,6 +172,25 @@ def test_backward_start_crossing_does_not_start(tmp_path: Path) -> None:
     assert snapshot.elapsed_time_us == 0
 
 
+def test_regular_checkpoint_requires_forward_crossing(tmp_path: Path) -> None:
+    game_map = load_game_map(_MAP)
+    controller = RaceController(
+        game_map,
+        game_map.race_courses[0],
+        _state(-20.0, -100.0),
+        RaceTimeStore(tmp_path / "times.csv"),
+    )
+    # Start eastbound, then go around the southeast gate to approach from behind.
+    _drive(controller, [(20, -100), (130, -80), (155, -80), (155, -100)], 1)
+    backward, forward = _drive(controller, [(130, -100), (150, -100)], 5)
+    assert backward.target_element_id == "southeast"
+    assert backward.checkpoint_index == 0
+    assert backward.event is None
+    assert forward.target_element_id == "east_north"
+    assert forward.checkpoint_index == 1
+    assert forward.event == "checkpoint"
+
+
 def test_swept_crossing_advances_through_adjacent_gates(tmp_path: Path) -> None:
     game_map = load_game_map(_MAP)
     course = replace(

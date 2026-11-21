@@ -205,6 +205,7 @@ def test_map_menu_thumbnail_falls_back_to_first_authored_spawn_image(
 
     assert fallback_header.menu_thumbnail_path is not None
     assert fallback_header.menu_thumbnail_path.name == "screenshot.jpg"
+    assert fallback_header.default_spawn_id == first_spawn["id"]
     assert fallback_header.race_courses[0].spawn_id == "second"
     assert (
         fallback_header.race_courses[0].spawn_image_path
