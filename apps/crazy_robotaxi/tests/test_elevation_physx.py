@@ -1,14 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Native PhysX driving checks for the compiled elevated Raceway.
+"""Native PhysX driving checks on the debug elevation circuit.
 
-These manual tests build the pinned CPU PhysX SDK on first use. Driving checks
+CPU CI prepares the pinned PhysX SDK. Driving checks
 measure the physical pose without snapping; curb checks use the full simulation
 and inspect the physical pose before render alignment.
 """
 
 import math
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -30,19 +31,21 @@ from omnidreams_game_engine.simulation.ego_vehicle_kinematics import (
 from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import DriverCommand, SceneDefinition, VehicleState
 
-pytestmark = pytest.mark.manual
+pytestmark = pytest.mark.ci_cpu
 
 
 @pytest.fixture(scope="module", autouse=True)
 def native_physx() -> None:
+    if os.environ.get("FLASHDREAMS_TEST_NATIVE_PHYSX") != "1":
+        pytest.skip("Native SDK preparation is enabled separately in CPU CI")
     prepare_physx()
 
 
 @pytest.fixture(scope="module")
 def raceway(tmp_path_factory: pytest.TempPathFactory) -> SceneDefinition:
     source = (
-        Path(__file__).parents[1]
-        / "crazy_robotaxi/maps/flashdreams_raceway.robotaxi.yaml"
+        Path(__file__).parents[2]
+        / "omnidreams_game_engine/tests/maps/debug_elevation_circuit.robotaxi.yaml"
     )
     compiled = compile_game_map(
         source, cache_root=tmp_path_factory.mktemp("elevated-raceway")
