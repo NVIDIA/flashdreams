@@ -1,0 +1,26 @@
+# Keep the AlpaSim image context limited to workspace metadata and packages.
+**
+!pyproject.toml
+!uv.lock
+!flashdreams/
+!flashdreams/**
+!apps/
+!apps/**
+!integrations_v2/
+!integrations_v2/**
+
+# Repository metadata and local caches are never package inputs.
+**/.git/
+**/.git/**
+**/.venv/
+**/.venv/**
+**/__pycache__/
+**/__pycache__/**
+**/.pytest_cache/
+**/.pytest_cache/**
+**/.ruff_cache/
+**/.ruff_cache/**
+**/*.pyc
+**/*.pyo
+**/*.sqlite
+**/*.sqlite-*
