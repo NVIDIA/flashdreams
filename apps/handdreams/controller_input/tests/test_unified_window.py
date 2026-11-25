@@ -234,7 +234,9 @@ def test_registered_modes_select_the_builtin_display(tmp_path, monkeypatch, disp
         ]
     )
     monkeypatch.setenv("FLASHDREAMS_CONTROLLER_TOKEN", "x" * 48)
-    output = SimpleNamespace(server=SimpleNamespace(url="http://127.0.0.1:8081"))
+    output = SimpleNamespace(
+        server=SimpleNamespace(url="http://127.0.0.1:8081", pairing_url=None)
+    )
     created = []
 
     for name in ("webrtc", "native-window"):

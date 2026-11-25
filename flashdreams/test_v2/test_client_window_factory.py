@@ -9,6 +9,8 @@ so what is covered here is each mode answering for itself.
 
 import argparse
 import asyncio
+import io
+import sys
 from pathlib import Path
 
 import pytest
@@ -287,15 +289,39 @@ class TestWebRTC:
         pytest.importorskip("aiohttp")
         pytest.importorskip("aiortc")
 
-    def test_a_browser_run_is_told_where_to_connect(self) -> None:
-        """The port can be one the operating system chose, so nobody can guess it."""
+    def test_a_browser_run_is_told_where_to_connect(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The port can be one the operating system chose, so nobody can guess it.
+
+        A terminal gets a one-click pairing link; logs get only the file to paste from.
+        """
         from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
+        class _Terminal(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        monkeypatch.delenv("FLASHDREAMS_WEBRTC_TOKEN_FILE", raising=False)
+        monkeypatch.delenv("FLASHDREAMS_WEBRTC_ALLOWED_ORIGINS", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         mode = client_window_mode("webrtc")
         window = mode.create(_parsed(["--mode", "webrtc"]))
         try:
             assert isinstance(window, WebRTCClientWindow)
             assert window.metrics_snapshot()["webrtc_sender_queue_capacity_count"] == 2
+            url, credential = window.server.url, tmp_path / "flashdreams/webrtc-token"
+            assert mode.starting(window) == (
+                f"Open {url} in a browser and paste the pairing code from {credential}."
+            )
+            monkeypatch.setattr(sys, "stdout", _Terminal())
+            token = credential.read_text().strip()
+            assert mode.starting(window) == f"Open {url}#pair={token} in a browser."
+        finally:
+            window.close()
+        window = mode.create(_parsed(["--mode", "webrtc", "--no-login"]))
+        try:
+            assert isinstance(window, WebRTCClientWindow)
             assert mode.starting(window) == f"Open {window.server.url} in a browser."
         finally:
             window.close()

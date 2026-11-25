@@ -7,6 +7,8 @@ import threading
 import time
 
 from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEvent,
+    InputOwnerChangedUserInputEvent,
     ResetUserInputEvent,
     UserInputEvent,
 )
@@ -25,6 +27,9 @@ class EventBuffer:
     :attr:`generation`, which the loops and the presentation manager compare
     against their own; that counter is how a reset reaches all of them without
     any of them talking to each other.
+
+    Ownership changes discard retained input except terminal closes and reach
+    every reader independently, without changing the reset generation.
     """
 
     def __init__(self) -> None:
@@ -62,6 +67,21 @@ class EventBuffer:
         received = events.get_events()
         now_ns = time.monotonic_ns() if received_ns is None else received_ns
         with self._lock:
+            if any(isinstance(e, InputOwnerChangedUserInputEvent) for e in received):
+                # Remap each reader past only the terminal events it already saw.
+                # Reset generations already admitted here remain committed.
+                retained = [
+                    i
+                    for i, event in enumerate(self._events)
+                    if isinstance(event, CloseUserInputEvent)
+                ]
+                self._reader_indexes = {
+                    reader: self._base_index
+                    + sum(self._base_index + i < cursor for i in retained)
+                    for reader, cursor in self._reader_indexes.items()
+                }
+                self._events = [self._events[i] for i in retained]
+                self._received_ns = [self._received_ns[i] for i in retained]
             self._events.extend(received)
             self._received_ns.extend([now_ns] * len(received))
             self._generation += sum(

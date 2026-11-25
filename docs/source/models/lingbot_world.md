@@ -33,7 +33,7 @@ Introduced by [Robbyant](https://technology.robbyant.com/), LingBot-World is a c
 ```bash
 uv sync --package flashdreams-lingbot --inexact
 uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
-  --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
+  --mode webrtc --port 8089 -- --example-data
 
 # `--example-data` downloads `image.jpg`,
 # `intrinsics.npy`, `poses.npy`, and `prompt.txt` from the

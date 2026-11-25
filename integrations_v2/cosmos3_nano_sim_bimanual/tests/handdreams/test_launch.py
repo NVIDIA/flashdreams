@@ -190,8 +190,7 @@ def test_dataset_replay_skips_all_controller_setup(
         assert "TELEOP_PROXY_HOST" not in environment
         assert environment["CUDA_VISIBLE_DEVICES"] == "1"
         if mode == "webrtc":
-            expected_host = address if address == "127.0.0.1" else "0.0.0.0"
-            assert command[command.index("--host") + 1] == expected_host
+            assert command[command.index("--host") + 1] == "127.0.0.1"
             assert command[command.index("--port") + 1] == "8082"
         else:
             assert "--host" not in command
@@ -1061,7 +1060,7 @@ def test_command_shapes_keep_remote_vr_isolated_and_runtime_options_separate(mod
     if mode == "native-window":
         assert "--host" not in runtime and "--port" not in runtime
     else:
-        assert runtime[runtime.index("--host") + 1] == "0.0.0.0"
+        assert runtime[runtime.index("--host") + 1] == "127.0.0.1"
         assert runtime[runtime.index("--port") + 1] == "8081"
     assert "--isaac-teleop-accept-eula" in runtime
     assert "--isaac-teleop-accept-eula" not in application

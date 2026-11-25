@@ -78,7 +78,7 @@ original video on the left and the post-processed video on the right:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 DEMO_MODEL_SLUG \
-  --mode webrtc --host 0.0.0.0 --port 8089 -- \
+  --mode webrtc --port 8089 -- \
   --postprocess-preset PRESET --postprocess-comparison-ui
 ```
 
@@ -93,7 +93,7 @@ Exercise the Cam2V UI without loading a model:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 cam2v-dummy --mode webrtc \
-  --host 0.0.0.0 --port 8089 -- \
+  --port 8089 -- \
   --step-wait-seconds 0.9 --frames-per-chunk 12
 ```
 

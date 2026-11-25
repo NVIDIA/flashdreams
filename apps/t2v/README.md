@@ -41,7 +41,7 @@ uv run --package flashdreams-causal-forcing flashdreams-run-v2 \
   t2v-causal-forcing-wan2.1-t2v-1.3b-chunkwise --mode webrtc --port 8080
 ```
 
-Open `http://localhost:8080`. An initial `--prompt` is optional for interactive
+Open the link the runner prints. An initial `--prompt` is optional for interactive
 runs; the prompt UI can start the first and subsequent sessions.
 
 Shared application arguments are:

@@ -64,6 +64,7 @@ from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
     FullscreenEnabledOptimalWindowSizeUserInputEvent,
     GamepadUserInputEvent,
+    GameWheelUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -2493,6 +2494,47 @@ def test_exit_hold_does_not_survive_input_interruption(
     state.draw(_FakeImGui())
     assert not state._exit_requested
     assert not state._exit_hold_started_at_s
+
+
+@pytest.mark.parametrize("device", ("keyboard", "gamepad", "wheel"))
+def test_focus_loss_releases_ui_controls_during_binding_capture(
+    device: Literal["keyboard", "gamepad", "wheel"],
+) -> None:
+    state = TaxiHudState(640, 360, _calibration())
+    gamepad_held = GamepadUserInputEvent(
+        timestamp=np.uint64(1), axes=(-1.0,), buttons=(0.0,) * 5 + (1.0,)
+    )
+    state.consume_input_events(
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(0), key="w", state=KeyboardInputState.PRESSED
+                ),
+                gamepad_held,
+                GameWheelUserInputEvent(timestamp=np.uint64(2), throttle=1.0),
+            ]
+        )
+    )
+    state._controls_device = device
+    state._controls_draft = getattr(state.controls, device)
+    state._start_binding_capture("restart", 0)
+    draft = state._controls_draft
+
+    state.consume_input_events(
+        UserInputEvents([FocusUserInputEvent(timestamp=np.uint64(3), focused=False)])
+    )
+
+    assert not state._pressed_keys
+    assert state._latest_gamepad_event is None
+    assert state._latest_wheel_event is None
+    assert state._active_control_device == "keyboard"
+    assert state._controls_capture is not None
+    assert state._controls_capture.baseline is None
+    assert state._controls_draft is draft
+    assert not state.show_control_tooltips
+    state._controls_capture = None
+    state.consume_input_events(UserInputEvents([gamepad_held]))
+    assert state.show_control_tooltips
 
 
 def test_h_toggles_gameplay_control_tooltips() -> None:

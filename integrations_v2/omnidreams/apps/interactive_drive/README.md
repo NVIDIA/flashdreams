@@ -10,7 +10,7 @@ Install the OmniDreams integration and launch its Interactive Drive application:
 ```bash
 uv sync --package flashdreams-omnidreams --extra interactive-drive --inexact
 uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
-  --mode webrtc --host 0.0.0.0 --port 8089
+  --mode webrtc --port 8089
 ```
 
 The default scene and model assets download from Hugging Face on first use.

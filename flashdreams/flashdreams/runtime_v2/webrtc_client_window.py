@@ -5,6 +5,7 @@
 
 import threading
 from collections import deque
+from collections.abc import Callable
 from dataclasses import replace
 
 from numpy import uint64
@@ -18,7 +19,11 @@ from flashdreams.runtime_v2.selected_file import (
 from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
-from flashdreams.runtime_v2.user_input_event import FocusUserInputEvent, UserInputEvent
+from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEvent,
+    InputOwnerChangedUserInputEvent,
+    UserInputEvent,
+)
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 
 
@@ -47,6 +52,8 @@ class WebRTCClientWindow(IClientWindow):
         host: str = "127.0.0.1",
         port: int = 0,
         startup_timeout_seconds: float = 10.0,
+        auth_token: str | None = None,
+        allowed_origins: tuple[str, ...] | None = None,
     ) -> None:
         """Create the WebRTC backend.
 
@@ -57,6 +64,8 @@ class WebRTCClientWindow(IClientWindow):
             host: Interface on which the HTTP server listens.
             port: Listening port. Zero asks the operating system to choose one.
             startup_timeout_seconds: Maximum time to wait for server startup.
+            auth_token: Reusable owner bearer; otherwise read the configured token file.
+            allowed_origins: Exact browser origins; otherwise read the environment.
         """
         self._input_events: deque[UserInputEvent] = deque()
         self._file_selector_reports: deque[
@@ -64,13 +73,16 @@ class WebRTCClientWindow(IClientWindow):
         ] = deque()
         self._hide_cursor = False
         self._lock_cursor_to_window = False
-        self._input_lock = threading.Lock()
+        self._input_lock = threading.RLock()
+        self._viewer_callback: Callable[[bool], None] | None = None
         # Offset from the server's stable clock to the current session's clock.
-        self._session_event_offset_us = uint64(0)
+        self._session_event_offset_us: uint64 | None = None
         self.server = WebRTCServer(
             host=host,
             port=port,
             startup_timeout_seconds=startup_timeout_seconds,
+            auth_token=auth_token,
+            allowed_origins=allowed_origins,
         )
 
         def handle_input(event: UserInputEvent) -> None:
@@ -90,6 +102,36 @@ class WebRTCClientWindow(IClientWindow):
 
         self.server.register_input_callback(handle_input)
         self.server.register_file_selector_callback(report_file_selector)
+        self.server.register_viewer_callback(self._viewer_changed)
+
+    def register_viewer_callback(self, callback: Callable[[bool], None]) -> None:
+        """Report active browser connectivity on the server thread."""
+        self._viewer_callback = callback
+
+    def _viewer_changed(self, connected: bool) -> None:
+        """Discard input owned by the previous peer before reporting a handoff."""
+        if not connected:
+            with self._input_lock:
+                self._input_events = deque(
+                    UserInputEvents(
+                        [
+                            *self._input_events,
+                            InputOwnerChangedUserInputEvent(
+                                timestamp=(
+                                    self.server.event_timestamp_us()
+                                    if self._session_event_offset_us is not None
+                                    else uint64(0)
+                                ),
+                            ),
+                        ]
+                    ).get_events()
+                )
+                self._file_selector_reports = deque(
+                    (selector_id, SelectedFilesStatus.UNAVAILABLE, ())
+                    for selector_id, _, _ in self._file_selector_reports
+                )
+        if self._viewer_callback is not None:
+            self._viewer_callback(connected)
 
     def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:
         """Replace links opened locally by the browser viewing this window."""
@@ -167,12 +209,13 @@ class WebRTCClientWindow(IClientWindow):
         with self._input_lock:
             reports = list(self._file_selector_reports)
             self._file_selector_reports.clear()
-        for selector_id, status, files in reports:
-            self._complete_file_selector(selector_id, status, files)
-        with self._input_lock:
+            # Completion reenters put_user_input_event. Retirement must not
+            # insert a boundary between an old report and its resulting event.
+            for selector_id, status, files in reports:
+                self._complete_file_selector(selector_id, status, files)
             events = list(self._input_events)
             self._input_events.clear()
-            session_event_offset_us = int(self._session_event_offset_us)
+            session_event_offset_us = int(self._session_event_offset_us or 0)
         return UserInputEvents(
             [
                 replace(

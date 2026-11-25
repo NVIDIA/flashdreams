@@ -100,7 +100,7 @@ option. Run OmniDreams at 1280x704 and present 2560x1408 output with:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
-  --mode webrtc --host 0.0.0.0 --port 8089 -- \
+  --mode webrtc --port 8089 -- \
   --width 1280 --height 704 \
   --postprocess-preset swiftvr-2x-compiled
 ```

@@ -201,7 +201,7 @@ candidates with mDNS hostnames.
 
 **Fix or next step:**
 
-Wait until the v2 server prints `Open http://<server-ip>:8089/ in a browser.`
+Wait until the v2 server prints its `Open http://127.0.0.1:8089/... in a browser` line.
 For remote machines, forward the documented HTTP port and open the local URL:
 
 ```bash
@@ -210,7 +210,8 @@ ssh -L 8089:localhost:8089 <user>@<host>
 
 ```
 
-Then open `http://localhost:8089/`.
+Then click the printed link, or open `http://localhost:8089/` and paste the
+pairing code from the file the server names.
 
 If the page loads but the video still does not appear, use a setup that carries
 both the HTTP path and the WebRTC media path:

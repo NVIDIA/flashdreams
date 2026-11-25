@@ -26,7 +26,9 @@ from crazy_robotaxi.controls import (
 from omnidreams_game_engine.input import DriverInput
 
 from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEvent,
     GamepadUserInputEvent,
+    GameWheelUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -124,6 +126,30 @@ def test_gamepad_axes_have_rescaled_deadzones() -> None:
     assert half.steer == pytest.approx(0.5)
     assert half.throttle == pytest.approx(0.5)
     assert half.brake == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("device", ("keyboard", "gamepad", "wheel"))
+def test_focus_loss_releases_action_latches(device: str) -> None:
+    controls = ControlsConfig()
+    controls = replace(
+        controls,
+        wheel=replace(controls.wheel, restart=(InputBinding("button", 0), None)),
+    )
+    held = {
+        "keyboard": _key_event("r", KeyboardInputState.PRESSED),
+        "gamepad": GamepadUserInputEvent(
+            timestamp=np.uint64(0), buttons=(0.0,) * 9 + (1.0,)
+        ),
+        "wheel": GameWheelUserInputEvent(timestamp=np.uint64(0), buttons=(True,)),
+    }[device]
+    state = BoundActionState(controls)
+
+    assert state.apply(UserInputEvents([held])) == {"restart"}
+    assert not state.apply(UserInputEvents([held]))
+    assert not state.apply(
+        UserInputEvents([FocusUserInputEvent(timestamp=np.uint64(1), focused=False)])
+    )
+    assert state.apply(UserInputEvents([held])) == {"restart"}
 
 
 def test_full_gamepad_and_keyboard_inputs_produce_the_same_drive_commands() -> None:

@@ -402,10 +402,12 @@ def _command(
     if not replay:
         command.extend(["--fps", "36"])
     if args.mode == "webrtc":
+        # A nonlocal viewer needs a token and HTTPS origin; default to the
+        # loopback listener and let the operator forward the port over SSH.
         viewer_host = (
             args.address
             if ipaddress.ip_address(args.address).is_loopback
-            else "0.0.0.0"
+            else "127.0.0.1"
         )
         command.extend(["--host", viewer_host, "--port", str(args.port)])
     if replay:

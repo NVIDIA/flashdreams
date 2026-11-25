@@ -42,10 +42,11 @@ uv sync --frozen --inexact --python 3.12 \
   --package flashdreams-cosmos3-nano-sim-auto --extra interactive-drive \
   --package flashdreams --group cuda13
 uv run --no-sync flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto \
-  --mode webrtc --host 0.0.0.0 --port 8080
+  --mode webrtc --port 8080
 ```
 
-Open `http://<server-address>:8080/` (`localhost` for a local browser).
+Open the link the runner prints. From another machine, see
+[browser access and pairing](../documentation/cli.md#browser-access-and-pairing).
 
 See [Interactive Drive controls](../demos/interactive_drive.md#controls) for
 driving controls. Demo page also contains info on scene selection, rollout resets, and running without the UI (mandatory on GPUs without Vulkan).
@@ -58,12 +59,12 @@ After installation above, launch one process per GPU on a single host
 ```bash
 uv run --no-sync torchrun --standalone --nproc_per_node=4 --no-python \
   flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto \
-  --mode webrtc --host 0.0.0.0 --port 8080 -- \
+  --mode webrtc --port 8080 -- \
   --views 7 --parallel-decode
 ```
 
 Set `--nproc_per_node` to the number of GPUs to use. Rank zero serves
-`http://<server-address>:8080/`; camera decoding is distributed across GPUs.
+the viewer and prints its link; camera decoding is distributed across GPUs.
 Append `--lidar` after `--parallel-decode` to include generated LiDAR.
 See [Interactive Drive controls](../demos/interactive_drive.md#controls) for how to drive around in the demo.
 

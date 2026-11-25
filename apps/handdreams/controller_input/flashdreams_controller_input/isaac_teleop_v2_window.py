@@ -10,7 +10,10 @@ import math
 from typing import TYPE_CHECKING, cast
 
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
+from flashdreams.runtime_v2.client_window_factory import (
+    ClientWindowMode,
+    client_window_mode,
+)
 from flashdreams_controller_input.controller_source_v2_window import (
     ControllerSourceWindow,
 )
@@ -52,6 +55,7 @@ class IsaacTeleopWebRTCWindow(ControllerSourceWindow):
         accept_eula: bool,
         verbose: bool,
         oob_hub: bool = False,
+        auth_token: str | None = None,
         _webrtc_window: WebRTCClientWindow | None = None,
         _isaac_source: IsaacTeleopSource | None = None,
     ) -> None:
@@ -74,7 +78,9 @@ class IsaacTeleopWebRTCWindow(ControllerSourceWindow):
         if _webrtc_window is None:
             from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
-            _webrtc_window = WebRTCClientWindow(host=host, port=port)
+            _webrtc_window = WebRTCClientWindow(
+                host=host, port=port, auth_token=auth_token
+            )
         super().__init__(
             output_window=_webrtc_window,
             source=source,
@@ -198,8 +204,13 @@ class IsaacTeleopWebRTCMode(ClientWindowMode):
                 raise ValueError(f"{name} must be non-empty")
 
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
+        from flashdreams.runtime_v2.serving.security import load_pairing_token
+
         self.check_arguments(parsed_args)
+        # Pair the browser like ``--mode webrtc``; only the serving rank gets here.
+        no_login = getattr(parsed_args, "no_login", False)
         return IsaacTeleopWebRTCWindow(
+            auth_token=None if no_login else load_pairing_token(),
             host=parsed_args.host,
             port=parsed_args.port,
             python_executable=str(parsed_args.isaac_teleop_python).strip(),
@@ -218,8 +229,7 @@ class IsaacTeleopWebRTCMode(ClientWindowMode):
 
     def starting(self, client_window: IClientWindow) -> str | None:
         window = cast("IsaacTeleopWebRTCWindow", client_window)
-        output = cast("WebRTCClientWindow", window.output_window)
-        return f"Open {output.server.url} in a browser."
+        return client_window_mode("webrtc").starting(window.output_window)
 
 
 ISAAC_TELEOP_WEBRTC_MODE = IsaacTeleopWebRTCMode()

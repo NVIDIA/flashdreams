@@ -242,7 +242,8 @@ uv run --no-project --python 3.12 python \
   --address "<SERVER_IP>" --replay
 ```
 
-Open `http://<SERVER_IP>:8081/` and select **Fold the T-shirt**, the only replay
+Forward port 8081 from your machine (`ssh -L 8081:127.0.0.1:8081 SERVER`), open
+`http://127.0.0.1:8081/`, and select **Fold the T-shirt**, the only replay
 scene. It uses its matching recorded actions. Press Escape to return to the scene
 picker. The normal live scene catalog is unchanged. Add
 `--mode native-window` for a local window. No Isaac Teleop setup, EULA flag,
@@ -271,7 +272,7 @@ For an already-prepared scene and matching action file:
 ```bash
 uv run --package flashdreams-cosmos3-nano-sim-bimanual \
   flashdreams-run-v2 handdreams-replay \
-  --mode webrtc --host 0.0.0.0 --port 8081 -- \
+  --mode webrtc --port 8081 -- \
   --scene-path /absolute/path/to/scene \
   --recorded-actions /absolute/path/to/ga_actions.npy
 ```

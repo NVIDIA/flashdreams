@@ -72,7 +72,7 @@ To keep the model resident and submit prompts from a browser:
 
 ```bash
 uv run flashdreams-run-v2 DEMO_MODEL_SLUG \
-  --mode webrtc --host 0.0.0.0 --port 8089
+  --mode webrtc --port 8089
 ```
 
 <hr>

@@ -33,11 +33,10 @@ To use a browser client:
 
 ```bash
 uv run --package flashdreams-omnidreams flashdreams-run-v2 \
-  crazy-robotaxi-omnidreams --mode webrtc --host 0.0.0.0 --port 8089
+  crazy-robotaxi-omnidreams --mode webrtc --port 8089
 ```
 
-Open `http://127.0.0.1:8089/`, or use the host printed by the runner when
-connecting remotely. Choose **TAXI**, **RACE**, or **FREE-ROAM**, then a map;
+Open the link the runner prints; it pairs this browser tab. Choose **TAXI**, **RACE**, or **FREE-ROAM**, then a map;
 race mode also asks for a course. **CONTROLS** and **OPTIONS** are available from
 the mode menu.
 The application prepares maps and loads the world model before showing the

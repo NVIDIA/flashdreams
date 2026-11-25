@@ -19,6 +19,7 @@ from flashdreams.runtime_v2.slangpy_ui_renderer import (
     _rgba8_to_compositing_frame,
 )
 from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
@@ -159,6 +160,7 @@ class _ImGuiUIRenderer:
         _route_imgui_input_events(
             events,
             slangpy=self._slangpy,
+            imgui=self._imgui,
             bridge=self._bridge,
             width=self.width,
             height=self.height,
@@ -373,13 +375,23 @@ def _route_imgui_input_events(
     events: UserInputEvents,
     *,
     slangpy: Any,
+    imgui: Any,
     bridge: Any,
     width: int,
     height: int,
 ) -> None:
     """Translate runtime keyboard and mouse events into Dear ImGui events."""
     for event in events.get_events():
-        if isinstance(event, KeyboardUserInputEvent):
+        if isinstance(event, FocusUserInputEvent):
+            if not event.focused:
+                io = imgui.get_io()
+                io.clear_events_queue()
+                io.clear_input_keys()
+                io.clear_input_mouse()
+                imgui.internal.clear_active_id()
+                imgui.internal.stop_mouse_moving_window()
+                imgui.internal.clear_drag_drop()
+        elif isinstance(event, KeyboardUserInputEvent):
             pressed = event.state is KeyboardInputState.PRESSED
             key = _resolve_slangpy_key(slangpy, event.key)
             if key is not None:

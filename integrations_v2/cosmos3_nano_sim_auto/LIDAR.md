@@ -85,7 +85,7 @@ From the repository root:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto \
-  --mode webrtc --host 0.0.0.0 --port 8080 \
+  --mode webrtc --port 8080 \
   --backpressure-mode block --presentation-mode continuous -- \
   --camera camera_front_wide_120fov \
   --world-model-seed 0 --start-frame 0 --compile-denoise off \
@@ -147,7 +147,7 @@ control/codec checks and a coasting video smoke test; broader field quality and
 32-GPU throughput/overlap remain unvalidated.
 
 For seven views, replace the `--camera` value with the seven-camera list in
-[README.md](README.md#run-in-a-browser). Open `http://<server-address>:8080/`.
+[README.md](README.md#run-in-a-browser). Open the link the runner prints.
 Choose range or intensity at launch with `--lidar-view range` or
 `--lidar-view intensity`; HDMAP displays the control scan.
 Output timestamps use 30 FPS for RGB and 10 Hz for LiDAR;

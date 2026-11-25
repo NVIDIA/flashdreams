@@ -56,9 +56,11 @@ Launch the interactive driving demo in a browser over WebRTC:
 ```bash
 uv run --no-sync flashdreams-run-v2 \
     interactive-drive-omnidreams --mode webrtc \
-    --host 0.0.0.0 --port 8089
-# Open in browser: http://<server-ip>:8089/
+    --host 127.0.0.1 --port 8089
+# Open the link it prints in a browser.
 ```
+
+For another machine, configure [browser pairing and remote access](../documentation/cli.md#browser-access-and-pairing).
 
 The first launch spends several minutes loading checkpoints and compiling kernels.
 

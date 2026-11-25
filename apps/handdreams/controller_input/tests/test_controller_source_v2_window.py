@@ -117,7 +117,7 @@ def _frame(
 
 class _FakeWebRTCWindow:
     def __init__(self) -> None:
-        self.server = SimpleNamespace(url="http://127.0.0.1:54321")
+        self.server = SimpleNamespace(url="http://127.0.0.1:54321", pairing_url=None)
         self.events: list = []
         self.opened: list[SessionDesc] = []
         self.requested_sizes: list[tuple[int, int]] = []
