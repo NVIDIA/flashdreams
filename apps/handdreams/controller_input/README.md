@@ -85,6 +85,23 @@ uses `remote-vr --accept-eula`; browser-only IWER connects
 directly to CloudXR and the UI's hosted-client link without a relay,
 headset, or ADB. The server's `--quest-cloudxr-port` defaults to `48322`.
 
+For remote Quest input, run `remote-vr` on the laptop, press **P** in the
+operator viewer, and type the code the viewer shows when `remote-vr` asks.
+Verified SSH delivers only the pinned server certificate and shared token; the
+code is shown only in the viewer, so SSH access alone cannot take control. No
+new account or daemon is required.
+
+The first connection exchanges the code for a reconnect key that the laptop
+keeps in memory. The laptop stays paired through scene changes, viewer reloads
+from the paired browser, and network drops, and `remote-vr` reconnects by
+itself. **R**, a new **P** code, a different viewer, a tokenless (`--no-login`)
+viewer reload, or stopping the demo ends the pairing; `remote-vr` then asks for
+the next code. To switch laptops, press **P** and enter the code on the new one;
+the previous laptop's key stops working. An unused code expires after five
+minutes or five wrong entries. A producer's claimed session/device identity
+cannot select the viewer. Controls already accepted for a model generation
+cannot be undone by revocation.
+
 For a Quest USB-authorized on the model host, use the app guide's
 `--quest-device SERIAL` option before the V2 command's `--`. It manages the headset with ADB while
 using the server's single CloudXR/Isaac runtime. The guide covers physical wake,
@@ -105,8 +122,11 @@ uv run --no-project --python 3.12 \
   --accept-server-certificate
 ```
 
-This lower-level command expects `FLASHDREAMS_CONTROLLER_TOKEN` in its environment.
-Never put it in command arguments or logs. The companion checks the server
+This lower-level command expects `FLASHDREAMS_CONTROLLER_TOKEN` in its
+environment (the managed identity keeps it in `~/.config/flashdreams/quest-relay/token`;
+loopback identities use the existing address-specific directory). It prompts
+for the viewer's code, or takes it once with `--code`. Never put the token in
+command arguments or logs. The companion checks the server
 certificate and hostname; there is no insecure controller TLS fallback.
 Physical wake is required by default, as with the launcher. Pass
 `--no-require-physical-wake` to skip the gate for an already-running test;
@@ -114,7 +134,7 @@ Physical wake is required by default, as with the launcher. Pass
 For a server-attached headset, keyboard **B** in either output window restarts
 only its managed browser/USB setup and requires a fresh physical wake. The
 shared CloudXR source stays alive; a relayed laptop headset is still restarted
-by rerunning `remote-vr` on that laptop.
+by rerunning `remote-vr` on that laptop and entering a new **P** code.
 
 Each managed Quest startup, including a **B** retry, force-stops Quest Browser
 on the selected headset before opening the teleop tab. A fresh browser process
@@ -205,7 +225,8 @@ by default and likewise requires a trusted network.
 Inherited `CONTROL_TOKEN` values are ignored; any `CONTROL_TOKEN` entry in a
 custom CloudXR env file is rejected. No control credential is sent in the
 readiness probe or browser URL. The separate controller relay still requires
-a shared token and verified TLS. The unified server reuses or creates its
+a shared token, a viewer-code pairing, and verified TLS. The unified server
+reuses or creates its
 private identity automatically; explicit identity overrides must supply both
 certificate/key paths and `FLASHDREAMS_CONTROLLER_TOKEN` together.
 
@@ -214,11 +235,23 @@ Clear `QUEST_META_PIN` for managed USB sessions: PIN-based settings changes can
 require headset internet access and are rejected on this path. Proximity
 restoration is best effort on firmware that cannot report its previous state.
 
-Scene changes and resets retain the controller connection and do not repeat
-the wake gate. Source capture timestamps determine action cadence; server
+In-place resets retain the controller connection and do not repeat the wake
+gate. Replacing the runtime session (including a scene replacement) keeps the
+paired laptop but discards its earlier poses; local USB input keeps its
+existing lifecycle. Source capture
+timestamps determine action cadence; server
 receipt timestamps determine freshness. Different machines' monotonic clocks
 are not subtracted. Queues are bounded: overflow, stale input, and disconnect
 break continuity rather than replay old movement.
+
+Pairing decides which laptop may drive the hands. It does not attest the
+laptop, headset, or physical intent: a compromised paired relay can still
+submit finite, structurally valid false poses and grip values.
+The existing finite-value, quaternion, analog-range, sequencing, freshness,
+queue, and tracking-loss checks remain in force. Deploy remote input only
+where this remaining control-integrity risk is acceptable; pairing alone does
+not eliminate it. CloudXR connection metadata is lifecycle information, not
+pose attestation.
 
 A new producer tracking session requests a V2 reset and recalibration because
 its tracking origin may have changed. Brief tracking loss within the ownership

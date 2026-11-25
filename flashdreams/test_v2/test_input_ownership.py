@@ -142,7 +142,7 @@ def test_stalled_model_receives_only_boundary_and_new_owner_input(
         for event in old:
             window.server._input_callback(event)
         buffer.append(window.get_user_input_events())
-        window._viewer_changed(False)
+        window._viewer_changed(None)
         window._viewer_changed(True)
         new = _key("new", 2)
         window.server._input_callback(new)
@@ -260,9 +260,9 @@ def test_handoff_keeps_already_admitted_reset_generation_and_terminal_close(
     window = _window(monkeypatch)
     close = CloseUserInputEvent(timestamp=uint64(10))
     window.server._input_callback(close)
-    window._viewer_changed(False)
+    window._viewer_changed(None)
     window._viewer_changed(True)
-    window._viewer_changed(False)
+    window._viewer_changed(None)
     buffer = EventBuffer()
     buffer.register(0)
     buffer.register(1)
@@ -337,7 +337,7 @@ def test_file_completion_cannot_cross_retirement_boundary(monkeypatch):
         original(*args)
 
     def retire():
-        window._viewer_changed(False)
+        window._viewer_changed(None)
         retired.set()
 
     monkeypatch.setattr(window, "_complete_file_selector", complete)

@@ -265,6 +265,7 @@ class QuestRemoteMode(ClientWindowMode):
                 modes=getattr(parsed_args, "_client_window_modes", None),
             ).create(parsed_args),
             source=source,
+            remote_control=remote,
             status_provider=status_provider,
             restart_headset=restart_headset,
             source_name="Isaac Teleop",

@@ -18,6 +18,7 @@
 import argparse
 import os
 import threading
+from contextlib import nullcontext
 from importlib.metadata import EntryPoint
 from pathlib import Path
 from types import SimpleNamespace
@@ -135,14 +136,26 @@ def test_relay_only_window_starts_remote_input_without_local_runtime(
         threading.Event(),
         threading.Event(),
     )
-    remote = SimpleNamespace(start=started.set, poll=lambda: None, stop=stopped.set)
+    remote = SimpleNamespace(
+        start=started.set,
+        poll=lambda: None,
+        stop=stopped.set,
+        register_input_clear=lambda _: None,
+        set_viewer=lambda _: None,
+        begin_session=lambda: None,
+        input_guard=nullcontext,
+        allows=lambda _: True,
+        pairing_code="",
+    )
     received = {}
 
     def remote_source(**kwargs):
         received.update(kwargs)
         return remote
 
-    output = SimpleNamespace(close=output_closed.set)
+    output = SimpleNamespace(
+        close=output_closed.set, register_viewer_callback=lambda _: None
+    )
 
     def output_mode(name, **_):
         assert name == mode.output_mode

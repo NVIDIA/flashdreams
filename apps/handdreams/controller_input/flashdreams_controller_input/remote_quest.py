@@ -20,12 +20,16 @@ from __future__ import annotations
 import hmac
 import json
 import math
+import secrets
 import socket
 import ssl
 import threading
 import time
+import weakref
 from collections import deque
-from contextlib import suppress
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO
 
@@ -61,11 +65,42 @@ MAX_ROUND_TRIP_S = 0.5
 IO_TIMEOUT_S = 3.0
 """Bound authentication and idle reads; slow replies are rejected before ingestion."""
 
+CODE_LIFETIME_S = 5 * 60
+"""An unclaimed viewer code expires; a claimed laptop stays paired until revoked."""
 
-def validate_token(token: str) -> bytes:
+MAX_CODE_ATTEMPTS = 5
+"""Wrong entries before a code is voided, so six symbols resist guessing."""
+
+_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+"""Crockford base32: no I, L, O or U, so a code survives being read aloud."""
+
+
+@dataclass(eq=False)
+class _ProducerAuthority:
+    viewer: object
+    key: str = field(repr=False)
+    epoch: int
+    """Bumped at each session boundary so earlier-session poses lose authority."""
+
+
+@dataclass(eq=False)
+class _PairingCode:
+    viewer: object
+    code: str = field(repr=False)
+    expires_at: float
+    attempts_left: int = MAX_CODE_ATTEMPTS
+
+
+def _normalize_code(value: str) -> str:
+    """Accept lower case, spaces, dashes and the digits' look-alike letters."""
+    value = value.upper().translate(str.maketrans("OIL", "011", " -"))
+    return value[:16]
+
+
+def validate_token(token: str, *, name: str = "FLASHDREAMS_CONTROLLER_TOKEN") -> bytes:
     """Require a nonempty, sufficiently long shared secret without printing it."""
     if not isinstance(token, str) or not 32 <= len(token) <= 256:
-        raise ValueError("FLASHDREAMS_CONTROLLER_TOKEN must contain 32–256 characters")
+        raise ValueError(f"{name} must contain 32–256 characters")
     return token.encode("utf-8")
 
 
@@ -94,12 +129,35 @@ def encode_record(value: dict) -> bytes:
     return data
 
 
-class RemoteQuestSource:
-    """Receive one authenticated laptop's raw controller pairs over TLS.
+@dataclass(frozen=True, slots=True)
+class _AuthorityCheck:
+    """One epoch check without retaining a receiver or its pose history."""
 
-    The source owns no ADB state. Network disconnects produce tracking-loss
+    source: weakref.ReferenceType[RemoteQuestSource]
+    """Weak reference to the process-local authority owner."""
+    epoch: int
+    """Issued authorization epoch; a later session or pairing never revives it."""
+
+    def __call__(self) -> bool:
+        source = self.source()
+        if source is None:
+            return False
+        with source.input_guard():
+            return (
+                source._authority is not None and source._authority.epoch == self.epoch
+            )
+
+
+class RemoteQuestSource:
+    """Receive one explicitly paired laptop's raw controller pairs over TLS.
+
+    The viewer shows a short code (P); the laptop that enters it receives a
+    reconnect key and stays paired across scenes, viewer reloads and network
+    drops until R, another laptop claims a new code, or the demo stops. The
+    source owns no ADB state. Network disconnects produce tracking-loss
     boundaries; reconnects preserve frame identity and the headset capture clock.
-    A reset capture clock requires restarting the demo and recalibrating.
+    A reset capture clock requires restarting the demo and recalibrating, or a
+    deliberate new pairing for a replacement producer and tracking origin.
     The bridge handshake fixes the timestamp units and pose convention; Isaac
     wrist-proxy poses are already retargeted and must not receive another offset.
     """
@@ -143,7 +201,12 @@ class RemoteQuestSource:
             compatibility_hint="restart the laptop bridge with matching Isaac settings",
         )
         self._pending: deque[Observation] = deque()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._viewer: object | None = None
+        self._authority: _ProducerAuthority | None = None
+        self._code: _PairingCode | None = None
+        self._authority_epoch = 0
+        self._clear_input: Callable[[], None] | None = None
         self._lifecycle_lock = threading.Lock()
         self._stopped = threading.Event()
         self._listener: socket.socket | None = None
@@ -153,6 +216,136 @@ class RemoteQuestSource:
         self._ever_received = False
         self._last_capture_ns = -1
         self._failure: RuntimeError | None = None
+
+    def register_input_clear(self, callback: Callable[[], None]) -> None:
+        """Clear the window's queued poses under the same authority fence."""
+        with self._lock:
+            self._clear_input = callback
+
+    def set_viewer(self, viewer: object | None) -> None:
+        """Follow the server-observed viewer, never producer metadata.
+
+        No viewer pauses remote input; a different viewer revokes the pairing.
+        """
+        with self._lock:
+            self._viewer = viewer
+            if viewer is None:
+                self._boundary_locked()
+            elif any(
+                grant is not None and grant.viewer is not viewer
+                for grant in (self._authority, self._code)
+            ):
+                self._invalidate_locked()
+
+    def begin_session(self) -> None:
+        """Keep the paired laptop across scenes; earlier poses lose authority."""
+        with self._lock:
+            self._boundary_locked()
+            if self._authority is not None:
+                self._authority_epoch += 1
+                self._authority.epoch = self._authority_epoch
+
+    def pair(self) -> str:
+        """End the current pairing and return a new code to show in the viewer."""
+        with self._lock:
+            if self._viewer is None or self._stopped.is_set():
+                raise ValueError("remote pairing requires a connected viewer")
+            # One relay is served at a time: the next laptop needs the slot now.
+            self._invalidate_locked()
+            code = "".join(secrets.choice(_CODE_ALPHABET) for _ in range(6))
+            self._code = _PairingCode(
+                self._viewer, code, time.monotonic() + CODE_LIFETIME_S
+            )
+            return f"{code[:3]}-{code[3:]}"
+
+    @property
+    def pairing_code(self) -> str:
+        """Return the unclaimed code for the viewer to display, or ``""``."""
+        with self.input_guard():
+            code = self._code
+            return "" if code is None else f"{code.code[:3]}-{code.code[3:]}"
+
+    def revoke(self) -> None:
+        """Revoke connected and reconnecting producers and discard queued poses."""
+        with self._lock:
+            self._invalidate_locked()
+
+    def _invalidate_locked(self) -> None:
+        self._authority_epoch += 1
+        self._authority = None
+        self._code = None
+        self._boundary_locked()
+        if self._clear_input is not None:
+            self._clear_input()
+        if self._connection is not None:
+            with suppress(OSError):
+                self._connection.shutdown(socket.SHUT_RDWR)
+
+    def _expire_locked(self) -> None:
+        if self._code is not None and time.monotonic() >= self._code.expires_at:
+            self._code = None
+
+    def _claim_locked(self, request: dict) -> _ProducerAuthority:
+        """Accept the current key, or exchange the viewer's code for a new key."""
+        key, code = request.get("key"), request.get("code")
+        authority = self._authority
+        if isinstance(key, str):
+            if authority is not None and hmac.compare_digest(
+                key.encode("utf-8"), authority.key.encode()
+            ):
+                return authority
+            raise ValueError("remote controller key is no longer paired")
+        pending = self._code
+        if not isinstance(code, str) or pending is None:
+            raise ValueError("no laptop code is waiting; press P in the viewer")
+        if pending.viewer is not self._viewer:
+            raise ValueError("laptop code belongs to a disconnected viewer")
+        if not hmac.compare_digest(
+            _normalize_code(code).encode("utf-8"), pending.code.encode()
+        ):
+            pending.attempts_left -= 1
+            if pending.attempts_left <= 0:
+                self._code = None
+                raise ValueError("laptop code voided; press P for a new code")
+            raise ValueError(
+                f"laptop code rejected; {pending.attempts_left} attempts left"
+            )
+        # P already revoked any previous laptop, so a code never coexists
+        # with a key; a fresh epoch keeps earlier events from reviving.
+        self._code = None
+        self._authority_epoch += 1
+        self._authority = _ProducerAuthority(
+            pending.viewer, secrets.token_urlsafe(32), self._authority_epoch
+        )
+        self._last_capture_ns = -1
+        print(
+            "[quest] laptop paired; it stays paired until R or a new code", flush=True
+        )
+        return self._authority
+
+    @contextmanager
+    def input_guard(self) -> Iterator[None]:
+        """Serialize pose enqueue/delivery with revoke, viewer switch and expiry."""
+        with self._lock:
+            self._expire_locked()
+            yield
+
+    def allows(self, observation: Observation) -> bool:
+        """Recheck remote observations even after they leave the transport queue."""
+        with self.input_guard():
+            return observation.authority_epoch is None or (
+                self._authority is not None
+                and observation.authority_epoch == self._authority.epoch
+                and self._viewer is self._authority.viewer
+            )
+
+    def authority_check(self, epoch: int) -> Callable[[], bool]:
+        """Return a weak check that retains only one issued epoch."""
+        return _AuthorityCheck(weakref.ref(self), epoch)
+
+    def _require_authority_locked(self, grant: _ProducerAuthority) -> None:
+        if self._authority is not grant:
+            raise ValueError("remote controller pairing ended")
 
     @property
     def port(self) -> int:
@@ -182,13 +375,15 @@ class RemoteQuestSource:
             )
             self._thread.start()
         print(
-            f"[quest] remote controller TLS listener on {self._host}:{self.port}",
+            f"[quest] remote controller TLS listener on {self._host}:{self.port}; "
+            "in the viewer: P shows a laptop code, R revokes",
             flush=True,
         )
 
     def stop(self) -> None:
         """Close the producer connection and join the receiver exactly once."""
         self._stopped.set()
+        self.revoke()
         with self._lifecycle_lock:
             listener, self._listener = self._listener, None
             with self._lock:
@@ -206,7 +401,7 @@ class RemoteQuestSource:
 
     def poll(self) -> Observation | None:
         """Return the next fresh observation or explicit disconnect boundary."""
-        with self._lock:
+        with self.input_guard():
             if self._failure is not None:
                 raise self._failure
             if not self._pending:
@@ -217,19 +412,23 @@ class RemoteQuestSource:
                 return Observation(None, now, self.name, self._generation)
             return self._pending.popleft()
 
-    def _boundary(self) -> None:
+    def _boundary_locked(self) -> None:
+        self._pending.clear()
+        self._pending.append(
+            Observation(None, time.perf_counter_ns(), self.name, self._generation)
+        )
+
+    def _boundary(self, grant: _ProducerAuthority) -> None:
         with self._lock:
-            self._pending.clear()
-            self._pending.append(
-                Observation(None, time.perf_counter_ns(), self.name, self._generation)
-            )
+            self._require_authority_locked(grant)
+            self._boundary_locked()
 
     def _serve(self, listener: socket.socket) -> None:
         # One connection is handled at a time, bounding unauthenticated work and
         # preventing two producers from interleaving a participant's poses.
         while not self._stopped.is_set():
             connection = None
-            authenticated = False
+            grant: _ProducerAuthority | None = None
             try:
                 raw, _ = listener.accept()
                 connection = raw
@@ -250,18 +449,26 @@ class RemoteQuestSource:
                 with connection.makefile("rb") as stream:
                     request = read_record(stream)
                     supplied = request.get("token")
-                    authenticated = (
+                    # The SSH-delivered token gates who may try codes at all.
+                    if not (
                         request.get("type") == "auth"
                         and type(request.get("version")) is int
-                        and request["version"] == 1
+                        and request["version"] == 3
                         and isinstance(supplied, str)
                         and hmac.compare_digest(supplied.encode("utf-8"), self._token)
-                    )
-                    if not authenticated:
+                    ):
                         raise ValueError("remote controller authentication rejected")
-                    connection.sendall(encode_record({"type": "ready"}))
-                    self._boundary()
-                    self._receive(connection, stream)
+                    try:
+                        with self.input_guard():
+                            grant = self._claim_locked(request)
+                    except ValueError:
+                        connection.sendall(encode_record({"type": "rejected"}))
+                        raise
+                    connection.sendall(
+                        encode_record({"type": "ready", "key": grant.key})
+                    )
+                    self._boundary(grant)
+                    self._receive(connection, stream, grant)
             except socket.timeout:
                 pass
             except (
@@ -272,8 +479,12 @@ class RemoteQuestSource:
                 RecursionError,
             ) as error:
                 if not self._stopped.is_set():
+                    # Messages are server-authored; escape and bound any
+                    # producer-derived text they quote.
+                    reason = str(error) or type(error).__name__
+                    reason = reason.encode("ascii", "backslashreplace").decode()
                     print(
-                        f"[quest] remote controller connection ended: {error}",
+                        f"[quest] remote controller connection ended: {reason[:200]}",
                         flush=True,
                     )
             finally:
@@ -281,14 +492,20 @@ class RemoteQuestSource:
                     connection.close()
                 with self._lock:
                     self._connection = None
-                if authenticated and not self._stopped.is_set():
-                    self._boundary()
+                if grant is not None and not self._stopped.is_set():
+                    with self._lock:
+                        if self._authority is grant:
+                            self._boundary_locked()
 
-    def _receive(self, connection: ssl.SSLSocket, stream: BinaryIO) -> None:
+    def _receive(
+        self, connection: ssl.SSLSocket, stream: BinaryIO, grant: _ProducerAuthority
+    ) -> None:
         sequence = 0
         hello_seen = False
         producer_generation = None
         while not self._stopped.is_set():
+            with self._lock:
+                self._require_authority_locked(grant)
             sent = time.monotonic()
             connection.sendall(encode_record({"type": "pull", "seq": sequence}))
             reply = read_record(stream)
@@ -320,7 +537,7 @@ class RemoteQuestSource:
             if new_producer:
                 hello_seen = False
             if reply["disconnected"]:
-                self._boundary()
+                self._boundary(grant)
                 hello_seen = False
             for message in messages:
                 if not isinstance(message, str) or len(message.encode()) > 64 * 1024:
@@ -375,8 +592,10 @@ class RemoteQuestSource:
                                         raise ValueError(
                                             "remote controller analog values must be finite numbers in [0, 1]"
                                         )
-                rejected = self._store.rejected
-                self._store.consume(message)
+                with self._lock:
+                    self._require_authority_locked(grant)
+                    rejected = self._store.rejected
+                    self._store.consume(message)
                 if self._store.rejected != rejected:
                     raise ValueError(
                         "remote Quest rejected a malformed controller frame"
@@ -386,17 +605,23 @@ class RemoteQuestSource:
                 if kind == "hello":
                     if new_producer:
                         with self._lock:
+                            self._require_authority_locked(grant)
                             if self._ever_received:
                                 self._generation += 1
-                        self._boundary()
+                        self._boundary(grant)
                         producer_generation = generation
                         new_producer = False
                     hello_seen = True
                 if kind == "xr_frame":
-                    self._accept_frame(capture_ns)
+                    self._accept_frame(capture_ns, grant)
             sequence += 1
 
-    def _accept_frame(self, capture_ns: int) -> None:
+    def _accept_frame(self, capture_ns: int, grant: _ProducerAuthority) -> None:
+        with self._lock:
+            self._require_authority_locked(grant)
+            self._accept_frame_locked(capture_ns, grant.epoch)
+
+    def _accept_frame_locked(self, capture_ns: int, epoch: int) -> None:
         frame = self._store.snapshot()
         assert frame is not None
         # The remote-vr relay owns a physical ADB headset, never a desktop emulator.
@@ -426,7 +651,7 @@ class RemoteQuestSource:
             raise ValueError("remote Quest capture clock is not increasing")
         self._last_capture_ns = capture_ns
         observation = Observation(
-            frame, frame["client_capture_ns"], self.name, self._generation
+            frame, frame["client_capture_ns"], self.name, self._generation, epoch
         )
         with self._lock:
             self._ever_received = True

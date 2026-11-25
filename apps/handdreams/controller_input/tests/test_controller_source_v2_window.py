@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 from collections import deque
+from contextlib import nullcontext
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -116,6 +117,9 @@ def _frame(
 
 
 class _FakeWebRTCWindow:
+    def register_viewer_callback(self, callback):
+        callback(object())
+
     def __init__(self) -> None:
         self.server = SimpleNamespace(url="http://127.0.0.1:54321", pairing_url=None)
         self.events: list = []
@@ -160,6 +164,13 @@ class _FakeWebRTCWindow:
 class _FakeQuestSource:
     name = "quest"
     status_message: str
+
+    register_input_clear = staticmethod(lambda _: None)
+    set_viewer = staticmethod(lambda _: None)
+    begin_session = staticmethod(lambda: None)
+    input_guard = staticmethod(nullcontext)
+    allows = staticmethod(lambda _: True)
+    pairing_code = ""
 
     def __init__(self, *, start_error: BaseException | None = None) -> None:
         self.start_error = start_error

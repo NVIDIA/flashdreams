@@ -381,10 +381,12 @@ class WebRTCServer:
                 "WebRTC no-login mode trusts every local process and loopback "
                 "port forwarder; launch without --no-login on shared hosts."
             )
-        self._viewer_callback: Callable[[bool], None] | None = None
-        self._viewer_connected = False
         self._startup_timeout_seconds = startup_timeout_seconds
         self._input_callback: Callable[[UserInputEvent], None] | None = None
+        self._viewer_callback: Callable[[object | None], None] | None = None
+        self._viewer: object | None = None
+        self._owner_viewer: tuple[int, object] | None = None
+        self._viewer_lock = threading.RLock()
         self._started = threading.Event()
         self._startup_error: BaseException | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -788,6 +790,47 @@ class WebRTCServer:
             raise RuntimeError("An input callback is already registered.")
         self._input_callback = callback
 
+    def register_viewer_callback(
+        self, callback: Callable[[object | None], None]
+    ) -> None:
+        """Report the connected viewer's opaque identity and its loss.
+
+        The callback runs synchronously on the thread changing the viewer and
+        must finish promptly. Registration immediately reports current state.
+        A browser holding the bearer keeps one identity across reconnects until
+        the bearer rotates; without login every connection is a new identity.
+        Session replacement preserves it.
+
+        Args:
+            callback: Receive the server-owned identity, or ``None`` when absent.
+
+        Raises:
+            RuntimeError: A viewer callback is already registered.
+        """
+        with self._viewer_lock:
+            if self._viewer_callback is not None:
+                raise RuntimeError("A viewer callback is already registered.")
+            self._viewer_callback = callback
+            callback(self._viewer)
+
+    def _set_viewer_connected(self, connected: bool, *, force: bool = False) -> None:
+        with self._viewer_lock:
+            connected = connected and not self._closed
+            if connected == (self._viewer is not None) and not force:
+                return
+            self._viewer = self._viewer_identity() if connected else None
+            if self._viewer_callback is not None:
+                self._viewer_callback(self._viewer)
+
+    def _viewer_identity(self) -> object:
+        # Loopback peers without login are indistinguishable from each other.
+        if self._auth.no_login:
+            return object()
+        generation = self._auth.generation
+        if self._owner_viewer is None or self._owner_viewer[0] != generation:
+            self._owner_viewer = (generation, object())
+        return self._owner_viewer[1]
+
     def register_file_selector_callback(
         self,
         callback: Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
@@ -843,6 +886,10 @@ class WebRTCServer:
         self.configure_links(())
         self._closed = True
         failures: list[BaseException] = []
+        try:
+            self._set_viewer_connected(False)
+        except BaseException as error:
+            failures.append(error)
         track = self._video_track
         if track is not None and self._media_connected.is_set():
             try:
@@ -1021,17 +1068,6 @@ class WebRTCServer:
             raise response
         return response
 
-    def register_viewer_callback(self, callback: Callable[[bool], None]) -> None:
-        """Report active-peer connection transitions on the server thread."""
-        self._viewer_callback = callback
-
-    def _set_viewer_connected(self, connected: bool) -> None:
-        """Report connectivity and invalidate consumers on every retirement."""
-        if self._viewer_connected != connected or not connected:
-            self._viewer_connected = connected
-            if self._viewer_callback is not None:
-                self._viewer_callback(connected)
-
     def rotate_auth_token(self, token: str | None) -> None:
         """Disconnect the owner and revoke pending offers, uploads, and old bearers.
 
@@ -1053,7 +1089,7 @@ class WebRTCServer:
         if peer is not None:
             await self._release_peer_connection(peer)
         else:
-            self._set_viewer_connected(False)
+            self._set_viewer_connected(False, force=True)
             self._complete_abandoned_file_selectors()
 
     async def _serve_browser(self, _: web.Request) -> web.Response:
@@ -1652,7 +1688,7 @@ class WebRTCServer:
             self._sent_cursor_options = None
             self._browser_focus = None
             for notify in (
-                lambda: self._set_viewer_connected(False),
+                lambda: self._set_viewer_connected(False, force=not self._closed),
                 self._cancel_link_press,
                 self._complete_abandoned_file_selectors,
             ):

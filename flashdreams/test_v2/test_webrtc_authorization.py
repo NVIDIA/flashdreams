@@ -42,7 +42,9 @@ from flashdreams.runtime_v2.serving.security import BrowserSessionAuth
 from flashdreams.runtime_v2.session_desc import PresentationMode, SessionDesc
 from flashdreams.runtime_v2.user_input_event import (
     InputOwnerChangedUserInputEvent,
+    KeyboardInputState,
     KeyboardUserInputEvent,
+    QueryStringUserInputEvent,
 )
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
@@ -252,16 +254,15 @@ def test_non_utf8_authorization_is_unauthorized_not_a_server_error() -> None:
         policy.authorize(request, 8080, protected=True)
 
 
-def _server(monkeypatch: pytest.MonkeyPatch) -> Any:
+def _server(monkeypatch: pytest.MonkeyPatch, **options) -> Any:
     """Return a socketless server whose collaborators tests replace with doubles."""
     _clean_configuration(monkeypatch)
     # Exercise normal initialization without sockets, models, ICE, or GPU work.
     monkeypatch.setattr(
         webrtc_server.WebRTCServer, "_run_server", lambda self: self._started.set()
     )
-    instance = webrtc_server.WebRTCServer(
-        port=8080, auth_token=TOKEN, allowed_origins=(ORIGIN,)
-    )
+    settings: dict[str, Any] = {"auth_token": TOKEN, "allowed_origins": (ORIGIN,)}
+    instance = webrtc_server.WebRTCServer(port=8080, **(settings | options))
     instance._offer_lock = asyncio.Lock()
     instance._session_desc = SessionDesc(
         output_layout=VideoTensorLayout.tchw,
@@ -446,7 +447,10 @@ async def test_owner_refresh_and_retired_callbacks_frames_input_and_uploads(
     assert server._peer_connection is replacement
     assert server._video_track is replacement_track
     assert server._input_callback.call_count == 1
-    assert [call.args[0] for call in viewer.call_args_list] == [True, False, True]
+    states = [call.args[0] for call in viewer.call_args_list]
+    assert len(states) == 4 and states[0] is None and states[2] is None
+    assert states[1] is not None
+    assert states[3] is states[1]  # The same bearer holder refreshed.
 
 
 @pytest.mark.asyncio
@@ -527,7 +531,9 @@ async def test_revocation_finishes_teardown_when_a_viewer_callback_raises(
     await server._offer(_request())
     active, track = server._peer_connection, server._video_track
     server._browser_focus = (1, True)
-    server.register_viewer_callback(Mock(side_effect=OSError("cleanup failed")))
+    viewer = Mock()
+    server.register_viewer_callback(viewer)
+    viewer.side_effect = OSError("cleanup failed")
     with pytest.raises(OSError, match="cleanup failed"):
         await server._rotate_auth_token(None)
     assert server._peer_connection is None and server._video_track is None
@@ -535,6 +541,79 @@ async def test_revocation_finishes_teardown_when_a_viewer_callback_raises(
     assert not track.enqueue(VideoFrame(width=16, height=16))
     # A retired viewer's focus cannot be replayed into a reopened session.
     assert server.browser_focused is None
+
+
+@pytest.mark.asyncio
+async def test_viewer_identity_follows_the_bearer_not_the_peer(monkeypatch) -> None:
+    server = _server(monkeypatch)
+    _peers(monkeypatch)
+    viewers: list[object | None] = []
+    server.register_viewer_callback(viewers.append)
+    assert viewers == [None]
+    with pytest.raises(RuntimeError, match="viewer callback is already registered"):
+        server.register_viewer_callback(viewers.append)
+    await server._offer(_request())
+    await server._offer(_request())  # The paired browser reloads.
+    assert len(viewers) == 4 and viewers[2] is None
+    assert viewers[1] is not None and viewers[3] is viewers[1]
+    rotated = "B" * 43
+    await server._rotate_auth_token(rotated)
+    await server._offer(_request(token=rotated))
+    assert viewers[-1] not in (None, viewers[1])
+    server.close()
+    assert viewers[-1] is None
+
+
+@pytest.mark.asyncio
+async def test_each_no_login_peer_gets_a_fresh_viewer_identity(monkeypatch) -> None:
+    server = _server(monkeypatch, auth_token=None, allowed_origins=())
+    _peers(monkeypatch)
+    viewers: list[object | None] = []
+    server.register_viewer_callback(viewers.append)
+    local: dict[str, Any] = {"token": None, "host": "127.0.0.1:8080", "origin": None}
+    await server._offer(_request(**local))
+    await server._offer(_request(**local))
+    assert len(viewers) == 4 and viewers[2] is None
+    assert viewers[1] is not None and viewers[3] not in (None, viewers[1])
+    server.close()
+
+
+def test_new_viewer_retains_unread_handoff_and_its_current_query(monkeypatch) -> None:
+    _clean_configuration(monkeypatch)
+    monkeypatch.setattr(
+        webrtc_server.WebRTCServer, "_run_server", lambda self: self._started.set()
+    )
+    window = WebRTCClientWindow()
+    try:
+        window.open(
+            SessionDesc(
+                output_layout=VideoTensorLayout.tchw, video_width=16, video_height=16
+            )
+        )
+        window.put_user_input_event(
+            KeyboardUserInputEvent(
+                timestamp=window.server.event_timestamp_us(),
+                key="p",
+                state=KeyboardInputState.PRESSED,
+            )
+        )
+        window._viewer_changed(None)
+        window.put_user_input_event(
+            QueryStringUserInputEvent(
+                timestamp=window.server.event_timestamp_us(), query_string="scene=new"
+            )
+        )
+        viewer = object()
+        window._viewer_changed(viewer)
+        events = window.get_user_input_events().get_events()
+        assert [type(event) for event in events] == [
+            InputOwnerChangedUserInputEvent,
+            QueryStringUserInputEvent,
+        ]
+        assert cast(QueryStringUserInputEvent, events[1]).query_string == "scene=new"
+        assert window._viewer is viewer
+    finally:
+        window.close()
 
 
 @pytest.mark.asyncio
@@ -660,17 +739,18 @@ def test_window_discards_retired_input_before_notifying_consumer(monkeypatch) ->
     window = WebRTCClientWindow()
     callback = Mock()
     window.register_viewer_callback(callback)
+    callback.reset_mock()
     window._input_events.append(Mock())
     window._file_selector_reports.append(
         (1, SelectedFilesStatus.OK, (SelectedFile(name="old.bin", data=b"old"),))
     )
-    window._viewer_changed(False)
+    window._viewer_changed(None)
     assert len(window._input_events) == 1
     assert isinstance(window._input_events[0], InputOwnerChangedUserInputEvent)
     assert list(window._file_selector_reports) == [
         (1, SelectedFilesStatus.UNAVAILABLE, ())
     ]
-    callback.assert_called_once_with(False)
+    callback.assert_called_once_with(None)
 
 
 @pytest.mark.asyncio
@@ -683,6 +763,8 @@ async def test_retirement_before_connect_still_invalidates_consumers(
     _peers(monkeypatch, state=state)
     viewer = Mock()
     server.register_viewer_callback(viewer)
+    viewer.assert_called_once_with(None)
+    viewer.reset_mock()
     await server._offer(_request())
     peer = server._peer_connection
     viewer.assert_not_called()
@@ -694,7 +776,7 @@ async def test_retirement_before_connect_still_invalidates_consumers(
     server._input_callback.assert_not_called()
     viewer.reset_mock()
     await server._release_peer_connection(peer)
-    viewer.assert_called_once_with(False)
+    viewer.assert_called_once_with(None)
 
 
 def test_browser_pairing_paste_link_refresh_and_forget() -> None:

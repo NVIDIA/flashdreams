@@ -20,8 +20,10 @@ from flashdreams.runtime_v2.serving.webrtc_server import WebRTCServer
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    CloseUserInputEvent,
     FocusUserInputEvent,
     InputOwnerChangedUserInputEvent,
+    QueryStringUserInputEvent,
     UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -74,7 +76,10 @@ class WebRTCClientWindow(IClientWindow):
         self._hide_cursor = False
         self._lock_cursor_to_window = False
         self._input_lock = threading.RLock()
-        self._viewer_callback: Callable[[bool], None] | None = None
+        self._viewer_lock = threading.RLock()
+        self._viewer: object | None = None
+        self._viewer_callback: Callable[[object | None], None] | None = None
+        self._registering_viewer_callback = True
         # Offset from the server's stable clock to the current session's clock.
         self._session_event_offset_us: uint64 | None = None
         self.server = WebRTCServer(
@@ -103,35 +108,54 @@ class WebRTCClientWindow(IClientWindow):
         self.server.register_input_callback(handle_input)
         self.server.register_file_selector_callback(report_file_selector)
         self.server.register_viewer_callback(self._viewer_changed)
+        self._registering_viewer_callback = False
 
-    def register_viewer_callback(self, callback: Callable[[bool], None]) -> None:
-        """Report active browser connectivity on the server thread."""
-        self._viewer_callback = callback
+    def register_viewer_callback(
+        self, callback: Callable[[object | None], None]
+    ) -> None:
+        """Report the current server-owned identity and later viewer changes."""
+        with self._viewer_lock:
+            if self._viewer_callback is not None:
+                raise RuntimeError("A viewer callback is already registered.")
+            self._viewer_callback = callback
+            callback(self._viewer)
 
-    def _viewer_changed(self, connected: bool) -> None:
-        """Discard input owned by the previous peer before reporting a handoff."""
-        if not connected:
+    def _viewer_changed(self, viewer: object | None) -> None:
+        """Retire input before forwarding the same opaque viewer identity."""
+        with self._viewer_lock:
             with self._input_lock:
-                self._input_events = deque(
-                    UserInputEvents(
-                        [
-                            *self._input_events,
-                            InputOwnerChangedUserInputEvent(
-                                timestamp=(
-                                    self.server.event_timestamp_us()
-                                    if self._session_event_offset_us is not None
-                                    else uint64(0)
+                if viewer is None and not self._registering_viewer_callback:
+                    self._input_events = deque(
+                        UserInputEvents(
+                            [
+                                *self._input_events,
+                                InputOwnerChangedUserInputEvent(
+                                    timestamp=(
+                                        self.server.event_timestamp_us()
+                                        if self._session_event_offset_us is not None
+                                        else uint64(0)
+                                    )
                                 ),
-                            ),
-                        ]
-                    ).get_events()
-                )
-                self._file_selector_reports = deque(
-                    (selector_id, SelectedFilesStatus.UNAVAILABLE, ())
-                    for selector_id, _, _ in self._file_selector_reports
-                )
-        if self._viewer_callback is not None:
-            self._viewer_callback(connected)
+                            ]
+                        ).get_events()
+                    )
+                    self._file_selector_reports = deque(
+                        (selector_id, SelectedFilesStatus.UNAVAILABLE, ())
+                        for selector_id, _, _ in self._file_selector_reports
+                    )
+                elif viewer is not None:
+                    self._input_events = deque(
+                        event
+                        for event in self._input_events
+                        if isinstance(
+                            event, (CloseUserInputEvent, QueryStringUserInputEvent)
+                        )
+                        or isinstance(event, FocusUserInputEvent)
+                        and not event.focused
+                    )
+            self._viewer = viewer
+            if self._viewer_callback is not None:
+                self._viewer_callback(viewer)
 
     def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:
         """Replace links opened locally by the browser viewing this window."""

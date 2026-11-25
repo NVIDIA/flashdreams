@@ -268,6 +268,29 @@ def test_live_hud_does_not_cover_connection_guidance(
         assert [link.url for link in requests.links] == ["https://teleop.example/"]
 
 
+@pytest.mark.parametrize("code", ["", "K7M-4QX"])
+def test_laptop_code_badge_shows_only_while_a_code_waits(monkeypatch, code) -> None:
+    loop = HandDreamsUILoop()
+    loop.state = HandDreamsUIState(
+        status=HandDreamsUIStatus(phase=HandDreamsPhase.SELECTING),
+        connection_status=ControllerConnectionStatus(pairing_code=code),
+    )
+    loop.session_desc = SessionDesc(video_width=640, video_height=360)
+    loop.output_layout = VideoTensorLayout.tchw
+    loop._ui_loop_requests = None
+    badges, rows = [], []
+    monkeypatch.setattr(loop, "presented_model_frame", lambda: None)
+    monkeypatch.setattr(
+        ui_module, "_draw_badge", lambda _, text, *, top: badges.append((text, top))
+    )
+    monkeypatch.setattr(
+        ui_module, "_draw_connection_details", lambda *_: rows.append(True)
+    )
+    loop.step(0, _events())
+    assert badges == ([(f"Laptop code {code}", True)] if code else [])
+    assert rows == []  # A code alone does not open the headset setup rows.
+
+
 @pytest.mark.parametrize("with_scenes", [False, True])
 def test_connection_links_follow_stage_bounds_and_clear_during_setup(
     monkeypatch, with_scenes

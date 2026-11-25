@@ -217,7 +217,9 @@ Isaac Teleop web client URL, and the active controller source in both output mod
 Headset passcodes, privacy screens, immersive-VR Allow, and local-network
 permissions may still require manual approval.
 
-For a physical Quest attached to a separate VR client machine, such as your laptop:
+For a physical Quest attached to a separate VR client machine, such as your
+laptop, open the viewer and run the command below; then press **P** in the
+viewer and type the code it shows when `remote-vr` asks:
 
 ```bash
 env -u QUEST_META_PIN python3 integrations_v2/cosmos3_nano_sim_bimanual/apps/handdreams/launch.py remote-vr \
@@ -235,7 +237,8 @@ and any required credentials.
 
 The server generates controller TLS credentials once under
 `~/.config/flashdreams/quest-relay/`. The laptop obtains **only the certificate
-and token** over verified SSH and reuses a private per-server copy. SSH access
+and token** over verified SSH and reuses a private per-server copy; the pairing
+code appears only in the viewer. SSH access
 and the server's host identity must already be trusted; the launcher does not
 accept unknown SSH keys or replace existing credentials. No manual token export,
 certificate copy, or additional credential setup is needed.
@@ -278,8 +281,8 @@ Clear any headset passcode/privacy or browser permission prompt if one appears.
 For an already-running test, `--no-require-physical-wake` skips that gate.
 
 With `--mode webrtc`, forward port 8081 from the laptop
-(`ssh -L 8081:127.0.0.1:8081 SERVER`) and open **http://127.0.0.1:8081/** for
-generated video;
+(`ssh -L 8081:127.0.0.1:8081 SERVER`) and open the viewer link the server prints
+for generated video;
 the viewer needs working WebRTC media connectivity, and loading its HTTP page
 alone does not establish video connectivity. With `--mode native-window`,
 watch the window on the model host. The laptop needs access to DGX controller
@@ -336,7 +339,7 @@ ADB, or `remote-vr` command is required for IWER.
 An attached Quest does not select a different server route or require an IWER
 restart; disconnect the active input before connecting another client.
 
-1. Open `http://127.0.0.1:8081/` (SSH-forwarded) for generated video with `--mode webrtc`,
+1. Open the viewer link the server prints (SSH-forwarded) for generated video with `--mode webrtc`,
    or watch the model host's native window with `--mode native-window`.
 2. Once CloudXR is listening, open its certificate URL
    (`https://10.111.69.99:48322/` by default) and trust the development
@@ -436,8 +439,10 @@ performs normal cleanup; without the flag, failure cleanup is unchanged.
 Closing the native window or stopping the demo/relay with Ctrl-C stops owned
 CloudXR/browser services, restores managed headset settings, and sends the
 managed headset to sleep. Closing only the WebRTC viewer tab leaves the server
-running. Scene changes do not repeat the wake gate. After relay disconnection,
-rerun `remote-vr`; the server can retain loaded model weights. If USB
+running. Scene changes do not repeat the server-attached wake gate and keep a
+laptop paired ([pairing lifecycle](controller_input/README.md)); `remote-vr`
+reconnects by itself after a network drop. After restarting `remote-vr`, press
+**P** and enter the new code; the server can retain loaded model weights. If USB
 loss prevents cleanup, exit immersive VR and put the headset to sleep manually.
 
 ## Advanced use

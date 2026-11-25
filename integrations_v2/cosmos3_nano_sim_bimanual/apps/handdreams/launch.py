@@ -530,14 +530,16 @@ def main(argv: list[str] | None = None) -> None:
         command = _command(args, extra, credentials)
         if args.command == "server":
             if args.mode == "webrtc":
-                # Match the loopback listener that _command chose for a LAN address.
-                viewer = f"http://{args.address}:{args.port}/"
-                if not ipaddress.ip_address(args.address).is_loopback:
-                    viewer = (
-                        f"http://127.0.0.1:{args.port}/ after forwarding it with "
-                        f"ssh -L {args.port}:127.0.0.1:{args.port} SERVER"
-                    )
-                print(f"Operator viewer: {viewer}", flush=True)
+                # The viewer listens on loopback and prints its own pairing link.
+                forward = (
+                    ""
+                    if ipaddress.ip_address(args.address).is_loopback
+                    else f"ssh -L {args.port}:127.0.0.1:{args.port} <this server>, then "
+                )
+                print(
+                    f"Operator viewer: {forward}open the link the server prints",
+                    flush=True,
+                )
             else:
                 print("Operator viewer: native window on the model host", flush=True)
             if not replay:

@@ -68,8 +68,8 @@ You may only use `--accept-eula` and `--isaac-teleop-accept-eula` for this demo 
 
 Ensure you have completed [Isaac Teleop setup](#setup-isaac-teleop) on your server that will run the HandDreams demo.
 
-1. Open `http://127.0.0.1:8081/` (forward port 8081 over SSH from another
-   machine) and wait for scene selection.
+1. Open the viewer link the server prints (from another machine, first forward
+   port 8081 over SSH) and wait for scene selection.
 2. Click **Isaac Teleop Web Client: Open Link**. Keep both tabs open.
 3. Verify the certificate link points to your server's
    `https://<server-address>:48322/`, accept its development certificate, and
@@ -135,7 +135,7 @@ env -u QUEST_META_PIN uv run --no-sync flashdreams-run-v2 handdreams \
   --quest-accept-server-certificate
 
 # Use the server's LAN IPv4 for `SERVER_IP`.
-# Open `http://127.0.0.1:8081/`; from another machine, first run
+# Open the viewer link the server prints; from another machine, first run
 # `ssh -L 8081:127.0.0.1:8081 <USER>@<SERVER_IP>`.
 # The headset browser connects automatically; do not connect a virtual client.
 ```
@@ -158,7 +158,11 @@ this succeeds without a password prompt:
 ssh -o StrictHostKeyChecking=yes -o BatchMode=yes "<USER>@<SERVER_IP>" true
 ```
 
-On your **laptop**, start the laptop client:
+Pair the laptop from the viewer, like pairing a TV:
+
+1. Forward the viewer port (`ssh -L 8081:127.0.0.1:8081 "<USER>@<SERVER_IP>"`)
+   and open the viewer link the server prints.
+2. On your **laptop**, start the laptop client:
 
 ```bash
 env -u QUEST_META_PIN uv run --no-project --python 3.12 python \
@@ -170,12 +174,22 @@ env -u QUEST_META_PIN uv run --no-project --python 3.12 python \
 # `--accept-server-certificate` allows the laptop to accept a CloudXR development certificate from the server.
 ```
 
-This command will prepare controller dependencies, copy credentials, and copy web assets
-over SSH to your laptop; model weights remain on the server. Your laptop needs direct access to
-server TCP `8445` since SSH is not setup to tunnel its connection.
+3. Press **P** in the viewer and type the code it shows (for example
+   `K7M-4QX`) when `remote-vr` asks for it.
 
-Forward the viewer port (`ssh -L 8081:127.0.0.1:8081 "<USER>@<SERVER_IP>"`)
-and open `http://127.0.0.1:8081/` in your browser.
+`remote-vr` prepares controller dependencies and copies the server's TLS identity
+and web assets over SSH; model weights remain on the server. The pairing code
+never travels over SSH, so SSH access alone cannot take control. Your laptop
+needs direct access to server TCP `8445` since SSH is not set up to tunnel it.
+
+The laptop stays paired through scene changes, viewer reloads, and network
+drops; `remote-vr` reconnects by itself. Pairing ends when you press **R**,
+press **P** for a new code, or stop the demo; `remote-vr` then asks for the
+next code. To switch laptops, press **P** and enter the code on the new laptop;
+the previous laptop is cut off and cannot reconnect. A code expires after five
+minutes or five wrong entries. A tokenless (`--no-login`) viewer reload also
+ends pairing. A paired laptop can still send plausible false poses, so pair
+only laptops you trust.
 
 Continue with [calibration](#physical-controller-calibration).
 
@@ -192,7 +206,8 @@ Continue with [calibration](#physical-controller-calibration).
    to control the hands.
 
 Press keyboard **B** in the viewer to retry a server-attached Quest, then wake
-the headset when prompted. For a laptop Quest, stop and restart `remote-vr`.
+the headset when prompted. For a laptop Quest, restart `remote-vr`, then press
+**P** and enter the new code.
 Stop both the server and laptop client with **Ctrl+C**; cleanup puts the managed
 headset to sleep. Closing only the viewer tab leaves the server running.
 

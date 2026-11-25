@@ -145,9 +145,11 @@ def check_certificate(certificate: Path, address: str) -> None:
         ) from None
 
 
-def read_token(directory: Path) -> str:
+def read_token(directory: Path, *, name: str = "token") -> str:
     """Read a validated token without exposing it in diagnostics."""
-    value = (directory / "token").read_text(encoding="utf-8").strip()
+    _check_private(directory, directory=True)
+    _check_private(directory / name)
+    value = (directory / name).read_text(encoding="utf-8").strip()
     if (
         not 32 <= len(value) <= 256
         or not value.isascii()
@@ -203,53 +205,60 @@ def server_credentials(address: str) -> Path:
 
 
 def client_credentials(target: str, address: str) -> Path:
-    """Cache the server's public certificate and token through verified SSH."""
+    """Pin the server's TLS identity and static token through verified SSH.
+
+    Pairing never travels over SSH: the laptop enters the code shown in the viewer.
+    """
     root = _state_root()
     _private_directory(root)
     clients = root / "quest-relay-clients"
     _private_directory(clients)
     directory = clients / target
     names = ("server.crt", "token")
-    if not _existing(directory, names):
-        script = (
-            "import json; from pathlib import Path; "
-            "p=Path.home()/'.config/flashdreams/quest-relay'; "
-            "print(json.dumps({n:(p/n).read_text() for n in ('server.crt','token')}))"
+    existing = _existing(directory, names)
+    script = (
+        "import json; from pathlib import Path; "
+        "p=Path.home()/'.config/flashdreams/quest-relay'; "
+        "print(json.dumps({n:(p/n).read_text() for n in ('server.crt','token')}))"
+    )
+    try:
+        response = _run(
+            [
+                "ssh",
+                *SSH_OPTIONS,
+                "--",
+                target,
+                "python3 -c " + shlex.quote(script),
+            ]
         )
-        try:
-            response = _run(
-                [
-                    "ssh",
-                    *SSH_OPTIONS,
-                    "--",
-                    target,
-                    "python3 -c " + shlex.quote(script),
-                ]
-            )
-        except subprocess.CalledProcessError:
-            raise ValueError(
-                f"Could not obtain controller credentials through verified SSH to {target}. "
-                "Start the server, verify its SSH host identity and existing login access, then retry. "
-                "No SSH keys or trust settings were changed."
-            ) from None
-        try:
-            values = json.loads(response.stdout)
-            if set(values) != set(names) or not all(
-                isinstance(values[name], str) for name in names
-            ):
-                raise ValueError
-        except (ValueError, TypeError):
-            raise ValueError(
-                "SSH returned an invalid controller credential bundle"
-            ) from None
-        with tempfile.TemporaryDirectory(
-            prefix=".quest-relay-", dir=clients
-        ) as temporary:
-            staging = Path(temporary)
-            for name in names:
-                _write_private(staging / name, values[name])
-            check_certificate(staging / "server.crt", address)
-            read_token(staging)
+    except subprocess.CalledProcessError:
+        raise ValueError(
+            f"Could not obtain controller credentials through verified SSH to {target}. "
+            "Start the server, verify its SSH host identity and existing login access, then retry. "
+            "No SSH keys or trust settings were changed."
+        ) from None
+    try:
+        values = json.loads(response.stdout)
+        if set(values) != set(names) or not all(
+            isinstance(values[name], str) for name in names
+        ):
+            raise ValueError
+    except (ValueError, TypeError):
+        raise ValueError(
+            "SSH returned an invalid controller credential bundle"
+        ) from None
+    with tempfile.TemporaryDirectory(prefix=".quest-relay-", dir=clients) as temporary:
+        staging = Path(temporary)
+        for name in names:
+            _write_private(staging / name, values[name])
+        check_certificate(staging / "server.crt", address)
+        read_token(staging)
+        if existing:
+            if any((directory / name).read_text() != values[name] for name in names):
+                raise ValueError(
+                    "Server identity changed; existing controller trust was preserved"
+                )
+        else:
             _publish(staging, directory, names)
     check_certificate(directory / "server.crt", address)
     read_token(directory)

@@ -243,7 +243,7 @@ uv run --no-project --python 3.12 python \
 ```
 
 Forward port 8081 from your machine (`ssh -L 8081:127.0.0.1:8081 SERVER`), open
-`http://127.0.0.1:8081/`, and select **Fold the T-shirt**, the only replay
+the viewer link the server prints, and select **Fold the T-shirt**, the only replay
 scene. It uses its matching recorded actions. Press Escape to return to the scene
 picker. The normal live scene catalog is unchanged. Add
 `--mode native-window` for a local window. No Isaac Teleop setup, EULA flag,

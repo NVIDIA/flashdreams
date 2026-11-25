@@ -61,6 +61,8 @@ class Observation:
     capture_ns: int
     source: str
     generation: int = 0
+    authority_epoch: int | None = None
+    """Server authorization epoch for remote poses; local sources leave it unset."""
 
 
 @runtime_checkable

@@ -212,6 +212,9 @@ class NativeWindowClientWindow(IClientWindow):
         self._input_events: queue.SimpleQueue[UserInputEvent] = queue.SimpleQueue()
         self._close_event_enqueued = False
         self._presenter: _SlangPyNativeWindowPresenter | None = None
+        self._viewer_callback: Callable[[object | None], None] | None = None
+        self._viewer: object | None = None
+        self._viewer_lock = threading.RLock()
         self._poll_input_events: list[UserInputEvent] | None = None
         self._pending_printable_keys: deque[tuple[str, KeyboardUserInputEvent]] = (
             deque()
@@ -225,6 +228,34 @@ class NativeWindowClientWindow(IClientWindow):
         self._file_dialog_results: queue.SimpleQueue[
             tuple[int, FileSelectionRequest, list[str] | None]
         ] = queue.SimpleQueue()
+
+    def register_viewer_callback(
+        self, callback: Callable[[object | None], None]
+    ) -> None:
+        """Report the open window's opaque identity and its loss synchronously.
+
+        Registration immediately reports current state. Session replacement
+        preserves the identity; closing the window reports ``None``.
+
+        Args:
+            callback: Receive the window-owned identity, or ``None`` when absent.
+
+        Raises:
+            RuntimeError: A viewer callback is already registered.
+        """
+        with self._viewer_lock:
+            if self._viewer_callback is not None:
+                raise RuntimeError("A viewer callback is already registered.")
+            self._viewer_callback = callback
+            callback(self._viewer)
+
+    def _set_viewer_connected(self, connected: bool) -> None:
+        with self._viewer_lock:
+            if connected == (self._viewer is not None):
+                return
+            self._viewer = object() if connected else None
+            if self._viewer_callback is not None:
+                self._viewer_callback(self._viewer)
 
     def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:
         """Replace the clickable regions over the native window output."""
@@ -370,6 +401,7 @@ class NativeWindowClientWindow(IClientWindow):
         self._links = ()
         self._pressed_link = None
         self._presenter = presenter
+        self._set_viewer_connected(not presenter.should_close)
         if self._fullscreen:
             presenter.process_events()
             self._window_size = presenter.size
@@ -454,6 +486,7 @@ class NativeWindowClientWindow(IClientWindow):
 
     def close(self) -> None:
         """Release SlangPy and the GLFW window on the runtime's UI thread."""
+        self._set_viewer_connected(False)
         presenter = self._presenter
         self._presenter = None
         self._session_started_ns = None
@@ -583,6 +616,7 @@ class NativeWindowClientWindow(IClientWindow):
     def _on_window_closed(self) -> None:
         if self._close_event_enqueued:
             return
+        self._set_viewer_connected(False)
         self._close_event_enqueued = True
         self._put_input(CloseUserInputEvent(timestamp=uint64(0)))
 

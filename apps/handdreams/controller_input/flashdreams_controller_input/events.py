@@ -17,7 +17,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field, fields
 from typing import Any, Literal
 
 from flashdreams.api_v2.user_input_event import UserInputEvent
@@ -51,6 +52,8 @@ class ControllerConnectionStatus:
     """Browser certificate-trust URL, when required before connecting."""
     active_input: str = ""
     """Source currently owning controller input, or a waiting explanation."""
+    pairing_code: str = ""
+    """Laptop code to show after P until a relay claims it; empty otherwise."""
 
 
 @dataclass(frozen=True, slots=True, eq=False, kw_only=True)
@@ -121,6 +124,20 @@ class ControllerFrameEvent(UserInputEvent):
     """Right controller; required for state and absent on disconnect."""
     is_emulated: bool = False
     """Explicit active-client emulation signal; unknown clients retain guided setup."""
+    authority_valid: Callable[[], bool] | None = field(default=None, repr=False)
+    """Process-local authority check; remote events cannot cross processes."""
+
+    def __getstate__(self) -> list[Any]:
+        """Preserve local event serialization without copying a remote grant.
+
+        Raises:
+            TypeError: The event carries live process-local remote authority.
+        """
+        if self.authority_valid is not None:
+            # ponytail: remote leases are process-local; multi-process support
+            # needs coordinated revocation before admitting serialized input.
+            raise TypeError("Remote controller authority must remain process-local")
+        return [getattr(self, item.name) for item in fields(self)]
 
     @classmethod
     def get_type_name(cls) -> str:
@@ -169,6 +186,7 @@ class ControllerFrameEvent(UserInputEvent):
             "source_frame_id": self.frame_id,
             "pose_convention": self.pose_convention,
         }
+        authorized = self.is_authorized()
         for side, hand in (("left", self.left), ("right", self.right)):
             assert hand is not None
             frame[side] = {
@@ -176,7 +194,7 @@ class ControllerFrameEvent(UserInputEvent):
                 "orientation": list(hand.orientation),
                 "trigger": hand.trigger,
                 "grip": hand.grip,
-                "tracked": hand.tracked,
+                "tracked": hand.tracked and authorized,
                 "primary_button": hand.primary_button,
                 "secondary_button": hand.secondary_button,
             }
@@ -185,3 +203,7 @@ class ControllerFrameEvent(UserInputEvent):
             if hand.battery is not None:
                 frame[side]["battery"] = hand.battery
         return frame
+
+    def is_authorized(self) -> bool:
+        """Recheck authority for queued events; local controller input stays valid."""
+        return self.authority_valid is None or self.authority_valid()

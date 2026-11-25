@@ -45,7 +45,7 @@ def trigger_preview(
     Hand placement provides a fallback for opposing or vertical pointing rays.
     This moving display reference is never used for alignment or model input.
     """
-    if event is None or event.action == "disconnected":
+    if event is None or event.action == "disconnected" or not event.is_authorized():
         return None, None
     hands = (event.left, event.right)
     tracked = [hand for hand in hands if hand is not None and hand.tracked]
@@ -177,7 +177,7 @@ class ControllerPreview:
         Raises:
             ValueError: The source has not supplied canonical wrist poses.
         """
-        if event.action == "disconnected":
+        if event.action == "disconnected" or not event.is_authorized():
             return None, None
         if event.pose_convention != WRIST_PROXY_POSE_CONVENTION:
             raise ValueError("controller preview requires canonical wrist poses")
