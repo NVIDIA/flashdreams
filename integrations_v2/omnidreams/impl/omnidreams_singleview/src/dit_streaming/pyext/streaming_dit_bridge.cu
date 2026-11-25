@@ -1936,6 +1936,8 @@ torch::Tensor optimized_dit_forward(
     omnidreams_singleview::CosmosAttentionBackend attention_backend = omnidreams_singleview::CosmosAttentionBackend::CUDNN_BF16;
     if (attention_backend_name == "cudnn_bf16" || attention_backend_name == "bf16") {
         attention_backend = omnidreams_singleview::CosmosAttentionBackend::CUDNN_BF16;
+    } else if (attention_backend_name == "sage2") {
+        attention_backend = omnidreams_singleview::CosmosAttentionBackend::SAGE2;
     } else if (attention_backend_name == "fp8_dense_ref") {
         attention_backend = omnidreams_singleview::CosmosAttentionBackend::FP8_DENSE_REF;
     } else if (attention_backend_name == "fp8_cudnn") {
@@ -1949,7 +1951,7 @@ torch::Tensor optimized_dit_forward(
     } else {
         TORCH_CHECK(false,
                     "unsupported cosmos_attention_backend '", attention_backend_name,
-                    "'. Expected one of: cudnn_bf16, bf16, fp8_dense_ref, fp8_cudnn, sparge, sage3, sage3_fp8");
+                    "'. Expected one of: cudnn_bf16, bf16, sage2, fp8_dense_ref, fp8_cudnn, sparge, sage3, sage3_fp8");
     }
     const bool sparge_hybrid_enabled =
         attention_backend == omnidreams_singleview::CosmosAttentionBackend::SPARGE &&

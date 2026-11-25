@@ -127,6 +127,25 @@ Fastest preset: `interactive-drive-omnidreams-fast-perf`.
 - **PyTorch:** 2.11 or newer.
 - **Python:** 3.10 through 3.12.
 
+### Native DiT attention backends
+
+Native DiT accepts `auto`, `cudnn`, `sage2`, `sparge`, `sage3`, `sage3_fp8`,
+and `prefer_sage3_fp8` for `native_dit_attention_backend`. `auto` resolves to
+the portable native cuDNN path. Setting the framework
+`self_attention_backend` to `sage2` is the unified Sage2 policy: it selects
+Native Sage2 when available and falls back to framework Sage2 when
+`native_dit_acceleration` is `auto`. Text cross-attention remains on cuDNN.
+An explicit `native_dit_attention_backend` is a Native-only override; if it is
+unavailable in `auto` mode, execution falls back to the configured framework
+backend.
+
+Native Sage2 is an experimental Hopper-only (SM 9.0) backend. It requires
+`native_dit_backend: fp8_kvcache_cudnn` and is incompatible with
+`use_cuda_graph: true` in both the framework and Native paths. Supported
+Blackwell devices can use Sage3 or Sage3 FP8. `prefer_sage3_fp8` selects Sage3
+FP8 when the native build and device support it and otherwise falls back to
+cuDNN.
+
 <hr>
 
 ## Performance (Outdated)

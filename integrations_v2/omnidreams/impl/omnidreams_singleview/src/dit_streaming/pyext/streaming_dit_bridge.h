@@ -13,6 +13,13 @@
 #include "../kernels/attention.cuh"
 
 namespace omnidreams_singleview {
+bool sage2_is_built();
+bool sage2_is_runtime_supported(int device);
+torch::Tensor sage2_test_attention(
+    torch::Tensor q_bmhd,
+    torch::Tensor k_bmhd,
+    torch::Tensor v_bmhd,
+    bool causal);
 bool sage3_is_built();
 bool sage3_is_runtime_supported(int device);
 std::vector<torch::Tensor> sage3_quantize_cross_kv_bf16(

@@ -138,6 +138,23 @@ cudaError_t run_cudnn_fmha_packed_qkv(
     float scale,
     cudaStream_t stream);
 
+// SageAttention-2 Hopper path. Inputs and output use contiguous BMHK/NHD
+// storage; autoregressive causality is enforced by the visible KV-cache prefix,
+// so callers normally pass causal=false.
+bool sage2_is_built();
+bool sage2_is_runtime_supported(int device);
+
+cudaError_t run_sage2_fmha_packed_qkv(
+    const cutlass::bfloat16_t* Q,
+    const cutlass::bfloat16_t* K,
+    const cutlass::bfloat16_t* V,
+    cutlass::bfloat16_t* O,
+    int B, int Mq, int Mk,
+    int H, int D,
+    bool causal,
+    float scale,
+    cudaStream_t stream);
+
 struct CosmosFp8SdpaSelection {
   std::string preset;
   std::string layout;
