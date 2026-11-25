@@ -9,6 +9,9 @@ Use the Demo API to build user-facing applications, manage sessions, expose
 controls, route inputs and outputs, configure a model-backed demo, and launch it
 through `flashdreams-run-v2`.
 
+Application protocols live in `flashdreams.api_v2`, and `flashdreams.runtime_v2`
+provides session execution, presentation, client windows, and metrics.
+
 ## Guides
 
 <div class="fd-card-grid fd-card-grid-three fd-overview-grid">

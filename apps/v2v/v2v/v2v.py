@@ -11,8 +11,10 @@ import os
 import shutil
 import tempfile
 import zipfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Generator, Sequence
+from contextlib import closing
 from dataclasses import dataclass, replace
+from itertools import islice
 from pathlib import Path
 
 import numpy as np
@@ -63,10 +65,10 @@ InputLoader = Callable[[str | Path | None, int | None], "LoadedVideo"]
 
 @dataclass(frozen=True, slots=True)
 class LoadedVideo:
-    """Bounded input video decoded for one application run."""
+    """Probed video metadata and a fresh decoder for each session or reset."""
 
-    frames: Tensor
-    """Normalized source frames in ``[T, C, H, W]`` layout."""
+    frames: Callable[[], Generator[Tensor, None, None]]
+    """Open normalized ``[C, H, W]`` frames; closing the generator closes the file."""
 
     spec: VideoSpec
     """Spatial and timing metadata reported by the source file."""
@@ -100,13 +102,16 @@ class _ApplicationConfig:
     """Video post-processor settings selected by the application factory."""
 
     video: LoadedVideo
-    """Bounded input video held on CPU."""
+    """Reopenable input source; decoded frames are owned by the model loop."""
 
     input_name: str
     """Human-readable source name reported in session metadata."""
 
-    chunks: tuple[tuple[int, int], ...]
-    """Input frame ranges consumed by consecutive model steps."""
+    first_chunk_size: int
+    """Number of frames in the cold-start input."""
+
+    steady_chunk_size: int
+    """Number of frames in subsequent inputs."""
 
 
 @dataclass(slots=True)
@@ -114,13 +119,22 @@ class V2VModelState:
     """Mutable stream state owned by the V2V model loop."""
 
     config: _ApplicationConfig
-    """Resolved application settings and source frames."""
+    """Resolved application settings and input source."""
 
     session_desc: SessionDesc
     """Output contract presented by the runtime."""
 
     processor_session: VideoPostProcessorSession
     """Stateful video processor for the current rollout."""
+
+    chunks: Generator[tuple[Tensor, bool], None, None]
+    """Current chunk and EOF lookahead, closed on reset or shutdown."""
+
+    frames_consumed: int = 0
+    """Input offset used in chunk metadata."""
+
+    finished: bool = False
+    """Whether the final chunk has been flushed or the loop closed."""
 
     chunks_generated: int = 0
     """Number of input ranges already consumed."""
@@ -151,21 +165,33 @@ class V2VModelLoop(IModelLoop[V2VModelState]):
                 f"{state.chunks_generated}, got {step_index}."
             )
 
-        start, size = state.config.chunks[step_index]
-        source = state.config.video.frames[start : start + size]
-        emitted = state.processor_session.process(
-            VideoChunk(
-                tensor=source,
-                layout="tchw",
-                metadata={"input_start": start, "input_frames": size},
+        if state.finished:
+            return []
+        try:
+            source, last = next(state.chunks)
+            size = int(source.shape[0])
+            emitted = state.processor_session.process(
+                VideoChunk(
+                    tensor=source,
+                    layout="tchw",
+                    metadata={
+                        "input_start": state.frames_consumed,
+                        "input_frames": size,
+                    },
+                )
             )
-        )
-        if step_index == len(state.config.chunks) - 1:
-            emitted.extend(state.processor_session.flush())
-        if not emitted:
-            raise RuntimeError(
-                f"The video processor emitted no output for complete input chunk {step_index}."
-            )
+            if last:
+                emitted.extend(state.processor_session.flush())
+                state.chunks.close()
+            if not emitted:
+                raise RuntimeError(
+                    f"The video processor emitted no output for complete input chunk {step_index}."
+                )
+        except BaseException:
+            self.close()
+            raise
+        state.frames_consumed += size
+        state.finished = last
 
         output = concatenate_video_chunks(emitted, layout="bcthw").detach()
         frame_count = int(output.shape[2])
@@ -182,17 +208,23 @@ class V2VModelLoop(IModelLoop[V2VModelState]):
 
     def is_finished(self) -> bool:
         """Return whether every bounded input range has been transformed."""
-        return self.state.chunks_generated >= len(self.state.config.chunks)
+        return self.state.finished
 
     def reset(self) -> None:
         """Start a fresh processor stream over the same source frames."""
         state = self.state
+        self.close()
         state.processor_session = _start_processor(state.config)
+        state.chunks = _read_chunks(state.config)
         state.chunks_generated = 0
+        state.frames_consumed = 0
+        state.finished = False
 
     def close(self) -> None:
         """Release state retained by the processor session."""
+        self.state.chunks.close()
         self.state.processor_session = _ClosedPostProcessorSession()
+        self.state.finished = True
 
 
 class V2VApplicationSession(ISession):
@@ -209,9 +241,10 @@ class V2VApplicationSession(ISession):
             config=self._config,
             session_desc=self._session_desc,
             processor_session=_start_processor(self._config),
+            chunks=_read_chunks(self._config),
         )
-        self._state = state
         self.register_model_loop(V2VModelLoop, state=state)
+        self._state = state
 
     @property
     def session_desc(self) -> SessionDesc:
@@ -220,7 +253,9 @@ class V2VApplicationSession(ISession):
 
     def close(self) -> None:
         """Release the session-owned source and processor references."""
-        self._state = None
+        if self._state is not None:
+            self.model_loop.close()
+            self._state = None
 
 
 class V2VApplication(IApplication):
@@ -237,7 +272,7 @@ class V2VApplication(IApplication):
 
         Args:
             defaults: Model integration defaults for this application.
-            input_loader: Test seam replacing input resolution and bounded decode.
+            input_loader: Test seam replacing input resolution and incremental decode.
             input_spec: Default source-video contract advertised before initialization.
         """
         self.defaults = defaults
@@ -246,7 +281,7 @@ class V2VApplication(IApplication):
         self._config: _ApplicationConfig | None = None
 
     def init(self, commandline_args: Sequence[str]) -> None:
-        """Parse execution settings and decode the bounded source excerpt.
+        """Parse execution settings and probe the first input frame.
 
         Args:
             commandline_args: Application-specific command-line arguments.
@@ -289,12 +324,6 @@ class V2VApplication(IApplication):
         )
         video = self._input_loader(args.video_path, requested_frames)
         _validate_loaded_video(video)
-        chunks = _build_chunks(
-            total_frames=int(video.frames.shape[0]),
-            first_size=first_size,
-            steady_size=steady_size,
-            max_chunks=max_chunks,
-        )
         self._config = _ApplicationConfig(
             processor=self.defaults.processor,
             video=video,
@@ -303,7 +332,8 @@ class V2VApplication(IApplication):
                 if args.video_path is None
                 else Path(args.video_path).name
             ),
-            chunks=chunks,
+            first_chunk_size=first_size,
+            steady_chunk_size=steady_size,
         )
 
     def session_desc(self) -> SessionDesc:
@@ -376,7 +406,7 @@ class V2VApplication(IApplication):
         return V2VApplicationSession(self._config, resolved)
 
     def close(self) -> None:
-        """Release the decoded input video."""
+        """Release the input source configuration."""
         self._config = None
 
 
@@ -399,35 +429,27 @@ def _start_processor(config: _ApplicationConfig) -> VideoPostProcessorSession:
     return session
 
 
-def _build_chunks(
-    *, total_frames: int, first_size: int, steady_size: int, max_chunks: int | None
-) -> tuple[tuple[int, int], ...]:
-    chunks: list[tuple[int, int]] = []
-    start = 0
-    while start < total_frames and (max_chunks is None or len(chunks) < max_chunks):
-        target = first_size if not chunks else steady_size
-        size = min(target, total_frames - start)
-        chunks.append((start, size))
-        start += size
-    if not chunks:
-        raise ValueError("Input video contains no decodable frames.")
-    return tuple(chunks)
+def _read_chunks(
+    config: _ApplicationConfig,
+) -> Generator[tuple[Tensor, bool], None, None]:
+    """Decode one chunk plus one lookahead frame, including an exact-boundary EOF."""
+    size = config.first_chunk_size
+    with closing(config.video.frames()) as frames:
+        frame = next(frames, None)
+        if frame is None:
+            raise ValueError("Input video contains no decodable frames.")
+        while frame is not None:
+            chunk = [frame, *islice(frames, size - 1)]
+            expected = (3, config.video.spec.height, config.video.spec.width)
+            if any(tuple(item.shape) != expected for item in chunk):
+                raise ValueError(f"Input video frames must keep shape {expected}.")
+            frame = next(frames, None)
+            yield torch.stack(chunk), frame is None
+            del chunk
+            size = config.steady_chunk_size
 
 
 def _validate_loaded_video(video: LoadedVideo) -> None:
-    if video.frames.ndim != 4 or video.frames.shape[1] != 3:
-        raise ValueError(
-            "Input video frames must have [T, C=3, H, W] shape, got "
-            f"{tuple(video.frames.shape)}."
-        )
-    shape = (int(video.frames.shape[-2]), int(video.frames.shape[-1]))
-    spec_shape = (video.spec.height, video.spec.width)
-    if shape != spec_shape:
-        raise ValueError(
-            "Input video frame dimensions do not match its metadata: "
-            f"frames are {shape[1]}x{shape[0]}, metadata is "
-            f"{video.spec.width}x{video.spec.height}."
-        )
     if video.spec.channels != 3:
         raise ValueError(
             f"Input video must be RGB, got {video.spec.channels} channels."
@@ -446,6 +468,27 @@ def _load_input_video(value: str | Path | None, max_frames: int | None) -> Loade
         if value is None
         else resolve_input_path(value, cache_dir=_INPUT_CACHE_DIR)
     )
+    with closing(_decode_frames(path, max_frames)) as decoded:
+        first = next(decoded, None)
+    if first is None:
+        raise ValueError(f"Input video contains no frames: {path}")
+    frame, fps = first
+
+    def reopen() -> Generator[Tensor, None, None]:
+        with closing(_decode_frames(path, max_frames)) as decoded:
+            for frame, _ in decoded:
+                yield frame
+
+    return LoadedVideo(
+        frames=reopen,
+        spec=VideoSpec(height=int(frame.shape[1]), width=int(frame.shape[2]), fps=fps),
+    )
+
+
+def _decode_frames(
+    path: Path, max_frames: int | None
+) -> Generator[tuple[Tensor, float], None, None]:
+    """Decode normalized frames lazily, retaining display rotation and frame rate."""
     try:
         import av  # noqa: PLC0415
         from av.filter import Graph  # noqa: PLC0415
@@ -467,9 +510,8 @@ def _load_input_video(value: str | Path | None, max_frames: int | None) -> Loade
             stream = next((s for s in streams if s.duration is not None), stream)
         fps = float(stream.average_rate or stream.guessed_rate or 0.0)
 
-        frames = []
         rotation_graph = None
-        for frame in container.decode(stream):
+        for frame in islice(container.decode(stream), max_frames):
             rotation = frame.rotation
             if rotation % 90:
                 if rotation_graph is None:
@@ -486,24 +528,8 @@ def _load_input_video(value: str | Path | None, max_frames: int | None) -> Loade
             else:
                 # Match FFmpeg's default display-matrix autorotation.
                 array = np.rot90(frame.to_ndarray(format="rgb24"), rotation // 90)
-            frames.append(array)
-            if max_frames is not None and len(frames) >= max_frames:
-                break
-    if not frames:
-        raise ValueError(f"Input video contains no frames: {path}")
-
-    array = np.stack(frames)
-    tensor = torch.from_numpy(array).float().div(127.5).sub(1.0)
-    tensor = tensor.permute(0, 3, 1, 2).contiguous()
-    return LoadedVideo(
-        frames=tensor,
-        spec=VideoSpec(
-            height=int(array.shape[1]),
-            width=int(array.shape[2]),
-            fps=fps,
-            channels=3,
-        ),
-    )
+            tensor = torch.from_numpy(np.ascontiguousarray(array)).permute(2, 0, 1)
+            yield tensor.float().div_(127.5).sub_(1.0).contiguous(), fps
 
 
 def _resolve_big_buck_bunny() -> Path:

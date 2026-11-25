@@ -28,6 +28,11 @@ uv run --no-sync flashdreams-run-v2 v2v-flashvsr-v1.1-sparse-ratio-2.0 --output-
 Omit `--video-path` to download and process the bounded Big Buck
 Bunny default used by the original demo. Input paths may also be HTTP(S) URLs.
 
+Input frames are decoded incrementally: the model loop retains one chunk plus
+one lookahead frame, rather than the whole video. Resetting a session reopens
+the source from the beginning. HTTP(S) inputs are still downloaded to the local
+cache before decoding; this does not provide live network-input streaming.
+
 Use `--mode webrtc` or `--mode native-window` instead of
 `--output-path` to watch the run live.
 

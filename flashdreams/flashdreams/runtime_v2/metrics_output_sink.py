@@ -14,7 +14,7 @@ from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 
 _ARTIFACT_TYPE = "flashdreams.runtime.demo.benchmark_stats"
-"""Artifact type shared with the v1 benchmark sink."""
+"""Stable artifact type consumed by existing benchmark readers."""
 
 _SCHEMA_VERSION = 1
 """Benchmark artifact schema version."""
@@ -24,7 +24,7 @@ class MetricsOutputSink(OutputSink):
     """Write model metrics to a benchmark JSON file.
 
     Each result records its frame count and finite numeric metrics. Metric names
-    ending in ``_ms`` are converted to seconds to match the v1 sink.
+    ending in ``_ms`` are converted to seconds for benchmark summaries.
 
     Reopening the sink starts a new record at the same path. Consequently, a
     multi-session application run retains the final session's metrics.

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Keyboard state helpers shared by runtime input canonicalizers."""
+"""Keyboard state helpers shared by current applications."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ DEFAULT_SUPPORTED_KEYS = frozenset({"w", "a", "s", "d", "q", "e", "i", "k", "j",
 DRIVING_SUPPORTED_KEYS = frozenset(
     {"w", "a", "s", "d", "up", "down", "left", "right", "space"}
 )
-WSAD_SUPPORTED_KEYS = frozenset({"w", "a", "s", "d"})
 KEY_ALIASES = {
     " ": "space",
     "arrowup": "w",
@@ -19,44 +18,6 @@ KEY_ALIASES = {
     "arrowdown": "s",
     "arrowright": "d",
 }
-
-
-@dataclass(frozen=True, slots=True)
-class ResetRequest:
-    """Transport-neutral request to reset the realtime rollout."""
-
-    reason: str | None = None
-    request_id: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PromptRequest:
-    """Transport-neutral prompt update request."""
-
-    prompt: str
-    negative_prompt: str | None = None
-    request_id: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ImageRequest:
-    """Transport-neutral image update request."""
-
-    data: bytes
-    content_type: str
-    request_id: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class SparseInputSnapshot:
-    """Sparse input state sampled at a realtime loop boundary."""
-
-    timestamp_s: float
-    pressed_keys: frozenset[str] = field(default_factory=frozenset)
-    effective_keys: frozenset[str] = field(default_factory=frozenset)
-    reset: ResetRequest | None = None
-    prompt: PromptRequest | None = None
-    image: ImageRequest | None = None
 
 
 def normalize_key(key: str) -> str:
@@ -102,13 +63,6 @@ class KeyboardState:
     def snapshot(self) -> frozenset[str]:
         return frozenset(self.pressed_keys)
 
-    def sparse_snapshot(self, *, timestamp_s: float) -> SparseInputSnapshot:
-        return SparseInputSnapshot(
-            timestamp_s=timestamp_s,
-            pressed_keys=self.snapshot(),
-            effective_keys=self.resolved_effective_keys(),
-        )
-
     def _latest_pressed(self, keys: tuple[str, ...]) -> str | None:
         latest_key: str | None = None
         latest_idx = -1
@@ -137,12 +91,7 @@ class KeyboardState:
 __all__ = [
     "DEFAULT_SUPPORTED_KEYS",
     "DRIVING_SUPPORTED_KEYS",
-    "ImageRequest",
     "KEY_ALIASES",
     "KeyboardState",
-    "PromptRequest",
-    "ResetRequest",
-    "SparseInputSnapshot",
-    "WSAD_SUPPORTED_KEYS",
     "normalize_key",
 ]

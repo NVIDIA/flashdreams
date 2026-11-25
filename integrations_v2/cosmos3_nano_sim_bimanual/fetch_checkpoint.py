@@ -40,7 +40,7 @@ def _cache_dir() -> Path:
 
 HAND_CHECKPOINT_URL = (
     "https://huggingface.co/nvidia/Cosmos3-Nano-Sim-Bimanual/resolve/"
-    "304bf3dc45901793f0782254a5270cc087b9a157/"
+    "da4d2c09175e2a6dd5b237265318066d5134312e/"
     "transformer/diffusion_pytorch_model.safetensors.index.json"
 )
 """Pinned GA iteration-1380 EMA export with the unified_v1 action contract."""

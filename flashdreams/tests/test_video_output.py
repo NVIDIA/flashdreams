@@ -11,6 +11,7 @@ import pytest
 import torch
 
 from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
+from flashdreams.infra.results import StepResult
 from flashdreams.infra.video_output import (
     VideoOutputStream,
     VideoResultCollector,
@@ -19,7 +20,6 @@ from flashdreams.infra.video_output import (
     prepare_video_for_mp4,
     video_tensor_to_hwc_uint8,
 )
-from flashdreams.runtime import StepResult
 
 pytestmark = pytest.mark.ci_cpu
 

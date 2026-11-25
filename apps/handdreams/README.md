@@ -462,7 +462,7 @@ for model/warmup details. Model-specific defaults belong to that integration.
 Use `--checkpoint /path/to/export` to override checkpoint selection. The default
 alias downloads the GA iteration-1380 model from
 `nvidia/Cosmos3-Nano-Sim-Bimanual`, pinned to Hugging Face revision
-`304bf3dc45901793f0782254a5270cc087b9a157` (GA, four denoising steps).
+`da4d2c09175e2a6dd5b237265318066d5134312e` (GA, four denoising steps).
 Remove pre-GA checkpoint paths and `--denoise-steps 2` overrides when upgrading;
 the older weights use an incompatible action format. Private-repository access uses
 `HF_TOKEN` or an existing Hugging Face login; never put tokens in scripts or Git.
