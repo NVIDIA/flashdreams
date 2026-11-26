@@ -275,6 +275,26 @@ def test_renamed_snapshot_directory_cannot_swap_parsed_metadata(
     assert (snapshot / ".metadata").is_file()
 
 
+def test_snapshot_without_directory_descriptors_removes_read_only_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows has no ``dir_fd`` and refuses to delete read-only files."""
+    monkeypatch.setattr(dcp_trust, "_DIR_FD", False)
+    unlink = os.unlink
+
+    def windows_unlink(path: Any, *, dir_fd: int | None = None) -> None:
+        if not os.stat(path, dir_fd=dir_fd).st_mode & stat.S_IWUSR:
+            raise PermissionError(path)
+        unlink(path, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "unlink", windows_unlink)
+    source, files = _source(tmp_path)
+    with VerifiedDCPReader(str(source), trust=_pin(tmp_path, files)) as reader:
+        snapshot = Path(reader.path)
+        assert (snapshot / "__0_0.distcp").is_file()
+    assert not snapshot.exists()
+
+
 def test_unclosed_reader_snapshot_is_removed_when_collected(tmp_path: Path) -> None:
     source, files = _source(tmp_path)
     reader = VerifiedDCPReader(str(source), trust=_pin(tmp_path, files))

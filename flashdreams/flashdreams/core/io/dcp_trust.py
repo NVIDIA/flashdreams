@@ -267,6 +267,13 @@ def _open_snapshot_root(root: Path) -> int | None:
 def _remove_snapshot(root: Path, root_fd: int | None) -> None:
     """Delete the snapshot through the held directory, even if it was renamed."""
     if root_fd is None:
+        # Windows refuses to delete the read-only snapshot files; clear the flag.
+        for directory, _, names in os.walk(root):
+            for name in names:
+                with suppress(OSError):
+                    os.chmod(
+                        os.path.join(directory, name), stat.S_IWRITE | stat.S_IREAD
+                    )
         shutil.rmtree(root, ignore_errors=True)
         return
     with suppress(OSError):
