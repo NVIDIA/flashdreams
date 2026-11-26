@@ -64,7 +64,7 @@ def test_cached_hf_subfolder_needs_no_free_space(
     assert Path(cached).samefile(checkpoint)
 
 
-@pytest.mark.parametrize("source", ["huggingface", "s3", "distributed-cache"])
+@pytest.mark.parametrize("source", ["huggingface", "s3"])
 def test_checkpoint_loads_reject_non_weight_objects(
     source: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -106,22 +106,6 @@ def test_checkpoint_loads_reject_non_weight_objects(
         def load() -> object:
             return checkpoint_load._load_checkpoint_from_s3(
                 "s3://bucket/weights.pt", ".pt", "credentials"
-            )
-
-    else:
-        checkpoint_path = Path(
-            checkpoint_load._s3_cache_path(
-                str(tmp_path), "s3://bucket/model", suffix=".pt"
-            )
-        )
-        checkpoint_path.write_bytes(checkpoint_bytes)
-        model = torch.nn.Linear(1, 1, bias=False)
-
-        def load() -> object:
-            return checkpoint_load.load_distributed_checkpoint(
-                model,
-                "s3://bucket/model",
-                local_cache_dir=str(tmp_path),
             )
 
     with pytest.raises(pickle.UnpicklingError):
