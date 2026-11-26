@@ -154,7 +154,7 @@ class HandDreamsUIState:
             if not isinstance(event, ControllerFrameEvent):
                 continue
             self.controller_frame = event
-            if event.action == "disconnected":
+            if event.action == "disconnected" or not event.is_authorized():
                 status = replace(
                     status,
                     left_tracked=False,
@@ -364,7 +364,7 @@ def _draw_waiting_screen(
     show_connections = (
         not status.replay
         and not (status.left_tracked and status.right_tracked)
-        and connection_status != ControllerConnectionStatus()
+        and replace(connection_status, pairing_code="") != ControllerConnectionStatus()
     )
     draw.text(
         (width * 0.5, height * (0.14 if show_connections else 0.43)),
@@ -899,10 +899,14 @@ def _format_stopwatch(elapsed_s: float) -> str:
 
 def _draw_stopwatch(output: Tensor, elapsed_s: float) -> None:
     """Blend an unlabeled elapsed-time panel into the video's bottom-left corner."""
+    _draw_badge(output, _format_stopwatch(elapsed_s), top=False)
+
+
+def _draw_badge(output: Tensor, text: str, *, top: bool) -> None:
+    """Blend a short label into the video's top- or bottom-left corner."""
     frame_height, frame_width = map(int, output.shape[-2:])
     if frame_width < 320 or frame_height < 200:
         return
-    text = _format_stopwatch(elapsed_s)
     font = _font(max(11, min(18, frame_width // 35)), bold=True)
     width = max(
         min(99, max(75, frame_width * 3 // 16)), round(font.getlength(text)) + 18
@@ -921,8 +925,8 @@ def _draw_stopwatch(output: Tensor, elapsed_s: float) -> None:
         colors = colors / 127.5 - 1.0
     if output.shape[0] == 1:
         colors = colors.mean(0, keepdim=True)
-    top = frame_height - height - margin
-    target = output[:3, top : top + height, margin : margin + width]
+    row = max(24, frame_height // 18) if top else frame_height - height - margin
+    target = output[:3, row : row + height, margin : margin + width]
     target.copy_((target * (1 - alpha) + colors * alpha).to(output.dtype))
 
 
@@ -1317,6 +1321,12 @@ class HandDreamsUILoop(IUILoop[HandDreamsUIState]):
             if self.state.live_started_at is None:
                 self.state.live_started_at = now
             _draw_stopwatch(output, now - self.state.live_started_at)
+        if self.state.connection_status.pairing_code and not status.replay:
+            _draw_badge(
+                output,
+                f"Laptop code {self.state.connection_status.pairing_code}",
+                top=True,
+            )
         _draw_postprocess_toggle(output, self.state)
         output = _compose_scene_selector(
             output,

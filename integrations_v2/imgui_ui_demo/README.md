@@ -48,7 +48,7 @@ Run the query-string application:
 uv run --no-sync flashdreams-run-v2 imgui-ui-query-string \
   --mode webrtc --host 127.0.0.1 --port 8080
 
-# Connect to the WebRTC server with a query string of format `?(r,g,b)` to set the background color. Example: `http://127.0.0.1:8080/?(255,128,0)`
+# Connect to the WebRTC server with a query string of format `?(r,g,b)` to set the background color. Insert it before the `#` of the printed link, for example `http://127.0.0.1:8080/?(255,128,0)#pair=...`
 ```
 
 Run the window-size application:

@@ -13,6 +13,7 @@ from flashdreams.runtime_v2.input_timeline import InputWindow, RealtimeInputTime
 from flashdreams.runtime_v2.keyboard_input import KeyboardStateTrack
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
+    InputOwnerChangedUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
@@ -187,6 +188,35 @@ def test_keyboard_track_preserves_equal_timestamp_event_order() -> None:
 
     assert released[-1][2] == frozenset()
     assert held[-1][2] == frozenset({"w"})
+
+
+def test_owner_change_discards_held_and_pending_keys_without_rewinding() -> None:
+    track = KeyboardStateTrack()
+    timeline = RealtimeInputTimeline(samples_per_second=10)
+    track.on_edge(timestamp_s=0.0, action="keydown", key="w")
+    track.on_edge(timestamp_s=10.0, action="keydown", key="a")
+    assert track.segments(timeline.next_window(1))[-1][2] == frozenset({"w"})
+
+    track.ingest(
+        UserInputEvents(
+            [
+                InputOwnerChangedUserInputEvent(
+                    timestamp=uint64(20_000_000), focused=False
+                ),
+                _keyboard_event(10.05, key="d", state=KeyboardInputState.PRESSED),
+            ]
+        )
+    )
+
+    assert track.segments(timeline.next_window(1)) == [(0.1, 0.2, frozenset())]
+    with pytest.raises(ValueError, match="must not precede"):
+        track.segments(InputWindow(start_s=0.0, end_s=0.1, sample_times_s=(0.1,)))
+    assert track.segments(
+        InputWindow(start_s=10.0, end_s=10.1, sample_times_s=(10.1,))
+    ) == [(10.0, 10.05, frozenset()), (10.05, 10.1, frozenset({"d"}))]
+    assert track.segments(
+        InputWindow(start_s=20.0, end_s=20.1, sample_times_s=(20.1,))
+    ) == [(20.0, 20.1, frozenset({"d"}))]
 
 
 def test_keyboard_track_orders_edges_received_across_batches() -> None:

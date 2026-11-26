@@ -16,6 +16,7 @@ from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
     GamepadUserInputEvent,
     GameWheelUserInputEvent,
+    InputOwnerChangedUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -335,14 +336,22 @@ def test_stale_release_of_sampled_command_is_not_replayed() -> None:
     assert timestamps == (150_000, None, None, None, None, None, None, None)
 
 
-def test_focus_loss_releases_sampled_keyboard_input() -> None:
+@pytest.mark.parametrize(
+    "held_event",
+    [
+        _key("w", KeyboardInputState.PRESSED),
+        GamepadUserInputEvent(timestamp=np.uint64(0), buttons=(0.0,) * 7 + (1.0,)),
+        GameWheelUserInputEvent(timestamp=np.uint64(0), throttle=1.0),
+    ],
+)
+def test_focus_loss_releases_sampled_input(held_event: UserInputEvent) -> None:
     state = DriverInput()
     timeline = RealtimeInputTimeline(samples_per_second=30.0)
     pressed_at_s = state.apply(
         UserInputEvents(
             [
                 replace(
-                    _key("w", KeyboardInputState.PRESSED),
+                    held_event,
                     timestamp=np.uint64(1_000_000),
                 )
             ]
@@ -366,3 +375,47 @@ def test_focus_loss_releases_sampled_keyboard_input() -> None:
     assert pressed[0].throttle == 1.0
     assert released[0] == DriverCommand()
     assert timestamps == (9_000_000,)
+
+
+def test_owner_change_discards_pending_and_sampled_driving_input() -> None:
+    state = DriverInput()
+    timeline = RealtimeInputTimeline(samples_per_second=10.0)
+    state.apply(_events(_key("w", KeyboardInputState.PRESSED)))
+    assert state.sample(timeline.next_window(1))[0][0].throttle == 1.0
+    state.apply(
+        UserInputEvents(
+            [
+                GamepadUserInputEvent(timestamp=np.uint64(10_000_000), axes=(-1.0,)),
+            ]
+        )
+    )
+    state.apply(
+        UserInputEvents(
+            [
+                InputOwnerChangedUserInputEvent(
+                    timestamp=np.uint64(20_000_000), focused=False
+                ),
+            ]
+        )
+    )
+
+    assert state.source() == "idle"
+    assert state.command() == DriverCommand()
+    assert state.sample(timeline.next_window(1))[0] == (DriverCommand(),)
+    assert state.sample(timeline.next_window(1, input_times_s=(10.0,)))[0] == (
+        DriverCommand(),
+    )
+    state.apply(
+        UserInputEvents(
+            [
+                replace(
+                    _key("d", KeyboardInputState.PRESSED),
+                    timestamp=np.uint64(15_000_000),
+                )
+            ]
+        )
+    )
+    commands, _ = state.sample(timeline.next_window(1, input_times_s=(20.0,)))
+    assert commands[0].throttle == 0.0
+    assert commands[0].steer == -1.0
+    assert state.pressed_keys == {"d"}

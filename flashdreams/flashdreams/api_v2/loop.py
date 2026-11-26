@@ -36,6 +36,7 @@ from flashdreams.runtime_v2.selected_file import (
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
     CloseUserInputEvent,
+    InputOwnerChangedUserInputEvent,
     UserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
@@ -233,7 +234,9 @@ class ILoop(ABC, Generic[StateT]):
     ) -> _LoopRunResult:
         """Prepare one step or return a lifecycle request to the caller."""
         self._run_message_batch()
-        self._pending_user_events.extend(events.get_events())
+        self._pending_user_events = UserInputEvents(
+            self._pending_user_events + events.get_events()
+        ).get_events()
         transition = _parse_lifecycle_events(self._pending_user_events)
         if transition is not None:
             self._pending_user_events.clear()
@@ -268,9 +271,17 @@ class ILoop(ABC, Generic[StateT]):
         if step_completed:
             self.latest_result = result
         self._step_index += 1
-        # Input read by a run with no step is dropped, such as an ON_DEMAND UI
-        # tick without a new frame.
-        self._pending_user_events.clear()
+        # A skipped UI tick must still release held controls at its next step.
+        # Other input read without a step retains the ordinary drop policy.
+        self._pending_user_events = (
+            []
+            if step_completed
+            else [
+                event
+                for event in self._pending_user_events
+                if isinstance(event, InputOwnerChangedUserInputEvent)
+            ]
+        )
 
     @final
     def _shutdown(self) -> None:

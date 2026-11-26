@@ -132,6 +132,21 @@ class FocusUserInputEvent(UserInputEvent):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class InputOwnerChangedUserInputEvent(FocusUserInputEvent):
+    """Trusted ownership boundary that discards preceding input and releases controls.
+
+    Created by the window on peer retirement, never parsed from browser input.
+    Each loop observes it independently without resetting session history or
+    changing the model's reset generation.
+    """
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "input_owner_changed"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class QueryStringUserInputEvent(UserInputEvent):
     """Query string supplied by a browser when it connects."""
 

@@ -402,10 +402,12 @@ def _command(
     if not replay:
         command.extend(["--fps", "36"])
     if args.mode == "webrtc":
+        # A nonlocal viewer needs a token and HTTPS origin; default to the
+        # loopback listener and let the operator forward the port over SSH.
         viewer_host = (
             args.address
             if ipaddress.ip_address(args.address).is_loopback
-            else "0.0.0.0"
+            else "127.0.0.1"
         )
         command.extend(["--host", viewer_host, "--port", str(args.port)])
     if replay:
@@ -528,8 +530,15 @@ def main(argv: list[str] | None = None) -> None:
         command = _command(args, extra, credentials)
         if args.command == "server":
             if args.mode == "webrtc":
+                # The viewer listens on loopback and prints its own pairing link.
+                forward = (
+                    ""
+                    if ipaddress.ip_address(args.address).is_loopback
+                    else f"ssh -L {args.port}:127.0.0.1:{args.port} <this server>, then "
+                )
                 print(
-                    f"Operator viewer: http://{args.address}:{args.port}/", flush=True
+                    f"Operator viewer: {forward}open the link the server prints",
+                    flush=True,
                 )
             else:
                 print("Operator viewer: native window on the model host", flush=True)

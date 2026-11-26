@@ -5,7 +5,8 @@
 
 import logging
 import math
-from abc import ABC, abstractmethod
+from abc import ABC
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import final
@@ -110,6 +111,20 @@ class IClientWindow(InputSource, OutputSink, ABC):
 
     Created by the runtime, never by an application.
     """
+
+    # Optional to implement
+    def register_viewer_callback(
+        self, callback: Callable[[object | None], None]
+    ) -> None:
+        """Observe server-owned viewer lifetimes when supported by the backend.
+
+        Report ``None`` before disconnect/replacement and an opaque object for
+        a connected viewer. A returning viewer with the same credential may keep
+        its object; a different viewer always gets a new one. Callbacks may run
+        on a backend thread. Unsupported backends refuse registration so
+        authorization callers fail closed.
+        """
+        raise NotImplementedError("This window does not report viewer lifetimes")
 
     # Optional to implement
     def request_links(self, links: tuple[ClientWindowLink, ...]) -> None:

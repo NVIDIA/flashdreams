@@ -1,6 +1,100 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+// Tokens are pasted or arrive in a one-click link's fragment, which browsers
+// never send to a server; the page removes it at once and keeps it per tab.
+const pairingStorageKey = "flashdreams-webrtc-owner";
+const forgetPairingButton = document.getElementById("forget-pairing");
+let authToken = "";
+try {
+  authToken = sessionStorage.getItem(pairingStorageKey) || "";
+} catch {
+  // Pairing still works when browser storage is disabled.
+}
+forgetPairingButton.hidden = !authToken;
+const rememberToken = token => {
+  authToken = token;
+  forgetPairingButton.hidden = !token;
+  try {
+    if (token) sessionStorage.setItem(pairingStorageKey, token);
+    else sessionStorage.removeItem(pairingStorageKey);
+  } catch {
+    // Keep the token in memory for this page only.
+  }
+};
+const linkedToken = /^#pair=([\w-]+)$/.exec(window.location.hash || "")?.[1];
+if (linkedToken) {
+  rememberToken(linkedToken);
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+}
+const requestPairing = (message = "") => new Promise(resolve => {
+  const dialog = document.getElementById("pairing-dialog");
+  const form = document.getElementById("pairing-form");
+  const input = document.getElementById("pairing-token");
+  const error = document.getElementById("pairing-error");
+  error.textContent = message;
+  error.hidden = !message;
+  form.addEventListener("submit", () => {
+    rememberToken(input.value.trim());
+    input.value = "";
+    resolve();
+  }, {once: true});
+  dialog.oncancel = event => event.preventDefault();
+  dialog.showModal();
+  input.focus();
+});
+// A page that violates the credential policy cannot become valid by retrying.
+class BrowserPolicyError extends Error {}
+// Matches the server's loopback rule: localhost, 127.0.0.0/8, and ::1.
+const isLoopbackHost = host =>
+  host === "localhost" || host === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(host);
+const apiFetch = (resource, options = {}) => {
+  const page = new URL(window.location.href);
+  const destination = new URL(resource, page);
+  if (destination.origin !== page.origin) {
+    return Promise.reject(new BrowserPolicyError("Browser credentials require the same origin."));
+  }
+  if (page.protocol !== "https:" && !isLoopbackHost(page.hostname)) {
+    return Promise.reject(new BrowserPolicyError("Use HTTPS or a loopback SSH tunnel before pairing."));
+  }
+  const headers = new Headers(options.headers || {});
+  if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
+  return fetch(resource, {
+    ...options, headers, credentials: "omit", redirect: "error",
+    cache: "no-store", referrerPolicy: "no-referrer",
+  });
+};
+
+const waitForServer = async () => {
+  while (true) {
+    let health;
+    try {
+      health = await apiFetch("/healthz");
+    } catch (error) {
+      if (error instanceof BrowserPolicyError) throw error;
+      console.debug("WebRTC server is not ready yet.", error);
+    }
+    if (health?.status === 401) {
+      // A token was sent and refused: say so instead of silently re-prompting.
+      const refused = authToken ? "Token not accepted (wrong or revoked)." : "";
+      rememberToken("");
+      showStatus(refused || "Pair this browser to connect.");
+      await requestPairing(refused);
+      continue;
+    }
+    if (health?.status === 403) {
+      throw new Error("This browser origin is not allowed by the server configuration.");
+    }
+    if (health) {
+      const state = health.ok ? await health.json() : null;
+      if (state?.open) {
+        return state;
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+};
+
 const peer = new RTCPeerConnection();
 const controls = peer.createDataChannel("controls");
 const pointerControls = peer.createDataChannel("pointer-controls");
@@ -52,6 +146,12 @@ const showStatus = (message, isError = false) => {
   status.textContent = message;
   status.classList.toggle("error", isError);
 };
+
+forgetPairingButton.addEventListener("click", () => {
+  rememberToken("");
+  peer.close();
+  showStatus("Pairing forgotten. Refresh to pair again.");
+});
 
 const send = (payload, channel = controls) => {
   if (channel.readyState !== "open") {
@@ -348,7 +448,7 @@ const startFileInput = pending => {
           index: String(index),
           count: String(files.length),
         });
-        const response = await fetch(`/api/files?${query}`, {method: "POST", body: file});
+        const response = await apiFetch(`/api/files?${query}`, {method: "POST", body: file});
         if (!response.ok) {
           // A proxy may refuse the upload before the server can answer it.
           console.debug("File upload was rejected.", response.status);
@@ -871,21 +971,6 @@ const waitForIceGatheringComplete = async () => {
   });
 };
 
-const waitForServer = async () => {
-  while (true) {
-    try {
-      const health = await fetch("/healthz", {cache: "no-store"});
-      const state = health.ok ? await health.json() : null;
-      if (state?.open) {
-        return state;
-      }
-    } catch (error) {
-      console.debug("WebRTC server is not ready yet.", error);
-    }
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-};
-
 async function connect() {
   showStatus("Waiting for the server…");
   const server = await waitForServer();
@@ -893,7 +978,7 @@ async function connect() {
   showStatus("Gathering WebRTC network candidates…");
   await peer.setLocalDescription(await peer.createOffer());
   await waitForIceGatheringComplete();
-  const response = await fetch(
+  const response = await apiFetch(
     "/api/webrtc/offer" + window.location.search,
     {
       method: "POST",

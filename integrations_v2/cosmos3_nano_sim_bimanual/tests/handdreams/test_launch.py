@@ -146,7 +146,11 @@ def test_dataset_replay_skips_all_controller_setup(
     def unexpected(*args, **kwargs):
         pytest.fail("Recorded replay must not prepare live controller resources")
 
-    for name in ("server_credentials", "client_credentials", "read_token"):
+    for name in (
+        "server_credentials",
+        "client_credentials",
+        "read_token",
+    ):
         monkeypatch.setattr(transport_credentials, name, unexpected)
     for name in ("_setup_module", "_client_web_assets", "_validate_scene_source"):
         monkeypatch.setattr(launch, name, unexpected)
@@ -190,8 +194,7 @@ def test_dataset_replay_skips_all_controller_setup(
         assert "TELEOP_PROXY_HOST" not in environment
         assert environment["CUDA_VISIBLE_DEVICES"] == "1"
         if mode == "webrtc":
-            expected_host = address if address == "127.0.0.1" else "0.0.0.0"
-            assert command[command.index("--host") + 1] == expected_host
+            assert command[command.index("--host") + 1] == "127.0.0.1"
             assert command[command.index("--port") + 1] == "8082"
         else:
             assert "--host" not in command
@@ -588,7 +591,7 @@ def test_exclusive_publication_preserves_existing_trust(tmp_path):
     assert (directory / "token").read_text() == "existing"
 
 
-def test_client_bootstraps_only_over_verified_ssh_and_reuses_trust(
+def test_client_pins_trust_over_verified_ssh_and_never_fetches_pairing(
     server_credentials, tmp_path, monkeypatch
 ):
     bundle = {
@@ -609,19 +612,75 @@ def test_client_bootstraps_only_over_verified_ssh_and_reuses_trust(
     directory = transport_credentials.client_credentials(
         "nvidia@10.111.69.99", "10.111.69.99"
     )
-    assert set(path.name for path in directory.iterdir()) == {"server.crt", "token"}
+    assert set(path.name for path in directory.iterdir()) == set(bundle)
+    assert directory.stat().st_mode & 0o777 == 0o700
     assert all(path.stat().st_mode & 0o777 == 0o600 for path in directory.iterdir())
+    trust = {
+        name: ((directory / name).stat().st_ino, (directory / name).read_bytes())
+        for name in ("server.crt", "token")
+    }
     assert len(calls) == 1
     assert {"StrictHostKeyChecking=yes", "UpdateHostKeys=no", "BatchMode=yes"} <= set(
         calls[0]
     )
     assert "server.key" not in calls[0][-1]
+    # Pairing is entered from the viewer, never read from the server account.
+    assert "pairing" not in calls[0][-1]
     assert bundle["token"] not in " ".join(calls[0])
     assert (
         transport_credentials.client_credentials("nvidia@10.111.69.99", "10.111.69.99")
         == directory
     )
-    assert len(calls) == 1
+    assert len(calls) == 2
+    assert trust == {
+        name: ((directory / name).stat().st_ino, (directory / name).read_bytes())
+        for name in trust
+    }
+
+
+@pytest.mark.parametrize("failure", ["ssh", "server.crt", "token"])
+def test_client_failed_refresh_preserves_cached_credentials(
+    failure, server_credentials, tmp_path, monkeypatch
+):
+    bundle = {
+        name: (server_credentials / name).read_text()
+        for name in ("server.crt", "token")
+    }
+    monkeypatch.setattr(transport_credentials, "_state_root", lambda: tmp_path)
+    original_run = transport_credentials._run
+    reject_ssh = False
+
+    def run(command):
+        if command[0] == "ssh":
+            if reject_ssh:
+                raise subprocess.CalledProcessError(
+                    255, command, output="untrusted output"
+                )
+            return subprocess.CompletedProcess(command, 0, stdout=json.dumps(bundle))
+        return original_run(command)
+
+    monkeypatch.setattr(transport_credentials, "_run", run)
+    directory = transport_credentials.client_credentials(
+        "nvidia@10.111.69.99", "10.111.69.99"
+    )
+    before = {
+        path.name: (path.stat().st_ino, path.read_bytes())
+        for path in directory.iterdir()
+    }
+    if failure == "ssh":
+        reject_ssh = True
+        message = "verified SSH"
+    else:
+        bundle[failure] += "\n" if failure == "server.crt" else "changed"
+        message = "identity changed"
+    with pytest.raises(ValueError, match=message) as error:
+        transport_credentials.client_credentials("nvidia@10.111.69.99", "10.111.69.99")
+    assert before == {
+        path.name: (path.stat().st_ino, path.read_bytes())
+        for path in directory.iterdir()
+    }
+    assert list(directory.parent.iterdir()) == [directory]
+    assert "untrusted output" not in str(error.value)
 
 
 def test_unverified_ssh_failure_does_not_create_trust(tmp_path, monkeypatch):
@@ -760,6 +819,7 @@ def test_remote_vr_resolves_hostname_for_certificate_and_relay(
             for _ in range(2):
                 with pytest.raises(Executed):
                     launch.main(arguments)
+                assert "FLASHDREAMS_CONTROLLER_PAIRING" not in executions[-1][1]
             assert resolve.call_count == 2
             assert {path.name for path in directory.iterdir()} == set(bundle)
             assert all(
@@ -772,7 +832,7 @@ def test_remote_vr_resolves_hostname_for_certificate_and_relay(
             assert result.value.code == 2
             assert not directory.exists() and not executions
     ssh_calls = [command for command in calls if command[0] == "ssh"]
-    assert len(ssh_calls) == 1
+    assert len(ssh_calls) == (2 if address == "10.111.69.99" else 1)
     assert ssh_calls[0][ssh_calls[0].index("--") + 1] == "nvidia@dgx.example"
     assert {"StrictHostKeyChecking=yes", "UpdateHostKeys=no", "BatchMode=yes"} <= set(
         ssh_calls[0]
@@ -1061,7 +1121,7 @@ def test_command_shapes_keep_remote_vr_isolated_and_runtime_options_separate(mod
     if mode == "native-window":
         assert "--host" not in runtime and "--port" not in runtime
     else:
-        assert runtime[runtime.index("--host") + 1] == "0.0.0.0"
+        assert runtime[runtime.index("--host") + 1] == "127.0.0.1"
         assert runtime[runtime.index("--port") + 1] == "8081"
     assert "--isaac-teleop-accept-eula" in runtime
     assert "--isaac-teleop-accept-eula" not in application
@@ -1317,10 +1377,13 @@ def test_server_advertises_available_clients_without_mutating_parent_environment
     assert environment["FLASHDREAMS_CONTROLLER_TOKEN"] == token
     output = capsys.readouterr().out
     if mode == "webrtc":
-        assert "Operator viewer: http://192.168.1.20:8081/" in output
+        assert (
+            "Operator viewer: ssh -L 8081:127.0.0.1:8081 <this server>, then open "
+            "the link the server prints" in output
+        )
     else:
         assert "Operator viewer: native window on the model host" in output
-        assert "http://192.168.1.20:8081/" not in output
+    assert "http://192.168.1.20:8081/" not in output
     assert f"CloudXR certificate: https://192.168.1.20:{port}/" in output
     assert (
         f"https://192.168.1.20:{port}/client/"

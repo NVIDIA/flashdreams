@@ -47,8 +47,9 @@ case "${MODE:-drive}" in
       : "${NPROC:=2}"
       FAST+=(--prefetch-controls --prefetch-controls-gpu-offset "$NPROC")
     fi
-    echo "Interactive Drive: http://$MASTER_ADDR:8080/"
-    RUN=(interactive-drive-cosmos3-nano-sim-auto --mode webrtc --host 0.0.0.0 --port 8080
+    echo "Interactive Drive serves on $MASTER_ADDR loopback: ssh -L 8080:127.0.0.1:8080 $MASTER_ADDR" \
+         "(add -J <login-node> if needed), then open the URL rank 0 prints and paste the pairing code it names"
+    RUN=(interactive-drive-cosmos3-nano-sim-auto --mode webrtc --port 8080
          --backpressure-mode block --presentation-mode continuous --
          --scene "$SCENE" --camera "$CAMERAS" --world-model-seed 0 --start-frame 0) ;;
   batch)

@@ -82,7 +82,7 @@ def _frame(capture_ns: int, frame_id: int) -> dict[str, Any]:
 
 class _FakeWebRTCWindow:
     def __init__(self) -> None:
-        self.server = SimpleNamespace(url="http://127.0.0.1:54321")
+        self.server = SimpleNamespace(url="http://127.0.0.1:54321", pairing_url=None)
         self.opened: list[SessionDesc] = []
         self.close_count = 0
         self.input_events = UserInputEvents([])
@@ -411,8 +411,8 @@ def test_mode_defaults_are_virtual_web_client_without_quest_oob() -> None:
 
 
 @pytest.mark.parametrize("oob_hub", [False, True])
-def test_mode_passes_the_opt_in_hub_to_the_window(
-    monkeypatch: pytest.MonkeyPatch, oob_hub: bool
+def test_mode_passes_the_opt_in_hub_and_browser_pairing_to_the_window(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, oob_hub: bool
 ) -> None:
     received: dict[str, object] = {}
     sentinel = object()
@@ -421,11 +421,30 @@ def test_mode_passes_the_opt_in_hub_to_the_window(
         received.update(kwargs)
         return sentinel
 
+    monkeypatch.delenv("FLASHDREAMS_WEBRTC_TOKEN_FILE", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setattr(window_module, "IsaacTeleopWebRTCWindow", build_window)
     parsed = _parsed(*(["--isaac-teleop-oob-hub"] if oob_hub else []))
 
     assert ISAAC_TELEOP_WEBRTC_MODE.create(parsed) is sentinel
     assert received["oob_hub"] is oob_hub
+    # The browser viewer pairs like ``--mode webrtc``, not tokenless loopback.
+    credential = tmp_path / "flashdreams" / "webrtc-token"
+    assert received["auth_token"] == credential.read_text().strip()
+
+
+def test_mode_applies_the_webrtc_login_checks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``--no-login`` with a managed credential is refused, not silently paired."""
+    monkeypatch.setenv("FLASHDREAMS_WEBRTC_TOKEN_FILE", str(tmp_path / "token"))
+    parsed = _parsed()
+    parsed.no_login = True
+
+    with pytest.raises(ValueError, match="--no-login"):
+        ISAAC_TELEOP_WEBRTC_MODE.check_arguments(parsed)
+    with pytest.raises(ValueError, match="--no-login"):
+        ISAAC_TELEOP_WEBRTC_MODE.create(parsed)
 
 
 def test_mode_preserves_explicit_sidecar_interpreter_override() -> None:

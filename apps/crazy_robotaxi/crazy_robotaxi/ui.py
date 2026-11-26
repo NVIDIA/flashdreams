@@ -577,11 +577,11 @@ class TaxiHudState:
                 else:
                     self._pressed_keys.discard(key)
         capturing = self._controls_capture is not None
+        actions = self._control_action_state.apply(events)
+        menu_actions = self._menu_back_action_state.apply(events)
         if capturing:
             self._consume_binding_capture(received)
         else:
-            actions = self._control_action_state.apply(events)
-            menu_actions = self._menu_back_action_state.apply(events)
             if (self._menu_stage == "game" and "return_to_menu" in actions) or (
                 self._menu_stage != "game" and "return_to_menu" in menu_actions
             ):
@@ -591,7 +591,11 @@ class TaxiHudState:
             if self._menu_stage == "game" and "toggle_hdmap" in actions:
                 self.show_hdmap = not self.show_hdmap
         for event in received:
-            if isinstance(event, GamepadUserInputEvent):
+            if isinstance(event, FocusUserInputEvent) and not event.focused:
+                self._latest_gamepad_event = None
+                self._latest_wheel_event = None
+                self._active_control_device = "keyboard"
+            elif isinstance(event, GamepadUserInputEvent):
                 if event.action == "state":
                     self._latest_gamepad_event = event
                     self._active_control_device = "gamepad"
@@ -1022,6 +1026,10 @@ class TaxiHudState:
             item for item in controls_fields(draft) if item.name == capture.action
         )
         for event in received:
+            if isinstance(event, FocusUserInputEvent) and not event.focused:
+                capture = replace(capture, baseline=None)
+                self._controls_capture = capture
+                continue
             if isinstance(event, KeyboardUserInputEvent):
                 key = canonical_key(str(event.key))
                 if event.state is KeyboardInputState.RELEASED:

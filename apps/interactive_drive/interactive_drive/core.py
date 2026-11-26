@@ -264,6 +264,7 @@ class DriveInputState:
             elif isinstance(event, FocusUserInputEvent):
                 if not event.focused:
                     self.pressed_keys.clear()
+                    self.controller_command = None
             elif isinstance(event, GameWheelUserInputEvent):
                 self.controller_command = (
                     None
@@ -699,6 +700,7 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
             if isinstance(event, FocusUserInputEvent):
                 if not event.focused:
                     state.keyboard_reset_pressed = False
+                    state.controller_reset_pressed = False
             elif isinstance(event, KeyboardUserInputEvent):
                 key = event.key.strip().lower()
                 if key == "r":

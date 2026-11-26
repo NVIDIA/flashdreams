@@ -39,7 +39,9 @@ from flashdreams_controller_input.frames import (
 )
 from flashdreams_controller_input.isaac_teleop_setup import prepare_web_client
 from flashdreams_controller_input.isaac_teleop_source import IsaacTeleopSource
-from flashdreams_controller_input.isaac_teleop_v2_window import ISAAC_TELEOP_WEBRTC_MODE
+from flashdreams_controller_input.isaac_teleop_v2_window import (
+    check_isaac_teleop_options,
+)
 from flashdreams_controller_input.pose import WRIST_PROXY_POSE_CONVENTION
 
 _CAPTURE_KEYS = (SOURCE_CLIENT_CAPTURE_NS_KEY, "client_capture_ns")
@@ -104,6 +106,10 @@ class QuestRemoteMode(ClientWindowMode):
         group.add_argument("--quest-cloudxr-port", type=int, default=48322)
 
     def check_arguments(self, parsed_args: argparse.Namespace) -> None:
+        client_window_mode(
+            self.output_mode,
+            modes=getattr(parsed_args, "_client_window_modes", None),
+        ).check_arguments(parsed_args)
         if parsed_args.local_cloudxr:
             from flashdreams_controller_input.quest_webxr import _validate_options
 
@@ -112,7 +118,7 @@ class QuestRemoteMode(ClientWindowMode):
                     "The shared controller server requires --isaac-teleop-accept-eula. "
                     + CLOUDXR_EULA_HELP
                 )
-            ISAAC_TELEOP_WEBRTC_MODE.check_arguments(parsed_args)
+            check_isaac_teleop_options(parsed_args)
             if (
                 parsed_args.quest_device is not None
                 and not parsed_args.quest_device.strip()
@@ -259,6 +265,7 @@ class QuestRemoteMode(ClientWindowMode):
                 modes=getattr(parsed_args, "_client_window_modes", None),
             ).create(parsed_args),
             source=source,
+            remote_control=remote,
             status_provider=status_provider,
             restart_headset=restart_headset,
             source_name="Isaac Teleop",

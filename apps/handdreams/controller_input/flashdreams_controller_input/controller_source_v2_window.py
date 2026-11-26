@@ -22,6 +22,9 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from contextlib import nullcontext
+from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from numpy import uint64
 
@@ -47,6 +50,9 @@ from flashdreams_controller_input.events import (
     ControllerSnapshot,
     ControllerStatusEvent,
 )
+
+if TYPE_CHECKING:
+    from flashdreams_controller_input.remote_quest import RemoteQuestSource
 
 _POLL_INTERVAL_SECONDS = 1.0 / 240.0
 _SOURCE_THREAD_JOIN_SECONDS = 5.0
@@ -129,6 +135,7 @@ class ControllerSourceWindow(IClientWindow):
         client_capture_keys: tuple[str, ...] = ("client_capture_ns",),
         status_provider: Callable[[], ControllerConnectionStatus] | None = None,
         restart_headset: Callable[[], None] | None = None,
+        remote_control: RemoteQuestSource | None = None,
         _source_silence_timeout_s: float = _SOURCE_SILENCE_TIMEOUT_SECONDS,
         _silence_clock_ns: Callable[[], int] = time.perf_counter_ns,
     ) -> None:
@@ -152,6 +159,9 @@ class ControllerSourceWindow(IClientWindow):
         self._client_capture_keys = client_capture_keys
         self._status_provider = status_provider
         self._restart_headset = restart_headset
+        self._remote_control = remote_control
+        self._remote_keys_pressed: set[str] = set()
+        self._remote_active = False
         self._restart_key_pressed = False
         self._last_status: ControllerConnectionStatus | None = None
         self._lock = threading.Lock()
@@ -173,6 +183,9 @@ class ControllerSourceWindow(IClientWindow):
         self._output_closed = False
         self._cleanup_complete = False
         self._close_lock = threading.Lock()
+        if remote_control is not None:
+            remote_control.register_input_clear(self._clear_remote_input)
+            self.output_window.register_viewer_callback(self._viewer_changed)
         self._source_thread = threading.Thread(
             target=self._run_source,
             name=source_thread_name,
@@ -198,12 +211,18 @@ class ControllerSourceWindow(IClientWindow):
             while not self._stop.is_set():
                 observation = self._source.poll()
                 if observation is not None:
-                    with self._lock:
-                        if len(self._observations) >= _MAX_PENDING_OBSERVATIONS:
-                            self._observations.clear()
-                            self._observations_overflowed = True
-                        self._observations.append(observation)
-                        self._last_source_activity_ns = self._silence_clock_ns()
+                    with self._input_guard():
+                        if (
+                            self._remote_control is not None
+                            and not self._remote_control.allows(observation)
+                        ):
+                            continue
+                        with self._lock:
+                            if len(self._observations) >= _MAX_PENDING_OBSERVATIONS:
+                                self._observations.clear()
+                                self._observations_overflowed = True
+                            self._observations.append(observation)
+                            self._last_source_activity_ns = self._silence_clock_ns()
                 self._stop.wait(_POLL_INTERVAL_SECONDS)
         except BaseException as error:
             with self._lock:
@@ -230,6 +249,8 @@ class ControllerSourceWindow(IClientWindow):
 
     def open(self, session_desc: SessionDesc) -> None:
         """Open presentation output and begin a fresh input timestamp epoch."""
+        if self._remote_control is not None:
+            self._remote_control.begin_session()
         self.output_window.open(session_desc)
         if self._initial_window_size is not None:
             # Scene replacement must preserve the operator's subsequent resizing.
@@ -250,6 +271,44 @@ class ControllerSourceWindow(IClientWindow):
 
     def get_user_input_events(self) -> UserInputEvents:
         """Merge source-clock controller history with buffered window input."""
+        with self._input_guard():
+            return self._get_user_input_events()
+
+    def _input_guard(self):
+        return (
+            self._remote_control.input_guard()
+            if self._remote_control is not None
+            else nullcontext()
+        )
+
+    def _clear_remote_input(self) -> None:
+        with self._lock:
+            # Preserve server-local USB/CloudXR input when remote authority ends.
+            retained = deque(
+                item for item in self._observations if item.authority_epoch is None
+            )
+            if self._remote_active:
+                if len(retained) >= _MAX_PENDING_OBSERVATIONS:
+                    retained.popleft()
+                    self._observations_overflowed = True
+                retained.append(
+                    Observation(
+                        None,
+                        time.perf_counter_ns(),
+                        "remote-quest",
+                        self._source_generation or 0,
+                    )
+                )
+            self._observations = retained
+            self._remote_active = False
+
+    def _viewer_changed(self, viewer: object | None) -> None:
+        assert self._remote_control is not None
+        with self._remote_control.input_guard():
+            self._remote_keys_pressed.clear()
+            self._remote_control.set_viewer(viewer)
+
+    def _get_user_input_events(self) -> UserInputEvents:
         # The source owns XR input. Operator B only signals its headset worker;
         # another active controller source must retain its poses and calibration.
         window_events = []
@@ -258,6 +317,39 @@ class ControllerSourceWindow(IClientWindow):
                 continue
             if isinstance(event, FocusUserInputEvent) and not event.focused:
                 self._restart_key_pressed = False
+                self._remote_keys_pressed.clear()
+            if (
+                self._remote_control is not None
+                and isinstance(event, KeyboardUserInputEvent)
+                and event.key.lower() in ("p", "r")
+            ):
+                key = event.key.lower()
+                if event.state is KeyboardInputState.PRESSED:
+                    if key not in self._remote_keys_pressed and not self._closed:
+                        if key == "p":
+                            try:
+                                self._remote_control.pair()
+                            except ValueError:
+                                print(
+                                    "[quest] pairing needs a connected viewer",
+                                    flush=True,
+                                )
+                            else:
+                                # The code itself appears only in the viewer.
+                                print(
+                                    "[quest] laptop code shown in the viewer for 5 minutes; enter it in remote-vr (R revokes)",
+                                    flush=True,
+                                )
+                        else:
+                            self._remote_control.revoke()
+                            print(
+                                "[quest] remote controller authority revoked",
+                                flush=True,
+                            )
+                    self._remote_keys_pressed.add(key)
+                else:
+                    self._remote_keys_pressed.discard(key)
+                continue
             if (
                 self._restart_headset is not None
                 and isinstance(event, KeyboardUserInputEvent)
@@ -283,8 +375,16 @@ class ControllerSourceWindow(IClientWindow):
             disconnect_emitted = self._disconnect_emitted
         if source_failure is not None:
             raise RuntimeError(self._source_failure_message) from source_failure
-        if session_origin_ns is not None and self._status_provider is not None:
-            status = self._status_provider()
+        if session_origin_ns is not None and (
+            self._status_provider is not None or self._remote_control is not None
+        ):
+            status = (
+                self._status_provider()
+                if self._status_provider is not None
+                else ControllerConnectionStatus()
+            )
+            if self._remote_control is not None:
+                status = replace(status, pairing_code=self._remote_control.pairing_code)
             if status != self._last_status:
                 window_events.append(
                     ControllerStatusEvent(
@@ -323,6 +423,9 @@ class ControllerSourceWindow(IClientWindow):
             observation
             for observation in observations
             if observation.capture_ns >= session_origin_ns
+            and (
+                self._remote_control is None or self._remote_control.allows(observation)
+            )
         ]
         if not observations:
             return UserInputEvents(window_events)
@@ -364,6 +467,7 @@ class ControllerSourceWindow(IClientWindow):
                     disconnect_emitted = True
             self._source_generation = observation.generation
             if observation.frame is None:
+                self._remote_active = False
                 if not disconnect_emitted:
                     window_events.append(
                         ControllerFrameEvent(
@@ -403,6 +507,17 @@ class ControllerSourceWindow(IClientWindow):
                 source_name=self._source_name,
                 client_capture_keys=self._client_capture_keys,
             )
+            if (
+                self._remote_control is not None
+                and observation.authority_epoch is not None
+            ):
+                event = replace(
+                    event,
+                    authority_valid=self._remote_control.authority_check(
+                        observation.authority_epoch
+                    ),
+                )
+            self._remote_active = observation.authority_epoch is not None
             window_events.append(event)
             disconnect_emitted = False
         with self._lock:

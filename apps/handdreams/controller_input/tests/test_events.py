@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import pickle
 from dataclasses import FrozenInstanceError, replace
 from typing import Literal
 
@@ -99,6 +100,21 @@ def _event(
         left=left,
         right=right,
     )
+
+
+def test_local_controller_events_preserve_serialization() -> None:
+    event = _event()
+    restored = pickle.loads(pickle.dumps(event))
+    assert restored.to_controller_frame() == event.to_controller_frame()
+    assert restored.get_timestamp() == event.get_timestamp()
+    assert restored.is_authorized()
+
+
+def test_live_remote_authority_cannot_be_copied_to_another_process() -> None:
+    # Even a pickleable predicate cannot transfer a receiver-owned live lease.
+    event = replace(_event(), authority_valid=bool)
+    with pytest.raises(TypeError, match="process-local"):
+        pickle.dumps(UserInputEvents([event]))
 
 
 @pytest.mark.parametrize(

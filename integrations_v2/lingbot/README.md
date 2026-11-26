@@ -42,7 +42,7 @@ selected repository requires authentication.
 ```bash
 uv sync --package flashdreams-lingbot --inexact
 uv run --no-sync flashdreams-run-v2 cam2v-lingbot \
-  --mode webrtc --host 0.0.0.0 --port 8089 -- --example-data
+  --mode webrtc --port 8089 -- --example-data
 ```
 
 Shared [`apps/cam2v`](../../apps/cam2v/README.md) documentation lists controls,

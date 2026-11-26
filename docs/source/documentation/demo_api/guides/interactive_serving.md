@@ -16,8 +16,9 @@ uv run --no-sync flashdreams-run-v2 APPLICATION_SLUG \
 ```
 
 Open the URL printed by the server. Port `0` picks an available port.
-To accept connections from another machine, use `--host 0.0.0.0` and a fixed
-port, then connect to the server's address.
+For another machine, configure a reusable owner token and an SSH tunnel or TLS
+ingress using [browser access and pairing](../../cli.md#browser-access-and-pairing).
+Nonlocal listeners require an explicit token and allowed browser origins.
 
 ## Local window
 

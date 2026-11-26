@@ -109,10 +109,11 @@ Start with one front-wide view:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto \
-  --mode webrtc --host 0.0.0.0 --port 8080
+  --mode webrtc --port 8080
 ```
 
-Open `http://<server-address>:8080/`; use `localhost` when running locally.
+Open the link the runner prints. From another machine, forward port 8080 over
+SSH with the same local port and click the link, or configure [browser access and pairing](../../docs/source/documentation/cli.md#browser-access-and-pairing).
 The residential, rain and snow bundles download automatically. First startup
 may compile the map renderer; denoiser compilation is off by default.
 A successful run advances from the opening image to generated frames.
@@ -152,14 +153,14 @@ For four views covering the front, right, rear and left:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto \
-  --mode webrtc --host 0.0.0.0 --port 8080 -- --views 4
+  --mode webrtc --port 8080 -- --views 4
 ```
 
 For seven views on the same GPU:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto \
-  --mode webrtc --host 0.0.0.0 --port 8080 -- --views 7
+  --mode webrtc --port 8080 -- --views 7
 ```
 
 Seven RGB views can be very slow on one GPU. Check that all seven update
@@ -194,10 +195,10 @@ stream the model output directly. WebRTC needs no display on the server:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto \
-  --mode webrtc --host 0.0.0.0 --port 8080 -- --no-ui
+  --mode webrtc --port 8080 -- --no-ui
 ```
 
-Open `http://<server-address>:8080/`. **WASD**, **Space** and **1/2** still control
+Open the link the runner prints. **WASD**, **Space** and **1/2** still control
 driving, braking and RGB/HDMAP selection. The sidebar, status overlays, scene
 picker and interactive layout controls are unavailable. Select the scene and
 cameras at launch with `--scene` and either `--views` or `--camera`; the same
@@ -233,14 +234,14 @@ For one front-wide RGB view with LiDAR:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto \
-  --mode webrtc --host 0.0.0.0 --port 8080 -- --lidar
+  --mode webrtc --port 8080 -- --lidar
 ```
 
 For seven RGB views with LiDAR:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 interactive-drive-cosmos3-nano-sim-auto \
-  --mode webrtc --host 0.0.0.0 --port 8080 -- --views 7 --lidar
+  --mode webrtc --port 8080 -- --views 7 --lidar
 ```
 
 Use `--views 4 --lidar` for four RGB cameras and LiDAR. Repeat the driving/UI
@@ -248,7 +249,7 @@ checks, including focusing LiDAR and switching between generated output and
 the **HDMAP** control scan.
 Check all cameras and LiDAR after scene changes, layout changes and restarts.
 
-Open `http://<server-address>:8080/` to see RGB and generated point clouds.
+Open the printed link to see RGB and generated point clouds.
 Point clouds are the default. Choose another LiDAR display with `--lidar-view range` or
 `--lidar-view intensity`; **HDMAP** displays the control scan.
 See [LiDAR details](LIDAR.md) for codec formats and output timing.

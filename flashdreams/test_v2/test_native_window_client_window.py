@@ -318,6 +318,48 @@ def _presenter_factory(
     return cast(Any, lambda **_kwargs: presenter)
 
 
+@pytest.mark.parametrize("closed_by", ["poll", "write", "close"])
+def test_viewer_identity_follows_native_window_lifetime(closed_by: str) -> None:
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    viewers: list[object | None] = []
+    window.register_viewer_callback(viewers.append)
+    assert viewers == [None]
+    with pytest.raises(RuntimeError, match="viewer callback is already registered"):
+        window.register_viewer_callback(viewers.append)
+    window.open(_session_desc())
+    viewer = viewers[-1]
+    assert viewer is not None
+    window.open(_session_desc())
+    assert viewers == [None, viewer]
+
+    if closed_by == "poll":
+        presenter.pending_events.put(("close", None))
+        window.get_user_input_events()
+    elif closed_by == "write":
+        presenter.should_close = True
+        window.write(_result())
+    else:
+        window.close()
+    assert viewers == [None, viewer, None]
+    window.close()
+    assert viewers == [None, viewer, None]
+
+
+def test_late_viewer_registration_reports_current_native_window() -> None:
+    presenter = _Presenter()
+    window = NativeWindowClientWindow(presenter_factory=_presenter_factory(presenter))
+    window.open(_session_desc())
+    viewers: list[object | None] = []
+    window.register_viewer_callback(viewers.append)
+    assert len(viewers) == 1 and viewers[0] is not None
+    window.close()
+    window.open(_session_desc())
+    assert len(viewers) == 3 and viewers[1] is None
+    assert viewers[2] is not None and viewers[2] is not viewers[0]
+    window.close()
+
+
 def test_native_window_accepts_manual_resize_and_restores_after_minimizing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

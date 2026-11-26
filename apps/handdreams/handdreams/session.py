@@ -119,6 +119,8 @@ class HandDreamsModelState:
     """Latest accepted source timestamp; retained across tracking loss."""
     input_is_emulated: bool | None = None
     """Setup policy from accepted controller frames; unknown clients align normally."""
+    input_authority_valid: Callable[[], bool] | None = None
+    """Fence materialized pose windows against revocation before model submission."""
     poses: OverlapWindowBuffer = field(default_factory=OverlapWindowBuffer)
     control_sampler: ControlWindowSampler | None = None
     """Source observations retained for nearest-neighbour control-grid selection."""
@@ -214,6 +216,11 @@ class HandDreamsModelLoop(IModelLoop[HandDreamsModelState]):
         cosmos_accepted = False
         try:
             now = time.perf_counter()
+            if (
+                state.input_authority_valid is not None
+                and not state.input_authority_valid()
+            ):
+                self._handle_tracking_loss()
             self._expire_stale_input(now=now)
             self._consume_live_events(events, now=now)
             self._publish_status()
@@ -234,6 +241,15 @@ class HandDreamsModelLoop(IModelLoop[HandDreamsModelState]):
                 command_sequence=state.command_sequence,
             )
             normalized = state.builder.encode_actions(prepared.frames)
+
+            if (
+                state.input_authority_valid is not None
+                and not state.input_authority_valid()
+            ):
+                controller_pipeline.abort(prepared)
+                prepared = None
+                self._handle_tracking_loss()
+                return []
 
             model_started = time.perf_counter()
             model_finished = model_started
@@ -357,7 +373,7 @@ class HandDreamsModelLoop(IModelLoop[HandDreamsModelState]):
         for event in events.get_events():
             if not isinstance(event, ControllerFrameEvent):
                 continue
-            if event.action == "disconnected":
+            if event.action == "disconnected" or not event.is_authorized():
                 pending.clear()
                 disconnected = True
             else:
@@ -409,6 +425,10 @@ class HandDreamsModelLoop(IModelLoop[HandDreamsModelState]):
             # current pose instead of replaying movement from before calibration.
             accepted = accepted[-1:]
         for event in accepted:
+            if not event.is_authorized():
+                self._handle_tracking_loss()
+                continue
+            state.input_authority_valid = event.authority_valid
             wrist = state.pipeline.transform(controller_frame(event))
             state.last_wrist_observed_at = now
 
@@ -458,6 +478,9 @@ class HandDreamsModelLoop(IModelLoop[HandDreamsModelState]):
         state = self.state
         assert state.pipeline is not None
         for event in events:
+            if not event.is_authorized():
+                self._reset_alignment()
+                continue
             left, right = event.left, event.right
             assert left is not None and right is not None
             if not (left.tracked and right.tracked):
@@ -604,6 +627,7 @@ class HandDreamsModelLoop(IModelLoop[HandDreamsModelState]):
 
     def _handle_tracking_loss(self) -> None:
         state = self.state
+        state.input_authority_valid = None
         state.last_wrist_observed_at = None
         self._clear_live_poses()
         if state.phase is not HandDreamsPhase.LIVE:
@@ -691,6 +715,7 @@ class HandDreamsModelLoop(IModelLoop[HandDreamsModelState]):
         state.last_input_frame_id = -1
         state.last_input_capture_ns = -1
         state.input_is_emulated = None
+        state.input_authority_valid = None
         self._clear_live_poses()
         if state.pipeline is not None:
             state.pipeline.reset()

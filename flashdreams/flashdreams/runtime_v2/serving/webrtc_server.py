@@ -37,6 +37,7 @@ from flashdreams.runtime_v2.selected_file import (
     selected_file_suffix_allowed,
     selected_files_policy_status,
 )
+from flashdreams.runtime_v2.serving.security import BrowserSessionAuth
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
@@ -348,12 +349,16 @@ class WebRTCServer:
         host: str = "127.0.0.1",
         port: int = 0,
         startup_timeout_seconds: float = 10.0,
+        auth_token: str | None = None,
+        allowed_origins: tuple[str, ...] | None = None,
     ) -> None:
         """
         Args:
             host: Interface on which the HTTP server listens.
             port: Listening port. Zero asks the operating system to choose one.
             startup_timeout_seconds: Maximum time to wait for server startup.
+            auth_token: Reusable owner bearer; otherwise read the configured token file.
+            allowed_origins: Exact browser origins; otherwise read the environment.
 
         Raises:
             RuntimeError: The server cannot start.
@@ -368,8 +373,20 @@ class WebRTCServer:
 
         self._host = host
         self._port = port
+        self._auth = BrowserSessionAuth(
+            host, auth_token=auth_token, allowed_origins=allowed_origins
+        )
+        if self._auth.no_login:
+            logger.info(
+                "WebRTC no-login mode trusts every local process and loopback "
+                "port forwarder; launch without --no-login on shared hosts."
+            )
         self._startup_timeout_seconds = startup_timeout_seconds
         self._input_callback: Callable[[UserInputEvent], None] | None = None
+        self._viewer_callback: Callable[[object | None], None] | None = None
+        self._viewer: object | None = None
+        self._owner_viewer: tuple[int, object] | None = None
+        self._viewer_lock = threading.RLock()
         self._started = threading.Event()
         self._startup_error: BaseException | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -427,7 +444,20 @@ class WebRTCServer:
     @property
     def url(self) -> str:
         """Return the browser URL for this server."""
-        return f"http://{self._host}:{self._port}/"
+        if self._auth.browser_origin is not None:
+            return f"{self._auth.browser_origin}/"
+        host = f"[{self._host}]" if ":" in self._host else self._host
+        return f"http://{host}:{self._port}/"
+
+    @property
+    def pairing_url(self) -> str | None:
+        """Return a one-click link carrying the owner bearer, if one is set.
+
+        Browsers never send a URL fragment to the server; the page stores the
+        bearer like a pasted one and removes it from the address bar.
+        """
+        token = self._auth.token
+        return None if token is None else f"{self.url}#pair={token}"
 
     @property
     def browser_focused(self) -> bool | None:
@@ -760,6 +790,47 @@ class WebRTCServer:
             raise RuntimeError("An input callback is already registered.")
         self._input_callback = callback
 
+    def register_viewer_callback(
+        self, callback: Callable[[object | None], None]
+    ) -> None:
+        """Report the connected viewer's opaque identity and its loss.
+
+        The callback runs synchronously on the thread changing the viewer and
+        must finish promptly. Registration immediately reports current state.
+        A browser holding the bearer keeps one identity across reconnects until
+        the bearer rotates; without login every connection is a new identity.
+        Session replacement preserves it.
+
+        Args:
+            callback: Receive the server-owned identity, or ``None`` when absent.
+
+        Raises:
+            RuntimeError: A viewer callback is already registered.
+        """
+        with self._viewer_lock:
+            if self._viewer_callback is not None:
+                raise RuntimeError("A viewer callback is already registered.")
+            self._viewer_callback = callback
+            callback(self._viewer)
+
+    def _set_viewer_connected(self, connected: bool, *, force: bool = False) -> None:
+        with self._viewer_lock:
+            connected = connected and not self._closed
+            if connected == (self._viewer is not None) and not force:
+                return
+            self._viewer = self._viewer_identity() if connected else None
+            if self._viewer_callback is not None:
+                self._viewer_callback(self._viewer)
+
+    def _viewer_identity(self) -> object:
+        # Loopback peers without login are indistinguishable from each other.
+        if self._auth.no_login:
+            return object()
+        generation = self._auth.generation
+        if self._owner_viewer is None or self._owner_viewer[0] != generation:
+            self._owner_viewer = (generation, object())
+        return self._owner_viewer[1]
+
     def register_file_selector_callback(
         self,
         callback: Callable[[str, SelectedFilesStatus, tuple[SelectedFile, ...]], None],
@@ -815,6 +886,10 @@ class WebRTCServer:
         self.configure_links(())
         self._closed = True
         failures: list[BaseException] = []
+        try:
+            self._set_viewer_connected(False)
+        except BaseException as error:
+            failures.append(error)
         track = self._video_track
         if track is not None and self._media_connected.is_set():
             try:
@@ -939,13 +1014,14 @@ class WebRTCServer:
     async def _start_server(self) -> None:
         """Create and bind the standalone aiohttp application."""
         self._offer_lock = asyncio.Lock()
-        app = web.Application()
+        app = web.Application(middlewares=[self._authorize_request])
         app.router.add_get("/", self._serve_browser)
         app.router.add_get("/app.js", self._serve_browser_script)
         app.router.add_get("/healthz", self._health)
         app.router.add_post("/api/webrtc/offer", self._offer)
         app.router.add_post("/api/files", self._upload_selected_file)
-        runner = web.AppRunner(app)
+        # Requests may contain application query data; never log credentials or URLs.
+        runner = web.AppRunner(app, access_log=None)
         await runner.setup()
         address_family = socket.AF_INET6 if ":" in self._host else socket.AF_INET
         server_socket = socket.socket(address_family, socket.SOCK_STREAM)
@@ -962,6 +1038,59 @@ class WebRTCServer:
             await runner.cleanup()
             raise
         self._runner = runner
+
+    @web.middleware
+    async def _authorize_request(
+        self, request: web.Request, handler: Callable[[web.Request], Any]
+    ) -> web.StreamResponse:
+        """Apply one policy to browser assets, readiness, signaling, and uploads."""
+        try:
+            self._auth.authorize(
+                request, self._port, protected=request.path not in {"/", "/app.js"}
+            )
+            response = await handler(request)
+        except web.HTTPException as error:
+            response = error
+        response.headers.update(
+            {
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+                "X-Frame-Options": "DENY",
+                "Content-Security-Policy": (
+                    "default-src 'self'; script-src 'self'; "
+                    "style-src 'self' 'unsafe-inline'; media-src 'self' blob:; "
+                    "object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+                ),
+            }
+        )
+        if isinstance(response, web.HTTPException):
+            raise response
+        return response
+
+    def rotate_auth_token(self, token: str | None) -> None:
+        """Disconnect the owner and revoke pending offers, uploads, and old bearers.
+
+        Call from the application thread. ``None`` disables admission until a
+        new token is installed; it never enables no-login access.
+        """
+        loop = self._loop
+        if loop is None or self._closed:
+            raise RuntimeError("WebRTC server is not running.")
+        if threading.current_thread() is self._thread:
+            raise RuntimeError("Rotate WebRTC credentials from the application thread.")
+        future = asyncio.run_coroutine_threadsafe(self._rotate_auth_token(token), loop)
+        future.result(timeout=self._startup_timeout_seconds)
+
+    async def _rotate_auth_token(self, token: str | None) -> None:
+        """Fence authorization before awaiting active-peer cleanup."""
+        self._auth.rotate(token)
+        peer = self._peer_connection
+        if peer is not None:
+            await self._release_peer_connection(peer)
+        else:
+            self._set_viewer_connected(False, force=True)
+            self._complete_abandoned_file_selectors()
 
     async def _serve_browser(self, _: web.Request) -> web.Response:
         """Return the minimal browser client."""
@@ -989,6 +1118,8 @@ class WebRTCServer:
         file bytes as the body. Every byte read is then a file byte, held to
         the request's own limits before it is read.
         """
+        generation = self._auth.authorize(request, self._port, protected=True)
+        peer = self._peer_connection
         if self._closed:
             raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
         if self._timestamp_us() is None:
@@ -1057,6 +1188,12 @@ class WebRTCServer:
             raise
         finally:
             upload.reader = None
+        self._auth.check_generation(generation)
+        if (
+            self._peer_connection is not peer
+            or self._uploading_file_requests.get(token) is not upload
+        ):
+            raise web.HTTPConflict(reason="File selection owner changed.")
         upload.files.append(SelectedFile(name=name, data=data))
         upload.total_bytes += size
         if len(upload.files) < upload.count:
@@ -1073,6 +1210,7 @@ class WebRTCServer:
 
     async def _offer(self, request: web.Request) -> web.Response:
         """Negotiate one browser peer connection."""
+        generation = self._auth.authorize(request, self._port, protected=True)
         if self._closed:
             raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
         if self._session_desc is None:
@@ -1082,6 +1220,7 @@ class WebRTCServer:
             payload = await request.json()
         except (json.JSONDecodeError, web.HTTPException) as error:
             raise web.HTTPBadRequest(reason="Expected a JSON WebRTC offer.") from error
+        self._auth.check_generation(generation)
         if not isinstance(payload, dict):
             raise web.HTTPBadRequest(reason="WebRTC offer must be an object.")
         sdp = payload.get("sdp")
@@ -1095,6 +1234,7 @@ class WebRTCServer:
         if offer_lock is None:
             raise web.HTTPServiceUnavailable(reason="WebRTC server is not ready.")
         async with offer_lock:
+            self._auth.check_generation(generation)
             if self._closed:
                 raise web.HTTPServiceUnavailable(reason="WebRTC server is closed.")
             session_desc = self._session_desc
@@ -1107,6 +1247,12 @@ class WebRTCServer:
             has_reliable_control = False
             control_channel: Any | None = None
 
+            def is_active() -> bool:
+                return (
+                    self._peer_connection is peer_connection
+                    and self._auth.generation == generation
+                )
+
             @peer_connection.on("datachannel")
             def on_datachannel(channel: Any) -> None:
                 nonlocal control_channel, has_reliable_control
@@ -1114,7 +1260,7 @@ class WebRTCServer:
                 if is_reliable_control:
                     has_reliable_control = True
                     control_channel = channel
-                    if self._peer_connection is peer_connection:
+                    if is_active():
                         self._client_connected = True
                         self._control_channel = channel
 
@@ -1123,18 +1269,18 @@ class WebRTCServer:
 
                     @channel.on("open")
                     def on_open() -> None:
-                        if self._peer_connection is peer_connection:
+                        if is_active():
                             self._send_cursor_options()
 
-                    if (
-                        self._peer_connection is peer_connection
-                        and channel.readyState == "open"
-                    ):
+                    if is_active() and channel.readyState == "open":
                         self._send_cursor_options()
 
                 @channel.on("message")
                 def on_message(message: Any) -> None:
-                    if self._peer_connection is not peer_connection:
+                    if (
+                        not is_active()
+                        or peer_connection.connectionState != "connected"
+                    ):
                         return
                     try:
                         self._buffer_browser_message(message)
@@ -1150,12 +1296,14 @@ class WebRTCServer:
 
             @peer_connection.on("connectionstatechange")
             async def on_connectionstatechange() -> None:
-                if self._peer_connection is not peer_connection:
+                if not is_active():
                     return
                 if peer_connection.connectionState == "connected":
                     self._media_connected.set()
+                    self._set_viewer_connected(True)
                 elif peer_connection.connectionState == "disconnected":
                     self._media_connected.clear()
+                    self._set_viewer_connected(False)
                     self._cancel_link_press()
                 elif peer_connection.connectionState in {"failed", "closed"}:
                     await self._release_peer_connection(peer_connection)
@@ -1164,9 +1312,11 @@ class WebRTCServer:
                 await peer_connection.setRemoteDescription(
                     RTCSessionDescription(sdp=sdp, type=offer_type)
                 )
-                await peer_connection.setLocalDescription(
-                    await peer_connection.createAnswer()
-                )
+                self._auth.check_generation(generation)
+                answer = await peer_connection.createAnswer()
+                self._auth.check_generation(generation)
+                await peer_connection.setLocalDescription(answer)
+                self._auth.check_generation(generation)
             except ValueError as error:
                 await self._release_peer_connection(
                     peer_connection,
@@ -1192,10 +1342,10 @@ class WebRTCServer:
 
             existing_peer = self._peer_connection
             if existing_peer is not None:
-                # This server has one client slot. A valid new offer is a page
-                # refresh or replacement browser and takes ownership of it.
+                # Only the current owner may refresh this singleton session.
                 try:
                     await self._release_peer_connection(existing_peer)
+                    self._auth.check_generation(generation)
                 except BaseException:
                     await self._release_peer_connection(
                         peer_connection,
@@ -1211,6 +1361,7 @@ class WebRTCServer:
             self._client_connected = has_reliable_control
             if peer_connection.connectionState == "connected":
                 self._media_connected.set()
+                self._set_viewer_connected(True)
             self._control_channel = control_channel
             self._sent_cursor_options = None
             self._cancel_link_press()
@@ -1524,7 +1675,10 @@ class WebRTCServer:
         is_active = self._peer_connection is peer_connection
         if not is_active and detached_video_track is None:
             return
+        failures: list[BaseException] = []
         if is_active:
+            # Detach all peer state before notifying consumers: a raising
+            # callback must not leave the retired track or focus installed.
             self._peer_connection = None
             self._media_connected.clear()
             self._client_connected = False
@@ -1532,11 +1686,18 @@ class WebRTCServer:
             self._control_channel = None
             self._video_track = None
             self._sent_cursor_options = None
-            self._cancel_link_press()
-            self._complete_abandoned_file_selectors()
+            self._browser_focus = None
+            for notify in (
+                lambda: self._set_viewer_connected(False, force=not self._closed),
+                self._cancel_link_press,
+                self._complete_abandoned_file_selectors,
+            ):
+                try:
+                    notify()
+                except BaseException as error:
+                    failures.append(error)
         else:
             track = detached_video_track
-        failures: list[BaseException] = []
         if track is not None:
             try:
                 await track.close()
@@ -1574,6 +1735,7 @@ class WebRTCServer:
 
     async def _shutdown(self) -> None:
         """Release async server resources on their owning loop."""
+        self._auth.rotate(None)
         failures: list[BaseException] = []
         peer_connection = self._peer_connection
         if peer_connection is not None:

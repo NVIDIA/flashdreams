@@ -18,6 +18,7 @@
 import argparse
 import os
 import threading
+from contextlib import nullcontext
 from importlib.metadata import EntryPoint
 from pathlib import Path
 from types import SimpleNamespace
@@ -66,7 +67,9 @@ def mode(request, monkeypatch):
 
     def output_mode(name, **_):
         assert name == selected.output_mode
-        return SimpleNamespace(create=lambda _: object())
+        return SimpleNamespace(
+            create=lambda _: object(), check_arguments=lambda _: None
+        )
 
     monkeypatch.setattr(window, "client_window_mode", output_mode)
     return selected
@@ -74,7 +77,7 @@ def mode(request, monkeypatch):
 
 def _arguments(tmp_path, *options):
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8081)
     window.QUEST_REMOTE_WEBRTC_MODE.add_arguments(parser)
     ISAAC_TELEOP_WEBRTC_MODE.add_arguments(parser)
@@ -133,18 +136,30 @@ def test_relay_only_window_starts_remote_input_without_local_runtime(
         threading.Event(),
         threading.Event(),
     )
-    remote = SimpleNamespace(start=started.set, poll=lambda: None, stop=stopped.set)
+    remote = SimpleNamespace(
+        start=started.set,
+        poll=lambda: None,
+        stop=stopped.set,
+        register_input_clear=lambda _: None,
+        set_viewer=lambda _: None,
+        begin_session=lambda: None,
+        input_guard=nullcontext,
+        allows=lambda _: True,
+        pairing_code="",
+    )
     received = {}
 
     def remote_source(**kwargs):
         received.update(kwargs)
         return remote
 
-    output = SimpleNamespace(close=output_closed.set)
+    output = SimpleNamespace(
+        close=output_closed.set, register_viewer_callback=lambda _: None
+    )
 
     def output_mode(name, **_):
         assert name == mode.output_mode
-        return SimpleNamespace(create=lambda _: output)
+        return SimpleNamespace(create=lambda _: output, check_arguments=lambda _: None)
 
     monkeypatch.setattr(remote_quest, "RemoteQuestSource", remote_source)
     monkeypatch.setattr(window, "client_window_mode", output_mode)
@@ -234,7 +249,9 @@ def test_registered_modes_select_the_builtin_display(tmp_path, monkeypatch, disp
         ]
     )
     monkeypatch.setenv("FLASHDREAMS_CONTROLLER_TOKEN", "x" * 48)
-    output = SimpleNamespace(server=SimpleNamespace(url="http://127.0.0.1:8081"))
+    output = SimpleNamespace(
+        server=SimpleNamespace(url="http://127.0.0.1:8081", pairing_url=None)
+    )
     created = []
 
     for name in ("webrtc", "native-window"):

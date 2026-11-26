@@ -10,6 +10,7 @@ modes through the ``flashdreams.client_windows_v2`` entry-point group.
 
 import argparse
 import logging
+import sys
 from abc import ABC, abstractmethod
 from importlib.metadata import EntryPoint, entry_points
 from pathlib import Path
@@ -122,26 +123,58 @@ class _WebmMode(ClientWindowMode):
 
 
 class _WebRTCMode(ClientWindowMode):
-    """Stream the run to a browser."""
+    """Stream the run to a browser that pairs once per tab."""
 
     name = "webrtc"
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--host", default="127.0.0.1", help="Interface to serve on."
+            "--host",
+            default="127.0.0.1",
+            help="Interface to serve on. Nonlocal access requires WebRTC origin configuration.",
         )
         parser.add_argument("--port", type=int, default=0, help="Port to serve on.")
+        parser.add_argument(
+            "--no-login",
+            action="store_true",
+            help="Skip browser pairing on a trusted single-user machine; any local "
+            "process can then take over the viewer.",
+        )
+
+    def check_arguments(self, parsed_args: argparse.Namespace) -> None:
+        from flashdreams.runtime_v2.serving.security import check_launch
+
+        check_launch(parsed_args.host, no_login=getattr(parsed_args, "no_login", False))
 
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
         # Imported here so a run writing a file needs none of the serving stack.
+        from flashdreams.runtime_v2.serving.security import load_pairing_token
         from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
-        return WebRTCClientWindow(host=parsed_args.host, port=parsed_args.port)
+        self.check_arguments(parsed_args)
+        # Only the serving rank creates a window, so only it reads the secret.
+        no_login = getattr(parsed_args, "no_login", False)
+        return WebRTCClientWindow(
+            host=parsed_args.host,
+            port=parsed_args.port,
+            auth_token=None if no_login else load_pairing_token(),
+        )
 
     def starting(self, client_window: IClientWindow) -> str | None:
         """Return where to connect, which nobody can guess when the port is free."""
+        from flashdreams.runtime_v2.serving.security import pairing_file
+
         server = cast("WebRTCClientWindow", client_window).server
-        return f"Open {server.url} in a browser."
+        link = server.pairing_url
+        if link is None:
+            return f"Open {server.url} in a browser."
+        # Print the credential only to an interactive terminal, never to logs.
+        if sys.stdout.isatty():
+            return f"Open {link} in a browser."
+        return (
+            f"Open {server.url} in a browser and paste the pairing code from "
+            f"{pairing_file()}."
+        )
 
 
 class _NativeWindowMode(ClientWindowMode):

@@ -23,12 +23,13 @@ import os
 import signal
 import socket
 import ssl
+import sys
 import threading
 import time
 from collections import deque
 from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from flashdreams_controller_input.remote_quest import (
     IO_TIMEOUT_S,
@@ -44,13 +45,22 @@ from flashdreams_controller_input.remote_quest import (
 if TYPE_CHECKING:
     from flashdreams_controller_input.quest_webxr import QuestWebXRProducer
 
+RECONNECT_DELAY_S = 1.0
+"""Pause between reconnect attempts with the saved key after a network drop."""
+
+
+class _Rejected(Exception):
+    """The server refused this code or key; the viewer can show a new code."""
+
 
 class QuestRelay:
     """Forward raw paired messages while owning the laptop headset lifecycle.
 
-    The server pulls bounded batches, so a stalled network cannot accumulate an
-    unbounded TCP replay. Any network failure closes the local producer; rerun the
-    companion to reconnect without restarting the DGX application.
+    The first connection exchanges the code shown in the viewer for a reconnect
+    key that is kept only in memory, so network drops reconnect without SSH or
+    a new code. When the pairing ends in the viewer, the relay asks for the next
+    code. The server pulls bounded batches, so a stalled network cannot
+    accumulate an unbounded TCP replay.
     """
 
     def __init__(
@@ -61,6 +71,8 @@ class QuestRelay:
         ca_cert: str | Path,
         token: str,
         webxr: QuestWebXRProducer,
+        code: str = "",
+        ask_code: Callable[[], str] | None = None,
     ) -> None:
         validate_token(token)
         if not server or not 1 <= port <= 65535:
@@ -70,6 +82,10 @@ class QuestRelay:
         self._server_host = server
         self._port = port
         self._token = token
+        self._code = code
+        self._ask_code = ask_code
+        self._key: str | None = None
+        self._webxr_started = False
         self._condition = threading.Condition()
         self._pending: deque[tuple[float, str]] = deque()
         self._hello: str | None = None
@@ -80,54 +96,102 @@ class QuestRelay:
         self._webxr = webxr
 
     def run(self) -> None:
-        """Authenticate before starting input and restore it on every exit path."""
+        """Pair, forward input, and reconnect; restore the headset on every exit."""
         try:
-            if self._stopped.is_set():
-                return
-            raw = socket.create_connection(
-                (self._server_host, self._port), timeout=IO_TIMEOUT_S
-            )
-            self._connection = raw
-            if self._stopped.is_set():
-                return
-            raw.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            connection = self._context.wrap_socket(
-                raw, server_hostname=self._server_host
-            )
-            self._connection = connection
-            if self._stopped.is_set():
-                return
-            with connection.makefile("rb") as stream:
-                connection.sendall(
-                    encode_record({"type": "auth", "version": 1, "token": self._token})
-                )
+            while not self._stopped.is_set():
                 try:
-                    ready = read_record(stream)
-                except EOFError:
-                    raise ValueError(
-                        "remote controller authentication failed; check the shared token"
-                    ) from None
-                if ready != {"type": "ready"}:
-                    raise ValueError("remote controller authentication failed")
-                if self._stopped.is_set():
-                    return
-                self._webxr.start(self._consume, self._disconnect)
-                print(
-                    "[quest-relay] authenticated; waiting for controller input (Ctrl-C to stop)",
-                    flush=True,
-                )
-                while not self._stopped.is_set():
-                    self._webxr.check_alive()
-                    request = read_record(stream)
-                    if (
-                        request.get("type") != "pull"
-                        or type(request.get("seq")) is not int
+                    self._connect_and_forward()
+                except _Rejected:
+                    print(
+                        "[quest-relay] pairing ended in the viewer"
+                        if self._key is not None
+                        else "[quest-relay] code not accepted",
+                        flush=True,
+                    )
+                    self._key = None
+                except (OSError, EOFError) as error:
+                    if self._stopped.is_set():
+                        return  # stop() closed the socket under us.
+                    # Only a paired relay retries; a changed certificate never does.
+                    if self._key is None or isinstance(
+                        error, ssl.SSLCertVerificationError
                     ):
-                        raise ValueError("unexpected remote controller request")
-                    connection.sendall(encode_record(self._batch(request["seq"])))
+                        raise
+                    print(
+                        "[quest-relay] connection lost; reconnecting (Ctrl-C to stop)",
+                        flush=True,
+                    )
+                    self._stopped.wait(RECONNECT_DELAY_S)
         finally:
             self.stop()
             self._webxr.stop()
+
+    def _next_code(self) -> str:
+        code, self._code = self._code, ""
+        if code:
+            return code
+        if self._ask_code is None:
+            raise ValueError(
+                "Enter the laptop code shown in the viewer: run remote-vr in a terminal or pass --code"
+            )
+        return self._ask_code()
+
+    def _connect_and_forward(self) -> None:
+        # Ask before connecting: the server bounds how long authentication may take.
+        credential = (
+            {"key": self._key} if self._key is not None else {"code": self._next_code()}
+        )
+        if self._stopped.is_set():
+            return
+        raw = socket.create_connection(
+            (self._server_host, self._port), timeout=IO_TIMEOUT_S
+        )
+        self._connection = raw
+        if self._stopped.is_set():
+            return
+        raw.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        connection = self._context.wrap_socket(raw, server_hostname=self._server_host)
+        self._connection = connection
+        if self._stopped.is_set():
+            return
+        with connection.makefile("rb") as stream:
+            connection.sendall(
+                encode_record(
+                    {"type": "auth", "version": 3, "token": self._token, **credential}
+                )
+            )
+            try:
+                ready = read_record(stream)
+            except EOFError:
+                if self._key is not None:
+                    raise  # A paired relay retries; the server may be restarting.
+                raise ValueError(
+                    "remote controller authentication failed; rerun remote-vr to refresh the server's credentials over SSH"
+                ) from None
+            if ready == {"type": "rejected"}:
+                raise _Rejected
+            if (
+                set(ready) != {"type", "key"}
+                or ready["type"] != "ready"
+                or not isinstance(ready["key"], str)
+            ):
+                raise ValueError("remote controller authentication failed")
+            self._key = ready["key"]
+            if self._stopped.is_set():
+                return
+            if not self._webxr_started:
+                self._webxr.start(self._consume, self._disconnect)
+                self._webxr_started = True
+            print(
+                "[quest-relay] paired; waiting for controller input (Ctrl-C to stop)",
+                flush=True,
+            )
+            while not self._stopped.is_set():
+                self._webxr.check_alive()
+                request = read_record(stream)
+                if request.get("type") != "pull" or type(request.get("seq")) is not int:
+                    raise ValueError("unexpected remote controller request")
+                connection.sendall(encode_record(self._batch(request["seq"])))
 
     def stop(self) -> None:
         """Wake network and producer waits so ``run`` can restore the headset."""
@@ -215,6 +279,13 @@ class QuestRelay:
             return result
 
 
+def _ask_code() -> str:
+    try:
+        return input("Press P in the viewer and enter the laptop code shown: ")
+    except EOFError:
+        raise ValueError("no laptop code was entered") from None
+
+
 def main() -> None:
     """Run laptop controller input without loading FlashDreams or a model."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -222,6 +293,11 @@ def main() -> None:
         "--server", required=True, help="DGX address matching its TLS certificate"
     )
     parser.add_argument("--port", type=int, default=REMOTE_PORT)
+    parser.add_argument(
+        "--code",
+        default="",
+        help="Laptop code shown in the viewer after pressing P; prompted when omitted",
+    )
     parser.add_argument(
         "--ca-cert", required=True, help="Trusted DGX certificate or issuing CA PEM"
     )
@@ -246,6 +322,8 @@ def main() -> None:
             ca_cert=args.ca_cert,
             token=os.environ.get("FLASHDREAMS_CONTROLLER_TOKEN", ""),
             webxr=webxr,
+            code=args.code,
+            ask_code=_ask_code if sys.stdin.isatty() else None,
         )
     except (OSError, ValueError) as error:
         parser.error(str(error))
