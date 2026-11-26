@@ -20,13 +20,15 @@ from __future__ import annotations
 import hashlib
 import json
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import torch
 from filelock import FileLock
 
 from flashdreams.core.checkpoint.load import get_storage_reader
+from flashdreams.core.io.dcp_trust import resolve_dcp_checkpoint_path
 from flashdreams.core.io.disk import default_flashdreams_cache_dir
 
 from .checkpoint import resolve_credential_path
@@ -177,34 +179,23 @@ def _install_pathlib_compat_shim() -> None:
         sys.modules["pathlib._local"] = pathlib
 
 
-def _resolve_dcp_dir(
+@contextmanager
+def _verified_dcp(
     checkpoint_path: str, credential_path: str | None
-) -> tuple[str, Any]:
-    """Find the DCP dir that actually holds ``.metadata``.
-
-    Checkpoints may store model weights in a ``model`` subdirectory. Try
-    ``<path>`` then ``<path>/model`` and return whichever reads.
-    """
+) -> Iterator[tuple[str, Any]]:
+    """Open one verified reader for the independently pinned DCP directory."""
+    resolved = resolve_dcp_checkpoint_path(checkpoint_path)
     _install_pathlib_compat_shim()  # tolerate 3.13-pickled caches under 3.12
-    base = checkpoint_path.rstrip("/")
-    tried: list[str] = []
-    for candidate in (base, base + "/model"):
-        try:
-            metadata = _storage_reader(candidate, credential_path).read_metadata()
-            return candidate, metadata
-        except PermissionError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - probe which layout the bucket uses
-            tried.append(f"{candidate} ({type(exc).__name__})")
-    raise RuntimeError("could not read a DCP .metadata; tried: " + "; ".join(tried))
+    with _storage_reader(resolved, credential_path) as reader:
+        yield resolved, reader
 
 
 def read_dcp_key_metadata(
     checkpoint_path: str, credential_path: str | None
 ) -> tuple[str, dict[str, Any]]:
-    """Return ``(resolved_dcp_dir, {raw_key: TensorStorageMetadata})`` (no tensor reads)."""
-    resolved, metadata = _resolve_dcp_dir(checkpoint_path, credential_path)
-    return resolved, dict(metadata.state_dict_metadata)
+    """Return key metadata after verifying a complete private DCP snapshot."""
+    with _verified_dcp(checkpoint_path, credential_path) as (resolved, reader):
+        return resolved, dict(reader.read_metadata().state_dict_metadata)
 
 
 def _tensor_shape_dtype(entry: Any) -> tuple[tuple[int, ...], Any] | None:
@@ -254,10 +245,11 @@ def fetch_and_convert(
 ) -> Path:
     """Load the mapped weights from the DCP checkpoint, remap, and cache as safetensors.
 
-    Reuse ``out_dir`` only when its index and weights match the requested source
-    and conversion settings. Incomplete managed caches are rebuilt; unidentified
-    or mismatched caches and invalid custom output directories require
-    ``force=True``. Strict model key/shape validation happens at network load.
+    Existing output must match the requested source and conversion settings
+    before the source is verified; unidentified or mismatched caches and invalid
+    custom output directories require ``force=True``. Then one verified snapshot
+    supplies metadata and tensors, and converted weights are rebuilt on every
+    call. Strict model key/shape validation happens at network load.
     """
     target = out_dir.resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -316,7 +308,6 @@ def _fetch_and_convert(
                     or set(weight_map.values()) != {weights_path.name}
                 ):
                     raise ValueError("invalid converted-checkpoint weight_map")
-            weights_complete = False
             try:
                 with safe_open(weights_path, framework="pt", device="cpu") as weights:
                     if (weights.metadata() or {}).get(
@@ -325,7 +316,6 @@ def _fetch_and_convert(
                         raise ValueError("checkpoint weights have different provenance")
                     if index is not None and set(weights.keys()) != set(weight_map):
                         raise ValueError("checkpoint weights do not match the index")
-                    weights_complete = True
             except (FileNotFoundError, SafetensorError):
                 if not managed:
                     raise
@@ -334,50 +324,54 @@ def _fetch_and_convert(
                 f"Cannot reuse DCP cache at {out_dir}: {exc}. "
                 "Choose another output directory or use force=True to rebuild."
             ) from exc
-        if index is not None and weights_complete:
-            print(f"already cached: {len(weight_map)} tensors -> {out_dir}")
-            return out_dir
-        print(f"rebuilding interrupted DCP conversion -> {out_dir}", flush=True)
+        print(
+            f"rebuilding DCP conversion from verified source -> {out_dir}", flush=True
+        )
 
-    resolved, raw_meta = read_dcp_key_metadata(checkpoint_path, credential_path)
-    # Select the weights our remap accepts (``net_ema.*`` by default,
-    # else student ``net.*``); skip the
-    # ``net_fake_score`` critic. Load keyed by the raw DCP key (DCP matches by
-    # name), then re-key to the exported ``model.net.*`` form so the cached file
-    # loads through the standard ``load_exported_checkpoint`` remap.
-    source_prefix = _select_source_prefix(raw_meta, prefer_ema)
-    load_sd: dict[str, torch.Tensor] = {}
-    raw_to_exported: dict[str, str] = {}
-    for raw_key, entry in raw_meta.items():
-        exported = _normalize_raw_key(raw_key, source_prefix)
-        if remap_key(exported) is None:
-            continue
-        sd = _tensor_shape_dtype(entry)
-        if sd is None:
-            continue
-        shape, src_dtype = sd
-        load_sd[raw_key] = torch.empty(shape, dtype=src_dtype)
-        raw_to_exported[raw_key] = exported
-    if not load_sd:
-        raise RuntimeError("no DCP keys mapped to the AgiBot MoT network")
     print(
-        f"source copy: {source_prefix.rstrip('.')} "
-        f"({'EMA' if source_prefix == 'net_ema.' else 'student net'})"
-    )
-
-    approx_gb = sum(t.numel() * t.element_size() for t in load_sd.values()) / 1e9
-    n_action = sum(1 for k in raw_to_exported.values() if "action" in k)
-    print(
-        f"reading {len(load_sd)} tensors (~{approx_gb:.1f} GB, {n_action} action) from {resolved} ...\n"
+        f"verifying a private snapshot of {checkpoint_path} ...\n"
         "  (this is the slow, network-bound DCP read; it is silent until done)",
         flush=True,
     )
-    reader = _storage_reader(resolved, credential_path)
-    dcp_load(
-        load_sd,
-        storage_reader=reader,
-        planner=DefaultLoadPlanner(allow_partial_load=True),
-    )
+    # One verified snapshot serves both metadata and tensor reads.
+    with _verified_dcp(checkpoint_path, credential_path) as (resolved, reader):
+        raw_meta = dict(reader.read_metadata().state_dict_metadata)
+        # Select the weights our remap accepts (``net_ema.*`` by default,
+        # else student ``net.*``); skip the
+        # ``net_fake_score`` critic. Load keyed by the raw DCP key (DCP matches by
+        # name), then re-key to the exported ``model.net.*`` form so the cached file
+        # loads through the standard ``load_exported_checkpoint`` remap.
+        source_prefix = _select_source_prefix(raw_meta, prefer_ema)
+        load_sd: dict[str, torch.Tensor] = {}
+        raw_to_exported: dict[str, str] = {}
+        for raw_key, entry in raw_meta.items():
+            exported = _normalize_raw_key(raw_key, source_prefix)
+            if remap_key(exported) is None:
+                continue
+            sd = _tensor_shape_dtype(entry)
+            if sd is None:
+                continue
+            shape, src_dtype = sd
+            load_sd[raw_key] = torch.empty(shape, dtype=src_dtype)
+            raw_to_exported[raw_key] = exported
+        if not load_sd:
+            raise RuntimeError("no DCP keys mapped to the AgiBot MoT network")
+        print(
+            f"source copy: {source_prefix.rstrip('.')} "
+            f"({'EMA' if source_prefix == 'net_ema.' else 'student net'})"
+        )
+
+        approx_gb = sum(t.numel() * t.element_size() for t in load_sd.values()) / 1e9
+        n_action = sum(1 for k in raw_to_exported.values() if "action" in k)
+        print(
+            f"reading {len(load_sd)} tensors (~{approx_gb:.1f} GB, {n_action} action) from {resolved} ...",
+            flush=True,
+        )
+        dcp_load(
+            load_sd,
+            storage_reader=reader,
+            planner=DefaultLoadPlanner(allow_partial_load=True),
+        )
 
     exported = {
         raw_to_exported[k]: v.to(dtype).contiguous() for k, v in load_sd.items()

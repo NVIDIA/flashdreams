@@ -19,6 +19,7 @@ nav:
           - Inferencing API Overview: documentation/inferencing_api/index.md
           - Guides:
               - Create a model: documentation/inferencing_api/guides/create_model.md
+              - DCP checkpoint trust: documentation/inferencing_api/guides/checkpoint_trust.md
               - Stream inference pipeline: documentation/inferencing_api/guides/stream_inference_pipeline.md
               - Profiling a pipeline: documentation/inferencing_api/guides/profiling.md
               - Accelerated building blocks: documentation/inferencing_api/guides/accelerated.md

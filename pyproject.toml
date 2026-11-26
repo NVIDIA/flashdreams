@@ -43,10 +43,26 @@ override-dependencies = [
     # CVE-2026-59890; PyTorch's <82 cap was unnecessary.
     # ponytail: override legacy metadata until all profiles use torch>=2.13.
     # https://github.com/pytorch/pytorch/pull/188190
-    "setuptools>=83.0.0,<84",
+    # 84.1.0 fixes GHSA-xmj3-9gf7-h52w (namespace_packages.txt path escape).
+    "setuptools>=84.1.0,<85",
+    # Security floors: aiohttp 3.14.4 (CVE-2026-128124, -128126..-128132),
+    # dnspython 2.9.2 (CVE-2026-128089), Pillow 13.0.0 (CVE-2026-128067 and the
+    # Oct 2026 Pillow advisories). Pillow 13 and dnspython 2.9.2 need Python
+    # >=3.11, so member packages keep their 3.10-compatible floors and this
+    # workspace lock (Python 3.12) carries the fixed versions.
+    "aiohttp>=3.14.5,<4",
+    "dnspython>=2.9.2,<3",
+    "pillow>=13.0.0,<14",
+    # filelock 4.2.1 fixes CVE-2026-112907, -112909, -112910, -112913, -112915,
+    # -112935, -112936, -112939 and -112940 and, like Pillow 13, needs Python
+    # >=3.11. certifi drops the compromised emSign ECC Root CA - G3
+    # (GHSA-6q48-6c7w-9gw2) from 2026.10.18; 2026.10.19 restores the
+    # unaffected emSign roots that 2026.10.18 also removed.
+    "filelock>=4.2.1,<5",
+    "certifi>=2026.10.19",
 ]
 # Keep isolated builds on the same patched, validated setuptools line.
-build-constraint-dependencies = ["setuptools>=83.0.0,<84"]
+build-constraint-dependencies = ["setuptools>=84.1.0,<85"]
 
 # `transformer-engine-torch` has no prebuilt wheel and must be built against
 # the project's PyTorch + system CUDA. uv's default per-package build isolation
