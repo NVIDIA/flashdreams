@@ -73,6 +73,9 @@
         <loc>https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/guides/accelerated/</loc>
       </url>
       <url>
+        <loc>https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/guides/checkpoint_trust/</loc>
+      </url>
+      <url>
         <loc>https://nvidia.github.io/flashdreams/main/documentation/inferencing_api/guides/create_model/</loc>
       </url>
       <url>

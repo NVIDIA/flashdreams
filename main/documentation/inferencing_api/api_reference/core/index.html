@@ -2156,6 +2156,8 @@
       
         
       
+        
+      
     
     
     
@@ -2213,6 +2215,33 @@
     
   
   Create a model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/checkpoint_trust/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  DCP checkpoint trust
 
     
   </span>
@@ -3621,6 +3650,9 @@
 
 <p>The <code>flashdreams.core</code> package collects the low-level attention primitives,
 KV-cache implementations, and process-group utilities that integrations share.</p>
+<p>Distributed checkpoint readers require an independently pinned manifest before
+metadata parsing. See <a href="../../guides/checkpoint_trust/">DCP checkpoint trust</a> for
+offline/custom approval and migration from existing DCP caches.</p>
 <h2 id="attention">Attention</h2>
 <p>The attention package provides the kernels used by the transformer and
 the block-structured KV cache that backs streaming inference.</p>
