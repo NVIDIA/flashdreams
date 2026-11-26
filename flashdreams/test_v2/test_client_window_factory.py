@@ -325,3 +325,13 @@ class TestWebRTC:
             assert mode.starting(window) == f"Open {window.server.url} in a browser."
         finally:
             window.close()
+
+    def test_creating_the_window_refuses_conflicting_login_options(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Wrappers that create the window directly cannot skip the login checks."""
+        monkeypatch.setenv("FLASHDREAMS_WEBRTC_TOKEN_FILE", str(tmp_path / "token"))
+        with pytest.raises(ValueError, match="--no-login"):
+            client_window_mode("webrtc").create(
+                _parsed(["--mode", "webrtc", "--no-login"])
+            )

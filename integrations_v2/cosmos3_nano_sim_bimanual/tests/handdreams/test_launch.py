@@ -1316,10 +1316,12 @@ def test_server_advertises_available_clients_without_mutating_parent_environment
     assert environment["FLASHDREAMS_CONTROLLER_TOKEN"] == token
     output = capsys.readouterr().out
     if mode == "webrtc":
-        assert "Operator viewer: http://192.168.1.20:8081/" in output
+        # The viewer listens on loopback, so the LAN address would not answer.
+        assert "Operator viewer: http://127.0.0.1:8081/ after forwarding" in output
+        assert "ssh -L 8081:127.0.0.1:8081 SERVER" in output
     else:
         assert "Operator viewer: native window on the model host" in output
-        assert "http://192.168.1.20:8081/" not in output
+    assert "http://192.168.1.20:8081/" not in output
     assert f"CloudXR certificate: https://192.168.1.20:{port}/" in output
     assert (
         f"https://192.168.1.20:{port}/client/"

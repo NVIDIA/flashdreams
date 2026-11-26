@@ -151,6 +151,7 @@ class _WebRTCMode(ClientWindowMode):
         from flashdreams.runtime_v2.serving.security import load_pairing_token
         from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
+        self.check_arguments(parsed_args)
         # Only the serving rank creates a window, so only it reads the secret.
         no_login = getattr(parsed_args, "no_login", False)
         return WebRTCClientWindow(

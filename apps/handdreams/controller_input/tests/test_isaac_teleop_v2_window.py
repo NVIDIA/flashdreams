@@ -433,6 +433,20 @@ def test_mode_passes_the_opt_in_hub_and_browser_pairing_to_the_window(
     assert received["auth_token"] == credential.read_text().strip()
 
 
+def test_mode_applies_the_webrtc_login_checks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``--no-login`` with a managed credential is refused, not silently paired."""
+    monkeypatch.setenv("FLASHDREAMS_WEBRTC_TOKEN_FILE", str(tmp_path / "token"))
+    parsed = _parsed()
+    parsed.no_login = True
+
+    with pytest.raises(ValueError, match="--no-login"):
+        ISAAC_TELEOP_WEBRTC_MODE.check_arguments(parsed)
+    with pytest.raises(ValueError, match="--no-login"):
+        ISAAC_TELEOP_WEBRTC_MODE.create(parsed)
+
+
 def test_mode_preserves_explicit_sidecar_interpreter_override() -> None:
     parsed = _parsed("--isaac-teleop-python", ".venv-isaac-teleop/bin/python")
     ISAAC_TELEOP_WEBRTC_MODE.check_arguments(parsed)

@@ -914,7 +914,7 @@ def test_shared_mode_keeps_remote_frames_atomic_and_both_sources_alive(
 
     def presentation_mode(name, **_):
         assert name == mode.output_mode
-        return SimpleNamespace(create=lambda _: browser)
+        return SimpleNamespace(create=lambda _: browser, check_arguments=lambda _: None)
 
     monkeypatch.setattr(window_module, "client_window_mode", presentation_mode)
     window = mode.create(parsed)
