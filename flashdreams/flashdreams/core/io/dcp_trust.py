@@ -15,9 +15,11 @@ import io
 import json
 import os
 import re
+import shutil
 import stat
 import sys
 import tempfile
+import weakref
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,15 +99,17 @@ def _open_regular(path: str | os.PathLike) -> io.BufferedReader:
 def _read_record(path: str, label: str, *, private: bool = False) -> bytes:
     try:
         if private and os.name != "nt":
-            # Without the sticky bit, anyone who can write the directory can
-            # replace the store, whatever the store's own mode is.
-            parent = os.path.dirname(os.path.abspath(path))
-            mode = os.stat(parent).st_mode
-            if mode & (stat.S_IWGRP | stat.S_IWOTH) and not mode & stat.S_ISVTX:
-                raise DCPTrustError(
-                    f"{label} directory {parent} must not be group- or "
-                    f"world-writable; run: chmod go-w {parent}"
-                )
+            # Without the sticky bit, anyone who can write a directory can swap
+            # its entries, so every directory above the real store is checked
+            # and the store is opened by that checked path.
+            path = os.path.realpath(path)
+            for parent in Path(path).parents:
+                mode = os.stat(parent).st_mode
+                if mode & (stat.S_IWGRP | stat.S_IWOTH) and not mode & stat.S_ISVTX:
+                    raise DCPTrustError(
+                        f"{label} directory {parent} must not be group- or "
+                        f"world-writable; run: chmod go-w {parent}"
+                    )
         with _open_regular(path) as stream:
             mode = os.fstat(stream.fileno()).st_mode
             # Windows reports synthetic group/other bits; ACLs govern access there.
@@ -260,6 +264,23 @@ def _open_snapshot_root(root: Path) -> int | None:
     return fd
 
 
+def _remove_snapshot(root: Path, root_fd: int | None) -> None:
+    """Delete the snapshot through the held directory, even if it was renamed."""
+    if root_fd is None:
+        shutil.rmtree(root, ignore_errors=True)
+        return
+    with suppress(OSError):
+        for _, dirs, names, fd in os.fwalk(topdown=False, dir_fd=root_fd):
+            for name in names:
+                os.unlink(name, dir_fd=fd)
+            for name in dirs:
+                os.rmdir(name, dir_fd=fd)
+        # The emptied directory goes only if its path still names it.
+        if os.path.samestat(os.stat(root, follow_symlinks=False), os.fstat(root_fd)):
+            os.rmdir(root)
+    os.close(root_fd)
+
+
 def _snapshot_name(root: Path, root_fd: int | None, name: str) -> str:
     return name if root_fd is not None else str(root / name)
 
@@ -317,9 +338,7 @@ class _SnapshotFileSystem(FileSystem):
     exists = ls = rename = mkdir = rm_file = _unsupported
 
     def close(self) -> None:
-        """Release the directory; later reads fail instead of using the path."""
-        if self.root_fd is not None and self.root_fd >= 0:
-            os.close(self.root_fd)
+        """Stop reads; the reader deletes the snapshot and releases the directory."""
         self.root_fd = -1
 
 
@@ -351,8 +370,7 @@ class VerifiedDCPReader(FileSystemReader):
             settings={"DCP source": self._source},
         )
         ensure_free_disk(tempfile.gettempdir(), **disk)
-        self._snapshot = tempfile.TemporaryDirectory(prefix="flashdreams-dcp-")
-        root = Path(self._snapshot.name)
+        root = Path(tempfile.mkdtemp(prefix="flashdreams-dcp-"))
         root_fd = None
         try:
             root_fd = _open_snapshot_root(root)
@@ -382,10 +400,10 @@ class VerifiedDCPReader(FileSystemReader):
                     )
             super().__init__(root)
             self.fs = _SnapshotFileSystem(root, root_fd, files)
+            # Runs once, from close() or when an unclosed reader is collected.
+            self._remove = weakref.finalize(self, _remove_snapshot, root, root_fd)
         except BaseException as exc:
-            if root_fd is not None:
-                os.close(root_fd)
-            self._snapshot.cleanup()
+            _remove_snapshot(root, root_fd)
             if isinstance(exc, OSError) and not isinstance(exc, DCPTrustError):
                 # Snapshot writes (scratch exhaustion) are not trust failures.
                 raise_if_disk_space_error(exc, path=root, **disk)
@@ -425,7 +443,7 @@ class VerifiedDCPReader(FileSystemReader):
     def close(self) -> None:
         """Delete the private checkpoint snapshot."""
         self.fs.close()
-        self._snapshot.cleanup()
+        self._remove()
 
     def __enter__(self) -> VerifiedDCPReader:
         return self

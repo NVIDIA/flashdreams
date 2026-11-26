@@ -60,14 +60,16 @@ The store maps each source ID to `{"manifest_path": "<absolute path>",
 {...}}`, mapping each relative filename to `{"sha256": ..., "size": ...}`.
 
 Treat the store like application configuration: replacing it grants approval
-authority. On POSIX, loading rejects a group- or world-writable store file, and
-a store directory that other accounts can write unless it has the sticky bit;
-`pin` creates the folder `0700` and files `0600`. A manifest may be copied or
-replaced without changing that authority: its bytes still have to match the
-approved digest. Manifest paths must stay inside the component directory
-(absolute paths, `..`, and backslashes are rejected), JSON records are limited
-to 4 MiB, duplicate keys are rejected, and extra files at the source are ignored
-and cannot be read by the snapshot reader.
+authority, and the owners of the store and the directories above it hold that
+authority. On POSIX, loading resolves symlinks and rejects a group- or
+world-writable store file, and a store below any directory that other accounts
+can write unless that directory has the sticky bit; `pin` creates the folder
+`0700` and files `0600`. A manifest may be copied or replaced without changing
+that authority: its bytes still have to match the approved digest. Manifest
+paths must stay inside the component directory (absolute paths, `..`, and
+backslashes are rejected), JSON records are limited to 4 MiB, duplicate keys are
+rejected, and extra files at the source are ignored and cannot be read by the
+snapshot reader.
 
 Local source IDs use absolute, expanded paths, without resolving symlinks. S3
 IDs retain the full URI with trailing slashes removed. Add an explicit entry for

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import io
 import json
@@ -212,14 +213,17 @@ def test_shared_writable_trust_store_is_rejected(
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits")
+@pytest.mark.parametrize("nested", [False, True], ids=["parent", "ancestor"])
 def test_trust_store_in_shared_writable_directory_is_rejected(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    nested: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source, files = _source(tmp_path)
     trust = _pin(tmp_path, files)
     shared = tmp_path / "shared"
-    shared.mkdir()
-    store = shared / "trust-store.json"
+    # Swapping a private folder inside a shared one also swaps the store.
+    folder = shared / "config" if nested else shared
+    folder.mkdir(parents=True)
+    store = folder / "trust-store.json"
     store.write_text(
         json.dumps(
             {
@@ -259,12 +263,26 @@ def test_renamed_snapshot_directory_cannot_swap_parsed_metadata(
     with VerifiedDCPReader(str(source), trust=trust) as reader:
         # Another account with write access to the scratch parent swaps names.
         snapshot = Path(reader.path)
-        snapshot.rename(scratch / "moved-away")
+        moved = scratch / "moved-away"
+        snapshot.rename(moved)
         replacement.rename(snapshot)
         assert set(reader.read_metadata().state_dict_metadata) == {"approved"}
         actual = {"approved": torch.zeros(2)}
         dcp.load(actual, storage_reader=reader)
     torch.testing.assert_close(actual["approved"], torch.ones(2))
+    # Closing deletes the verified copy where it now is, not what has its name.
+    assert not any(moved.iterdir())
+    assert (snapshot / ".metadata").is_file()
+
+
+def test_unclosed_reader_snapshot_is_removed_when_collected(tmp_path: Path) -> None:
+    source, files = _source(tmp_path)
+    reader = VerifiedDCPReader(str(source), trust=_pin(tmp_path, files))
+    snapshot = Path(reader.path)
+    assert snapshot.is_dir()
+    del reader
+    gc.collect()
+    assert not snapshot.exists()
 
 
 def test_pin_command_approves_without_setup_and_checks_publisher_digest(
@@ -463,15 +481,15 @@ def test_failed_verification_removes_partial_snapshot(
     source, files = _source(tmp_path)
     trust = _pin(tmp_path, files)
     (source / "__0_0.distcp").write_bytes(b"modified")
-    temporary_directory = tempfile.TemporaryDirectory
+    make_directory = tempfile.mkdtemp
     snapshots = []
 
     def record_snapshot(*args: Any, **kwargs: Any) -> Any:
-        snapshot = temporary_directory(*args, **kwargs)
-        snapshots.append(Path(snapshot.name))
+        snapshot = make_directory(*args, **kwargs)
+        snapshots.append(Path(snapshot))
         return snapshot
 
-    monkeypatch.setattr(tempfile, "TemporaryDirectory", record_snapshot)
+    monkeypatch.setattr(tempfile, "mkdtemp", record_snapshot)
     _tripwire(monkeypatch)
     with pytest.raises(DCPTrustError):
         VerifiedDCPReader(str(source), trust=trust).read_metadata()
