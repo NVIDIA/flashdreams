@@ -21,6 +21,7 @@ Available application slugs:
 | Application slug | Pipeline config |
 | --- | --- |
 | `interactive-drive-omnidreams` | `OMNIDREAMS_PIPELINE_CONFIG` |
+| `interactive-drive-omnidreams-layerwise-offload` | `OMNIDREAMS_LAYERWISE_OFFLOAD_PIPELINE_CONFIG` |
 | `interactive-drive-omnidreams-optimized-gb300` | `OMNIDREAMS_OPTIMIZED_GB300_PIPELINE_CONFIG` |
 | `interactive-drive-omnidreams-optimized-rtx-pro-6000` | `OMNIDREAMS_OPTIMIZED_RTX_PRO_6000_PIPELINE_CONFIG` |
 | `interactive-drive-omnidreams-perf` | `OMNIDREAMS_PERF_PIPELINE_CONFIG` |
@@ -28,6 +29,21 @@ Available application slugs:
 
 The `perf` variants download their pinned native source dependencies on first
 use, before compiling the extension.
+
+Use the layer-wise offload application when GPU memory is the constraint:
+
+```bash
+uv run --no-sync flashdreams-run-v2 \
+  interactive-drive-omnidreams-layerwise-offload \
+  --mode webrtc --host 0.0.0.0 --port 8089
+```
+
+The standard application keeps layer-wise offload disabled. The offload slug
+enables `diffusion_model.transformer.enable_layerwise_offload` when it builds
+the pipeline. This is a construction-time choice rather than a live UI toggle.
+It keeps DiT block weights in pinned CPU memory and streams them through two
+reusable CUDA staging slots, trading host memory and transfer traffic for lower
+GPU memory use.
 
 See the shared [Interactive Drive README](../../../../apps/interactive_drive/README.md)
 for controls, application arguments, output modes, and tests. See the
