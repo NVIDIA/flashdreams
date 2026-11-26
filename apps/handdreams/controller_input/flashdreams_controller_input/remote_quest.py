@@ -143,9 +143,7 @@ class _AuthorityCheck:
         if source is None:
             return False
         with source.input_guard():
-            return (
-                source._authority is not None and source._authority.epoch == self.epoch
-            )
+            return source._authorized_locked(self.epoch)
 
 
 class RemoteQuestSource:
@@ -333,11 +331,17 @@ class RemoteQuestSource:
     def allows(self, observation: Observation) -> bool:
         """Recheck remote observations even after they leave the transport queue."""
         with self.input_guard():
-            return observation.authority_epoch is None or (
-                self._authority is not None
-                and observation.authority_epoch == self._authority.epoch
-                and self._viewer is self._authority.viewer
-            )
+            epoch = observation.authority_epoch
+            return epoch is None or self._authorized_locked(epoch)
+
+    def _authorized_locked(self, epoch: int) -> bool:
+        # Paused while the paired viewer is away; the reconnect key stays valid.
+        authority = self._authority
+        return (
+            authority is not None
+            and authority.epoch == epoch
+            and self._viewer is authority.viewer
+        )
 
     def authority_check(self, epoch: int) -> Callable[[], bool]:
         """Return a weak check that retains only one issued epoch."""
@@ -506,6 +510,7 @@ class RemoteQuestSource:
         while not self._stopped.is_set():
             with self._lock:
                 self._require_authority_locked(grant)
+                epoch = grant.epoch
             sent = time.monotonic()
             connection.sendall(encode_record({"type": "pull", "seq": sequence}))
             reply = read_record(stream)
@@ -613,13 +618,17 @@ class RemoteQuestSource:
                         new_producer = False
                     hello_seen = True
                 if kind == "xr_frame":
-                    self._accept_frame(capture_ns, grant)
+                    self._accept_frame(capture_ns, grant, epoch)
             sequence += 1
 
-    def _accept_frame(self, capture_ns: int, grant: _ProducerAuthority) -> None:
+    def _accept_frame(
+        self, capture_ns: int, grant: _ProducerAuthority, epoch: int
+    ) -> None:
         with self._lock:
             self._require_authority_locked(grant)
-            self._accept_frame_locked(capture_ns, grant.epoch)
+            # A reply to a pull sent before a scene change carries old-scene poses.
+            if grant.epoch == epoch:
+                self._accept_frame_locked(capture_ns, epoch)
 
     def _accept_frame_locked(self, capture_ns: int, epoch: int) -> None:
         frame = self._store.snapshot()

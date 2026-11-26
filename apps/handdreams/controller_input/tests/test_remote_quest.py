@@ -200,9 +200,9 @@ def _peer(source, certificate, token=_TOKEN, hostname="localhost", **credential)
         yield peer
 
 
-def _send(peer, messages, *, disconnected=False, generation=0):
+def _send(peer, messages, *, disconnected=False, generation=0, request=None):
     connection, stream = peer
-    request = read_record(stream)
+    request = request or read_record(stream)
     assert request["type"] == "pull"
     connection.sendall(
         encode_record(
@@ -764,6 +764,35 @@ def test_relay_reconnects_with_its_key_and_asks_for_the_next_code(
     assert not thread.is_alive()
 
 
+def test_paired_relay_retries_a_handshake_the_server_drops(
+    source, certificate, monkeypatch, capsys
+):
+    monkeypatch.setattr(quest_relay, "RECONNECT_DELAY_S", 0.01)
+    relay = _relay(source, certificate, code=source.pair())
+    thread = threading.Thread(target=relay.run)
+    output: list[str] = []
+
+    def printed(text: str, count: int = 1) -> bool:
+        output.append(capsys.readouterr().out)
+        return "".join(output).count(text) >= count
+
+    thread.start()
+    try:
+        first = _wait(lambda: source._authority is not None and source._connection)
+        key, token = relay._key, source._token
+        # The server closes reconnects before answering, as while it restarts.
+        monkeypatch.setattr(source, "_token", b"0" * len(token))
+        first.shutdown(socket.SHUT_RDWR)
+        _wait(lambda: printed("authentication rejected"))
+        monkeypatch.setattr(source, "_token", token)
+        _wait(lambda: printed("[quest-relay] paired", 2))
+        assert relay._key == key and thread.is_alive()
+    finally:
+        relay.stop()
+        thread.join(timeout=5)
+    assert not thread.is_alive()
+
+
 def test_relay_without_a_terminal_needs_a_code(source, certificate):
     relay = _relay(source, certificate, code="")
     with pytest.raises(ValueError, match="pass --code"):
@@ -904,13 +933,18 @@ def test_scene_change_keeps_the_laptop_paired_but_fences_old_poses(source, certi
     with _peer(source, certificate) as peer:
         _send(peer, [_HELLO, _frame(20)])
         earlier = _wait(lambda: _next_frame(source))
+        inflight = read_record(peer[1])  # The next pull left before the change.
         source.begin_session()
         assert not source.allows(earlier)
-        _send(peer, [_frame(21)])
+        _send(peer, [_frame(21)], request=inflight)  # An old-scene pose: dropped.
+        _send(peer, [_frame(22)])
         later = _wait(lambda: _next_frame(source))
+        assert later.frame[SOURCE_CLIENT_CAPTURE_NS_KEY] * 20 == (
+            earlier.frame[SOURCE_CLIENT_CAPTURE_NS_KEY] * 22
+        )
         assert source.allows(later)
     with _peer(source, certificate) as peer:
-        _send(peer, [_HELLO, _frame(22)])
+        _send(peer, [_HELLO, _frame(23)])
         assert source.allows(_wait(lambda: _next_frame(source)))
 
 
@@ -919,10 +953,12 @@ def test_missing_viewer_pauses_input_and_only_a_new_viewer_revokes(source, certi
     with _peer(source, certificate) as peer:
         _send(peer, [_HELLO, _frame(20)])
         paused = _wait(lambda: _next_frame(source))
+        check = source.authority_check(paused.authority_epoch)
         source.set_viewer(None)
-        assert not source.allows(paused)
+        # Input buffered before the disconnect cannot reach the model either.
+        assert not source.allows(paused) and not check()
         source.set_viewer(viewer)  # The same paired browser reloaded.
-        assert source.allows(paused)
+        assert source.allows(paused) and check()
         _send(peer, [_frame(21)])
         assert source.allows(_wait(lambda: _next_frame(source)))
     source.set_viewer(object())
@@ -1028,10 +1064,10 @@ def test_inflight_pose_cannot_repopulate_revoked_queue(
     entered, resume = threading.Event(), threading.Event()
     accept = source._accept_frame
 
-    def paused_accept(capture_ns, grant):
+    def paused_accept(*args):
         entered.set()
         assert resume.wait(2)
-        accept(capture_ns, grant)
+        accept(*args)
 
     monkeypatch.setattr(source, "_accept_frame", paused_accept)
     try:

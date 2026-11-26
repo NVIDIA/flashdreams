@@ -163,6 +163,8 @@ class QuestRelay:
             try:
                 ready = read_record(stream)
             except EOFError:
+                if self._key is not None:
+                    raise  # A paired relay retries; the server may be restarting.
                 raise ValueError(
                     "remote controller authentication failed; rerun remote-vr to refresh the server's credentials over SSH"
                 ) from None
