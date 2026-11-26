@@ -92,8 +92,12 @@ def test_what_was_being_generated_is_recorded_alongside_the_timings(
     payload = _write_run(tmp_path / "stats_run.json", [_result()])
 
     assert payload["session"] == {
+        "client_window_type": None,
         "output_layout": "tchw",
+        "frames_per_second_for_ui": 60,
         "frames_per_second_for_step": _FPS,
+        "presentation_mode": "continuous",
+        "backpressure_mode": "block",
         "video_width": _WIDTH,
         "video_height": _HEIGHT,
     }
