@@ -68,7 +68,8 @@ You may only use `--accept-eula` and `--isaac-teleop-accept-eula` for this demo 
 
 Ensure you have completed [Isaac Teleop setup](#setup-isaac-teleop) on your server that will run the HandDreams demo.
 
-1. Open `http://<server-address>:8081/` and wait for scene selection.
+1. Open `http://127.0.0.1:8081/` (forward port 8081 over SSH from another
+   machine) and wait for scene selection.
 2. Click **Isaac Teleop Web Client: Open Link**. Keep both tabs open.
 3. Verify the certificate link points to your server's
    `https://<server-address>:48322/`, accept its development certificate, and
@@ -126,15 +127,16 @@ env -u QUEST_META_PIN uv run --no-sync flashdreams-run-v2 handdreams \
 For WebRTC output use the following command:
 
 ```bash
-SERVER_IP=127.0.0.1  # Use the server's reachable LAN IPv4 for a remote browser
+SERVER_IP=127.0.0.1  # Use the server's LAN IPv4 for a remote controller client
 env -u QUEST_META_PIN uv run --no-sync flashdreams-run-v2 handdreams \
-  --mode webrtc --host "$SERVER_IP" --port 8081 \
+  --mode webrtc --port 8081 \
   --controller-host "$SERVER_IP" \
   --isaac-teleop-accept-eula \
   --quest-accept-server-certificate
 
 # Use the server's LAN IPv4 for `SERVER_IP`.
-# Connect to `http://<SERVER_IP>:8081/`.
+# Open `http://127.0.0.1:8081/`; from another machine, first run
+# `ssh -L 8081:127.0.0.1:8081 <USER>@<SERVER_IP>`.
 # The headset browser connects automatically; do not connect a virtual client.
 ```
 
@@ -172,7 +174,8 @@ This command will prepare controller dependencies, copy credentials, and copy we
 over SSH to your laptop; model weights remain on the server. Your laptop needs direct access to
 server TCP `8445` since SSH is not setup to tunnel its connection.
 
-You may now open `http://<SERVER_IP>:8081/` in your browser.
+Forward the viewer port (`ssh -L 8081:127.0.0.1:8081 "<USER>@<SERVER_IP>"`)
+and open `http://127.0.0.1:8081/` in your browser.
 
 Continue with [calibration](#physical-controller-calibration).
 

@@ -48,6 +48,7 @@ from flashdreams.runtime_v2.session_desc import PresentationMode
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
     GamepadUserInputEvent,
+    GameWheelUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -1739,3 +1740,35 @@ def test_focus_loss_releases_held_brake(tmp_path: Path) -> None:
     assert command.throttle == 1.0
     assert command.brake == 0.0
     assert loop.state.drive_input.pressed_keys == {"w"}
+
+
+@pytest.mark.parametrize(
+    "controller",
+    [
+        GamepadUserInputEvent(timestamp=np.uint64(0), buttons=(0.0,) * 7 + (1.0,)),
+        GameWheelUserInputEvent(timestamp=np.uint64(0), throttle=1.0),
+    ],
+)
+def test_focus_loss_releases_controller_and_restart_latches(
+    tmp_path: Path, controller: GamepadUserInputEvent | GameWheelUserInputEvent
+) -> None:
+    scene = tmp_path / "local.usdz"
+    scene.touch()
+    loop = _loop_pressing(scene, " ")
+    loop._apply_events(UserInputEvents([controller]))
+    state = loop.state
+    state.keyboard_reset_pressed = state.controller_reset_pressed = True
+    blocks_generated = state.blocks_generated
+    backend = state.backend
+
+    loop._apply_events(
+        UserInputEvents([FocusUserInputEvent(timestamp=np.uint64(1), focused=False)])
+    )
+
+    assert state.drive_input.source() == "idle"
+    assert state.drive_input.command().throttle == 0.0
+    assert state.drive_input.command().brake == 0.0
+    assert not state.keyboard_reset_pressed
+    assert not state.controller_reset_pressed
+    assert state.blocks_generated == blocks_generated
+    assert state.backend is backend

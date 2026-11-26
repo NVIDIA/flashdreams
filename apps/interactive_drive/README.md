@@ -62,7 +62,9 @@ uv run flashdreams-run-v2 interactive-drive-omnidreams --mode webrtc --port 8089
 
 Use `interactive-drive-omnidreams-perf`/`interactive-drive-omnidreams-fast-perf` instead for the native-accelerated, performance-tuned configurations.
 
-Forward so that you may connect via `<ip>:8089` by adding `--host 0.0.0.0`
+From another machine, forward the same port over SSH
+(`ssh -L 8089:127.0.0.1:8089 SERVER`) or configure
+[browser access and pairing](../../docs/source/documentation/cli.md#browser-access-and-pairing).
 
 The default scene downloads on first use from the gated
 `nvidia/omni-dreams-scenes` Hugging Face dataset. Application arguments are
@@ -151,7 +153,7 @@ upscaling them to 1664x928:
 ```bash
 uv run --no-sync flashdreams-run-v2 \
     interactive-drive-omnidreams-optimized-gb300 \
-    --mode webrtc --host 0.0.0.0 --port 8089 -- \
+    --mode webrtc --port 8089 -- \
     --width 832 --height 464 \
     --world-model-device cuda:1 --raster-device cuda:1 \
     --postprocess-preset swiftvr-2x --postprocess-device cuda:0

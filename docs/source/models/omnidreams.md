@@ -37,12 +37,13 @@ Ensure you are using a 48GB+ VRAM GPU, have CUDA installed, and have the CUDA to
 export HF_TOKEN="<your-hugging-face-token>"
 uv sync --package flashdreams-omnidreams --extra interactive-drive --inexact
 uv run --no-sync flashdreams-run-v2 crazy-robotaxi-omnidreams \
-  --mode webrtc --host 0.0.0.0 --port 8089
+  --mode webrtc --port 8089
 
 # use `--mode native-window` for launching a local-window to display gameplay intead of browser.
 ```
 
-Open `http://<server-address>:8089/` (`localhost` for a local browser).
+Open the link the runner prints. From another machine, see
+[browser access and pairing](../documentation/cli.md#browser-access-and-pairing).
 
 Continue with mode and map selection [here](../demos/crazy_robotaxi.md#start-playing).
 
@@ -62,8 +63,8 @@ uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
   --preload-application
 
 uv run --no-sync flashdreams-run-v2 interactive-drive-omnidreams \
-  --mode webrtc --host 0.0.0.0 --port 8089
-# Open http://127.0.0.1:8089/
+  --mode webrtc --port 8089
+# Open the link it prints.
 ```
 
 <div class="fd-cta-row">

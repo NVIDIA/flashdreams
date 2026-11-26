@@ -20,6 +20,7 @@ from flashdreams.runtime.keyboard import (
 from flashdreams.runtime_v2.input_timeline import InputWindow
 from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
+    InputOwnerChangedUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -114,7 +115,8 @@ class KeyboardStateTrack:
         Keyboard events rejected by :meth:`supports_key` are returned with
         ``tracked=False`` so the application can acknowledge them without
         letting them move the input clock. Focus gain and non-keyboard events
-        are unrelated to held keyboard state and are omitted.
+        are unrelated to held keyboard state and are omitted. Owner changes
+        discard held keys and queued edges immediately.
         """
         results: list[KeyboardEventDisposition] = []
         for event in events.get_events():
@@ -122,7 +124,13 @@ class KeyboardStateTrack:
                 if event.focused:
                     continue
                 timestamp_s = _event_timestamp_seconds(event)
-                self.release_all(timestamp_s=timestamp_s)
+                if isinstance(event, InputOwnerChangedUserInputEvent):
+                    self._event_log.clear()
+                    self._carried_state = KeyboardState(
+                        supported_keys=self._supported_keys,
+                    )
+                else:
+                    self.release_all(timestamp_s=timestamp_s)
                 results.append(
                     KeyboardEventDisposition(
                         event=event,

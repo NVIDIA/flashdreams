@@ -24,7 +24,7 @@ This integration ships its own launcher rather than relying on
 here:
 
 ```bash
-uv run --no-sync red-screen-webrtc --host 0.0.0.0 --port 8080 \
+uv run --no-sync red-screen-webrtc --port 8080 \
     --width 1280 --height 720 --fps 30 -- --key x
 ```
 

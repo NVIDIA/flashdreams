@@ -75,9 +75,9 @@ uv run --no-sync flashdreams-run-v2 v2v-swiftvr \
   --video-path input.mp4
 ```
 
-Open the URL printed by the runner. On a remote machine, bind to `0.0.0.0` and
-make both the HTTP signaling route and WebRTC media path reachable from the
-browser.
+Open the URL printed by the runner. On a remote machine, forward the port over
+SSH or configure [browser access and pairing](../../../../docs/source/documentation/cli.md#browser-access-and-pairing),
+and make the WebRTC media path reachable from the browser.
 
 For a local GPU-backed window, install the local-window extra:
 

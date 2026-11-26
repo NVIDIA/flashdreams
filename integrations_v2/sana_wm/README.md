@@ -35,7 +35,7 @@ for FP4, or select BF16/FP8 when using the CUDA 12 profile.
 ```bash
 uv sync --package flashdreams-sana-wm --inexact
 uv run --no-sync flashdreams-run-v2 cam2v-sana-wm-streaming \
-  --mode webrtc --host 0.0.0.0 --port 8089 -- \
+  --mode webrtc --port 8089 -- \
   --example-data
 ```
 

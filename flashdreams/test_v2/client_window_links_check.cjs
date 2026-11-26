@@ -72,6 +72,7 @@ document.exitPointerLock = () => {
 };
 const opened = [];
 const window = new Element();
+window.location = new URL("http://127.0.0.1:8089/");
 const frames = new Map();
 let nextFrame = 0;
 window.requestAnimationFrame = callback => {

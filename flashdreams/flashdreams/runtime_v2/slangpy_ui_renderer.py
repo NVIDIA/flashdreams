@@ -5,12 +5,14 @@
 
 import importlib
 from collections.abc import Callable
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
 import torch
 from torch import Tensor
 
 from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEvent,
+    InputOwnerChangedUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
@@ -71,6 +73,27 @@ class _SlangPyUIRenderer:
 
         if self._has_rendered:
             self._device.sync_to_cuda(_current_cuda_stream())
+        if any(
+            isinstance(event, InputOwnerChangedUserInputEvent)
+            for event in events.get_events()
+        ):
+            # Native SlangPy has no input-queue clearing API. Preserve widgets
+            # while replacing the context that owns queued input and gestures.
+            torch.cuda.current_stream().synchronize()
+            self._device.wait_for_idle()
+            replacement = self._slangpy.ui.Context(self._device)
+            children = list(self._ui.screen.children)
+            self._ui.screen.remove_all_children()
+            replacement.screen.visible = self._ui.screen.visible
+            replacement.screen.enabled = self._ui.screen.enabled
+            for child in children:
+                replacement.screen.add_child(child)
+                if isinstance(child, self._slangpy.ui.Window):
+                    # Setters reapply retained geometry in the fresh context.
+                    child.position = child.position
+                    child.size = child.size
+            self._ui_context = replacement
+            self._ui.screen = replacement.screen
         _route_input_events(
             events,
             ui_context=self._ui_context,
@@ -270,7 +293,36 @@ def _route_input_events(
 ) -> None:
     """Route supported runtime input events into SlangPy's UI context."""
     for event in events.get_events():
-        if isinstance(event, KeyboardUserInputEvent):
+        if isinstance(event, FocusUserInputEvent):
+            if event.focused:
+                continue
+            # ponytail: SlangPy has no focus API; release its bounded key/button
+            # enums until the native context exposes input clearing.
+            for key in slangpy.KeyCode:
+                if key is slangpy.KeyCode.unknown:
+                    continue
+                key_event = slangpy.KeyboardEvent()
+                key_event.type = slangpy.KeyboardEventType.key_release
+                key_event.key = key
+                key_event.mods = slangpy.KeyModifierFlags.none
+                ui_context.handle_keyboard_event(key_event)
+            mouse_event = slangpy.MouseEvent()
+            mouse_event.type = slangpy.MouseEventType.move
+            mouse_event.pos = (-1.0, -1.0)
+            mouse_event.mods = slangpy.KeyModifierFlags.none
+            ui_context.handle_mouse_event(mouse_event)
+            for button in (
+                slangpy.MouseButton.left,
+                slangpy.MouseButton.middle,
+                slangpy.MouseButton.right,
+            ):
+                mouse_event = slangpy.MouseEvent()
+                mouse_event.type = slangpy.MouseEventType.button_up
+                mouse_event.pos = (-1.0, -1.0)
+                mouse_event.button = button
+                mouse_event.mods = slangpy.KeyModifierFlags.none
+                ui_context.handle_mouse_event(mouse_event)
+        elif isinstance(event, KeyboardUserInputEvent):
             pressed = event.state is KeyboardInputState.PRESSED
             key = _resolve_slangpy_key(slangpy, event.key)
             if key is not None:

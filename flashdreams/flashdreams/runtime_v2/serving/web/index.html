@@ -148,11 +148,43 @@ SPDX-License-Identifier: Apache-2.0
         color: Canvas;
       }
 
+      #pairing-dialog {
+        max-width: 26rem;
+        color-scheme: dark;
+        font: inherit;
+      }
+
+      #pairing-dialog input {
+        display: block;
+        box-sizing: border-box;
+        width: 100%;
+        margin: 1rem 0;
+        font: inherit;
+      }
+
+      #forget-pairing {
+        position: fixed;
+        right: 1rem;
+        bottom: 1rem;
+      }
+
     </style>
   </head>
   <body>
     <video id="video" autoplay muted playsinline></video>
     <div id="status" role="status" aria-live="polite">Waiting for the server…</div>
+    <button id="forget-pairing" type="button" hidden>Forget pairing</button>
+    <dialog id="pairing-dialog" aria-labelledby="pairing-title">
+      <form method="dialog" id="pairing-form">
+        <h2 id="pairing-title">Pair this browser</h2>
+        <p id="pairing-error" role="alert" hidden></p>
+        <label for="pairing-token">Paste the token delivered by your operator.</label>
+        <input id="pairing-token" type="password" autocomplete="off"
+               spellcheck="false" required minlength="32" maxlength="256">
+        <p>Pairing is remembered in this tab until you close it.</p>
+        <button type="submit">Connect</button>
+      </form>
+    </dialog>
     <div id="prompt-backdrop" hidden></div>
     <dialog id="prompt-dialog" aria-labelledby="prompt-dialog-title">
       <h2 id="prompt-dialog-title"></h2>

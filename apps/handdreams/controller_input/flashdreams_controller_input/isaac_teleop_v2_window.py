@@ -10,7 +10,10 @@ import math
 from typing import TYPE_CHECKING, cast
 
 from flashdreams.api_v2.client_window import IClientWindow
-from flashdreams.runtime_v2.client_window_factory import ClientWindowMode
+from flashdreams.runtime_v2.client_window_factory import (
+    ClientWindowMode,
+    client_window_mode,
+)
 from flashdreams_controller_input.controller_source_v2_window import (
     ControllerSourceWindow,
 )
@@ -52,6 +55,7 @@ class IsaacTeleopWebRTCWindow(ControllerSourceWindow):
         accept_eula: bool,
         verbose: bool,
         oob_hub: bool = False,
+        auth_token: str | None = None,
         _webrtc_window: WebRTCClientWindow | None = None,
         _isaac_source: IsaacTeleopSource | None = None,
     ) -> None:
@@ -74,7 +78,9 @@ class IsaacTeleopWebRTCWindow(ControllerSourceWindow):
         if _webrtc_window is None:
             from flashdreams.runtime_v2.webrtc_client_window import WebRTCClientWindow
 
-            _webrtc_window = WebRTCClientWindow(host=host, port=port)
+            _webrtc_window = WebRTCClientWindow(
+                host=host, port=port, auth_token=auth_token
+            )
         super().__init__(
             output_window=_webrtc_window,
             source=source,
@@ -85,6 +91,33 @@ class IsaacTeleopWebRTCWindow(ControllerSourceWindow):
             # Local freshness uses the bridge receiver's monotonic clock.
             client_capture_keys=("client_capture_ns",),
         )
+
+
+def check_isaac_teleop_options(parsed_args: argparse.Namespace) -> None:
+    """Validate the Isaac Teleop options, which the remote Quest modes share."""
+    if not 0 <= parsed_args.isaac_teleop_port <= 65535:
+        raise ValueError("--isaac-teleop-port must be between 0 and 65535")
+    for name, value in (
+        ("--isaac-teleop-source-rate-hz", parsed_args.isaac_teleop_source_rate_hz),
+        ("--isaac-teleop-tracking-hz", parsed_args.isaac_teleop_tracking_hz),
+    ):
+        if not math.isfinite(value) or value <= 0.0:
+            raise ValueError(f"{name} must be finite and positive")
+    timeout_s = parsed_args.isaac_teleop_startup_timeout_s
+    if timeout_s is not None and (not math.isfinite(timeout_s) or timeout_s <= 0.0):
+        raise ValueError("--isaac-teleop-startup-timeout-s must be finite and positive")
+    offset = parsed_args.isaac_teleop_wrist_offset_m
+    if not math.isfinite(offset) or offset < 0.0:
+        raise ValueError(
+            "--isaac-teleop-wrist-offset-m must be finite and non-negative"
+        )
+    for name, value in (
+        ("--isaac-teleop-python", parsed_args.isaac_teleop_python),
+        ("--isaac-teleop-install-dir", parsed_args.isaac_teleop_install_dir),
+        ("--isaac-teleop-device-profile", parsed_args.isaac_teleop_device_profile),
+    ):
+        if not str(value).strip():
+            raise ValueError(f"{name} must be non-empty")
 
 
 class IsaacTeleopWebRTCMode(ClientWindowMode):
@@ -171,35 +204,17 @@ class IsaacTeleopWebRTCMode(ClientWindowMode):
         )
 
     def check_arguments(self, parsed_args: argparse.Namespace) -> None:
-        if not 0 <= parsed_args.isaac_teleop_port <= 65535:
-            raise ValueError("--isaac-teleop-port must be between 0 and 65535")
-        for name, value in (
-            ("--isaac-teleop-source-rate-hz", parsed_args.isaac_teleop_source_rate_hz),
-            ("--isaac-teleop-tracking-hz", parsed_args.isaac_teleop_tracking_hz),
-        ):
-            if not math.isfinite(value) or value <= 0.0:
-                raise ValueError(f"{name} must be finite and positive")
-        timeout_s = parsed_args.isaac_teleop_startup_timeout_s
-        if timeout_s is not None and (not math.isfinite(timeout_s) or timeout_s <= 0.0):
-            raise ValueError(
-                "--isaac-teleop-startup-timeout-s must be finite and positive"
-            )
-        offset = parsed_args.isaac_teleop_wrist_offset_m
-        if not math.isfinite(offset) or offset < 0.0:
-            raise ValueError(
-                "--isaac-teleop-wrist-offset-m must be finite and non-negative"
-            )
-        for name, value in (
-            ("--isaac-teleop-python", parsed_args.isaac_teleop_python),
-            ("--isaac-teleop-install-dir", parsed_args.isaac_teleop_install_dir),
-            ("--isaac-teleop-device-profile", parsed_args.isaac_teleop_device_profile),
-        ):
-            if not str(value).strip():
-                raise ValueError(f"{name} must be non-empty")
+        client_window_mode("webrtc").check_arguments(parsed_args)
+        check_isaac_teleop_options(parsed_args)
 
     def create(self, parsed_args: argparse.Namespace) -> IClientWindow:
+        from flashdreams.runtime_v2.serving.security import load_pairing_token
+
         self.check_arguments(parsed_args)
+        # Pair the browser like ``--mode webrtc``; only the serving rank gets here.
+        no_login = getattr(parsed_args, "no_login", False)
         return IsaacTeleopWebRTCWindow(
+            auth_token=None if no_login else load_pairing_token(),
             host=parsed_args.host,
             port=parsed_args.port,
             python_executable=str(parsed_args.isaac_teleop_python).strip(),
@@ -218,8 +233,7 @@ class IsaacTeleopWebRTCMode(ClientWindowMode):
 
     def starting(self, client_window: IClientWindow) -> str | None:
         window = cast("IsaacTeleopWebRTCWindow", client_window)
-        output = cast("WebRTCClientWindow", window.output_window)
-        return f"Open {output.server.url} in a browser."
+        return client_window_mode("webrtc").starting(window.output_window)
 
 
 ISAAC_TELEOP_WEBRTC_MODE = IsaacTeleopWebRTCMode()
@@ -228,6 +242,7 @@ ISAAC_TELEOP_WEBRTC_MODE = IsaacTeleopWebRTCMode()
 
 __all__ = [
     "ISAAC_TELEOP_WEBRTC_MODE",
+    "check_isaac_teleop_options",
     "IsaacTeleopWebRTCMode",
     "IsaacTeleopWebRTCWindow",
 ]

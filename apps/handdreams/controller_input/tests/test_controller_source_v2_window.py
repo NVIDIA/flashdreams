@@ -117,7 +117,7 @@ def _frame(
 
 class _FakeWebRTCWindow:
     def __init__(self) -> None:
-        self.server = SimpleNamespace(url="http://127.0.0.1:54321")
+        self.server = SimpleNamespace(url="http://127.0.0.1:54321", pairing_url=None)
         self.events: list = []
         self.opened: list[SessionDesc] = []
         self.requested_sizes: list[tuple[int, int]] = []
@@ -914,7 +914,7 @@ def test_shared_mode_keeps_remote_frames_atomic_and_both_sources_alive(
 
     def presentation_mode(name, **_):
         assert name == mode.output_mode
-        return SimpleNamespace(create=lambda _: browser)
+        return SimpleNamespace(create=lambda _: browser, check_arguments=lambda _: None)
 
     monkeypatch.setattr(window_module, "client_window_mode", presentation_mode)
     window = mode.create(parsed)

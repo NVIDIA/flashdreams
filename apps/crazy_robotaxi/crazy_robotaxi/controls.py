@@ -626,6 +626,7 @@ class BoundActionState:
             if isinstance(event, FocusUserInputEvent):
                 if not event.focused:
                     self._pressed_keys.clear()
+                    self._active_by_controller.clear()
                 continue
             if isinstance(event, KeyboardUserInputEvent):
                 key = canonical_key(str(event.key))

@@ -14,6 +14,7 @@ from flashdreams.runtime_v2.user_input_event import (
     FocusUserInputEvent,
     GamepadUserInputEvent,
     GameWheelUserInputEvent,
+    InputOwnerChangedUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
 )
@@ -80,11 +81,14 @@ class DriverInput:
             before = self.command()
             if not self._apply_event(event):
                 continue
+            timestamp_us = int(event.get_timestamp())
+            timestamp_s = timestamp_us / 1_000_000.0
+            if isinstance(event, InputOwnerChangedUserInputEvent):
+                input_times_s.append(timestamp_s)
+                continue
             command = self.command()
             if command == before:
                 continue
-            timestamp_us = int(event.get_timestamp())
-            timestamp_s = timestamp_us / 1_000_000.0
             self._pending_transitions.append(
                 _DriverTransition(timestamp_s, timestamp_us, command)
             )
@@ -178,7 +182,12 @@ class DriverInput:
         if isinstance(event, FocusUserInputEvent):
             if event.focused:
                 return False
-            self.pressed_keys.clear()
+            if isinstance(event, InputOwnerChangedUserInputEvent):
+                self.reset()
+            else:
+                self.pressed_keys.clear()
+                self.controller_command = None
+                self._use_controller = False
             return True
         if isinstance(event, KeyboardUserInputEvent):
             key = self.key_normalizer(event.key)

@@ -3,8 +3,6 @@
 
 """CPU tests for the V2 Dear ImGui renderer and loop contracts."""
 
-import queue
-import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -20,16 +18,14 @@ from flashdreams.runtime_v2.imgui_ui_renderer import (
     _rgba_pixels,
     _route_imgui_input_events,
 )
-from flashdreams.runtime_v2.presentation_manager import PresentationManager
-from flashdreams.runtime_v2.session_desc import SessionDesc
-from flashdreams.runtime_v2.step_result import StepResult
 from flashdreams.runtime_v2.user_input_event import (
+    FocusUserInputEvent,
+    InputOwnerChangedUserInputEvent,
     KeyboardInputState,
     KeyboardUserInputEvent,
     MouseUserInputEvent,
 )
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
-from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
 
 pytestmark = pytest.mark.ci_cpu
 
@@ -108,6 +104,7 @@ def test_imgui_input_uses_concrete_pr512_events() -> None:
     _route_imgui_input_events(
         events,
         slangpy=_slangpy_events(),
+        imgui=Mock(),
         bridge=bridge,
         width=400,
         height=200,
@@ -122,6 +119,67 @@ def test_imgui_input_uses_concrete_pr512_events() -> None:
     assert mouse_event.type == "button_down"
     assert mouse_event.button == "left"
     assert mouse_event.pos == (100.0, 150.0)
+
+
+@pytest.mark.parametrize(
+    "focus_type", [FocusUserInputEvent, InputOwnerChangedUserInputEvent]
+)
+def test_imgui_focus_loss_clears_inputs_before_new_owner_edges(focus_type) -> None:
+    held_keys = {"old"}
+    held_buttons = {"left"}
+    pending = ["old"]
+    active_widget = ["old"]
+    moving_window = ["old"]
+    drag_drop = ["old"]
+    io = SimpleNamespace(
+        clear_events_queue=pending.clear,
+        clear_input_keys=held_keys.clear,
+        clear_input_mouse=held_buttons.clear,
+    )
+
+    def keyboard(event) -> None:
+        assert not active_widget
+        assert not moving_window
+        assert not drag_drop
+        pending.append(event.type)
+        if event.type == "key_press":
+            held_keys.add(event.key)
+
+    def mouse(event) -> None:
+        if event.type == "button_down":
+            held_buttons.add(event.button)
+
+    _route_imgui_input_events(
+        UserInputEvents(
+            [
+                focus_type(timestamp=uint64(1), focused=False),
+                KeyboardUserInputEvent(
+                    timestamp=uint64(2), key=" ", state=KeyboardInputState.PRESSED
+                ),
+                MouseUserInputEvent(
+                    timestamp=uint64(3), action="button", button=2, pressed=True
+                ),
+            ]
+        ),
+        slangpy=_slangpy_events(),
+        imgui=SimpleNamespace(
+            get_io=lambda: io,
+            internal=SimpleNamespace(
+                clear_active_id=active_widget.clear,
+                stop_mouse_moving_window=moving_window.clear,
+                clear_drag_drop=drag_drop.clear,
+            ),
+        ),
+        bridge=SimpleNamespace(
+            handle_keyboard_event=keyboard, handle_mouse_event=mouse
+        ),
+        width=400,
+        height=200,
+    )
+
+    assert held_keys == {"space"}
+    assert held_buttons == {"right"}
+    assert pending == ["key_press", "input"]
 
 
 def test_rgba_pixels_accepts_rgb_and_rejects_channel_first() -> None:

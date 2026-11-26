@@ -519,7 +519,7 @@ def test_standard_cli_selects_controller_plugin_before_initializing(
             "handdreams",
             *([] if mode is None else ["--mode", mode]),
             "--host",
-            "0.0.0.0",
+            "127.0.0.1",
             "--port",
             "8081",
             "--window-title",
@@ -540,7 +540,7 @@ def test_standard_cli_selects_controller_plugin_before_initializing(
     assert hasattr(selected, "output_mode")
     assert selected.output_mode == output_mode
     assert (args.host, args.port, args.window_title) == (
-        "0.0.0.0",
+        "127.0.0.1",
         8081,
         "HandDreams test",
     )

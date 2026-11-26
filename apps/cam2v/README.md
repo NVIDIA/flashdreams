@@ -79,7 +79,7 @@ postprocessor's output resolution so both panes are directly comparable.
 
 ```bash
 uv run --no-sync flashdreams-run-v2 cam2v-<model-config-name> \
-  --mode webrtc --host 0.0.0.0 --port 8089 -- \
+  --mode webrtc --port 8089 -- \
   --postprocess-preset <preset> \
   --postprocess-comparison-ui
 ```
@@ -119,7 +119,7 @@ For UI development without loading a model:
 
 ```bash
 uv run --no-sync flashdreams-run-v2 cam2v-dummy --mode webrtc \
-  --host 0.0.0.0 --port 8089 -- \
+  --port 8089 -- \
   --step-wait-seconds 0.9 --frames-per-chunk 12
 ```
 
