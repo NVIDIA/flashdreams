@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -88,14 +89,19 @@ def test_hf_alias_uses_core_loader_without_s3(
     from cosmos3_nano_sim_bimanual.checkpoint import _load_raw_state_dict
 
     import flashdreams.core.checkpoint.load as core_load
+    import flashdreams.core.io.dcp_trust as dcp_trust
 
     def unexpected_s3(*args: object, **kwargs: object) -> None:
         pytest.fail("The HF default must not fetch DCPs or resolve S3 credentials")
+
+    def unexpected_trust(*args: object, **kwargs: object) -> None:
+        pytest.fail("The HF default must need no DCP trust store setup")
 
     monkeypatch.setattr(fetch_checkpoint_module, "fetch_and_convert", unexpected_s3)
     monkeypatch.setattr(
         fetch_checkpoint_module, "resolve_credential_path", unexpected_s3
     )
+    monkeypatch.setattr(dcp_trust, "_trust_store", unexpected_trust)
     raw = {"action_modality_embed": torch.zeros(4)}
     calls: list[tuple[str, str]] = []
 
@@ -277,36 +283,47 @@ def test_pathlib_compat_shim_installs_fallback(monkeypatch) -> None:
     assert sys.modules["pathlib._local"] is pathlib
 
 
-def _stub_dcp(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
+def _stub_dcp(monkeypatch: pytest.MonkeyPatch, source: str) -> list[str]:
     import torch.distributed.checkpoint as dcp
 
     entry = SimpleNamespace(size=(2,), properties=SimpleNamespace(dtype=torch.float32))
-    monkeypatch.setattr(
-        fetch_checkpoint_module,
-        "read_dcp_key_metadata",
-        lambda *_: (
-            source,
-            {"net.vae2llm.weight": entry, "net_ema.vae2llm.weight": entry},
-        ),
+    metadata = SimpleNamespace(
+        state_dict_metadata={
+            "net.vae2llm.weight": entry,
+            "net_ema.vae2llm.weight": entry,
+        }
     )
-    monkeypatch.setattr(fetch_checkpoint_module, "_storage_reader", lambda *_: object())
+    calls: list[str] = []
+    readers: list[Any] = []
 
-    def load(state_dict, **_):
+    def reader(path, _):
+        calls.append(path)
+        readers.append(SimpleNamespace(read_metadata=lambda: metadata))
+        return nullcontext(readers[-1])
+
+    monkeypatch.setattr(
+        fetch_checkpoint_module, "resolve_dcp_checkpoint_path", lambda _: source
+    )
+    monkeypatch.setattr(fetch_checkpoint_module, "_storage_reader", reader)
+
+    def load(state_dict, *, storage_reader, **_):
+        assert storage_reader is readers[-1], "metadata and tensors share one reader"
         for key, tensor in state_dict.items():
             tensor.fill_(3 if key.startswith("net_ema.") else 2)
 
     monkeypatch.setattr(dcp, "load", load)
+    return calls
 
 
 @pytest.mark.parametrize("prefer_ema", [True, False])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-def test_fetch_and_convert_reuses_only_matching_conversion(
+def test_fetch_and_convert_rebuilds_matching_conversion(
     tmp_path, monkeypatch, prefer_ema, dtype
 ) -> None:
-    from safetensors.torch import load_file
+    from safetensors.torch import load_file, save_file
 
     source = "s3://bucket/experiment/checkpoints/iter_0"
-    _stub_dcp(monkeypatch, source)
+    calls = _stub_dcp(monkeypatch, source)
     assert (
         fetch_and_convert(source, None, tmp_path, prefer_ema=prefer_ema, dtype=dtype)
         == tmp_path
@@ -324,17 +341,23 @@ def test_fetch_and_convert_reuses_only_matching_conversion(
         "version": 1,
     }
 
-    def unexpected_fetch(*_):
-        pytest.fail("cache validation must finish before accessing DCP storage")
-
-    monkeypatch.setattr(
-        fetch_checkpoint_module, "read_dcp_key_metadata", unexpected_fetch
+    save_file(
+        {key: torch.zeros_like(value) for key, value in weights.items()},
+        tmp_path / "model.safetensors",
+        metadata={
+            "flashdreams_conversion": index["metadata"]["flashdreams_conversion"]
+        },
     )
     assert (
         fetch_and_convert(
             source + "/", None, tmp_path, prefer_ema=prefer_ema, dtype=dtype
         )
         == tmp_path
+    )
+    assert calls == [source, source]
+    restored = load_file(tmp_path / "model.safetensors")
+    torch.testing.assert_close(
+        restored["model.net.vae2llm.weight"], weights["model.net.vae2llm.weight"]
     )
     originals = {path: path.read_bytes() for path in tmp_path.iterdir()}
     for changed_source, changed_ema, changed_dtype in (
@@ -364,7 +387,7 @@ def test_ensure_checkpoint_retries_interrupted_conversion(
     import safetensors.torch
 
     source = "s3://bucket/experiment/checkpoints/iter_0"
-    _stub_dcp(monkeypatch, source)
+    calls = _stub_dcp(monkeypatch, source)
     monkeypatch.setattr(fetch_checkpoint_module, "_cache_dir", lambda: tmp_path)
     monkeypatch.setattr(
         fetch_checkpoint_module, "resolve_credential_path", lambda *_, **__: None
@@ -402,18 +425,14 @@ def test_ensure_checkpoint_retries_interrupted_conversion(
         torch.full((2,), 3, dtype=torch.bfloat16),
     )
 
-    def unexpected_fetch(*_):
-        pytest.fail("A completed retry must be reused without accessing storage")
-
-    monkeypatch.setattr(
-        fetch_checkpoint_module, "read_dcp_key_metadata", unexpected_fetch
-    )
+    before = len(calls)
     assert ensure_checkpoint(source) == str(out_dir)
+    assert len(calls) == before + 1
 
 
-def test_fetch_and_convert_reuses_symlinked_cache(tmp_path, monkeypatch) -> None:
+def test_fetch_and_convert_reverifies_symlinked_cache(tmp_path, monkeypatch) -> None:
     source = "s3://bucket/experiment/checkpoints/iter_0"
-    _stub_dcp(monkeypatch, source)
+    calls = _stub_dcp(monkeypatch, source)
     monkeypatch.setattr(fetch_checkpoint_module, "_cache_dir", lambda: tmp_path)
     out_dir = _default_out_dir(source)
     out_dir.mkdir()
@@ -421,13 +440,55 @@ def test_fetch_and_convert_reuses_symlinked_cache(tmp_path, monkeypatch) -> None
     alias.symlink_to(out_dir, target_is_directory=True)
     assert fetch_and_convert(source, None, alias) == alias
 
-    def unexpected_fetch(*_):
-        pytest.fail("A symlinked cache must reuse the same conversion")
-
-    monkeypatch.setattr(
-        fetch_checkpoint_module, "read_dcp_key_metadata", unexpected_fetch
-    )
     assert fetch_and_convert(source, None, out_dir) == out_dir
+    assert calls == [source, source]
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_converted_cache_cannot_bypass_source_trust(
+    tmp_path, monkeypatch, force
+) -> None:
+    from torch.distributed.checkpoint import FileSystemReader
+
+    source = "s3://bucket/experiment/checkpoints/iter_0"
+    with monkeypatch.context() as stub:
+        _stub_dcp(stub, source)
+        fetch_and_convert(source, None, tmp_path)
+    originals = {path: path.read_bytes() for path in tmp_path.iterdir()}
+    monkeypatch.delenv("FLASHDREAMS_DCP_TRUST_STORE", raising=False)
+
+    def unexpected_parser(*_, **__):
+        pytest.fail("an unapproved DCP must be rejected before metadata parsing")
+
+    monkeypatch.setattr(FileSystemReader, "read_metadata", unexpected_parser)
+    with pytest.raises(PermissionError, match="independently pinned manifest"):
+        fetch_and_convert(source, None, tmp_path, force=force)
+    assert {path: path.read_bytes() for path in tmp_path.iterdir()} == originals
+
+
+@pytest.mark.parametrize("failure", [PermissionError, ValueError])
+def test_dcp_metadata_failure_never_probes_another_layout(
+    tmp_path, monkeypatch, failure
+) -> None:
+    source = "s3://bucket/checkpoint"
+    store = tmp_path / "trust.json"
+    pin = {"manifest_path": str(tmp_path / "manifest.json"), "sha256": "a" * 64}
+    store.write_text(json.dumps({source: pin, source + "/model": pin}))
+    store.chmod(0o600)
+    monkeypatch.setenv("FLASHDREAMS_DCP_TRUST_STORE", str(store))
+    calls = []
+
+    def fail_metadata():
+        raise failure("injected metadata rejection")
+
+    def reader(path, _):
+        calls.append(path)
+        return nullcontext(SimpleNamespace(read_metadata=fail_metadata))
+
+    monkeypatch.setattr(fetch_checkpoint_module, "_storage_reader", reader)
+    with pytest.raises(failure, match="injected metadata rejection"):
+        read_dcp_key_metadata(source, None)
+    assert calls == [source]
 
 
 def test_local_checkpoint_bypasses_download(
@@ -530,10 +591,15 @@ def test_local_checkpoint_directory_rejects_shard_path_escape(
         _load_raw_state_dict(str(tmp_path), "cpu", None)
 
 
-def test_dcp_credential_permissions_preserve_actionable_error(tmp_path: Path) -> None:
+def test_dcp_credential_permissions_preserve_actionable_error(
+    tmp_path: Path, monkeypatch
+) -> None:
     credential = tmp_path / "checkpoint.secret"
     credential.write_text("{}")
     credential.chmod(0o644)
+    monkeypatch.setattr(
+        fetch_checkpoint_module, "resolve_dcp_checkpoint_path", lambda path: path
+    )
 
     with pytest.raises(PermissionError, match="chmod 600") as failure:
         read_dcp_key_metadata("s3://test-bucket/model", str(credential))
@@ -569,6 +635,7 @@ def test_fetch_and_convert_validates_existing_cache(
     from safetensors.torch import load_file, save_file
 
     source = "s3://bucket/experiment/checkpoints/iter_0"
+    _stub_dcp(monkeypatch, source)
     monkeypatch.setattr(fetch_checkpoint_module, "_cache_dir", lambda: tmp_path)
     out_dir = _default_out_dir(source) if managed else tmp_path / "custom"
     out_dir.mkdir()
@@ -632,7 +699,6 @@ def test_fetch_and_convert_validates_existing_cache(
         "missing_index",
         "truncated_weights_only",
     ):
-        _stub_dcp(monkeypatch, source)
         assert fetch_and_convert(source, None, out_dir) == out_dir
         torch.testing.assert_close(
             load_file(out_dir / "model.safetensors")[key],
@@ -645,11 +711,9 @@ def test_fetch_and_convert_validates_existing_cache(
     originals = {path: path.read_bytes() for path in out_dir.iterdir()}
 
     def unexpected_fetch(*_):
-        pytest.fail("an invalid existing cache must fail before accessing storage")
+        pytest.fail("an invalid existing cache must fail before verifying the source")
 
-    monkeypatch.setattr(
-        fetch_checkpoint_module, "read_dcp_key_metadata", unexpected_fetch
-    )
+    monkeypatch.setattr(fetch_checkpoint_module, "_storage_reader", unexpected_fetch)
     with pytest.raises(ValueError, match="Cannot reuse DCP cache.*force=True"):
         fetch_and_convert(source, None, out_dir)
     assert {path: path.read_bytes() for path in out_dir.iterdir()} == originals

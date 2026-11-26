@@ -8,6 +8,10 @@ title: 'Core API Reference'
 The `flashdreams.core` package collects the low-level attention primitives,
 KV-cache implementations, and process-group utilities that integrations share.
 
+Distributed checkpoint readers require an independently pinned manifest before
+metadata parsing. See [DCP checkpoint trust](../guides/checkpoint_trust.md) for
+offline/custom approval and migration from existing DCP caches.
+
 ## Attention
 
 The attention package provides the kernels used by the transformer and

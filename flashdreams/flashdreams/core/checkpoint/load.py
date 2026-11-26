@@ -24,10 +24,10 @@ from safetensors import safe_open
 from safetensors.torch import load as load_safetensors
 from safetensors.torch import load_file as load_safetensors_file
 from safetensors.torch import save_file as save_safetensors
-from torch.distributed.checkpoint import FileSystemReader
 from torch.distributed.checkpoint import load as dcp_load
 from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
 
+from flashdreams.core.io.dcp_trust import DCPTrust, VerifiedDCPReader
 from flashdreams.core.io.disk import (
     CACHE_MIN_FREE_ENV,
     cache_min_free_bytes,
@@ -538,21 +538,29 @@ def _download_checkpoint_from_huggingface_url(
 
 
 def get_storage_reader(
-    checkpoint_path: str, credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH
-) -> FileSystemReader:
-    """Return the right storage reader for an S3 or local checkpoint path.
+    checkpoint_path: str,
+    credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    *,
+    dcp_trust: DCPTrust | None = None,
+) -> VerifiedDCPReader:
+    """Verify a local or S3 DCP before returning its snapshot reader.
 
     Args:
         checkpoint_path: ``s3://`` URI or local path.
         credential_path: S3 credentials path (used only for S3 paths).
+        dcp_trust: Independently pinned manifest; otherwise use the DCP trust
+            store (see ``dcp_trust.default_trust_store``). Unknown sources are
+            rejected.
 
     Returns:
-        ``S3StorageReader`` for ``s3://`` paths, ``FileSystemReader`` otherwise.
+        Verified snapshot reader. Close it after the final tensor read.
     """
     if checkpoint_path.startswith("s3://"):
-        return S3StorageReader(credential_path=credential_path, path=checkpoint_path)
+        return S3StorageReader(
+            credential_path=credential_path, path=checkpoint_path, dcp_trust=dcp_trust
+        )
     else:
-        return FileSystemReader(checkpoint_path)
+        return VerifiedDCPReader(checkpoint_path, trust=dcp_trust)
 
 
 def load_distributed_checkpoint(
@@ -561,6 +569,8 @@ def load_distributed_checkpoint(
     check_success: bool = False,
     local_cache_dir: str | None = _OMNIDREAMS_CHECKPOINT_LOCAL_CACHE_DIR,
     credential_path: str = _OMNIDREAMS_CHECKPOINT_CREDENTIAL_PATH,
+    *,
+    dcp_trust: DCPTrust | None = None,
 ) -> torch.nn.Module:
     """Load a DCP checkpoint into ``model`` in-place.
 
@@ -571,33 +581,12 @@ def load_distributed_checkpoint(
             actually changed weights. Recommended since DCP load does not
             fail on missing keys. Raises ``RuntimeError`` if any state-dict
             entry remains unchanged.
-        local_cache_dir: Directory used to cache S3 DCP loads as a local
-            single-file checkpoint. Set to ``None`` to disable local cache
-            reads/writes.
+        local_cache_dir: Retained for call compatibility. DCP-derived caches
+            are no longer reused because their bytes have no independent pin.
+        credential_path: S3 credentials path.
+        dcp_trust: Independently pinned manifest; otherwise use the trust store.
     """
-    is_s3_checkpoint = checkpoint_path.startswith("s3://")
-
-    # Cache the merged DCP shards as a single ``.pt`` next to the local
-    # cache root so subsequent loads skip the S3 round trip.
-    local_cache_checkpoint_path = None
-    if is_s3_checkpoint and local_cache_dir is not None:
-        local_cache_checkpoint_path = _s3_cache_path(
-            local_cache_dir, checkpoint_path.rstrip("/"), suffix=".pt"
-        )
-
-    # Local cache hit: trust it (the ``check_success`` path below only
-    # makes sense for a fresh DCP load that may silently miss keys).
-    if local_cache_checkpoint_path is not None and os.path.exists(
-        local_cache_checkpoint_path
-    ):
-        state_dict = torch.load(
-            local_cache_checkpoint_path, map_location="cpu", weights_only=True
-        )
-        model.load_state_dict(state_dict)
-        logger.info(
-            f"Loaded successfully from the local cache: {local_cache_checkpoint_path}"
-        )
-        return model
+    del local_cache_dir
 
     # If check_success is True, we check if the checkpoint is loaded successfully, by
     # comparing the state dict of the model before and after loading the checkpoint.
@@ -606,15 +595,15 @@ def load_distributed_checkpoint(
 
     # Load the DCP checkpoint. Note DCP load doesn't fail if there is no matching key.
     # So the best practice is to set check_success to True.
-    storage_reader = get_storage_reader(
-        checkpoint_path, credential_path=credential_path
-    )
-    state_dict = model.state_dict()
-    dcp_load(
-        state_dict,
-        storage_reader=storage_reader,
-        planner=DefaultLoadPlanner(allow_partial_load=True),
-    )
+    with get_storage_reader(
+        checkpoint_path, credential_path=credential_path, dcp_trust=dcp_trust
+    ) as storage_reader:
+        state_dict = model.state_dict()
+        dcp_load(
+            state_dict,
+            storage_reader=storage_reader,
+            planner=DefaultLoadPlanner(allow_partial_load=True),
+        )
 
     # Now check if the checkpoint is loaded successfully.
     if check_success:
@@ -632,18 +621,7 @@ def load_distributed_checkpoint(
                 + (" ..." if len(unchanged_keys) > 20 else "")
             )
 
-    # Cache the state dict locally if needed..
-    if local_cache_checkpoint_path is not None:
-        _save_to_local_cache(
-            model.state_dict(),
-            local_cache_checkpoint_path,
-            ".pt",
-            label="distributed checkpoint cache",
-        )
-        logger.info(f"Loaded successfully from the checkpoint: {checkpoint_path}")
-        logger.info(f"Cached locally to {local_cache_checkpoint_path}")
-    else:
-        logger.info(f"Loaded successfully from the checkpoint: {checkpoint_path}")
+    logger.info(f"Loaded successfully from the checkpoint: {checkpoint_path}")
 
     return model
 
@@ -1142,6 +1120,8 @@ def load_checkpoint(
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
     checkpoint_min_free_gb: float | None = None,
+    *,
+    dcp_trust: DCPTrust | None = None,
 ) -> dict[str, torch.Tensor]: ...
 
 
@@ -1155,6 +1135,8 @@ def load_checkpoint(
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
     checkpoint_min_free_gb: float | None = None,
+    *,
+    dcp_trust: DCPTrust | None = None,
 ) -> torch.nn.Module: ...
 
 
@@ -1167,6 +1149,8 @@ def load_checkpoint(
     map_location: str | torch.device = "cpu",
     check_success: bool = False,
     checkpoint_min_free_gb: float | None = None,
+    *,
+    dcp_trust: DCPTrust | None = None,
 ) -> dict[str, torch.Tensor] | torch.nn.Module:
     """Load checkpoints from S3, local disk, or Hugging Face.
 
@@ -1188,6 +1172,8 @@ def load_checkpoint(
         checkpoint_min_free_gb: Optional first-run free-space requirement in
             GiB for Hugging Face checkpoint downloads. The
             ``FLASHDREAMS_MIN_CACHE_FREE_GB`` environment override still wins.
+        dcp_trust: Independently pinned DCP manifest; otherwise use the DCP
+            trust store. Required only for DCP input.
 
     Returns:
         State dict if ``model`` is ``None``, otherwise ``model`` with weights
@@ -1257,6 +1243,7 @@ def load_checkpoint(
             check_success=check_success,
             local_cache_dir=local_cache_dir,
             credential_path=credential_path,
+            dcp_trust=dcp_trust,
         )
 
     else:

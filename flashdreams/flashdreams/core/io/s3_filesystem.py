@@ -7,14 +7,16 @@ import io
 import json
 import os
 import stat
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from typing import Any, Generator, Union
 from urllib.parse import urlparse
 
 import boto3
 from botocore.exceptions import ClientError
-from torch.distributed.checkpoint import FileSystemReader, FileSystemWriter
+from torch.distributed.checkpoint import FileSystemWriter
 from torch.distributed.checkpoint.filesystem import FileSystemBase
+
+from flashdreams.core.io.dcp_trust import DCPTrust, VerifiedDCPReader
 
 
 class S3FileSystem(FileSystemBase):
@@ -222,15 +224,29 @@ class S3StorageWriter(FileSystemWriter):
         self.path = self.fs.init_path(path)
 
 
-class S3StorageReader(FileSystemReader):
-    """S3-backed reader for ``torch.distributed.checkpoint``."""
+class S3StorageReader(VerifiedDCPReader):
+    """Read S3 DCP through a pinned, private local snapshot."""
 
-    def __init__(self, credential_path: str, path: Union[str, os.PathLike]) -> None:
+    def __init__(
+        self,
+        credential_path: str,
+        path: Union[str, os.PathLike],
+        *,
+        dcp_trust: DCPTrust | None = None,
+    ) -> None:
         """
         Args:
             credential_path: Path to the AWS S3 credentials JSON.
             path: ``s3://`` URI to read checkpoints from.
+            dcp_trust: Independently pinned manifest; otherwise use the trust store.
         """
-        super().__init__(path=path)
-        self.fs = S3FileSystem(credential_path)
-        self.path = self.fs.init_path(path)
+        fs = S3FileSystem(credential_path)
+        try:
+            super().__init__(fs.init_path(path), trust=dcp_trust, source_fs=fs)
+        finally:
+            fs.close()
+
+    def _open_source(self, source_fs: S3FileSystem, path: str):
+        # Stream at most the pinned size plus one byte, including on replacement.
+        bucket, key = source_fs._parse_s3_uri(path)
+        return closing(source_fs.s3_client.get_object(Bucket=bucket, Key=key)["Body"])
