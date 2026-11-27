@@ -189,12 +189,32 @@ live_edit:
     document = _load(path)
     document.save(document.settings)
 
-    assert document.settings.live_edit.weather.weathers[0].prompt_suffix == (
+    assert _load(path).settings.live_edit.weather.weathers[0].prompt_suffix == (
         "Custom weather conditions."
     )
     assert "prompt_suffix: Custom weather conditions." in path.read_text(
         encoding="utf-8"
     )
+
+
+def test_load_and_save_style_skins_beyond_default_count(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    count = len(_load(path).defaults.live_edit.style.skins) + 1
+    expected = [(f"skin-{index}", f"prompt-{index}") for index in range(count)]
+    skins = "\n".join(
+        f"      - {{name: {name}, prompt: {prompt}}}" for name, prompt in expected
+    )
+    path.write_text(f"live_edit:\n  style:\n    skins:\n{skins}\n", encoding="utf-8")
+
+    document = _load(path)
+    assert [
+        (skin.name, skin.prompt) for skin in document.settings.live_edit.style.skins
+    ] == expected
+    document.save(document.settings)
+
+    assert [
+        (skin.name, skin.prompt) for skin in _load(path).settings.live_edit.style.skins
+    ] == expected
 
 
 def test_pipeline_name_is_not_a_user_setting(tmp_path: Path) -> None:
@@ -315,7 +335,7 @@ def test_deprecated_settings_do_not_hide_unknown_keys(tmp_path: Path) -> None:
         _load(path)
 
 
-def test_save_is_sparse_atomic_and_preserves_retained_comments(tmp_path: Path) -> None:
+def test_save_is_sparse_and_preserves_retained_comments(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     path.write_text(
         """\
@@ -339,6 +359,7 @@ presentation:
     assert "show_fps: true  # keep this explanation" in saved
     assert "hud_enabled: false" in saved
     assert "runtime:" not in saved
+    assert not _load(path).settings.presentation.hud_enabled
     assert not tuple(tmp_path.glob(".config.yaml.*.tmp"))
 
 
@@ -356,22 +377,6 @@ def test_save_retains_quoted_string_override(tmp_path: Path) -> None:
     )
 
     assert _load(path).settings.model.device == "cpu"
-
-
-def test_load_can_append_style_skin(tmp_path: Path) -> None:
-    path = tmp_path / "config.yaml"
-    skins = "\n".join(
-        f"      - {{name: skin-{index}, prompt: prompt-{index}}}" for index in range(5)
-    )
-    path.write_text(
-        f"live_edit:\n  style:\n    skins:\n{skins}\n",
-        encoding="utf-8",
-    )
-
-    document = _load(path)
-
-    assert document.settings.live_edit.style.skins[-1].name == "skin-4"
-    assert document.settings.live_edit.style.skins[-1].prompt == "prompt-4"
 
 
 def test_deprecated_map_context_setting_is_ignored(
@@ -430,9 +435,12 @@ def test_load_nullable_torch_dtype(tmp_path: Path) -> None:
 
 def test_save_rejects_runtime_invalid_taxi_rules(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
+    original = "presentation:\n  show_fps: true # retained preference\n"
+    path.write_text(original, encoding="utf-8")
     document = _load(path)
+    committed = document.settings
     draft = document.update(
-        document.settings,
+        committed,
         ("game", "taxi", "rules", "pickup_grid_spacing_m"),
         0.0,
     )
@@ -440,4 +448,5 @@ def test_save_rejects_runtime_invalid_taxi_rules(tmp_path: Path) -> None:
     with pytest.raises(SettingsError, match="pickup_grid_spacing_m must be positive"):
         document.save(draft)
 
-    assert not path.exists()
+    assert path.read_text(encoding="utf-8") == original
+    assert document.settings is committed
