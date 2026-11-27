@@ -19,7 +19,7 @@ def test_scene_forwards_context_selection_to_map_compiler(
     monkeypatch: pytest.MonkeyPatch,
     use_prompt_context: bool,
 ) -> None:
-    compiled = SimpleNamespace(archive_path=Path("compiled.usdz"))
+    compiled = SimpleNamespace(archive_path=Path("compiled.usdz"), game_map=object())
     compiler_options: list[dict[str, object]] = []
     loader_options: list[dict[str, object]] = []
 
@@ -54,4 +54,5 @@ def test_scene_forwards_context_selection_to_map_compiler(
             "force": False,
         }
     ]
+    assert loader_options[0]["game_map"] is compiled.game_map
     assert "prompt_override" not in loader_options[0]

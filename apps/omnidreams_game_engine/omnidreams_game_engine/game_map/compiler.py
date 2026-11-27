@@ -18,26 +18,39 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
+import shapely
 import yaml
 from filelock import FileLock
+from ludus_renderer import util as renderer_util
+from ludus_renderer.util import polyline_slices
 from PIL import Image
 from shapely.geometry import LineString, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import substring, unary_union
 
-from omnidreams_game_engine import camera_defaults
+from omnidreams_game_engine import camera_defaults, math3d, ply_io, scene_fixture
 from omnidreams_game_engine.camera_defaults import DEFAULT_FRONT_CAMERA_LOGICAL_NAME
 from omnidreams_game_engine.game_map import spawn_render
-from omnidreams_game_engine.game_map._schema import GameMapError, resolve_seed_asset
-from omnidreams_game_engine.game_map.loader import load_game_map
+from omnidreams_game_engine.game_map._schema import (
+    GameMapError,
+    _parse_map_identity,
+    _parse_spawn_image_paths,
+    _read_document,
+    resolve_seed_asset,
+)
+from omnidreams_game_engine.game_map.elevation import drape_polyline
+from omnidreams_game_engine.game_map.loader import resolve_game_map
 from omnidreams_game_engine.game_map.types import (
     GameMapSpawn,
     ResolvedGameMap,
+    game_map_from_dict,
     game_map_to_dict,
 )
 from omnidreams_game_engine.math3d import rig_pose_from_state
 from omnidreams_game_engine.ply_io import save_mesh_vf
 from omnidreams_game_engine.scene_fixture import _calibration_row
+from omnidreams_game_engine.simulation import ground_snap
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 
 # Pre-release maps and compiler output stay at version 1. Do not increment this
 # during development; a future release process owns version changes.
@@ -79,23 +92,45 @@ def _cache_root() -> Path:
     )
 
 
-def _digest(game_map: ResolvedGameMap) -> str:
-    hasher = hashlib.sha256()
-    hasher.update(_COMPILER_VERSION.encode())
-    hasher.update(Path(__file__).read_bytes())
-    hasher.update(game_map.source_path.read_bytes())
-    resolved = game_map_to_dict(game_map)
-    resolved.pop("source_path", None)
-    hasher.update(json.dumps(resolved, sort_keys=True, separators=(",", ":")).encode())
-    for spawn in game_map.spawns:
-        if spawn.image is None:
-            hasher.update(b"generated-spawn-first-frame")
-            hasher.update(spawn_render.SPAWN_RENDERER_VERSION.encode())
-            hasher.update(Path(spawn_render.__file__).read_bytes())
-            hasher.update(Path(camera_defaults.__file__).read_bytes())
-        else:
-            asset = resolve_seed_asset(game_map.source_path, spawn.image)
-            hasher.update(asset.read_bytes())
+def _digest(document: bytes, spawn_images: dict[str, Path | None]) -> str:
+    """Hash compilation inputs before resolving any road or terrain geometry."""
+    hasher = hashlib.sha256(_COMPILER_VERSION.encode())
+    hasher.update(document)
+    # A new geometry kernel can triangulate the same node graph differently.
+    hasher.update(
+        f"{np.__version__}/{shapely.__version__}/{shapely.geos_version_string}".encode()
+    )
+    package = Path(__file__).parent
+    sources = [
+        package / filename
+        for filename in (
+            "compiler.py",
+            "_schema.py",
+            "loader.py",
+            "elevation.py",
+            "traffic.py",
+            "types.py",
+        )
+    ]
+    sources.extend(
+        Path(module.__file__)
+        for module in (
+            camera_defaults,
+            math3d,
+            ply_io,
+            scene_fixture,
+            ground_snap,
+            renderer_util,
+        )
+    )
+    if None in spawn_images.values():
+        hasher.update(spawn_render.SPAWN_RENDERER_VERSION.encode())
+        sources.append(Path(spawn_render.__file__))
+    for path in sources:
+        hasher.update(path.read_bytes())
+    for asset in spawn_images.values():
+        if asset is not None:
+            hasher.update(hashlib.sha256(asset.read_bytes()).digest())
     return hasher.hexdigest()
 
 
@@ -191,7 +226,45 @@ def _lane_line_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
                 "version": 1,
             }
         )
-    return rows
+    bounded = []
+    for row in rows:
+        line = row["lane_line"]
+        style = line["styles"][0].upper()
+        # Dashed/dotted paths must keep their phase; the reader expands them
+        # into individual strokes. Only continuous solid paint is split here.
+        if "SOLID" not in style or "DASHED" in style or "DOT" in style:
+            bounded.append(row)
+            continue
+        rail = line["line_rail"]
+        slices = polyline_slices(len(rail))
+        if len(slices) == 1:
+            bounded.append(row)
+            continue
+        for index, section in enumerate(slices):
+            bounded.append(
+                {
+                    **row,
+                    "key": {
+                        **row["key"],
+                        "label_class_id": f"{row['key']['label_class_id']}:part:{index}",
+                    },
+                    "lane_line": {
+                        **line,
+                        "line_rail": rail[section],
+                        "is_first_point_physical_end": (
+                            line["is_first_point_physical_end"]
+                            if index == 0
+                            else "false"
+                        ),
+                        "is_last_point_physical_end": (
+                            line["is_last_point_physical_end"]
+                            if index == len(slices) - 1
+                            else "false"
+                        ),
+                    },
+                }
+            )
+    return bounded
 
 
 def _line_geometries(geometry: BaseGeometry) -> list[LineString]:
@@ -254,20 +327,29 @@ def _boundary_chunks(game_map: ResolvedGameMap) -> tuple[np.ndarray, ...]:
     surfaces = [Polygon(element.surface_world[:, :2]) for element in game_map.elements]
     lines = _line_geometries(unary_union(surfaces).boundary)
     lines.sort(key=lambda line: tuple(round(value, 6) for value in line.bounds))
-    z_m = float(game_map.elements[0].surface_world[0, 2])
+    ground = (
+        GroundSnapper(game_map.ground_vertices, game_map.ground_faces)
+        if np.ptp(game_map.ground_vertices[:, 2]) > 0
+        else None
+    )
+
+    def xyz(points_xy: np.ndarray) -> np.ndarray:
+        points = np.column_stack((points_xy, np.zeros(len(points_xy))))
+        if ground is not None:
+            # Sample elevation after the union has removed internal road joins.
+            points = drape_polyline(points, ground, 1.0)
+        else:
+            points[:, 2] = game_map.ground_vertices[0, 2]
+        if not np.isfinite(points).all():
+            raise GameMapError("Road boundary is outside the compiled ground mesh")
+        return points.astype(np.float32)
+
     chunks: list[np.ndarray] = []
     for line in lines:
         length = float(line.length)
         chunk_count = max(1, math.ceil(length / _BOUNDARY_CHUNK_CORE_LENGTH_M))
         if chunk_count == 1:
-            chunks.append(
-                np.column_stack(
-                    (
-                        np.asarray(line.coords, dtype=np.float32),
-                        np.full(len(line.coords), z_m, dtype=np.float32),
-                    )
-                )
-            )
+            chunks.append(xyz(np.asarray(line.coords, dtype=np.float32)))
             continue
         core_length = length / chunk_count
         for index in range(chunk_count):
@@ -276,15 +358,10 @@ def _boundary_chunks(game_map: ResolvedGameMap) -> tuple[np.ndarray, ...]:
                 index * core_length - _BOUNDARY_CHUNK_OVERLAP_M,
                 (index + 1) * core_length + _BOUNDARY_CHUNK_OVERLAP_M,
             )
-            chunks.append(
-                np.column_stack(
-                    (
-                        points_xy,
-                        np.full(len(points_xy), z_m, dtype=np.float32),
-                    )
-                )
-            )
-    return tuple(chunks)
+            chunks.append(xyz(points_xy))
+    return tuple(
+        chunk[section] for chunk in chunks for section in polyline_slices(len(chunk))
+    )
 
 
 def _boundary_rows(game_map: ResolvedGameMap) -> list[dict[str, object]]:
@@ -395,6 +472,7 @@ def _trajectory(spawn: GameMapSpawn) -> dict[str, object]:
         float(spawn.position_world[1]),
         float(spawn.position_world[2]),
         spawn.yaw_rad,
+        pitch_rad=spawn.pitch_rad,
     ).tolist()
     return {
         "rig_trajectories": [
@@ -472,40 +550,41 @@ def compile_game_map(
     force: bool = False,
 ) -> CompiledGameMap:
     """Compile one map spawn, optionally replacing its valid cached archive."""
-    game_map = load_game_map(path)
-    spawn = (
-        game_map.default_spawn
-        if spawn_id is None
-        else next(
-            (item for item in game_map.spawns if item.spawn_id == spawn_id),
-            None,
-        )
-    )
-    if spawn is None:
-        available = ", ".join(item.spawn_id for item in game_map.spawns)
-        raise GameMapError(f"Unknown spawn {spawn_id!r}; available spawns: {available}")
-    digest = _digest(game_map)
+    source_path = Path(path).expanduser().resolve()
+    doc = _read_document(source_path)
+    map_id, _ = _parse_map_identity(doc)
+    spawn_images = dict(_parse_spawn_image_paths(doc, source_path))
+    default_spawn_id = next(iter(spawn_images))
+    selected = default_spawn_id if spawn_id is None else spawn_id
+    if selected not in spawn_images:
+        available = ", ".join(spawn_images)
+        raise GameMapError(f"Unknown spawn {selected!r}; available spawns: {available}")
+    digest = _digest(yaml.safe_dump(doc, sort_keys=False).encode(), spawn_images)
     root = _cache_root() if cache_root is None else Path(cache_root)
     output_dir = root / digest
     spawn_suffix = (
         ""
-        if spawn is game_map.default_spawn
-        else "-" + hashlib.sha256(spawn.spawn_id.encode()).hexdigest()
+        if selected == default_spawn_id
+        else "-" + hashlib.sha256(selected.encode()).hexdigest()
     )
     context_suffix = "-context" if use_prompt_context else ""
-    archive_path = output_dir / f"{game_map.map_id}{spawn_suffix}{context_suffix}.usdz"
+    archive_path = output_dir / f"{map_id}{spawn_suffix}{context_suffix}.usdz"
     lock = FileLock(str(root / f"{digest}.lock"))
     root.mkdir(parents=True, exist_ok=True)
     with lock:
         if archive_path.is_file() and not force:
             try:
                 with zipfile.ZipFile(archive_path, "r") as archive:
-                    if "game_map.json" in archive.namelist():
-                        return CompiledGameMap(
-                            game_map.source_path, archive_path, game_map, True
-                        )
-            except (OSError, zipfile.BadZipFile):
+                    resolved = json.loads(archive.read("game_map.json"))
+                    # Identical maps may share this archive across source directories.
+                    resolved["source_path"] = str(source_path)
+                    return CompiledGameMap(
+                        source_path, archive_path, game_map_from_dict(resolved), True
+                    )
+            except (OSError, zipfile.BadZipFile, ValueError, KeyError, TypeError):
                 pass
+        game_map = resolve_game_map(source_path, doc)
+        spawn = next(item for item in game_map.spawns if item.spawn_id == selected)
         output_dir.mkdir(parents=True, exist_ok=True)
         file_descriptor, temporary_name = tempfile.mkstemp(
             dir=output_dir, prefix=".map-", suffix=".usdz"

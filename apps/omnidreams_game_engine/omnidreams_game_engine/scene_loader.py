@@ -22,7 +22,7 @@ from omnidreams_game_engine.colors import (
     LANE_LINE_STYLE_CONFIG,
 )
 from omnidreams_game_engine.config import RasterConfig
-from omnidreams_game_engine.game_map.types import game_map_from_dict
+from omnidreams_game_engine.game_map.types import ResolvedGameMap, game_map_from_dict
 from omnidreams_game_engine.math3d import (
     euler_xyz_degrees_to_matrix,
     extract_yaw_from_transform,
@@ -599,6 +599,7 @@ def load_scene_bundle(
     raster: RasterConfig,
     *,
     traffic_enabled: bool = True,
+    game_map: ResolvedGameMap | None = None,
 ) -> SceneDefinition:
     scene_path = Path(scene_path)
     with zipfile.ZipFile(scene_path, "r") as zf:
@@ -611,11 +612,8 @@ def load_scene_bundle(
         prompt = _load_prompt(zf)
         line_layers, triangle_layers, polygon_layers = _load_map_layers(zf, raster)
         ground_mesh_vertices, ground_mesh_faces = _load_ground_mesh(zf)
-        game_map = (
-            game_map_from_dict(json.loads(zf.read("game_map.json")))
-            if "game_map.json" in zf.namelist()
-            else None
-        )
+        if game_map is None and "game_map.json" in zf.namelist():
+            game_map = game_map_from_dict(json.loads(zf.read("game_map.json")))
 
     if game_map is not None and not traffic_enabled:
         game_map = replace(game_map, traffic=())
