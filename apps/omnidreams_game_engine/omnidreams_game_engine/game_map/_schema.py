@@ -80,6 +80,9 @@ class GameMapHeader:
     menu_thumbnail_path: Path | None = None
     """Explicit menu thumbnail or the first authored spawn image."""
 
+    default_spawn_id: str | None = None
+    """First authored spawn, shared by modes without a course-specific start."""
+
     @property
     def race_course_ids(self) -> tuple[str, ...]:
         """Return ordered stable course identifiers."""
@@ -307,6 +310,7 @@ def load_game_map_header(path: Path) -> GameMapHeader:
         map_id=map_id,
         name=name,
         source_path=source_path,
+        default_spawn_id=spawn_image_items[0][0],
         race_courses=_parse_race_course_headers(doc, spawn_images),
         menu_thumbnail_path=menu_thumbnail_path,
     )

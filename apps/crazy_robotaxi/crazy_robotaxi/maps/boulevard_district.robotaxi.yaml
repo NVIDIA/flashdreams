@@ -419,10 +419,12 @@ spawns:
     road: spawn_arterial
     lane: 2
     distance_m: 128
-    image: package://omnidreams_game_engine/screenshot.jpg
+    image: boulevard_district_initial_frame.png
     prompt: >-
-      A forward-facing view from a taxi moving through a quiet suburban
-      district in daylight, with low commercial buildings, houses,
-      landscaping, and parked cars.
+      Onboard footage of a taxi driving through a suburban district. Stucco and
+      craftsman homes, small shops, gardens, mature trees, palms and jacarandas.
+      Asphalt, concrete curbs and sidewalks. Car hood visible. The view follows
+      the steering and movement of the car.
     prompt_context: >-
-      A forward-facing view from a taxi on a road through a city in daylight.
+      Onboard footage of a taxi driving through a suburban district. Car hood
+      visible. The view follows the steering and movement of the car.
