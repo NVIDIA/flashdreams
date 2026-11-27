@@ -41,6 +41,7 @@ from .core import (
     view_modes_for,
 )
 from .scene_loader import load_scene_bundle
+from .types import DriverCommand
 
 _SCENE_STEM = re.compile(r"^clipgt-(?P<uuid>[0-9a-fA-F-]{36})(?:-(?P<variant>.+))?$")
 
@@ -140,7 +141,6 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
         state.drive_input.apply(events)
         command = state.drive_input.command()
         telemetry = state.telemetry
-        self._ensure_sprites()
         scale = _hud_scale(state.viewport_width, state.viewport_height)
         # Style rather than IO: imgui 1.92 dropped io.font_global_scale for
         # per-font scaling, and this is the global knob that replaced it.
@@ -177,29 +177,7 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
             imgui.text(f"Steer  {command.steer:+.2f}")
             self._progress(imgui, "Throttle", command.throttle)
             self._progress(imgui, "Brake", command.brake)
-            imgui.image(
-                "steering-wheel",
-                self._wheel_pixels(command.steer),
-                size=(138.0 * scale, 138.0 * scale),
-            )
-            imgui.same_line()
-            imgui.image(
-                "brake-pedal",
-                state.sprites[
-                    "brake_pressed" if command.brake > 0.05 else "brake_unpressed"
-                ],
-                size=(64.0 * scale, 138.0 * scale),
-            )
-            imgui.same_line()
-            imgui.image(
-                "throttle-pedal",
-                state.sprites[
-                    "throttle_pressed"
-                    if command.throttle > 0.05
-                    else "throttle_unpressed"
-                ],
-                size=(64.0 * scale, 138.0 * scale),
-            )
+            self._draw_wheel_and_pedals(imgui, command, scale=scale)
             imgui.separator()
             self._draw_runtime_config(imgui)
             if state.show_postprocess_toggle:
@@ -332,6 +310,38 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
         invoke_async(
             state.model_loop,
             lambda model_state, view=state.view_mode: model_state.set_view_mode(view),
+        )
+
+    def _draw_wheel_and_pedals(
+        self, imgui: Any, command: DriverCommand, *, scale: float = 1.0
+    ) -> None:
+        """Draw live wheel and pedal sprites within the current panel's width."""
+        width = imgui.get_content_region_avail().x
+        spacing = imgui.get_style().item_spacing.x
+        scale = min(scale, max(0.0, width - 2 * spacing) / 266.0)
+        if scale <= 0:
+            return
+        self._ensure_sprites()
+        imgui.image(
+            "steering-wheel",
+            self._wheel_pixels(command.steer),
+            size=(138.0 * scale, 138.0 * scale),
+        )
+        imgui.same_line()
+        imgui.image(
+            "brake-pedal",
+            self.state.sprites[
+                "brake_pressed" if command.brake > 0.05 else "brake_unpressed"
+            ],
+            size=(64.0 * scale, 138.0 * scale),
+        )
+        imgui.same_line()
+        imgui.image(
+            "throttle-pedal",
+            self.state.sprites[
+                "throttle_pressed" if command.throttle > 0.05 else "throttle_unpressed"
+            ],
+            size=(64.0 * scale, 138.0 * scale),
         )
 
     def _ensure_sprites(self) -> None:
