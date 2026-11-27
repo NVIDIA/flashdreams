@@ -14,6 +14,7 @@ import numpy.typing as npt
 from omnidreams_game_engine.camera import FThetaCameraModel
 from omnidreams_game_engine.contracts import GameUpdate
 from omnidreams_game_engine.game_map import GameMapRaceCourse, ResolvedGameMap
+from omnidreams_game_engine.simulation.ground_snap import GroundSnapper
 from omnidreams_game_engine.types import TrajectoryChunk, VehicleState
 from shapely.geometry import LineString, Point, Polygon
 
@@ -199,13 +200,34 @@ class RaceController:
         }
         self._centerlines = {
             element_id: tuple(
-                np.asarray(lane.centerline_world[:, :2], dtype=np.float64)
+                np.asarray(lane.centerline_world, dtype=np.float64)
                 for lane in game_map.lanes
                 if lane.element_id == element_id
             )
             for element_id in element_ids
         }
         self._gates, self._gate_directions = self._build_gates()
+        ground = GroundSnapper(game_map.ground_vertices, game_map.ground_faces)
+        self._gate_points = {}
+        for element_id, gate in self._gates.items():
+            midpoint = np.asarray(gate.interpolate(0.5, normalized=True).coords[0])
+            frame = _nearest_centerline_entry(self._centerlines[element_id], midpoint)
+            reference_z = (
+                self._surface_z[element_id] if frame is None else float(frame[0][2])
+            )
+            points = []
+            for xy in (gate.coords[0], gate.coords[-1], midpoint):
+                surface = ground.ground_surface_at(
+                    float(xy[0]), float(xy[1]), reference_z
+                )
+                points.append(
+                    (
+                        float(xy[0]),
+                        float(xy[1]),
+                        reference_z if surface is None else surface[0],
+                    )
+                )
+            self._gate_points[element_id] = tuple(points)
         self._session_state: RaceSessionState = "awaiting_start"
         self._target_kind: RaceTargetKind = "start"
         self._checkpoint_index = 0
@@ -251,22 +273,7 @@ class RaceController:
         target_id = self._target_element_id
         gate = self._gates[target_id]
         ego = Point(state.x_m, state.y_m)
-        start_xy, end_xy = gate.coords[0], gate.coords[-1]
-        target_xyz = (
-            (float(start_xy[0]) + float(end_xy[0])) / 2.0,
-            (float(start_xy[1]) + float(end_xy[1])) / 2.0,
-            self._surface_z[target_id],
-        )
-        gate_start_xyz = (
-            float(start_xy[0]),
-            float(start_xy[1]),
-            self._surface_z[target_id],
-        )
-        gate_end_xyz = (
-            float(end_xy[0]),
-            float(end_xy[1]),
-            self._surface_z[target_id],
-        )
+        gate_start_xyz, gate_end_xyz, target_xyz = self._gate_points[target_id]
         distance = float(ego.distance(gate))
         return RaceGameSnapshot(
             map_id=self._map_id,
@@ -469,6 +476,7 @@ def _cross_course_gate(
         )
     else:
         anchor, direction = frame
+        anchor = anchor[:2]
     span = max(
         surface.bounds[2] - surface.bounds[0],
         surface.bounds[3] - surface.bounds[1],
@@ -498,11 +506,11 @@ def _nearest_centerline_entry(
             continue
         oriented = (
             centerline
-            if np.linalg.norm(centerline[0] - approach_xy)
-            <= np.linalg.norm(centerline[-1] - approach_xy)
+            if np.linalg.norm(centerline[0, :2] - approach_xy)
+            <= np.linalg.norm(centerline[-1, :2] - approach_xy)
             else centerline[::-1]
         )
-        segments = np.diff(oriented, axis=0)
+        segments = np.diff(oriented[:, :2], axis=0)
         lengths = np.linalg.norm(segments, axis=1)
         total_length = float(lengths.sum())
         if total_length <= 1.0e-6:
@@ -519,7 +527,9 @@ def _nearest_centerline_entry(
     if not frames:
         return None
 
-    reference = min(frames, key=lambda frame: np.linalg.norm(frame[0] - approach_xy))
+    reference = min(
+        frames, key=lambda frame: np.linalg.norm(frame[0][:2] - approach_xy)
+    )
     frames = [
         frame
         for frame in frames
@@ -533,13 +543,14 @@ def _nearest_centerline_entry(
         return None
     inward_direction = direction / norm
     if len(endpoints) > 1:
-        _, _, axes = np.linalg.svd(endpoints - anchor, full_matrices=False)
+        _, _, axes = np.linalg.svd((endpoints - anchor)[:, :2], full_matrices=False)
         direction = np.asarray([axes[0, 1], -axes[0, 0]], dtype=np.float64)
         if float(np.dot(direction, inward_direction)) < 0.0:
             direction *= -1.0
     else:
         direction = inward_direction
-    return anchor + direction * min(frame[2] for frame in frames), direction
+    anchor[:2] += direction * min(frame[2] for frame in frames)
+    return anchor, direction
 
 
 def _line_parts(geometry: object) -> tuple[LineString, ...]:

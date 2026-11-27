@@ -44,6 +44,55 @@ def test_shipped_map_is_valid(filename: str) -> None:
     assert game_map.default_spawn.prompt_context != game_map.default_spawn.prompt
 
 
+@pytest.mark.parametrize("height", [0, 12])
+def test_short_curved_joint_lanes_share_their_divider_edges(
+    tmp_path: Path, height: int
+) -> None:
+    source = yaml.safe_load((_MAP_FIXTURES / "hairpin.robotaxi.yaml").read_text())
+    source["schema_version"] = 2
+    profile = source["profiles"]["street"]
+    profile["lanes"] = ["backward", "backward", "forward", "forward"]
+    profile["divider_markings"] *= 3
+    for node in source["nodes"]:
+        if node["type"] == "cul_de_sac":
+            node["culdesac_radius_m"] = 25
+        if node["id"] in ("exit_node", "exit_end"):
+            node["pose"]["z_m"] = height
+    source["nodes"].append(
+        {"id": "midpoint", "type": "road_joint", "pose": {"x_m": 20, "y_m": 75}}
+    )
+    hairpin = source["roads"][1]
+    first, last = hairpin["bezier"]
+    hairpin.update(to="midpoint", bezier=[first])
+    source["roads"].append(
+        {
+            "id": "climb",
+            "from": "midpoint",
+            "to": "exit_node",
+            "profile": "street",
+            "bezier": [last],
+        }
+    )
+    path = tmp_path / "curved-joint.robotaxi.yaml"
+    path.write_text(yaml.safe_dump(source))
+    game_map = load_game_map(path)
+    lanes = {lane.lane_id: lane for lane in game_map.lanes}
+    dividers = [
+        d for d in game_map.lane_dividers if d.lane_edges[0][0].startswith("midpoint:")
+    ]
+    assert len(dividers) == 3
+    for divider in dividers:
+        (first_id, first_side), (second_id, second_side) = divider.lane_edges
+        first_edge = getattr(lanes[first_id], f"{first_side}_edge_world")
+        second_edge = getattr(lanes[second_id], f"{second_side}_edge_world")
+        if np.linalg.norm(first_edge[0] - second_edge[-1]) < np.linalg.norm(
+            first_edge[0] - second_edge[0]
+        ):
+            second_edge = second_edge[::-1]
+        np.testing.assert_allclose(first_edge, second_edge, atol=1e-5)
+        np.testing.assert_allclose(divider.polyline_world, first_edge, atol=1e-5)
+
+
 def test_prompt_context_is_trimmed_and_round_trips(tmp_path: Path) -> None:
     source = yaml.safe_load(
         (_MAP_FIXTURES / "intersection_geometry.robotaxi.yaml").read_text()

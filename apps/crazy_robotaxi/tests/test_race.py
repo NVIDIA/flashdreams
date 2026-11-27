@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -30,12 +31,6 @@ _BOULEVARD_MAP = (
     / "crazy_robotaxi"
     / "maps"
     / "boulevard_district.robotaxi.yaml"
-)
-_RACEWAY_MAP = (
-    Path(__file__).parents[1]
-    / "crazy_robotaxi"
-    / "maps"
-    / "flashdreams_raceway.robotaxi.yaml"
 )
 
 
@@ -389,8 +384,8 @@ def test_boulevard_intersection_gates_span_the_full_arterial(tmp_path: Path) -> 
         assert controller._gates[element_id].length >= 15.5
 
 
-def test_grand_prix_hairpin_gate_is_at_the_course_entry(tmp_path: Path) -> None:
-    game_map = load_game_map(_RACEWAY_MAP)
+def test_hairpin_gate_is_at_the_course_entry(tmp_path: Path) -> None:
+    game_map = load_game_map(Path(__file__).parent / "maps/hairpin.robotaxi.yaml")
     course = game_map.race_courses[0]
     controller = RaceController(
         game_map,
@@ -398,15 +393,54 @@ def test_grand_prix_hairpin_gate_is_at_the_course_entry(tmp_path: Path) -> None:
         _state(-300.0, -300.0),
         RaceTimeStore(tmp_path / "times.csv"),
     )
-    checkpoint_index = 4
+    checkpoint_index = 0
     checkpoint_id = course.checkpoint_element_ids[checkpoint_index]
-    previous_id = course.checkpoint_element_ids[checkpoint_index - 1]
+    previous_id = course.start_element_id
     following_id = course.checkpoint_element_ids[checkpoint_index + 1]
 
-    assert checkpoint_id == "infield_hairpin"
+    assert checkpoint_id == "hairpin"
     assert controller._gates[checkpoint_id].distance(
         controller._surfaces[previous_id]
     ) < controller._gates[checkpoint_id].distance(controller._surfaces[following_id])
+
+
+def test_gate_endpoints_and_target_follow_the_local_sloped_surface(
+    tmp_path: Path,
+) -> None:
+    game_map = load_game_map(_MAP)
+
+    def sloped(points: np.ndarray) -> np.ndarray:
+        result = points.copy()
+        result[:, 2] = 5 + 0.02 * result[:, 0] + 0.01 * result[:, 1]
+        return result
+
+    game_map = replace(
+        game_map,
+        ground_vertices=sloped(game_map.ground_vertices),
+        elements=tuple(
+            replace(e, surface_world=sloped(e.surface_world)) for e in game_map.elements
+        ),
+        lanes=tuple(
+            replace(lane, centerline_world=sloped(lane.centerline_world))
+            for lane in game_map.lanes
+        ),
+    )
+    course = game_map.race_courses[0]
+    for element_id in (course.start_element_id, *course.checkpoint_element_ids):
+        controller = RaceController(
+            game_map,
+            replace(course, start_element_id=element_id),
+            _state(0, 0),
+            RaceTimeStore(tmp_path / "times.csv"),
+        )
+        snapshot = controller.snapshot(_state(0, 0))
+        assert snapshot.target_element_id == element_id
+        for x, y, z in (
+            snapshot.gate_start_xyz_m,
+            snapshot.gate_end_xyz_m,
+            snapshot.target_xyz_m,
+        ):
+            assert z == pytest.approx(5 + 0.02 * x + 0.01 * y, abs=1e-5)
 
 
 def test_race_times_are_isolated_by_map_and_course(tmp_path: Path) -> None:
