@@ -25,6 +25,9 @@ class SceneRequest:
     spawn_id: str | None = None
     """Authored spawn to load; ``None`` selects the map's first spawn."""
 
+    traffic_enabled: bool = True
+    """Include authored NPC traffic in simulation and semantic rendering."""
+
 
 def load_scene(request: SceneRequest, raster: RasterConfig) -> SceneDefinition:
     """Compile an authored map if necessary and load its runtime scene."""
@@ -38,4 +41,5 @@ def load_scene(request: SceneRequest, raster: RasterConfig) -> SceneDefinition:
         scene_path=compiled.archive_path,
         camera_name=request.camera_name,
         raster=raster,
+        traffic_enabled=request.traffic_enabled,
     )
