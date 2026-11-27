@@ -109,78 +109,21 @@ SPDX-License-Identifier: Apache-2.0
 
     <!-- MAIN WORKSPACE -->
     <main class="cockpit-workspace">
-      <!-- Left 7-Camera Selector -->
+      <!-- Camera selector -->
       <aside class="camera-sidebar">
         <div class="sidebar-title">
-          <span>7-视角相机阵列</span>
-          <span style="font-size: 11px; color: var(--text-muted);">RIG 0-6</span>
+          <span>相机阵列</span>
+          <span id="camera-count" style="font-size: 11px; color: var(--text-muted);">等待相机</span>
         </div>
-        <div class="camera-list">
-          <!-- CAM 0 -->
-          <button type="button" class="camera-card active" data-channel="0" aria-label="切换到前向广角 120°" aria-pressed="true">
-            <div class="camera-thumb">
-              <img id="camera-preview-0" alt="前向广角 120°模型预览" hidden />
-              <span id="camera-waiting-0">等待模型画面</span>
-            </div>
-            <span class="camera-badge">前向广角 120°</span>
-          </button>
-          <!-- CAM 1 -->
-          <button type="button" class="camera-card" data-channel="1" aria-label="切换到右前侧向 120°" aria-pressed="false">
-            <div class="camera-thumb">
-              <img id="camera-preview-1" alt="右前侧向 120°模型预览" hidden />
-              <span id="camera-waiting-1">等待模型画面</span>
-            </div>
-            <span class="camera-badge">右前侧向 120°</span>
-          </button>
-          <!-- CAM 2 -->
-          <button type="button" class="camera-card" data-channel="2" aria-label="切换到右后侧向 70°" aria-pressed="false">
-            <div class="camera-thumb">
-              <img id="camera-preview-2" alt="右后侧向 70°模型预览" hidden />
-              <span id="camera-waiting-2">等待模型画面</span>
-            </div>
-            <span class="camera-badge">右后侧向 70°</span>
-          </button>
-          <!-- CAM 3 -->
-          <button type="button" class="camera-card" data-channel="3" aria-label="切换到正后远焦 30°" aria-pressed="false">
-            <div class="camera-thumb">
-              <img id="camera-preview-3" alt="正后远焦 30°模型预览" hidden />
-              <span id="camera-waiting-3">等待模型画面</span>
-            </div>
-            <span class="camera-badge">正后远焦 30°</span>
-          </button>
-          <!-- CAM 4 -->
-          <button type="button" class="camera-card" data-channel="4" aria-label="切换到左后侧向 70°" aria-pressed="false">
-            <div class="camera-thumb">
-              <img id="camera-preview-4" alt="左后侧向 70°模型预览" hidden />
-              <span id="camera-waiting-4">等待模型画面</span>
-            </div>
-            <span class="camera-badge">左后侧向 70°</span>
-          </button>
-          <!-- CAM 5 -->
-          <button type="button" class="camera-card" data-channel="5" aria-label="切换到左前侧向 120°" aria-pressed="false">
-            <div class="camera-thumb">
-              <img id="camera-preview-5" alt="左前侧向 120°模型预览" hidden />
-              <span id="camera-waiting-5">等待模型画面</span>
-            </div>
-            <span class="camera-badge">左前侧向 120°</span>
-          </button>
-          <!-- CAM 6 -->
-          <button type="button" class="camera-card" data-channel="6" aria-label="切换到正前远焦 30°" aria-pressed="false">
-            <div class="camera-thumb">
-              <img id="camera-preview-6" alt="正前远焦 30°模型预览" hidden />
-              <span id="camera-waiting-6">等待模型画面</span>
-            </div>
-            <span class="camera-badge">正前远焦 30°</span>
-          </button>
-        </div>
+        <div class="camera-list" id="camera-list"></div>
       </aside>
 
       <!-- Center Stage (Video & Overlay) -->
       <section class="stage-container">
         <!-- Floating Camera Tag -->
-        <div class="view-tag" id="view-tag-label">
+        <div class="view-tag">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
-          <span>前向广角 120°</span>
+          <span id="view-tag-label">相机画面</span>
         </div>
 
         <!-- Video Actions -->

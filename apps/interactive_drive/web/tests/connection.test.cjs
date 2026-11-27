@@ -12,8 +12,10 @@ function fixture({ status = 200 } = {}) {
     constructor() {
       this.style = {}; this.dataset = {}; this.attributes = {}; this.listeners = {};
       this.classList = { toggle() {}, add() {}, remove() {} };
-      this.textContent = ''; this.value = '';
+      this.textContent = ''; this.value = ''; this.children = [];
     }
+    append(...children) { this.children.push(...children); }
+    replaceChildren(...children) { this.children = children; }
     addEventListener(name, handler) { this.listeners[name] = handler; }
     setAttribute(name, value) { this.attributes[name] = value; }
     getAttribute(name) { return this.attributes[name]; }
@@ -26,17 +28,15 @@ function fixture({ status = 200 } = {}) {
     const element = new Element(); element.setAttribute('data-gear', match[2]);
     elements.set(`gear-${match[1]}`, element); return element;
   });
-  const cards = [...html.matchAll(/<button[^>]+class="camera-card[^"]*"[^>]+data-channel="(\d+)"/g)].map(match => {
-    const element = new Element(); element.setAttribute('data-channel', match[1]); return element;
-  });
   const document = {
     hidden: false, hasFocus: () => true,
     documentElement: new Element(), listeners: {},
+    createElement: () => new Element(),
     getElementById(id) {
       if (!elements.has(id)) elements.set(id, new Element());
       return elements.get(id);
     },
-    querySelectorAll: selector => selector === '.gear-item' ? gearItems : selector === '.camera-card' ? cards : [],
+    querySelectorAll: selector => selector === '.gear-item' ? gearItems : [],
     addEventListener(name, handler) { this.listeners[name] = handler; },
   };
   const messages = [], requests = [], peers = [];
@@ -64,7 +64,7 @@ function fixture({ status = 200 } = {}) {
     async setRemoteDescription(answer) { this.remoteDescription = answer; }
     close() { this.channel.readyState = 'closed'; }
   }
-  const window = { listeners: {}, setInterval: () => 1,
+  const window = { listeners: {}, location: { hash: '' }, setInterval: () => 1,
     addEventListener(name, handler) { this.listeners[name] = handler; } };
   const source = fs.readFileSync(path.join(__dirname, '../src/components/CockpitApp.ts'), 'utf8');
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -72,7 +72,7 @@ function fixture({ status = 200 } = {}) {
   vm.runInNewContext(code, {
     exports, document, window, navigator: { getGamepads: () => [] },
     RTCPeerConnection: Peer, setTimeout, clearTimeout, clearInterval() {},
-    URL, AbortSignal, console, performance,
+    URL, URLSearchParams, AbortSignal, console, performance,
     localStorage: { getItem: () => null, setItem() {} },
     fetch: async (url, options) => {
       requests.push({ url, body: JSON.parse(options.body) });
@@ -87,7 +87,9 @@ function fixture({ status = 200 } = {}) {
     return peers.at(-1);
   };
   const key = (name, pressed, shiftKey = false) => window.listeners[pressed ? 'keydown' : 'keyup']({ key: name, shiftKey, preventDefault() {}, target: null });
-  return { app, document, window, messages, requests, peers, ready, key, cards, gearItems };
+  const cards = () => document.getElementById('camera-list').children;
+  const receive = (peer, data) => peer.channel.onmessage({ data: JSON.stringify(data) });
+  return { app, document, window, messages, requests, peers, ready, key, cards, receive, gearItems };
 }
 
 test('ICE offer, camera selection, D steering, release, reverse and real telemetry', async () => {
@@ -97,8 +99,7 @@ test('ICE offer, camera selection, D steering, release, reverse and real telemet
     assert.equal(f.requests[0].url, '/api/webrtc/offer');
     assert.equal(f.requests[0].body.sdp, 'with-ice-candidates');
     peer.channel.readyState = 'open'; peer.channel.onopen();
-    assert.equal(f.messages[0].type, 'select_camera');
-    assert.equal(f.messages[0].camera, 'camera_front_wide_120fov');
+    assert.ok(!f.messages.some(message => message.type === 'select_camera'));
     f.key('d', true); f.key('w', true);
     assert.equal(f.messages.at(-1).action, 'state');
     assert.equal(f.messages.at(-1).steering, 1); // backend converts right to negative yaw
@@ -154,7 +155,7 @@ test('recording commands wait for backend acknowledgement and expose the finaliz
 });
 
 
-test('all four gear buttons, Shift shortcuts, seven preview images and camera selection', async () => {
+test('all four gear buttons and Shift shortcuts', async () => {
   const f = fixture();
   try {
     const peer = await f.ready(); peer.channel.readyState = 'open'; peer.channel.onopen();
@@ -171,21 +172,59 @@ test('all four gear buttons, Shift shortcuts, seven preview images and camera se
       f.key(gear.toLowerCase(), true, true);
       assert.equal(f.messages.at(-1).gear, gear);
     }
-    assert.equal(f.cards.length, 7);
-    const names = ['front_wide_120fov', 'cross_right_120fov', 'rear_right_70fov', 'rear_tele_30fov', 'rear_left_70fov', 'cross_left_120fov', 'front_tele_30fov'];
-    names.forEach((name, i) => {
-      const image = `data:image/jpeg;base64,${i}`;
-      peer.channel.onmessage({ data: JSON.stringify({ type: 'camera_preview', camera: `camera_${name}`, image }) });
-      assert.equal(f.document.getElementById(`camera-preview-${i}`).src, image);
-      assert.equal(f.document.getElementById(`camera-preview-${i}`).hidden, false);
-      assert.equal(f.document.getElementById(`camera-waiting-${i}`).hidden, true);
-    });
-    f.cards[6].listeners.click();
-    assert.equal(f.messages.at(-1).camera, 'camera_front_tele_30fov');
-    assert.equal(f.messages.at(-1).view_index, 6);
-    assert.ok(!f.messages.some(message => message.camera === 'all'));
+  } finally { f.app.destroy(); }
+});
+
+test('camera cards and selection follow backend count, order and reconnects', async () => {
+  const f = fixture();
+  try {
+    const peer = await f.ready();
+    peer.channel.readyState = 'open'; peer.channel.onopen();
+    assert.equal(f.cards().length, 0);
+    f.app.cycleCamera(1);
+    assert.ok(!f.messages.some(message => message.type === 'select_camera'));
+
+    const names = ['camera_cross_left_120fov', 'camera_front_wide_120fov',
+      'camera_rear_tele_30fov', 'camera_cross_right_120fov', 'camera_rear_right_70fov',
+      'camera_rear_left_70fov', 'custom_camera'];
+    for (const count of [1, 4, 5, 6, 7]) {
+      f.receive(peer, { type: 'telemetry', active_view: names[Math.min(count - 1, 1)], camera_names: names.slice(0, count) });
+      assert.equal(f.document.getElementById('camera-count').textContent, `${count} 个视角`);
+      assert.deepEqual(f.cards().map(card => card.dataset.camera), names.slice(0, count));
+    }
+    assert.equal(f.cards()[1].getAttribute('aria-pressed'), 'true');
+    assert.equal(f.cards()[6].getAttribute('aria-label'), '切换到custom_camera');
+    const image = 'data:image/jpeg;base64,AA==';
+    f.receive(peer, { type: 'camera_preview', camera: names[6], image });
+    f.receive(peer, { type: 'camera_preview', camera: 'disabled_camera', image });
+    assert.equal(f.cards().length, 7);
+    assert.equal(f.cards()[6].children[0].children[0].src, image);
+    assert.equal(f.cards()[6].children[0].children[1].hidden, true);
+    f.cards()[6].listeners.click();
+    assert.deepEqual(f.messages.at(-1), { type: 'select_camera', camera: names[6], view_index: 6 });
+    f.app.cycleCamera(1);
+    assert.deepEqual(f.messages.at(-1), { type: 'select_camera', camera: names[0], view_index: 0 });
+    f.app.cycleCamera(-1);
+    assert.equal(f.messages.at(-1).camera, names[6]);
+    f.receive(peer, { type: 'telemetry', active_view: names[1], camera_names: [names[1]] });
+    assert.equal(f.cards().length, 1);
+    assert.equal(f.cards()[0].dataset.camera, names[1]);
+    const messageCount = f.messages.length;
+    f.app.cycleCamera(1);
+    assert.equal(f.messages.length, messageCount);
+
     f.document.getElementById('btn-reconnect-server').listeners.click();
-    await f.ready();
-    assert.equal(f.document.getElementById('camera-preview-0').hidden, true);
+    const nextPeer = await f.ready();
+    assert.equal(f.cards().length, 0);
+    f.receive(peer, { type: 'camera_preview', camera: names[6], image });
+    assert.equal(f.cards().length, 0);
+    // A running backend predating camera_names still sends ordered previews.
+    f.receive(nextPeer, { type: 'telemetry', active_view: names[2] });
+    for (const name of [names[2], names[0], names[2]]) {
+      f.receive(nextPeer, { type: 'camera_preview', camera: name, image });
+    }
+    assert.deepEqual(f.cards().map(card => card.dataset.camera), [names[2], names[0]]);
+    assert.equal(f.document.getElementById('camera-count').textContent, '2 个视角');
+    assert.equal(f.cards()[0].getAttribute('aria-pressed'), 'true');
   } finally { f.app.destroy(); }
 });

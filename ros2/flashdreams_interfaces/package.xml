@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-FileCopyrightText: Copyright (c) 2026 FlashDreams contributors -->
+<package format="3">
+  <name>flashdreams_interfaces</name>
+  <version>0.1.0</version>
+  <description>ROS interfaces for lockstep Interactive Drive simulation.</description>
+  <maintainer email="maintainers@users.noreply.github.com">FlashDreams contributors</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <depend>builtin_interfaces</depend>
+  <depend>std_msgs</depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

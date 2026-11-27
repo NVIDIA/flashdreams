@@ -17,9 +17,10 @@ from interactive_drive.simulation.components import (
     vehicle_dynamics_from_config,
 )
 from interactive_drive.simulation.game_physics import GamePhysicsWorld
-from interactive_drive.simulation.ground_snap import GroundSnapper
+from interactive_drive.simulation.ground_snap import GroundSnapper, RoadElevationSnapper
 from interactive_drive.simulation.map_bounds import MapBounds
 from interactive_drive.types import (
+    MANUAL_STEER_RAD,
     DriverCommand,
     PhysXChunkTimings,
     SceneBundle,
@@ -49,7 +50,7 @@ def integrate_vehicle(
         return state
     steer_rad = state.steer_rad
     if command.steer_is_direct:
-        max_steer = 0.4 if command.manual_control else vehicle.max_steer_rad
+        max_steer = MANUAL_STEER_RAD if command.manual_control else vehicle.max_steer_rad
         steer_rad = command.steer * max_steer
     elif abs(command.steer) > 1e-5:
         steer_rad += command.steer * vehicle.steer_rate_rad_per_s * dt_s
@@ -292,6 +293,9 @@ def integrate_vehicle(
         suspension_pitch_rate_radps=pitch_rate,
         suspension_roll_rate_radps=roll_rate,
         ragdoll_active=state.ragdoll_active,
+        gear=command.gear or ("R" if command.reverse else "D"),
+        throttle=command.throttle,
+        brake=command.brake,
     )
 
 
@@ -302,7 +306,7 @@ def sample_chunk_trajectory(
     chunk_size: int,
     chunk_config: ChunkConfig,
     vehicle_config: VehicleConfig,
-    ground_snapper: GroundSnapper | None,
+    ground_snapper: GroundSnapper | RoadElevationSnapper | None,
     physics_world: GamePhysicsWorld | None = None,
     capture_physics_debug: bool = False,
     command_times_s: Sequence[float] | None = None,
@@ -483,7 +487,13 @@ def state_from_initial_pose(
     )
 
 
-def build_ground_snapper(scene: SceneBundle) -> GroundSnapper | None:
+def build_ground_snapper(
+    scene: SceneBundle,
+) -> GroundSnapper | RoadElevationSnapper | None:
+    if getattr(scene, "road_elevation_at", None) is not None:
+        clearance = scene.metadata["rig_ground_clearance_m"]
+        logger.info("Using registered road markings; opening rig clearance {:.3f} m", clearance)
+        return RoadElevationSnapper(scene.road_elevation_at, clearance)
     if scene.ground_mesh_vertices is None or scene.ground_mesh_faces is None:
         logger.info(
             "[ego_vehicle_kinematics] no ground mesh in scene; z/pitch/roll will not be snapped.",
@@ -524,7 +534,7 @@ class EgoVehicleKinematics:
         self,
         initial_state: VehicleState,
         vehicle_config: VehicleConfig,
-        ground_snapper: GroundSnapper | None,
+        ground_snapper: GroundSnapper | RoadElevationSnapper | None,
         initial_timestamp_us: int,
         map_bounds: MapBounds | None = None,
         oob_margin_m: float = 50.0,

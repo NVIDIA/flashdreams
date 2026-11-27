@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -490,7 +490,7 @@ class MultiViewRenderBackend(RenderBackend):
             from interactive_drive.rasterizer import _level_rig_poses_for_bev
 
             config = self._bev
-            assert config is not None
+            assert config is not None and self._scene is not None
             rig = _level_rig_poses_for_bev(
                 torch.as_tensor(
                     trajectory.rig_poses_world, dtype=torch.float32, device=self._device
@@ -503,6 +503,7 @@ class MultiViewRenderBackend(RenderBackend):
                 height=config.height,
                 height_m=config.height_m,
                 fov_degrees=config.fov_deg,
+                rig_ground_clearance_m=self._scene.metadata.get("rig_ground_clearance_m", 0.0),
                 ego_dimensions_lwh=(
                     self._vehicle.aabb_length_m,
                     self._vehicle.aabb_width_m,
@@ -543,6 +544,8 @@ class MultiViewRenderBackend(RenderBackend):
             model=pixels,
             drawn=drawn.take(frames),
             timestamps_us=trajectory.timestamps_us,
+            first_frame=self._frames_emitted,
+            scene_time_us=None if drawn._ludus is None else drawn._ludus.scene_time_us,
         )
         if bev_pixels is not None:
             bev_frames = lazy_rgb_frames_from_video_tensor(
@@ -1125,6 +1128,8 @@ def _presented(
     model: torch.Tensor,
     drawn: Sequence[Sequence[Any]],
     timestamps_us: Any,
+    first_frame: int = 0,
+    scene_time_us: Callable[[int], int] | None = None,
 ) -> tuple[PresentedFrame, ...]:
     """One frame per moment, carrying every camera of the rig.
 
@@ -1157,6 +1162,9 @@ def _presented(
     return tuple(
         PresentedFrame(
             timestamp_us=int(timestamps_us[index]),
+            scene_time_us=(
+                None if scene_time_us is None else scene_time_us(first_frame + index)
+            ),
             view_rgb_host_uint8=tuple(drawn[index]),
             view_model_rgb_host_uint8=tuple(view[index] for view in model_views),
             depth_host_f32=None,

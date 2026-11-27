@@ -292,6 +292,7 @@ async def test_web_cockpit_video_controls_and_native_bev_transport(tmp_path):
         assert telemetry["throttle"] == 1 and telemetry["steer"] == -1
         assert telemetry["speed_kmh"] > 0
         assert telemetry["gear"] == "D"
+        assert telemetry["camera_names"] == list(CAMERAS)
         await until(
             lambda: len([p for p in received if p.get("type") == "camera_preview"]) >= 7
         )

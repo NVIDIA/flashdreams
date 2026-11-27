@@ -17,6 +17,7 @@ export interface SimulationTelemetry {
   model_latency_ms: number;
   blocks_generated: number;
   active_view: string;
+  camera_names?: string[];
   warning: string | null;
   bev_image: string | null;
 }

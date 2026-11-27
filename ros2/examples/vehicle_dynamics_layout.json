@@ -1,0 +1,61 @@
+{
+  "configById": {
+    "3D!vehicle": {
+      "followTf": "base_link",
+      "followMode": "follow-pose",
+      "cameraState": {
+        "perspective": true,
+        "distance": 34,
+        "phi": 62,
+        "thetaOffset": 90,
+        "targetOffset": [12, 0, 0],
+        "target": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.1,
+        "far": 5000
+      },
+      "topics": {
+        "/sim/ego/markers": { "visible": true },
+        "/sim/traffic/markers": { "visible": true },
+        "/sim/map/prim_28/markers": { "visible": true },
+        "/sim/map/prim_30/markers": { "visible": true },
+        "/sim/map/prim_32/markers": { "visible": true },
+        "/sim/map/prim_33/markers": { "visible": true }
+      },
+      "layers": {},
+      "scene": {
+        "transforms": {
+          "showLabel": false
+        },
+        "backgroundColor": "#101418"
+      },
+      "transforms": {
+        "frame:odom": { "visible": false },
+        "frame:base_link": { "visible": false },
+        "frame:camera_front_wide_120fov_optical_frame": { "visible": false },
+        "frame:camera_cross_right_120fov_optical_frame": { "visible": false },
+        "frame:camera_rear_right_70fov_optical_frame": { "visible": false },
+        "frame:camera_rear_tele_30fov_optical_frame": { "visible": false },
+        "frame:camera_rear_left_70fov_optical_frame": { "visible": false },
+        "frame:camera_cross_left_120fov_optical_frame": { "visible": false }
+      }
+    },
+    "RawMessages!state": {
+      "topicPath": "/sim/ego/vehicle_state",
+      "diffEnabled": false
+    }
+  },
+  "layout": {
+    "direction": "row",
+    "first": "3D!vehicle",
+    "second": "RawMessages!state",
+    "splitPercentage": 72
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "linkedGlobalVariables": [],
+  "playbackConfig": {
+    "speed": 1
+  }
+}

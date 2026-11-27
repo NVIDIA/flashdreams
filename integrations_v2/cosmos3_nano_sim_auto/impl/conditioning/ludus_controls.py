@@ -285,6 +285,10 @@ class LudusControls:
         """The timestamp of one of the clip's own frames, in microseconds."""
         return self._start_us + round(frame * 1e6 / self._fps)
 
+    def scene_time_us(self, run_frame: int) -> int:
+        """Source geometry time for a presented frame of a driven rollout."""
+        return self._at(int(self._map[min(run_frame, self.frames - 1)]))
+
     def render_bev(
         self,
         rig_poses: Tensor,
@@ -295,6 +299,7 @@ class LudusControls:
         height_m: float = 75.0,
         fov_degrees: float = 60.0,
         ego_dimensions_lwh: tuple[float, float, float] | None = None,
+        rig_ground_clearance_m: float = 0.0,
     ) -> Tensor:
         """Render the existing World Scenario scene through its native BEV camera.
 
@@ -319,6 +324,7 @@ class LudusControls:
                 rig_poses=rig_poses,
                 timestamps_us=query_times,
                 dimensions_lwh=ego_dimensions_lwh,
+                rig_ground_clearance_m=rig_ground_clearance_m,
                 track_capacity=capacity,
             )
             if capacity > self._bev_ego_capacity:

@@ -58,6 +58,13 @@ def test_reverse_gear_is_enabled() -> None:
     assert defaults().reverse is True
 
 
+@pytest.mark.parametrize("option", ["--prefetch-controls", "--lidar"])
+def test_ros_rejects_unsynchronized_sensor_modes_before_model_load(option, capsys):
+    with pytest.raises(SystemExit):
+        create_app().init(["--ros-socket=/tmp/drive.sock", option])
+    assert "--ros-socket requires RGB" in capsys.readouterr().err
+
+
 def test_native_world_scenario_bev_is_enabled() -> None:
     assert defaults().bev is True
 

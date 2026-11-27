@@ -167,6 +167,7 @@ def test_live_backend_presents_opening_then_current_steered_chunk(monkeypatch):
     supplied_rgb, supplied_lidar, pixel_starts = [], [], []
     backend._poses = SimpleNamespace(supply=supplied_rgb.append)
     backend._drawn = SimpleNamespace(
+        _ludus=SimpleNamespace(scene_time_us=lambda frame: min(frame, 7) * 100),
         take_drawn_ms=lambda: 0.0,
         take=lambda count: [
             (np.zeros((2, 2, 3), dtype=np.uint8),) for _ in range(count)
@@ -217,6 +218,9 @@ def test_live_backend_presents_opening_then_current_steered_chunk(monkeypatch):
         )
         chunk = backend._render(trajectory, opening=index == 0)
         assert len(chunk.frames) == count
+        assert [frame.scene_time_us for frame in chunk.frames] == [
+            min(frame, 7) * 100 for frame in range(index, index + count)
+        ]
         assert all(frame.views == 2 for frame in chunk.frames)
         for frame in chunk.frames:
             assert np.asarray(frame.view_model_rgb_host_uint8[1])[0, 0, 0] == 64

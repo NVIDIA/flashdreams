@@ -65,6 +65,13 @@ from interactive_drive.math3d import normalize_camera_name
 from interactive_drive.scene_download import download_default_scene
 from interactive_drive.scene_loader import load_scene_bundle
 from interactive_drive.recording import DriveRecording
+from interactive_drive.ros_drive import (
+    driver_command,
+    publish_reset,
+    publish_step,
+    report_model_errors,
+)
+from interactive_drive.ros_endpoint import DriveEndpoint
 from interactive_drive.simulation.ego_vehicle_kinematics import (
     build_ground_snapper,
     sample_chunk_trajectory,
@@ -221,6 +228,7 @@ class InteractiveDriveConfig:
     view_mode: ViewMode
     no_ui: bool = False
     web_ui: bool = False
+    ros_socket: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,6 +252,7 @@ class DriveTelemetry:
     active_view: str = "all"
     gear: str = "D"
     camera_previews: tuple[tuple[str, str], ...] = ()
+    camera_names: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -275,16 +284,12 @@ class DriveInputState:
                 self.controller_command = (
                     None
                     if event.action == "disconnected"
-                    else DriverCommand(
-                        throttle=0.0 if event.gear in ("P", "N") else event.throttle,
-                        brake=1.0 if event.gear == "P" else event.brake,
+                    else DriverCommand.from_manual_controls(
+                        throttle=event.throttle,
+                        brake=event.brake,
                         steer=-event.steering,
-                        reverse=event.gear == "R"
-                        if event.gear is not None
-                        else event.reverse,
+                        reverse=event.reverse,
                         gear=event.gear,
-                        steer_is_direct=True,
-                        manual_control=True,
                     )
                 )
             elif isinstance(event, GamepadUserInputEvent):
@@ -545,6 +550,7 @@ class InteractiveDriveModelState:
             active_view=self.config.app.present_camera or "all",
             gear=self.last_command.gear or ("R" if self.last_command.reverse else "D"),
             camera_previews=previews,
+            camera_names=self.config.app.camera_names,
         )
         invoke_async(
             self.ui_loop,
@@ -571,13 +577,62 @@ def _jpeg_data_url(pixels: Any, size: tuple[int, int]) -> str:
 class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
     """Own scene state, simulation, model cache, and backend execution."""
 
+    _ros_endpoint: DriveEndpoint | None = None
+    _ros_request: dict | None = None
+
+    def _pace(self, last_run_started: float | None) -> float:
+        """Wait for an external step before the runtime admits or counts it."""
+        state = self.state
+        if state.config.ros_socket is None:
+            return super()._pace(last_run_started)
+        if self._ros_endpoint is None:
+            self._ros_endpoint = DriveEndpoint(
+                state.config.ros_socket, front_condition=True
+            )
+        endpoint = self._ros_endpoint
+        while request := endpoint.receive(self._shutdown_event.is_set):
+            if request["type"] == "reset":
+                with report_model_errors(endpoint):
+                    self._initialize_rollout()
+                    assert state.scene is not None and state.vehicle is not None
+                    publish_reset(
+                        endpoint,
+                        request["episode_id"],
+                        state.scene,
+                        state.vehicle,
+                        state.config.app.vehicle,
+                    )
+                continue
+            try:
+                state.last_command = self._command(
+                    driver_command(request, state.config.app)
+                )
+            except ValueError as error:
+                endpoint.send(
+                    {"type": "error", "code": "INVALID_REQUEST", "message": str(error)}
+                )
+                continue
+            self._ros_request = request
+            return time.monotonic()
+        self._shutdown_event.set()
+        return time.monotonic()
+
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         step_started_at = time.perf_counter()
         state = self.state
+        if getattr(state.config, "ros_socket", None) is not None:
+            if self._ros_request is None or self._ros_endpoint is None:
+                raise RuntimeError("ROS lockstep requires an admitted Step request")
+            with report_model_errors(self._ros_endpoint):
+                return self._advance(step_index, step_started_at)
         self._apply_events(events)
         state.agree_on_queued()
         if state.scene is None or state.reset_pending:
             self._initialize_rollout()
+        return self._advance(step_index, step_started_at)
+
+    def _advance(self, step_index: int, step_started_at: float) -> list[StepResult]:
+        state = self.state
         assert state.scene is not None
         assert state.vehicle is not None
         assert state.backend is not None
@@ -597,9 +652,11 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
             if state.first_chunk
             else state.backend.chunk_frames
         )
-        command = self._command()
-        state.last_command = command
-        commands, command_times_s = self._commands(chunk_size)
+        if self._ros_request is None:
+            state.last_command = self._command()
+            commands, command_times_s = self._commands(chunk_size)
+        else:
+            commands, command_times_s = (state.last_command,), (0.0,)
         trajectory = sample_chunk_trajectory(
             start_state=state.vehicle,
             start_timestamp_us=state.next_timestamp_us,
@@ -637,6 +694,19 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
             # a window: tiling a grid, resizing it and copying it out is the
             # part of a worker's step that buys nothing, so it stops here. No
             # result reads to the runtime as a step that presented nothing.
+            return []
+        if self._ros_request is not None:
+            assert self._ros_endpoint is not None
+            publish_step(
+                self._ros_endpoint,
+                self._ros_request,
+                state.scene,
+                chunk,
+                trajectory,
+                state.next_timestamp_us,
+                state.last_command,
+            )
+            self._ros_request = None
             return []
         if state.recording is not None:
             try:
@@ -723,6 +793,9 @@ class InteractiveDriveModelLoop(IModelLoop[InteractiveDriveModelState]):
         self.state.reset_pending = True
 
     def close(self) -> None:
+        if self._ros_endpoint is not None:
+            self._ros_endpoint.close()
+            self._ros_endpoint = None
         self.state.finish_recording()
         if self.state.backend is not None and self.state.owns_backend:
             self.state.backend.close()
@@ -1006,6 +1079,10 @@ class _InteractiveDriveApplicationBase(IApplication):
         )
         parser.add_argument("--prompt")
         parser.add_argument(
+            "--ros-socket",
+            help="Listen on this Unix socket for single-GPU, headless ROS lockstep.",
+        )
+        parser.add_argument(
             "--export-dir",
             type=Path,
             default=Path("artifacts/drive-exports"),
@@ -1091,6 +1168,19 @@ class _InteractiveDriveApplicationBase(IApplication):
             type=Path,
         )
         args = parser.parse_args(list(commandline_args))
+        if args.ros_socket is not None:
+            if not args.ros_socket:
+                parser.error("--ros-socket requires a filesystem path")
+            if (
+                self._parallel_context is not None
+                and self._parallel_context.world_size > 1
+            ):
+                parser.error("--ros-socket requires a single GPU")
+            if args.web_ui or args.postprocess_preset:
+                parser.error(
+                    "--ros-socket requires native RGB output without UI or postprocessing"
+                )
+            args.no_ui = True
         scene = args.scene
         if scene is None:
             scene = download_default_scene()
@@ -1154,6 +1244,7 @@ class _InteractiveDriveApplicationBase(IApplication):
             # means what it says.
             no_ui=args.no_ui or args.web_ui or (mesh is not None and not mesh.is_main),
             web_ui=args.web_ui and (mesh is None or mesh.is_main),
+            ros_socket=args.ros_socket,
         )
         output_spec = postprocess.output_spec(
             VideoSpec(
@@ -1252,13 +1343,11 @@ def _gamepad_command(event: GamepadUserInputEvent) -> DriverCommand | None:
     steer = -(event.axes[0] if event.axes else 0.0)
     throttle = event.buttons[7] if len(event.buttons) > 7 else 0.0
     brake = event.buttons[6] if len(event.buttons) > 6 else 0.0
-    return DriverCommand(
+    return DriverCommand.from_manual_controls(
         throttle=throttle,
         brake=brake,
         steer=steer,
         reverse=_gamepad_button_pressed(event, _GAMEPAD_REVERSE_BUTTON),
-        steer_is_direct=True,
-        manual_control=True,
     )
 
 

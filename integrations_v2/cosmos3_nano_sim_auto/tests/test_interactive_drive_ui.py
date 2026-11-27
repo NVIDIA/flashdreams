@@ -463,6 +463,12 @@ def test_world_scenario_bev_reuses_native_scene_palette_and_heading():
     assert call_args["scene_ids"].tolist() == [21, 21]
     assert call_args["camera_type_ids"].tolist() == [CAMERA_TYPE_BEV] * 2
     assert call_args["timestamps_us"].tolist() == [0, 33333]
+    assert [renderer.scene_time_us(i) for i in (0, 1, 2, 100)] == [
+        0,
+        33333,
+        33333,
+        33333,
+    ]
     center = call_args["camera_poses"] @ rig[:, :, 3:4]
     torch.testing.assert_close(
         center[:, :, 0], torch.tensor([[75.0, 0.0, 0.0, 1.0]]).repeat(2, 1)
@@ -549,12 +555,14 @@ def test_bev_uses_original_ego_pool_camera_and_reuses_topology():
             getattr(actual_camera, field), getattr(original_camera, field)
         )
     renderer.render_bev(
-        rig[:1], times[:1] + 100_000, width=8, height=8, ego_dimensions_lwh=dims
+        rig[:1], times[:1] + 100_000, width=8, height=8, ego_dimensions_lwh=dims,
+        rig_ground_clearance_m=0.84,
     )
     context.replace_scene.assert_called_once()
     context.update_cube_pool.assert_called_once()
     updated = context.update_cube_pool.call_args.args[2]
     assert updated.translations.shape[0] == 2
+    torch.testing.assert_close(updated.translations[:, 2], torch.full((2,), -0.04))
     assert updated.timestamps_us[0] == times[0] + 100_000
     context.update_cube_pool.return_value = False
     with pytest.raises(RuntimeError, match="ego-car"):

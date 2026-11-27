@@ -136,6 +136,7 @@ class CosmosInteractiveDriveApplication(InteractiveDriveApplication):
             prog="Interactive Drive model options", add_help=False
         )
         parser.add_argument("--no-ui", action="store_true", help=argparse.SUPPRESS)
+        parser.add_argument("--ros-socket", help=argparse.SUPPRESS)
         # Keep the shared RGB/HDMAP flag from being parsed as short for --views.
         parser.add_argument("--view", help=argparse.SUPPRESS)
         cameras = parser.add_mutually_exclusive_group()
@@ -155,6 +156,14 @@ class CosmosInteractiveDriveApplication(InteractiveDriveApplication):
             f"Default: {DEFAULT_SCENE}.",
         )
         parser.add_argument("--checkpoint", help="Joint or RGB model export")
+        parser.add_argument(
+            "--road-height-primitives",
+            nargs="+",
+            type=int,
+            default=(),
+            help="Ground-level road-marking primitive IDs on a registered DEM map. "
+            "Interpolate their local height to maintain the opening rig clearance.",
+        )
         parser.add_argument(
             "--fps", type=float, help="Prepared scene frame rate (default: 30)"
         )
@@ -276,6 +285,8 @@ class CosmosInteractiveDriveApplication(InteractiveDriveApplication):
             self._default_fps = args.fps
         if args.no_ui:
             shared.append("--no-ui")
+        if args.ros_socket is not None:
+            shared.extend(("--ros-socket", args.ros_socket))
         if "--help" in shared or "-h" in shared:
             parser.print_help()
         lidar_enabled = (
@@ -323,6 +334,8 @@ class CosmosInteractiveDriveApplication(InteractiveDriveApplication):
             )
         if settings.prefetch_controls_gpu_offset and not settings.prefetch_controls:
             parser.error("--prefetch-controls-gpu-offset requires --prefetch-controls")
+        if args.ros_socket is not None and (lidar_enabled or settings.prefetch_controls):
+            parser.error("--ros-socket requires RGB with control prefetch disabled")
         if lidar_enabled and "--help" not in shared and "-h" not in shared:
             from cosmos_interactive.checkpoint_load import resolve_checkpoint_source
 
@@ -345,6 +358,9 @@ class CosmosInteractiveDriveApplication(InteractiveDriveApplication):
                 ),
             )
         self._settings = settings
+        self._scene_loader = partial(
+            load_scene_bundle, road_height_primitives=tuple(args.road_height_primitives)
+        )
         self._backend_factory = partial(build_backend, settings=settings)
         if "--help" not in shared and "-h" not in shared:
             if not args.scene.is_dir() and str(args.scene) in SCENE_NAMES:

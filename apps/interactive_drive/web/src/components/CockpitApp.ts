@@ -5,6 +5,16 @@
 
 import type { SimulationTelemetry, Gear } from '../protocol/types';
 
+const cameraLabels = new Map([
+  ['camera_front_wide_120fov', '前向广角 120°'],
+  ['camera_cross_right_120fov', '右前侧向 120°'],
+  ['camera_rear_right_70fov', '右后侧向 70°'],
+  ['camera_rear_tele_30fov', '正后远焦 30°'],
+  ['camera_rear_left_70fov', '左后侧向 70°'],
+  ['camera_cross_left_120fov', '左前侧向 120°'],
+  ['camera_front_tele_30fov', '正前远焦 30°'],
+]);
+
 /**
  * High-fidelity automotive haptic engine
  * Accurately models ABS hydraulic pulsing, crisp mechanical shifting, and launch torque
@@ -113,22 +123,17 @@ export class CockpitApp {
   private currentSpeedKmh = 0;
   private warningActive = false;  // Disabled by default; only shown when real warning occurs
   private backendUrl = '';
-  private selectedCamera = 0;
+  private selectedCamera: string | undefined;
   private lastCommand = '';
   private hasTelemetry = false;
   private clockInterval: number | null = null;
   private haptics = new HapticEngine();
 
-  // 7 Camera Rig Metadata (aligned with cosmos3_nano_sim_auto 7-camera rig)
-  private readonly cameraViews = [
-    { id: 0, name: 'camera_front_wide_120fov', label: '前向广角 120°' },
-    { id: 1, name: 'camera_cross_right_120fov', label: '右前侧向 120°' },
-    { id: 2, name: 'camera_rear_right_70fov', label: '右后侧向 70°' },
-    { id: 3, name: 'camera_rear_tele_30fov', label: '正后远焦 30°' },
-    { id: 4, name: 'camera_rear_left_70fov', label: '左后侧向 70°' },
-    { id: 5, name: 'camera_cross_left_120fov', label: '左前侧向 120°' },
-    { id: 6, name: 'camera_front_tele_30fov', label: '正前远焦 30°' },
-  ];
+  private readonly cameraCards = new Map<string, {
+    button: HTMLButtonElement;
+    image: HTMLImageElement;
+    waiting: HTMLSpanElement;
+  }>();
 
   private telemetry: Partial<SimulationTelemetry> = {};
 
@@ -380,28 +385,78 @@ export class CockpitApp {
   }
 
   public cycleCamera(step: number): void {
-    const total = this.cameraViews.length;
-    this.selectedCamera = (this.selectedCamera + step + total) % total;
-    this.selectCamera(this.selectedCamera);
+    const names = [...this.cameraCards.keys()];
+    if (names.length <= 1) return;
+    const index = names.indexOf(this.selectedCamera ?? this.telemetry.active_view ?? '');
+    const next = index < 0
+      ? (step < 0 ? names.length - 1 : 0)
+      : (index + step + names.length) % names.length;
+    this.selectCamera(names[next]);
   }
 
-  public selectCamera(idx: number): void {
-    this.selectedCamera = idx;
-    const cards = document.querySelectorAll('.camera-card');
-    cards.forEach((c) => c.classList.remove('active'));
-    if (cards[idx]) cards[idx].classList.add('active');
-
-    const viewMeta = this.cameraViews[idx];
-    const tag = document.getElementById('view-tag-label');
-    if (tag && viewMeta) {
-      tag.textContent = `< ${viewMeta.label}`;
-    }
+  private selectCamera(name: string): void {
+    if (!this.cameraCards.has(name)) return;
+    this.selectedCamera = name;
+    this.renderCameraSelection();
 
     this.sendEvent({
       type: 'select_camera',
-      view_index: idx,
-      camera: viewMeta?.name || '',
+      view_index: [...this.cameraCards.keys()].indexOf(name),
+      camera: name,
     });
+  }
+
+  private addCamera(name: string): void {
+    const label = cameraLabels.get(name) ?? name;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'camera-card';
+    button.dataset.camera = name;
+    button.setAttribute('aria-label', `切换到${label}`);
+    button.addEventListener('click', () => this.selectCamera(name));
+
+    const thumb = document.createElement('div');
+    thumb.className = 'camera-thumb';
+    const image = document.createElement('img');
+    image.alt = `${label}模型预览`;
+    image.hidden = true;
+    const waiting = document.createElement('span');
+    waiting.textContent = '等待模型画面';
+    thumb.append(image, waiting);
+
+    const badge = document.createElement('span');
+    badge.className = 'camera-badge';
+    badge.textContent = label;
+    button.append(thumb, badge);
+    document.getElementById('camera-list')?.append(button);
+    this.cameraCards.set(name, { button, image, waiting });
+  }
+
+  private setCameraList(names: string[]): void {
+    const existing = [...this.cameraCards.keys()];
+    if (names.length === existing.length && names.every((name, index) => name === existing[index])) return;
+    document.getElementById('camera-list')?.replaceChildren();
+    this.cameraCards.clear();
+    for (const name of names) this.addCamera(name);
+    if (this.selectedCamera && !this.cameraCards.has(this.selectedCamera)) this.selectedCamera = undefined;
+  }
+
+  private renderCameraSelection(): void {
+    const count = this.cameraCards.size;
+    const active = this.selectedCamera ?? this.telemetry.active_view;
+    const selected = count === 1 ? this.cameraCards.keys().next().value : active;
+    const countLabel = document.getElementById('camera-count');
+    if (countLabel) countLabel.textContent = count ? `${count} 个视角` : '等待相机';
+    const tag = document.getElementById('view-tag-label');
+    if (tag) {
+      tag.textContent = selected && this.cameraCards.has(selected)
+        ? cameraLabels.get(selected) ?? selected
+        : active === 'all' && count ? '全部视角' : '相机画面';
+    }
+    for (const [name, { button }] of this.cameraCards) {
+      button.classList.toggle('active', name === selected);
+      button.setAttribute('aria-pressed', String(name === selected));
+    }
   }
 
   public shiftStep(step: number): void {
@@ -462,19 +517,20 @@ export class CockpitApp {
     this.releaseControls();
     this.peer?.close();
     this.videoEl.srcObject = null;
-    this.cameraViews.forEach(view => {
-      const image = document.getElementById(`camera-preview-${view.id}`) as HTMLImageElement | null;
-      if (image) { image.removeAttribute('src'); image.hidden = true; }
-      const waiting = document.getElementById(`camera-waiting-${view.id}`);
-      if (waiting) waiting.hidden = false;
-    });
+    this.selectedCamera = undefined;
+    this.setCameraList([]);
     this.telemetry = {};
+    this.renderCameraSelection();
     this.hasTelemetry = false;
     this.warningActive = false;
     this.lastCommand = '';
     this.renderTelemetry();
     this.connectionStatus('正在连接 FlashDreams…');
-    const peer = new RTCPeerConnection();
+    const tunnel = new URLSearchParams(window.location.hash.slice(1)).get('turn');
+    const peer = new RTCPeerConnection(tunnel ? {
+      iceTransportPolicy: 'relay',
+      iceServers: [{ urls: 'turn:127.0.0.1:13478?transport=tcp', username: 'flashdreams', credential: tunnel }],
+    } : undefined);
     this.peer = peer;
     const channel = peer.createDataChannel('controls');
     this.controlChannel = channel;
@@ -483,7 +539,6 @@ export class CockpitApp {
       channel.onopen = () => {
         if (this.peer !== peer) return;
         this.connectionStatus('控制通道已连接，等待模型画面…');
-        this.sendCameraSelection();
         this.lastCommand = '';
         if (document.hidden || !document.hasFocus()) this.releaseControls();
         else this.updateControls();
@@ -492,6 +547,8 @@ export class CockpitApp {
         if (this.peer === peer) {
           this.hasTelemetry = false;
           this.telemetry = {};
+          this.setCameraList([]);
+          this.renderCameraSelection();
           this.renderTelemetry();
           this.connectionStatus('控制连接已断开，请在设置中重连', true);
         }
@@ -505,15 +562,26 @@ export class CockpitApp {
           } else if (data.type === 'recording') {
             this.renderRecording(data);
           } else if (data.type === 'camera_preview') {
-            const index = this.cameraViews.findIndex(view => view.name === data.camera);
-            if (index >= 0 && typeof data.image === 'string' && data.image.startsWith('data:image/jpeg;base64,')) {
-              const image = document.getElementById(`camera-preview-${index}`) as HTMLImageElement | null;
-              if (image) { image.src = data.image; image.hidden = false; }
-              const waiting = document.getElementById(`camera-waiting-${index}`);
-              if (waiting) waiting.hidden = true;
+            if (typeof data.camera !== 'string' || !data.camera ||
+                typeof data.image !== 'string' || !data.image.startsWith('data:image/jpeg;base64,')) return;
+            if (!this.cameraCards.has(data.camera) && !Array.isArray(this.telemetry.camera_names)) {
+              this.addCamera(data.camera);
+              this.renderCameraSelection();
+            }
+            const card = this.cameraCards.get(data.camera);
+            if (card) {
+              card.image.src = data.image;
+              card.image.hidden = false;
+              card.waiting.hidden = true;
             }
           } else if (data.type === 'telemetry') {
             this.telemetry = data;
+            if (Array.isArray(data.camera_names)) {
+              this.setCameraList([...new Set<string>(data.camera_names.filter(
+                (name: unknown) => typeof name === 'string' && name.length > 0,
+              ))]);
+            }
+            this.renderCameraSelection();
             if (Number.isFinite(data.speed_kmh)) {
               this.currentSpeedKmh = data.speed_kmh;
               this.hasTelemetry = true;
@@ -585,14 +653,6 @@ export class CockpitApp {
     }
   }
 
-  private sendCameraSelection(): void {
-    this.sendEvent({
-      type: 'select_camera',
-      view_index: this.selectedCamera,
-      camera: this.cameraViews[this.selectedCamera]?.name,
-    });
-  }
-
   private bindUI(): void {
     // Click gear items to shift
     const gearItems = document.querySelectorAll('.gear-item');
@@ -617,25 +677,6 @@ export class CockpitApp {
         }
       });
     }
-
-    // Select a single camera while keeping all seven previews live.
-    const cards = document.querySelectorAll('.camera-card');
-    cards.forEach((card) => {
-      card.addEventListener('click', () => {
-        cards.forEach((c) => c.classList.remove('active'));
-        card.classList.add('active');
-
-        const channel = parseInt(card.getAttribute('data-channel') || '0', 10);
-        const view = this.cameraViews[channel];
-        if (!view) return;
-        cards.forEach(c => c.setAttribute('aria-pressed', String(c === card)));
-        const tag = document.getElementById('view-tag-label');
-        if (tag) tag.textContent = view.label;
-
-        this.selectedCamera = channel;
-        this.sendCameraSelection();
-      });
-    });
 
     // Reset button on stage
     document.getElementById('reset-stage-btn')?.addEventListener('click', () => {

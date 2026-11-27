@@ -173,6 +173,7 @@ class InteractiveDriveWebUILoop(BlitModelOutputToScreenLoop[InteractiveDriveUISt
             "model_latency_ms": t.model_loop_ms,
             "blocks_generated": t.blocks_generated,
             "active_view": t.active_view,
+            "camera_names": t.camera_names,
             "warning": t.warning,
             "bev_image": t.bev_image,
         }

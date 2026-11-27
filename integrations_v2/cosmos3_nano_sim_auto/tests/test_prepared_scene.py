@@ -23,6 +23,47 @@ from PIL import Image
 pytestmark = pytest.mark.ci_cpu
 
 
+def test_road_height_changes_only_z_with_supported_local_markings():
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from cosmos3_nano_sim_auto.apps.interactive_drive.scene import (
+        _RoadMarkingElevation,
+    )
+    from interactive_drive.config import ChunkConfig, VehicleConfig
+    from interactive_drive.simulation.ego_vehicle_kinematics import (
+        build_ground_snapper,
+        sample_chunk_trajectory,
+        state_from_initial_pose,
+    )
+    from interactive_drive.types import DriverCommand
+
+    xy = np.array([(x, y) for x in range(-7, 31) for y in (-2, 2)])
+    points = np.column_stack((xy, 0.05 * xy[:, 0] - 0.9))
+    height = _RoadMarkingElevation(points)
+    assert height(12, 0) == pytest.approx(-0.3)
+    assert height(12, 3) is None  # Beyond the road edge.
+    assert _RoadMarkingElevation(points[::2])(12, -2) is None  # One line.
+    stacked = _RoadMarkingElevation(np.vstack((points, points + [0, 0, 4])))
+    assert stacked(12, 0) is None
+    initial = state_from_initial_pose(np.eye(4), 0, 3)
+    scene = SimpleNamespace(
+        road_elevation_at=height, metadata={"rig_ground_clearance_m": -height(0, 0)}
+    )
+    snapper = build_ground_snapper(scene)
+    cfg, vehicle = ChunkConfig(fps=10), VehicleConfig()
+    cmd = DriverCommand(throttle=0.5)
+    baseline = sample_chunk_trajectory(initial, 0, cmd, 20, cfg, vehicle, None)
+    aligned = sample_chunk_trajectory(initial, 0, cmd, 20, cfg, vehicle, snapper)
+    for old, new, pose in zip(
+        baseline.vehicle_states, aligned.vehicle_states, aligned.rig_poses_world,
+        strict=True,
+    ):
+        assert replace(new, z_m=old.z_m) == old
+        assert pose[2, 3] == pytest.approx(0.05 * new.x_m, abs=1e-6)
+    assert snapper.snap(replace(initial, x_m=100), vehicle).z_m == 0
+
+
 @pytest.fixture
 def bundle(tmp_path):
     cameras = list(prepared.CAMERAS[:7])
@@ -418,6 +459,11 @@ def test_interactive_scene_uses_recorded_opening_and_shared_cpu_geometry(
     )
     assert result.initial_timestamp_us == 1033333
     assert result.metadata["pose_frame"] == 1
+    assert result.metadata["scene_geometry"] == {
+        "root": str(bundle.resolve()),
+        "manifest_sha256": prepared.sha256(bundle / "scene.json"),
+    }
+    assert all(camera.ludus_draw_size == (1024, 577) for camera in result.cameras)
     assert result.metadata["start_frame"] == 0
     assert result.prompt == "A sunny street."
     assert len(result.initial_rgbs) == 2 and read == [0]
