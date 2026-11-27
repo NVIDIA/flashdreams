@@ -3820,3 +3820,285 @@ def test_saving_live_edit_that_disables_native_dit_shows_notice_before_restart(
         "NATIVE DIT ACCELERATION DISABLED FOR LIVE-EDIT FEATURES"
         not in menu_imgui.windows["Crazy Robotaxi - Select Game Mode"]
     )
+
+
+def test_hud_uses_current_gameplay_while_video_frame_stays_unchanged(monkeypatch):
+    video = torch.zeros(1, 3, 360, 320)
+    state = TaxiHudState(320, 360, _calibration())
+    state._menu_stage = "game"
+    old_snapshot = _snapshot()
+    state.publish(
+        build_hud_frames(video, (old_snapshot,), np.eye(4, dtype=np.float32)[None])
+    )
+    state.select_presented_frame(video[0])
+    latest = SimpleNamespace(
+        step=SimpleNamespace(
+            game_frames=(old_snapshot,),
+            trajectory=SimpleNamespace(
+                vehicle_states=(SimpleNamespace(speed_mps=12),),
+                rig_poses_world=np.eye(4, dtype=np.float32)[None],
+            ),
+        ),
+        presentation=None,
+    )
+    delivered = []
+    state.gameplay = SimpleNamespace(
+        timeline=SimpleNamespace(latest=latest),
+        check=lambda: None,
+        submit_input=delivered.append,
+    )
+    speeds = []
+    monkeypatch.setattr(
+        TaxiHudState,
+        "_draw_speed",
+        lambda self, imgui, speed, **kwargs: speeds.append(speed),
+    )
+    events = UserInputEvents(
+        [
+            KeyboardUserInputEvent(
+                timestamp=np.uint64(100), key="w", state=KeyboardInputState.PRESSED
+            )
+        ]
+    )
+    state.consume_input_events(events)
+    state.draw(_FakeImGui())
+    latest.step.trajectory.vehicle_states = (SimpleNamespace(speed_mps=18),)
+    state.draw(_FakeImGui())
+    assert speeds == [12, 18]
+    assert delivered == [events]
+    assert state._current is not None and state._current.speed_mps == 0
+
+
+def test_world_views_advance_with_physics_while_model_frame_is_unchanged(monkeypatch):
+    state = TaxiHudState(320, 240, _calibration())
+    state._menu_stage = "game"
+    state.show_hdmap = True
+    video = torch.zeros(1, 3, 240, 320)
+    state.publish(
+        build_hud_frames(video, (_snapshot(),), np.eye(4, dtype=np.float32)[None])
+    )
+    latest = SimpleNamespace(step=SimpleNamespace(trajectory="first physics sample"))
+    gameplay = SimpleNamespace(
+        timeline=SimpleNamespace(latest=latest), submit_input=Mock()
+    )
+    renderer = Mock()
+    first = torch.ones(1, 1, 1, 3, 240, 320)
+    second = first * 2
+    renderer.render_views.side_effect = [(first, first[0, 0]), (second, second[0, 0])]
+    factory = Mock(return_value=renderer)
+    state.attach_gameplay(gameplay, renderer_factory=factory)
+    loop = CrazyRobotaxiImGuiUILoop(width=320, height=240)
+    loop.state = state
+    loop._presentation_manager = Mock()
+    loop._presentation_manager.presented_frames.return_value = (video[0],)
+    monkeypatch.setattr(TaxiHudState, "draw", Mock())
+    monkeypatch.setattr(TaxiHudState, "draw_waypoints", Mock())
+    composites = []
+    monkeypatch.setattr(
+        TaxiHudState,
+        "composite_bev",
+        lambda self, background, bev: composites.append((background, bev))
+        or background,
+    )
+    loop.step_ui(object(), 0, UserInputEvents([]))
+    latest.step.trajectory = "second physics sample"
+    loop.step_ui(object(), 1, UserInputEvents([]))
+    assert [call.args[0] for call in renderer.render_views.call_args_list] == [
+        "first physics sample",
+        "second physics sample",
+    ]
+    assert [float(background[0, 0, 0]) for background, _ in composites] == [1, 2]
+    assert [float(bev[0, 0, 0]) for _, bev in composites] == [1, 2]
+    factory.assert_called_once()
+    assert state._current is not None
+    assert state._current.frame_key == video[0].data_ptr()
+    loop.close()
+    renderer.close.assert_called_once()
+
+
+@pytest.mark.parametrize("game", ["taxi", "race"])
+def test_world_markers_follow_the_sample_rendered_in_the_selected_view(
+    monkeypatch: pytest.MonkeyPatch, game: str
+) -> None:
+    import crazy_robotaxi.ui as ui
+
+    state = TaxiHudState(320, 240, _calibration())
+    state._menu_stage = "game"
+    state.show_hdmap = True
+    video = torch.zeros(1, 3, 240, 320)
+    snapshot = _snapshot() if game == "taxi" else _race_snapshot()
+    generated_pose = np.eye(4, dtype=np.float32)
+    state.publish(build_hud_frames(video, (snapshot,), generated_pose[None]))
+    samples = []
+    for index in range(3):
+        pose = generated_pose.copy()
+        pose[1, 3] = index + 1
+        samples.append(
+            SimpleNamespace(
+                step=SimpleNamespace(
+                    game_frames=(replace(snapshot, distance_m=24.0 - index),),
+                    trajectory=SimpleNamespace(rig_poses_world=pose[None]),
+                )
+            )
+        )
+    gameplay = SimpleNamespace(
+        timeline=SimpleNamespace(latest=samples[0]), submit_input=Mock()
+    )
+    rendered = []
+
+    def render_views(trajectory, *, include_main):
+        rendered.append(trajectory)
+        # Physics advances during rendering; overlays must retain the input sample.
+        gameplay.timeline.latest = samples[min(len(rendered), 2)]
+        return (video.unsqueeze(0).unsqueeze(0) if include_main else None), None
+
+    renderer = Mock(render_views=render_views)
+    state.attach_gameplay(gameplay, renderer_factory=lambda: renderer)
+    projection_name = (
+        "project_waypoints" if game == "taxi" else "project_race_gate_to_camera"
+    )
+    projection = Mock(wraps=getattr(ui, projection_name))
+    monkeypatch.setattr(ui, projection_name, projection)
+    loop = CrazyRobotaxiImGuiUILoop(width=320, height=240)
+    loop.state = state
+    loop._presentation_manager = Mock()
+    loop._presentation_manager.presented_frames.return_value = (video[0],)
+    monkeypatch.setattr(TaxiHudState, "draw", Mock())
+    monkeypatch.setattr(
+        TaxiHudState, "composite_bev", lambda self, background, bev: background
+    )
+    imgui = _FakeImGui()
+    for tick in range(2):
+        loop.step_ui(imgui, tick, UserInputEvents([]))
+    state.show_hdmap = False
+    loop.step_ui(imgui, 2, UserInputEvents([]))
+
+    assert len(projection.call_args_list) == 3
+    for call, sample in zip(projection.call_args_list[:2], samples[:2]):
+        assert call.args[0] is sample.step.game_frames[-1]
+        np.testing.assert_array_equal(
+            call.args[1], sample.step.trajectory.rig_poses_world[-1]
+        )
+    assert projection.call_args_list[-1].args[0] is snapshot
+    np.testing.assert_array_equal(projection.call_args_list[-1].args[1], generated_pose)
+    assert rendered[:2] == [sample.step.trajectory for sample in samples[:2]]
+    loop.close()
+
+
+@pytest.mark.parametrize("cancel", [None, "release", "focus"])
+def test_gameplay_attachment_preserves_only_controls_still_held(cancel):
+    from omnidreams_game_engine.input import DriverInput
+
+    state = TaxiHudState(320, 240, _calibration())
+    state.consume_input_events(
+        UserInputEvents(
+            [
+                KeyboardUserInputEvent(
+                    timestamp=np.uint64(100), key="w", state=KeyboardInputState.PRESSED
+                ),
+            ]
+        )
+    )
+    if cancel == "release":
+        state.consume_input_events(
+            UserInputEvents(
+                [
+                    KeyboardUserInputEvent(
+                        timestamp=np.uint64(200),
+                        key="w",
+                        state=KeyboardInputState.RELEASED,
+                    ),
+                ]
+            )
+        )
+    elif cancel == "focus":
+        state.consume_input_events(
+            UserInputEvents(
+                [FocusUserInputEvent(timestamp=np.uint64(200), focused=False)]
+            )
+        )
+    driver = DriverInput()
+    delivered = []
+
+    def submit(events):
+        delivered.extend(events.get_events())
+        driver.apply(events)
+
+    state.attach_gameplay(SimpleNamespace(restore_input=submit))
+    assert driver.command().throttle == (1 if cancel is None else 0)
+    assert all(event.timestamp == 0 for event in delivered)
+
+
+def test_gameplay_attachment_retains_latest_wheel_state_and_disconnect():
+    from omnidreams_game_engine.input import DriverInput
+
+    from flashdreams.runtime_v2.user_input_event import GameWheelUserInputEvent
+
+    state = TaxiHudState(320, 240, _calibration())
+    for index in range(20):
+        state.consume_input_events(
+            UserInputEvents(
+                [
+                    GameWheelUserInputEvent(
+                        timestamp=np.uint64(index),
+                        throttle=index / 20,
+                        steering=0.2,
+                    )
+                ]
+            )
+        )
+    driver = DriverInput()
+    state.attach_gameplay(SimpleNamespace(restore_input=driver.apply))
+    assert driver.command().throttle == pytest.approx(0.95)
+    state.attach_gameplay(None)
+    state.consume_input_events(
+        UserInputEvents(
+            [GameWheelUserInputEvent(timestamp=np.uint64(100), action="disconnected")]
+        )
+    )
+    fresh_driver = DriverInput()
+    state.attach_gameplay(SimpleNamespace(restore_input=fresh_driver.apply))
+    assert fresh_driver.command().throttle == 0
+
+
+@pytest.mark.parametrize(
+    "key,action", [("k", "style"), ("v", "weather"), ("c", "coins"), ("o", "obstacle")]
+)
+@pytest.mark.parametrize("device", ["keyboard", "gamepad"])
+def test_gameplay_attachment_restores_held_actions_without_retriggering(
+    key, action, device
+):
+    from crazy_robotaxi.controls import ControlsConfig
+    from crazy_robotaxi.gameplay import TaxiSimulationDriver
+    from omnidreams_game_engine.input import DriverInput
+
+    actions = []
+    simulation = TaxiSimulationDriver(
+        SimpleNamespace(live_edit=SimpleNamespace(request_action=actions.append)),
+        DriverInput(),
+        ControlsConfig(),
+    )
+    state = TaxiHudState(320, 240, _calibration())
+
+    def event(name, pressed):
+        if device == "gamepad" and name != "w":
+            buttons = [False] * 16
+            buttons[{"k": 14, "v": 15, "c": 12, "o": 13}[name]] = pressed
+            return GamepadUserInputEvent(timestamp=np.uint64(0), buttons=tuple(buttons))
+        return KeyboardUserInputEvent(
+            timestamp=np.uint64(0),
+            key=name,
+            state=KeyboardInputState.PRESSED
+            if pressed
+            else KeyboardInputState.RELEASED,
+        )
+
+    held = UserInputEvents([event("w", True), event(key, True)])
+    state.consume_input_events(held)
+    state.attach_gameplay(SimpleNamespace(restore_input=simulation.restore_input))
+    assert simulation.driver.command().throttle == 1
+    assert actions == []
+    simulation.apply(held)
+    assert actions == []
+    simulation.apply(UserInputEvents([event(key, False), event(key, True)]))
+    assert actions == [action]

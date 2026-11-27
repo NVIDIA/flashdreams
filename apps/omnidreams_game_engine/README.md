@@ -1,25 +1,68 @@
 # OmniDreams Game Engine
 
-Reusable model-thread simulation, authored-map, physics, and conditioning
+Reusable simulation, authored-map, physics, and conditioning
 components for FlashDreams V2 applications. [Crazy Robotaxi](../crazy_robotaxi/README.md)
 uses this package for vehicle simulation, traffic, map rendering, and its
 world-model rollout.
 
 ## Responsibilities and public API
 
-The package exports `GameEngine`, `EngineStep`, and `WorldModelRollout`:
+The package exports `GameEngine`, `SimulationStep`, `render_recorded_step`,
+`EngineStep`, and `WorldModelRollout`:
 
 | Component | Responsibility |
 | --- | --- |
-| `GameEngine` | Advance vehicle simulation, apply application game rules, then render model conditioning for one block of driver commands. |
+| `GameEngine.advance()` | Advance vehicle simulation and application rules without rendering. |
+| `SimulationStep` | Recorded trajectory, actors, commands, and game snapshots that can be rendered independently of the mutable simulation. |
+| `render_recorded_step()` | Render conditioning and timings from a recording with a caller-owned condition renderer; no local simulation or game rules are required. |
+| `GameEngine.render()` | Render a recording through `render_recorded_step()` without advancing physics or rules. |
 | `EngineStep` | Return the trajectory, game-state snapshots, conditioning frames, and engine timing metrics for that block. |
-| `WorldModelRollout` | Combine an engine with an already constructed pipeline, generate video, finalize the autoregressive cache, and return video with its matching engine data. |
+| `WorldModelRollout` | Generate video from an engine step or supplied recorded step, finalize the autoregressive cache, and return video with its matching conditioning. |
 
 Applications supply implementations of the `SimulationWorld`, `GameRules`, and
 `ConditionRenderer` protocols in [contracts.py](omnidreams_game_engine/contracts.py).
-The engine checks that game snapshots and conditioning frames match the number
-of driver commands. The rollout uses the pipeline's output-frame count and
-checks that generated video matches the engine block.
+The engine checks that game snapshots match the simulated commands, and that
+rendered conditioning frames match the recording. The rollout validates its
+input against the pipeline's output-frame count and checks that generated video
+matches the engine block.
+
+`GameEngine.step()` retains the coupled advance-and-render path. For independent
+clocks, `GameplayProcess` owns a `SimulationDriver` in a spawned CPU process and
+schedules fixed physics ticks against wall time. The application supplies a
+picklable factory for its engine and controls. Robotaxi specializes this adapter
+for taxi controls and live-edit behavior; the process scheduler has no dependency
+on Robotaxi or the debug harness.
+
+`WorldTimeline` records those observations. Generation prepares a window through
+the latest available gameplay tick and commits its cursor after successful
+generation. Physics may continue while the model renders that recorded window.
+The application uses current gameplay for responsive HUD feedback and the recorded
+state for overlays that must align with generated pixels. Optional parent-side
+`GameplayObserver` hooks report readiness, applied inputs, and physics timings.
+
+### Rendering recorded gameplay
+
+`WorldModelRollout.step(recorded_step=...)` renders and generates from a
+`SimulationStep` without advancing physics. `GameEngine.render()` uses
+`render_recorded_step(recorded, condition_renderer)`, which preserves the
+recorded trajectory and game snapshots in the returned `EngineStep`.
+Robotaxi uses this flow when generating a new video chunk:
+
+```python
+window = timeline.prepare(rollout.frame_count(ar_index), shutdown_event)
+if window is not None:
+    result = rollout.step(
+        autoregressive_index=ar_index,
+        recorded_step=window.recorded_step(),
+    )
+    timeline.commit(window)
+```
+
+Pass either `commands` or `recorded_step` to the rollout, never both. A recording
+already contains its applied controls, and its trajectory and game snapshots must
+match the pipeline's frame count. Commit the window only after the rollout returns
+successfully, including cache finalization. Timeline overflow raises an error
+instead of overwriting unconsumed gameplay.
 
 `WorldModelRollout.reset()` recreates the engine and autoregressive cache while
 retaining the pipeline and its model weights. `close()` releases session-local
@@ -35,6 +78,7 @@ owns the model and UI loops, threads, client windows, and presentation.
 | `scene_loader.py` | Load compiled scene archives, camera calibration, initial images, prompts, and geometry. |
 | `simulation/` | Vehicle kinematics, PhysX integration, ground snapping, traffic control, and simulation components. |
 | `conditioning.py` | `LudusConditionRenderer`, including main-camera HD-map conditioning and a top-down view. |
+| `gameplay.py`, `timeline.py` | Independently scheduled simulation, timestamped input dispatch, and recorded generation windows. |
 | `input.py` | `DriverInput`, which converts input events to normalized driver commands. |
 | `config.py`, `types.py` | Shared rendering, vehicle, scene, trajectory, and command data types. |
 

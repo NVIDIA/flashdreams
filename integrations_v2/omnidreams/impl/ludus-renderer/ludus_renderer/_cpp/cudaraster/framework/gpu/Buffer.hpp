@@ -79,6 +79,7 @@ public:
     void            reset               (const void* ptr, S64 size)             { reset(ptr, size, m_hints, m_align); }
     void            resize              (S64 size)                              { realloc(size, m_hints, m_align); }
     void            resizeDiscard       (S64 size)                              { if (m_size != size) reset(NULL, size, m_hints, m_align); }
+    void            resizeDiscardCuda   (S64 size, CUstream stream);
     void            free                (Module module);
 
     void            getRange            (void* dst, S64 srcOfs, S64 size, bool async = false, CUstream cudaStream = NULL) const;
@@ -131,7 +132,7 @@ private:
     static void     cpuAlloc            (U8*& cpuPtr, U8*& cpuBase, S64 size, U32 hints, int align);
     static void     cpuFree             (U8*& cpuPtr, U8*& cpuBase, U32 hints);
     static void     cudaAlloc           (CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase, S64 size, int align);
-    static void     cudaFree            (CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase);
+    void            cudaFree            (CUdeviceptr& cudaPtr, CUdeviceptr& cudaBase);
 
     static void     checkSize           (S64 size, int bits, const String& funcName);
 
@@ -150,6 +151,8 @@ private:
     U8*             m_cpuBase;
     CUdeviceptr     m_cudaPtr;
     CUdeviceptr     m_cudaBase;
+    CUstream        m_cudaAllocationStream;
+    bool            m_cudaStreamOrdered;
 };
 
 //------------------------------------------------------------------------

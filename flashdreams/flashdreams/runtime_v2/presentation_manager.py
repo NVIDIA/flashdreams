@@ -9,6 +9,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 
 import torch
 from torch import Tensor
@@ -29,9 +30,6 @@ _MODEL_FPS_WINDOW_SECONDS = 2.0
 
 _PRESENTATION_DRAIN_MARGIN = 0.98
 """Present slightly faster than recent model FPS when possible."""
-
-_MAXIMUM_OBSERVED_FRAME_INTERVAL_SECONDS = 0.2
-"""Bound cold output observations so presentation does not visibly stall."""
 
 _TRACE_LOGGER = logging.getLogger("flashdreams.runtime_v2.chunk_trace")
 _TRACE_PREFIX = "[runtime-v2-chunk-trace]"
@@ -74,6 +72,7 @@ class _PresentationClock:
         generation: int,
         frame_count: int,
         step_elapsed_s: float,
+        completion_interval: bool = False,
     ) -> None:
         """Add one completed model chunk to the rolling FPS estimate.
 
@@ -85,6 +84,9 @@ class _PresentationClock:
                 this result, including any earlier steps buffered by a causal
                 postprocessor but excluding loop pacing and downstream
                 publication backpressure.
+            completion_interval: Use intervals between observed completions for
+                asynchronous GPU output. Includes UI polling resolution and
+                production gaps; it does not measure CUDA kernel duration.
 
         Raises:
             TypeError: ``frame_count`` is not an integer.
@@ -99,6 +101,11 @@ class _PresentationClock:
 
             if self._last_completion_at is not None and now < self._last_completion_at:
                 raise ValueError("now must not precede the latest observation.")
+            if completion_interval and self._last_completion_at is not None:
+                # GPU submission duration excludes unfinished kernels. Use the
+                # interval between UI-observed completions, not queue residence
+                # plus CPU work (which can overlap the previous GPU output).
+                step_elapsed_s = now - self._last_completion_at
             observed_model_fps = self._model_frame_rate.observe(
                 completed_at=now,
                 frame_count=frame_count,
@@ -112,10 +119,7 @@ class _PresentationClock:
                 self._model_frame_rate.reset()
                 return
             self._present_frame_interval = max(
-                min(
-                    (1.0 / observed_model_fps) * _PRESENTATION_DRAIN_MARGIN,
-                    _MAXIMUM_OBSERVED_FRAME_INTERVAL_SECONDS,
-                ),
+                (1.0 / observed_model_fps) * _PRESENTATION_DRAIN_MARGIN,
                 self._minimum_frame_interval,
             )
 
@@ -143,6 +147,11 @@ class _PresentationClock:
             else:
                 self._next_frame_at = next_frame_at + frame_interval
 
+    def mark_starved(self) -> None:
+        """Start a fresh interval when output resumes after an empty queue."""
+        with self._lock:
+            self._next_frame_at = None
+
     def _reset_generation(self, generation: int) -> None:
         self._generation = generation
         self._present_frame_interval = self._fallback_frame_interval
@@ -150,6 +159,16 @@ class _PresentationClock:
         self._model_frame_rate.reset()
         self._has_completion_baseline = False
         self._last_completion_at = None
+
+
+@dataclass
+class _BufferedChunk:
+    """One queue slot, including bounded completion-observation metadata."""
+
+    generation: int
+    channels: list[StepResult]
+    step_elapsed_s: float | None
+    ready: bool
 
 
 class PresentationManager:
@@ -180,9 +199,7 @@ class PresentationManager:
         Raises:
             ValueError: ``device`` is neither a CPU nor CUDA device.
         """
-        self._bufferedChunks: queue.Queue[tuple[int, list[StepResult]]] = queue.Queue(
-            maxsize=1
-        )
+        self._bufferedChunks: queue.Queue[_BufferedChunk] = queue.Queue(maxsize=1)
         self._presentation_clock = _PresentationClock(frames_per_second=30)
         self._backpressure_mode = BackpressureMode.BLOCK
         self._stop = threading.Event()
@@ -256,11 +273,13 @@ class PresentationManager:
         *,
         step_elapsed_s: float | None = None,
     ) -> None:
-        """Add one completed model step to the presentation queue.
+        """Queue a returned model step; its GPU output may still be pending.
 
         Called on the model thread. ``BLOCK`` waits here when the
-        queue is full, until there is room or the session stops;
-        ``DROP_OLDEST`` evicts instead and returns.
+        queue is full, until there is room or the session stops.
+        ``DROP_OLDEST`` retains the producer completion wait before admission,
+        then evicts a queued completed chunk if necessary. Only ``BLOCK`` admits
+        unfinished GPU output, because its queue also bounds producer progress.
 
         **An empty chunk is a step that presented nothing**, and nothing is
         queued or waited for. That is what a worker rank of a multi-process run
@@ -277,7 +296,10 @@ class PresentationManager:
                 present nothing for this step.
             step_elapsed_s: Cumulative time spent in model steps that produced
                 the result, including buffered steps; ``None`` leaves the
-                presentation cadence unchanged.
+                presentation cadence unchanged. CPU results use this host-call
+                duration. BLOCK-mode CUDA results use intervals between UI
+                observations of completed producer events; DROP_OLDEST adds its
+                producer completion wait to the supplied duration.
 
         Raises:
             ValueError: ``chunk``'s channels disagree about ``frame_count``.
@@ -296,7 +318,19 @@ class PresentationManager:
                 None,
             )
         )
-        if step_elapsed_s is not None:
+        asynchronous = any(result._output_ready_event is not None for result in chunk)
+        if asynchronous and self._backpressure_mode is BackpressureMode.DROP_OLDEST:
+            # Preserve completed-output admission for DROP_OLDEST. Otherwise a
+            # fast producer can endlessly replace the sole slot with unfinished
+            # GPU work, starving the UI and accumulating work outside the queue.
+            # BLOCK already bounds this work through its existing queue wait.
+            wait_started = time.monotonic()
+            for result in chunk:
+                result.wait_until_ready()
+            if step_elapsed_s is not None:
+                step_elapsed_s += time.monotonic() - wait_started
+            asynchronous = False
+        if step_elapsed_s is not None and not asynchronous:
             self._presentation_clock.observe_model_output(
                 now=time.monotonic(),
                 generation=generation,
@@ -314,7 +348,7 @@ class PresentationManager:
                 buffered_chunks=self.buffered_chunk_count,
                 chunk_capacity=self.buffered_chunk_capacity,
             )
-        pending = (generation, chunk)
+        pending = _BufferedChunk(generation, chunk, step_elapsed_s, not asynchronous)
         if self._backpressure_mode is BackpressureMode.DROP_OLDEST:
             self._publish_latest(pending)
             self._trace_publish_completed(pending, started_ns)
@@ -370,8 +404,8 @@ class PresentationManager:
         """Move to the next model frame, if one is available.
 
         Called on the UI thread, once per tick. The manager advances only when
-        the presentation clock is due, unless the chunk queue is full and needs
-        to drain. A ``generation`` other than the last one seen drops what is
+        the presentation clock is due, unless a completed chunk fills the queue
+        and needs to drain. A ``generation`` other than the last one seen drops what is
         being presented, so nothing generated before a reset survives it.
 
         Args:
@@ -396,7 +430,12 @@ class PresentationManager:
             self._presented_frame_count = 0
 
         now = time.monotonic() if now is None else float(now)
-        backlog = self.is_backlogged
+        ready_chunk = self._poll_buffered_chunk(generation, now=now)
+        backlog = (
+            ready_chunk is not None
+            and self._presented_chunk is not None
+            and self._frame_index + 1 < self._presented_chunk[0].frame_count
+        )
         if not self._presentation_clock.is_due(now, generation, backlog=backlog):
             return False, None
 
@@ -414,11 +453,9 @@ class PresentationManager:
             )
             return True, None
 
-        chunk = self._take_buffered_chunk(
-            generation,
-            latest=self._backpressure_mode is BackpressureMode.DROP_OLDEST,
-        )
+        chunk = self._poll_buffered_chunk(generation, now=now, take=True)
         if chunk is None:
+            self._presentation_clock.mark_starved()
             return False, None
         self._presented_chunk = chunk
         self._frame_index = 0
@@ -584,7 +621,7 @@ class PresentationManager:
             self._infer_stream_device = False
 
     def has_pending_frames(self) -> bool:
-        """Return whether another model frame is ready."""
+        """Return whether frames remain, including queued GPU work still pending."""
         if (
             self._presented_chunk is not None
             and self._frame_index + 1 < self._presented_chunk[0].frame_count
@@ -611,66 +648,74 @@ class PresentationManager:
     def _reset_buffered_chunks(self) -> None:
         self._bufferedChunks = queue.Queue(maxsize=1)
 
-    def _publish_latest(self, pending: tuple[int, list[StepResult]]) -> None:
+    def _publish_latest(self, pending: _BufferedChunk) -> None:
         while not self._stop.is_set():
             try:
                 self._bufferedChunks.put_nowait(pending)
                 return
             except queue.Full:
                 try:
-                    dropped_generation, dropped_chunk = (
-                        self._bufferedChunks.get_nowait()
-                    )
+                    dropped = self._bufferedChunks.get_nowait()
                     with self._counter_lock:
                         self._dropped_for_space += 1
                     self._trace_drop(
-                        dropped_generation,
-                        dropped_chunk,
+                        dropped.generation,
+                        dropped.channels,
                         reason="queue_full",
-                        replacement=pending,
+                        replacement=(pending.generation, pending.channels),
                     )
                 except queue.Empty:
                     continue
 
-    def _take_buffered_chunk(
-        self, generation: int, *, latest: bool
+    def _poll_buffered_chunk(
+        self, generation: int, *, now: float, take: bool = False
     ) -> list[StepResult] | None:
-        selected: list[StepResult] | None = None
+        """Observe readiness and optionally select the same queue head atomically.
+
+        Queue's mutex also protects producer DROP_OLDEST replacement. Pending
+        output remains in its sole queue slot; it cannot enter the UI stream or
+        make shutdown mistake an unfinished chunk for an empty queue. Trace
+        outside the mutex because trace reporting reads the queue size.
+        """
+        buffered = self._bufferedChunks
         while True:
-            try:
-                chunk_generation, chunk = self._bufferedChunks.get_nowait()
-            except queue.Empty:
-                return selected
-            if chunk_generation != generation:
-                with self._counter_lock:
-                    self._discarded_at_reset += 1
-                self._trace_drop(
-                    chunk_generation,
-                    chunk,
-                    reason="generation_mismatch",
-                )
-                continue
-            if selected is not None:
-                with self._counter_lock:
-                    self._dropped_for_space += 1
-                self._trace_drop(
-                    generation,
-                    selected,
-                    reason="take_latest",
-                    replacement=(chunk_generation, chunk),
-                )
-            selected = chunk
-            if not latest:
-                return selected
+            with buffered.mutex:
+                if not buffered._qsize():
+                    return None
+                pending = buffered.queue[0]
+                if pending.generation == generation:
+                    if not pending.ready:
+                        if not all(channel.is_ready() for channel in pending.channels):
+                            return None
+                        pending.ready = True
+                        if pending.step_elapsed_s is not None:
+                            self._presentation_clock.observe_model_output(
+                                now=now,
+                                generation=generation,
+                                frame_count=pending.channels[0].frame_count,
+                                step_elapsed_s=pending.step_elapsed_s,
+                                completion_interval=True,
+                            )
+                    if take:
+                        buffered._get()
+                        buffered.not_full.notify()
+                    return pending.channels
+                buffered._get()
+                buffered.not_full.notify()
+            with self._counter_lock:
+                self._discarded_at_reset += 1
+            self._trace_drop(
+                pending.generation, pending.channels, reason="generation_mismatch"
+            )
 
     def _trace_publish_completed(
         self,
-        pending: tuple[int, list[StepResult]],
+        pending: _BufferedChunk,
         started_ns: int | None,
     ) -> None:
         if started_ns is None:
             return
-        generation, chunk = pending
+        generation, chunk = pending.generation, pending.channels
         self._trace(
             "publish_completed",
             generation=generation,

@@ -73,7 +73,9 @@ class DriverInput:
     _use_controller: bool = field(default=False, init=False, repr=False)
     """Whether the most recent deliberate driving input came from a controller."""
 
-    def apply(self, events: UserInputEvents) -> tuple[float, ...]:
+    def apply(
+        self, events: UserInputEvents, *, record_transitions: bool = True
+    ) -> tuple[float, ...]:
         """Retain new input and return command-transition times in seconds."""
         input_times_s: list[float] = []
         for event in events.get_events():
@@ -85,9 +87,10 @@ class DriverInput:
                 continue
             timestamp_us = int(event.get_timestamp())
             timestamp_s = timestamp_us / 1_000_000.0
-            self._pending_transitions.append(
-                _DriverTransition(timestamp_s, timestamp_us, command)
-            )
+            if record_transitions:
+                self._pending_transitions.append(
+                    _DriverTransition(timestamp_s, timestamp_us, command)
+                )
             input_times_s.append(timestamp_s)
         return tuple(input_times_s)
 

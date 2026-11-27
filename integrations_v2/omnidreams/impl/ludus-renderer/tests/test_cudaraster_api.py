@@ -234,6 +234,8 @@ How to interpret a failing test during cleanroom development
 import subprocess
 import sys
 import textwrap
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
@@ -2739,3 +2741,110 @@ def test_timestamped_context_batches_distinct_timestamps_exactly() -> None:
     )
 
     assert torch.equal(batched, sequential)
+
+
+def _moving_rail_context() -> tuple[Any, tuple[Any, ...]]:
+    from ludus_renderer import (
+        FThetaCamera,
+        LudusCudaTimestampedContext,
+        TimestampedPolylinePool,
+        TimestampedScene,
+    )
+
+    device = torch.device("cuda")
+    width, height = 160, 88
+    timestamps = torch.tensor([0, 33_333], dtype=torch.int64, device=device)
+    pool = TimestampedPolylinePool(
+        timestamps_us=timestamps,
+        timestamped_varrays_prefix_sum=torch.tensor(
+            [1, 2], dtype=torch.int32, device=device
+        ),
+        varrays_prefix_sum=torch.tensor([2, 4], dtype=torch.int32, device=device),
+        vertices=torch.tensor(
+            [[8.0, -2.0, -1.0], [8.0, -2.0, 1.0], [8.0, 2.0, -1.0], [8.0, 2.0, 1.0]],
+            device=device,
+        ),
+        prim_type_id=16,
+    )
+    context = LudusCudaTimestampedContext(device=device)
+    context.upload_cameras(
+        [
+            FThetaCamera(
+                principal_point=torch.tensor([width / 2, height / 2], device=device),
+                image_size=torch.tensor([width, height], device=device),
+                fw_poly=torch.tensor([0.0, 125.0, 0.0, 0.0, 0.0, 0.0], device=device),
+                max_ray_angle=1.3,
+            )
+        ]
+    )
+    scene_id = context.upload_scene(TimestampedScene([pool], [], []))
+    context.set_msaa_samples(0)
+    return context, (
+        torch.full((2,), scene_id, dtype=torch.int32, device=device),
+        torch.zeros(2, dtype=torch.int32, device=device),
+        timestamps,
+        torch.zeros(2, dtype=torch.int32, device=device),
+        torch.eye(4, device=device).repeat(2, 1, 1),
+        (height, width),
+    )
+
+
+def test_independent_contexts_render_concurrently_without_corrupting_pixels() -> None:
+    """UI and model renders share CUDA module globals, even in separate contexts."""
+    inputs = [_moving_rail_context() for _ in range(2)]
+    expected = inputs[0][0].render(*inputs[0][1])
+    assert torch.count_nonzero(expected) > 0
+    assert not torch.equal(expected[0], expected[1])
+    torch.cuda.synchronize()
+    ready = threading.Barrier(2)
+
+    def draw(index: int) -> None:
+        context, args = inputs[index]
+        stream = torch.cuda.Stream()
+        with torch.cuda.stream(stream):
+            for _ in range(32):
+                ready.wait(timeout=10)
+                output = context.render(
+                    *(arg[index : index + 1] for arg in args[:-1]), args[-1]
+                )
+                assert torch.equal(output[0], expected[index])
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        list(executor.map(draw, range(2)))
+
+
+def test_scratch_growth_does_not_wait_for_other_cuda_streams(
+    harness: CudaRasterHarness,
+) -> None:
+    """A larger draw must not block UI input behind unrelated model work."""
+    harness.configure(64, 64)
+    vertices = _to_vertices(
+        [(-0.5, -0.5, 0.0, 1.0), (0.5, -0.5, 0.0, 1.0), (0.0, 0.5, 0.0, 1.0)]
+    )
+    small = _to_indices([(0, 1, 2)])
+    large = small.repeat(8192, 1)
+    draw_stream = torch.cuda.Stream()
+    other_stream = torch.cuda.Stream()
+    finished = torch.cuda.Event()
+    torch.cuda.synchronize()
+    with torch.cuda.stream(draw_stream):
+        harness.upload(vertices, small)
+        assert harness.draw(0, 0, False)
+    draw_stream.synchronize()
+    with torch.cuda.stream(other_stream):
+        torch.cuda._sleep(2_000_000_000)
+        finished.record()
+    try:
+        with torch.cuda.stream(draw_stream):
+            harness.upload(vertices, large)
+            assert harness.draw(0, 0, False)
+        draw_stream.synchronize()
+        assert not finished.query(), "Scratch growth synchronized unrelated GPU work"
+    finally:
+        other_stream.synchronize()
+    first = harness.read().color
+    # Reuse the allocation from another stream, with explicit ordering.
+    with torch.cuda.stream(other_stream):
+        harness.upload(vertices, small)
+        assert harness.draw(0, 0, False)
+    np.testing.assert_array_equal(harness.read().color, first)

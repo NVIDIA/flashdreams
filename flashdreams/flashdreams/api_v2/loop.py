@@ -449,8 +449,10 @@ class IModelLoop(ILoop[StateT], ABC):
                     step_started_ns = time.monotonic_ns()
                     with self.profiler.range(f"model.step[{run.step_index}]"):
                         raw_result = self.step(run.step_index, self.user_events)
+                        result = _model_results(raw_result)
+                    # Host-call duration; asynchronous CUDA completion is
+                    # observed separately by the presentation manager.
                     step_elapsed_s = time.monotonic() - step_started_at
-                    result = _model_results(raw_result)
                     step_completed = True
                 finally:
                     self._finish_run(result, step_completed=step_completed)

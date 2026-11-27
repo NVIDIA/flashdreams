@@ -5,16 +5,12 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 import torch
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 from omnidreams.impl.native import (
     NativePrepError,
     NativeTensorLayout,

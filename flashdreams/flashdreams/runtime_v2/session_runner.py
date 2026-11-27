@@ -262,9 +262,9 @@ def run_session(
                     step_requested = True
                 else:
                     step_requested = (
-                        not presentation_manager.has_pending_frames()
-                        and session._failure_queue.empty()
-                    )
+                        session_desc.presentation_mode is PresentationMode.CONTINUOUS
+                        or not presentation_manager.has_pending_frames()
+                    ) and session._failure_queue.empty()
                 run_ui_once(step_requested=step_requested)
 
         trace_log = (
@@ -381,7 +381,7 @@ def run_session(
                 next_tick_at += tick_seconds
                 completed_at = time.monotonic()
                 if next_tick_at <= completed_at:
-                    next_tick_at = completed_at + tick_seconds
+                    next_tick_at = completed_at
     except BaseException as error:
         high_level_failures = error
     finally:

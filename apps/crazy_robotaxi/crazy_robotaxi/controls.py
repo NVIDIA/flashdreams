@@ -1128,3 +1128,26 @@ __all__ = [
     "update_binding",
     "wheel_driver_command",
 ]
+
+
+def taxi_driver_command(command: DriverCommand) -> DriverCommand:
+    """Apply Taxi's arcade pedal policy to shared non-direct drive commands."""
+    if command.steer_is_direct:
+        return command
+    if command.brake > 0.0:
+        return replace(
+            command,
+            throttle=0.0,
+            brake=0.0,
+            stop=False,
+            handbrake=True,
+            manual_control=True,
+        )
+    if command.reverse:
+        command = replace(
+            command,
+            throttle=0.0,
+            brake=command.throttle,
+            reverse=False,
+        )
+    return replace(command, manual_control=True)

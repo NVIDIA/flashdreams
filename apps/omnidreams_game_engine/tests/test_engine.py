@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 from typing import cast
 
@@ -223,3 +223,14 @@ def test_trajectory_sampling_aggregates_physics_bridge_timings() -> None:
     assert timings.traffic_update_ms == pytest.approx(0.6)
     assert timings.state_materialize_ms == pytest.approx(0.8)
     assert timings.bridge_other_ms == pytest.approx(6.0)
+
+
+def test_camera_keeps_ground_attitude_without_visual_suspension_offsets():
+    from omnidreams_game_engine.math3d import rig_pose_from_vehicle_state
+
+    vehicle = VehicleState(1, 2, 3, 0.3, 5, 0, pitch_rad=0.1, roll_rad=-0.05)
+    expected = rig_pose_from_vehicle_state(vehicle)
+    bounced = replace(vehicle, suspension_pitch_rad=0.08, suspension_roll_rad=0.04)
+    np.testing.assert_allclose(rig_pose_from_vehicle_state(bounced), expected)
+    level = replace(vehicle, pitch_rad=0, roll_rad=0)
+    assert not np.allclose(rig_pose_from_vehicle_state(level), expected)
