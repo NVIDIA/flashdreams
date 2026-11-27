@@ -4,6 +4,8 @@ nav:
       - HandDreams: hand_dreams.md
       - Crazy Robotaxi: crazy_robotaxi.md
       - Interactive Drive: interactive_drive.md
+      - Interactive Drive ROS 2 startup: interactive_drive_ros2_startup.md
+      - Interactive Drive ROS 2 bridge design: interactive_drive_ros2_design.md
   - Model Interfaces:
       - Action2V: action2v.md
       - Cam2V: cam2v.md

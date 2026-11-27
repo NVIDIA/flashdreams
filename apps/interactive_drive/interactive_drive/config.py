@@ -129,6 +129,7 @@ class PresentationLayout:
     columns: int
     rows: int
     view_index: int | None
+    cockpit: bool = False
     """The one camera to present, or ``None`` to tile the whole rig."""
 
     @classmethod
@@ -151,13 +152,18 @@ class AppConfig:
     """A recording of the same drive, for a loader that reads one."""
     start_frame: int = 0
     """Frame of that recording the drive opens on."""
+    initial_speed_mps: float | None = None
+    """Override the scene's initial forward speed; ``None`` uses the recording."""
     physics: bool = True
     """Simulate colliders, for a scene whose geometry the host can read."""
     reverse: bool = True
     """Offer a reverse gear, for a model trained on a car that can back up."""
+    keyboard_direct_steering: bool = False
+    """Apply keyboard steering directly instead of ramping and returning gradually."""
     game_mode: bool = False
     camera_names: tuple[str, ...] = ("camera_front_wide_120fov",)
     present_camera: str | None = None
+    cockpit: bool = False
     variant: str = "default"
     prompt_override: str | None = None
     chunk: ChunkConfig = ChunkConfig()
@@ -199,8 +205,14 @@ class AppConfig:
     presenter_adapter: str | None = None
     # None follows game_mode; an explicit bool remains a fine-grained override.
     visual_flare_enabled: bool | None = None
+    export_dir: Path = Path("artifacts/drive-exports")
+    """Directory for recordings requested by the Web cockpit."""
 
     def __post_init__(self) -> None:
+        if self.initial_speed_mps is not None and (
+            not math.isfinite(self.initial_speed_mps) or self.initial_speed_mps < 0
+        ):
+            raise ValueError("initial_speed_mps must be finite and >= 0.")
         object.__setattr__(
             self,
             "vehicle",
@@ -221,6 +233,8 @@ class AppConfig:
         """One named camera alone, or the rig tiled as close to square as it goes."""
         if self.present_camera is not None:
             return PresentationLayout(1, 1, self.camera_index(self.present_camera))
+        if self.cockpit and len(self.camera_names) > 1:
+            return PresentationLayout(len(self.camera_names) - 1, 1, None, cockpit=True)
         return PresentationLayout.grid(len(self.camera_names))
 
     def camera_index(self, camera_name: str) -> int:

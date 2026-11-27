@@ -4,8 +4,8 @@
 """Load prepared scene bundles into Interactive Drive's scene contract.
 
 The bundle supplies the model's palette, geometry, calibration and opening RGB.
-The anchor camera defines the rig frame, with other camera offsets derived from
-the recorded tracks. Source conversion and image generation happen offline.
+Explicit camera-to-vehicle calibration defines the rig frame when available;
+otherwise the anchor camera does. Source conversion happens offline.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 from interactive_drive.config import AppConfig, RasterConfig
+from interactive_drive.math3d import euler_xyz_degrees_to_matrix, transform_from_rt
 from interactive_drive.types import CameraCalibration, SceneBundle
 
 from cosmos3_nano_sim_auto.impl.conditioning import camera_rig
@@ -26,6 +27,7 @@ from cosmos3_nano_sim_auto.impl.conditioning.world_scenario import prepared_scen
 from cosmos3_nano_sim_auto.impl.conditioning.world_scenario.camera import (
     RDF_TO_FLU,
     frame_rate,
+    smoothable,
 )
 from cosmos3_nano_sim_auto.inputs import MultiviewSample
 
@@ -42,6 +44,7 @@ def load_scene_bundle(
     raster: RasterConfig,
     *,
     config: AppConfig | None = None,
+    road_height_primitives: Sequence[int] = (),
 ) -> SceneBundle:
     """Load a prepared scene with calibrated cameras and matching opening RGB."""
     if not camera_names:
@@ -51,14 +54,49 @@ def load_scene_bundle(
             "Expected an extracted prepared scene bundle containing scene.json; "
             "pass its directory with --scene."
         )
-    return _prepared_bundle(scene_path, camera_names, prompt_override, raster, config)
+    return _prepared_bundle(
+        scene_path, camera_names, prompt_override, raster, config, road_height_primitives
+    )
+
+
+class _RoadMarkingElevation:
+    """Fit local ground height only where surrounding road markings support one surface."""
+
+    def __init__(self, points: np.ndarray) -> None:
+        from scipy.spatial import cKDTree
+
+        self.points = np.unique(
+            np.asarray(points, dtype=np.float64).reshape(-1, 3), axis=0
+        )
+        self.tree = cKDTree(self.points[:, :2])
+
+    def __call__(self, x: float, y: float) -> float | None:
+        # ponytail: infer the local surface within 6 m of surveyed markings;
+        # use a registered ground mesh where available for gaps and multiple decks.
+        nearby = self.points[self.tree.query_ball_point((x, y), 6.0)]
+        if len(nearby) < 3:
+            return None
+        xy = nearby[:, :2] - (x, y)
+        angles = np.sort(np.arctan2(xy[:, 1], xy[:, 0]))
+        if np.diff(angles, append=angles[0] + 2 * np.pi).max() >= np.pi:
+            return None  # The query is outside the local convex hull.
+        design = np.column_stack((xy, np.ones(len(xy))))
+        plane, _, rank, singular = np.linalg.lstsq(design, nearby[:, 2], rcond=None)
+        if (
+            rank < 3
+            or singular[-1] < 0.25 * np.sqrt(len(xy))
+            or np.hypot(*plane[:2]) > np.tan(np.deg2rad(10))
+            or np.abs(design @ plane - nearby[:, 2]).max() > 0.15
+        ):
+            return None  # Nearly collinear, too steep, or incompatible elevations.
+        return float(plane[2])
 
 
 def _calibration(
     clip: Path,
     name: str,
     track: np.ndarray,
-    anchor: np.ndarray,
+    rig_to_world: np.ndarray,
     opening: int,
     intrinsics: np.ndarray,
 ) -> CameraCalibration:
@@ -81,7 +119,7 @@ def _calibration(
     distortion = (
         intrinsics[11:14] if intrinsics.size >= 14 else np.array([1.0, 0.0, 0.0])
     )
-    sensor_to_rig = np.linalg.inv(anchor[opening]) @ track[opening]
+    sensor_to_rig = np.linalg.inv(rig_to_world) @ track[opening] @ _FLU_FROM_RECORDED
     return CameraCalibration(
         clipgt_name=name,
         logical_name=name,
@@ -92,9 +130,8 @@ def _calibration(
         polynomial=intrinsics[4:10].astype(np.float32),
         is_backward_polynomial=bool(intrinsics[10] > 0),
         linear_cde=np.asarray(distortion, dtype=np.float32),
-        sensor_to_rig_flu=(RDF_TO_FLU @ sensor_to_rig @ _FLU_FROM_RECORDED).astype(
-            np.float32
-        ),
+        sensor_to_rig_flu=sensor_to_rig.astype(np.float32),
+        ludus_draw_size=smoothable((int(intrinsics[2]), int(intrinsics[3]))),
     )
 
 
@@ -104,6 +141,7 @@ def _prepared_bundle(
     prompt_override: str | None,
     raster: RasterConfig,
     config: AppConfig | None,
+    road_height_primitives: Sequence[int] = (),
 ) -> SceneBundle:
     """Open the generated RGB set at its recorded scene state."""
     camera_rig.view_ids(cameras)
@@ -120,24 +158,65 @@ def _prepared_bundle(
         raise ValueError(f"Prepared scene requires {fps:.6f} FPS")
     sample = MultiviewSample.load(root / "sample.json")
     anchor = prepared.tracks[cameras[0]]
-    rig_to_world = anchor[posed] @ _FLU_FROM_RECORDED
+    rig_track = anchor @ _FLU_FROM_RECORDED
+    mount = (
+        manifest["cameras"][cameras[0]]
+        .get("virtual_camera", {})
+        .get("nominalSensor2Rig_FLU")
+    )
+    if mount is not None:
+        sensor_to_rig = transform_from_rt(
+            euler_xyz_degrees_to_matrix(mount["roll-pitch-yaw"]), mount["t"]
+        )
+        if not np.isfinite(sensor_to_rig).all():
+            raise ValueError("Camera-to-vehicle calibration must be finite")
+        rig_track = rig_track @ np.linalg.inv(sensor_to_rig)
+    rig_to_world = rig_track[posed]
+    elevation_at = None
+    ground_metadata = {}
+    if road_height_primitives:
+        registration = manifest.get("provenance", {}).get("height_registration", {})
+        if (
+            registration.get("mode") != "per_frame_vertical_display_translation"
+            or not registration.get("dem_sha256")
+        ):
+            raise ValueError("Road-marking height requires a DEM-registered prepared map")
+        pools = {
+            pool.prim_type_id: pool.vertices.numpy().reshape(-1, 3)
+            for pool in prepared.scene.polyline_pools
+            if pool.prim_type_id in road_height_primitives
+        }
+        if set(road_height_primitives) != pools.keys():
+            raise ValueError("Requested road height primitives are absent from the map")
+        elevation_at = _RoadMarkingElevation(np.concatenate(list(pools.values())))
+        opening_ground = elevation_at(*rig_to_world[:2, 3])
+        if opening_ground is None:
+            raise ValueError("Road markings do not establish ground at the opening pose")
+        ground_metadata["rig_ground_clearance_m"] = (
+            float(rig_to_world[2, 3]) - opening_ground
+        )
     return SceneBundle(
         scene_path=root,
         scene_id=sample.name,
         metadata={
+            **ground_metadata,
             "map": str(root),
             "sample": str(root),
             "start_frame": 0,
             "pose_frame": posed,
             "source_fps": fps,
             "prepared_scene": prepared,
+            "scene_geometry": {
+                "root": str(prepared.root),
+                "manifest_sha256": prepared_scene.sha256(prepared.root / "scene.json"),
+            },
         },
         cameras=tuple(
             _calibration(
                 root,
                 name,
                 prepared.tracks[name],
-                anchor,
+                rig_to_world,
                 posed,
                 prepared.intrinsics(name),
             )
@@ -146,13 +225,16 @@ def _prepared_bundle(
         initial_rig_to_world=rig_to_world.astype(np.float32),
         initial_timestamp_us=int(manifest["start_us"]) + round(posed * 1e6 / fps),
         initial_yaw_rad=_yaw_of(rig_to_world),
-        initial_speed_mps=recorded_speed(anchor, fps, first=posed),
+        initial_speed_mps=recorded_speed(
+            rig_track, fps, first=posed, over=max(1, round(fps))
+        ),
         initial_rgbs=_opening_frames(sample, cameras, start_frame=0, raster=raster),
         prompt=("" if sample.view_captions else sample.prompt)
         if prompt_override is None
         else prompt_override,
         line_layers=(),
         triangle_layers=(),
+        road_elevation_at=elevation_at,
     )
 
 

@@ -190,6 +190,7 @@ class _LudusConditionRasterizerImpl:
             include_ego_trajectory=False,
             include_ego_obstacle=False,
         )
+        self._rig_ground_clearance_m = scene.metadata.get("rig_ground_clearance_m", 0.0)
 
         scene_adapter = SceneAdapter(clipgt_scene)
         self._scene_data = _LoadedSceneData(
@@ -414,6 +415,7 @@ class _LudusConditionRasterizerImpl:
                 timestamps_us=timestamps_us,
                 dimensions_lwh=self._ego_dimensions_lwh,
                 track_capacity=self._max_chunk_frames,
+                rig_ground_clearance_m=self._rig_ground_clearance_m,
             )
             if not self.ctx.update_cube_pool(
                 self._scene_id, PRIM_EGO_OBSTACLE, ego_pool
@@ -834,6 +836,7 @@ def _build_bev_ego_car_pool(
     timestamps_us: npt.ArrayLike | Tensor,
     dimensions_lwh: tuple[float, float, float],
     track_capacity: int,
+    rig_ground_clearance_m: float = 0.0,
 ) -> CubePool:
     """Build a fixed-capacity green ego-car track for BEV rendering.
 
@@ -842,6 +845,7 @@ def _build_bev_ego_car_pool(
         timestamps_us: Timestamp corresponding to each rig pose.
         dimensions_lwh: Full ego-car box extents in metres.
         track_capacity: Fixed pose count allocated in the Ludus scene.
+        rig_ground_clearance_m: World-vertical height of the rig above the road.
 
     Returns:
         Ego-obstacle cube pool padded to ``track_capacity`` poses.
@@ -883,7 +887,7 @@ def _build_bev_ego_car_pool(
 
     height = float(dimensions_lwh[2])
     translations = poses[:, :3, 3].clone()
-    translations[:, 2] += height * 0.5
+    translations[:, 2] += height * 0.5 - rig_ground_clearance_m
     yaw = torch.atan2(poses[:, 1, 0], poses[:, 0, 0])
     quaternions = torch.zeros(
         (track_capacity, 4), dtype=torch.float32, device=rig_poses.device

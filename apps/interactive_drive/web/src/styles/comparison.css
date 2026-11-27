@@ -1,0 +1,65 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+:root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: #e5edf2; background: #080f15; font-synthesis: none; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+a { color: inherit; text-decoration: none; }
+button, input, select, textarea { font: inherit; }
+button, a, select { touch-action: manipulation; }
+button, a { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 2px solid #39c7aa; outline-offset: 4px; }
+[hidden] { display: none !important; }
+.studio-header { height: 76px; padding: 0 42px; display: flex; align-items: center; border-bottom: 1px solid #22313c; gap: 24px; }
+.brand { font-size: 14px; font-weight: 750; letter-spacing: .08em; }
+.brand span { color: #39c7aa; padding: 0 7px; }
+.breadcrumb, .back-link { font-size: 11px; letter-spacing: .1em; color: #8295a4; }
+.back-link { margin-left: auto; letter-spacing: 0; font-size: 13px; }
+main { max-width: 1740px; margin: 0 auto; padding: 38px 42px 24px; }
+.intro { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
+.eyebrow { font-size: 10px; color: #39c7aa; letter-spacing: .18em; margin: 0 0 12px; }
+h1 { font-size: clamp(26px, 2.6vw, 38px); font-weight: 600; letter-spacing: -.04em; margin: 0 0 10px; }
+.description { font-size: 13px; color: #8a9eaf; margin: 0; line-height: 1.7; }
+.mode-badge { border: 1px solid #245749; padding: 9px 13px; border-radius: 5px; font-size: 11px; color: #54d2b6; white-space: nowrap; background: #10241f; }
+.studio-grid { display: grid; grid-template-columns: minmax(0, 1fr) 324px; gap: 22px; align-items: start; }
+.preview-panel, .settings-panel, .recordings-panel { background: #0d171f; border: 1px solid #263743; border-radius: 10px; overflow: hidden; }
+.panel-heading { padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #22323e; font-size: 12px; }
+.panel-heading > span:last-child { color: #8195a5; font-size: 10px; letter-spacing: .04em; }
+.live-dot, .source-legend i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #39c7aa; margin-right: 8px; vertical-align: 1px; }
+.video-stage { aspect-ratio: 3 / 2; background: #060c11; display: grid; place-items: center; }
+video { display: block; width: 100%; max-height: 75vh; aspect-ratio: 3 / 2; object-fit: contain; }
+#preview-empty { text-align: center; color: #8397a6; padding: 36px; }
+.empty-mark { font-size: 36px; color: #39c7aa; font-weight: 200; }
+h2 { font-size: 18px; font-weight: 500; color: #d5e1e8; margin-top: 20px; }
+#preview-empty p { font-size: 13px; line-height: 1.9; }
+.preview-footer { padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 12px; color: #94a6b4; border-top: 1px solid #22323e; }
+.text-link { background: transparent; border: 0; color: #58cbb4; font-size: 12px; cursor: pointer; padding: 0; white-space: nowrap; }
+.source-legend { display: flex; flex-wrap: wrap; gap: 16px; padding: 0 18px 17px; font-size: 10px; color: #738997; }
+.source-legend .coral { background: #f0806c; }
+.settings-panel form { padding: 19px; }
+label { display: block; font-size: 12px; margin: 0 0 9px; color: #c7d4dd; }
+label small { color: #6f8797; margin-left: 4px; font-size: 10px; }
+input, select, textarea { width: 100%; padding: 11px 12px; background: #09131a; color: #dce8ef; border: 1px solid #2c414e; border-radius: 5px; font-size: 12px; margin-bottom: 18px; line-height: 1.5; }
+textarea { resize: vertical; min-height: 84px; }
+select { cursor: pointer; }
+.field-note { color: #78918f; margin: -8px 0 0; font-size: 11px; line-height: 1.6; }
+.divider { height: 1px; background: #22323e; margin: 22px 0; }
+.format-row { display: flex; justify-content: space-between; font-size: 10px; color: #758d9d; margin: 2px 0 20px; }
+.format-row strong { font-weight: 400; color: #a6bac7; }
+.primary-button, .secondary-button { padding: 12px 15px; width: 100%; border-radius: 5px; cursor: pointer; border: 1px solid transparent; font-size: 12px; }
+.primary-button { background: #39c7aa; color: #062219; font-weight: 650; display: flex; justify-content: space-between; }
+.secondary-button { background: transparent; color: #91a8b7; border-color: #2b414e; }
+button:disabled { opacity: .5; cursor: wait; }
+#render-status { color: #829aa9; font-size: 11px; line-height: 1.7; min-height: 32px; margin: 12px 0; overflow-wrap: anywhere; }
+progress { width: 100%; height: 5px; accent-color: #39c7aa; margin-top: 14px; }
+.recordings-panel { margin-top: 24px; }
+.count { background: #20323e; border-radius: 4px; padding: 2px 6px; font-size: 10px; color: #9db4c1; margin-left: 8px; }
+.recordings-list { padding: 6px 18px; }
+.empty-list { font-size: 12px; color: #748c9e; padding: 14px 0; }
+.recording-row { display: flex; align-items: center; gap: 20px; padding: 15px 0; border-bottom: 1px solid #20303b; font-size: 12px; }
+.recording-row:last-child { border: 0; }
+.recording-row strong { font-weight: 500; overflow-wrap: anywhere; }
+.recording-row span { color: #819aaa; font-size: 11px; }
+.recording-row a { margin-left: auto; }
+.studio-footer { display: flex; justify-content: space-between; gap: 20px; color: #506b7c; font-size: 9px; letter-spacing: .06em; padding-top: 25px; }
+@media (hover: hover) { .text-link:hover, .back-link:hover { color: #9bf1de; } .primary-button:hover { background: #5edac0; } }
+@media (max-width: 900px) { main { padding: 24px 18px; } .studio-header { padding: 0 18px; } .studio-grid { grid-template-columns: minmax(0, 1fr); } .intro { align-items: start; } .breadcrumb { display: none; } .recording-row { flex-wrap: wrap; gap: 9px; } .studio-footer { flex-direction: column; } }

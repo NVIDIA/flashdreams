@@ -4,6 +4,7 @@
 """Output of one generation step."""
 
 from dataclasses import InitVar, dataclass, field
+from pathlib import Path
 
 import torch
 from torch import Tensor
@@ -34,6 +35,12 @@ class StepResult:
 
     metrics: dict[str, float | int] | None = field(default_factory=dict)
     """Measurements for this step, or ``None`` when profiling is disabled."""
+
+    client_data: dict[str, object] | list[dict[str, object]] | None = None
+    """Optional JSON application message or batch sent to a remote client."""
+
+    client_files: dict[str, Path] = field(default_factory=dict)
+    """Application-approved completed files, keyed by their public identifiers."""
 
     _output: Tensor = field(init=False, repr=False)
     """Generated frames, laid out as ``output_layout`` says. Floating-point

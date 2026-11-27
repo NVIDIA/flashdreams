@@ -58,18 +58,10 @@ def as_recorded(sensor_to_world: np.ndarray) -> np.ndarray:
 class SuppliedPoses:
     """Poses handed over a chunk at a time, read back a span at a time.
 
-    The two parties are not in step, and cannot be. The rollout renders its
-    whole control window while it is being built, which is before the host has
-    sampled any trajectory at all, and afterwards it draws a chunk's map at the
-    moment it generates that chunk, by which time the host is a window ahead.
-    So a span can fall either side of what the host has supplied.
-
-    Past the supply, the path carries straight on at the speed it last had,
-    which is what the demo's driver does before the first key is pressed. The
-    opening is therefore not steerable: by the time the host's first command
-    arrives, the map for those frames is already drawn. Frames the host supplies
-    for ground already drawn are dropped rather than queued, since the picture
-    conditioned on the extrapolation is the one the viewer has seen.
+    A consumer asking beyond the supplied path gets straight-line extrapolation
+    at the opening speed. Already-drawn poses are dropped when the host catches
+    up. Live RGB only prefills the opening frame, then supplies each generated
+    chunk before drawing its controls; explicit prefetch can still run ahead.
     """
 
     def __init__(
@@ -118,7 +110,7 @@ class SuppliedPoses:
         self._shift = np.eye(4, dtype=np.float32)
         if delay_frames:
             opening = _carried_on(self._latest, delay_frames, self._per_frame)
-            self._held.append(opening)
+            self._held.append(np.concatenate([self._latest[None], opening[:-1]]))
             self._given = delay_frames
             self._shift = opening[-1] @ np.linalg.inv(self._latest)
 
@@ -187,6 +179,9 @@ class SuppliedPoses:
         """``frames`` rig poses, from the host as far as it goes and then on."""
         waiting = max(self._given - self._read, 0)
         span: list[np.ndarray] = []
+        if not waiting and self._read == 0:
+            span.append(self._latest[None].copy())
+            frames -= 1
         if waiting:
             span.append(_taken(self._held, min(waiting, frames)))
             frames -= len(span[0])

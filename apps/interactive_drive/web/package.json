@@ -1,0 +1,19 @@
+{
+  "name": "flashdreams-simulation-cockpit",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.cjs"
+  },
+  "dependencies": {
+    "lucide": "^0.460.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^8.3.8"
+  }
+}

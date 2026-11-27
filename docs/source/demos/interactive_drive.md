@@ -116,6 +116,7 @@ access to `/dev/input/*` and the appropriate Linux driver:
 | `--world-model-debug-condition-frame-dir PATH` | Override first-chunk condition frames for debugging. | `cosmos3-nano-sim-auto` |
 | `--views N` | Select the number of cameras to display. Allowed: `1`, `4` or `7`. Do not mix with `--camera` | `omnidreams` |
 | `--lidar` | Show the LiDAR point cloud. Default: `False`. `Cosmos3 Nano Sim Auto` accepts this option. | `omnidreams` |
+| `--export-dir PATH` | Save Web cockpit recordings here. Default: `artifacts/drive-exports`. | — |
 
 For `OmniDreams`, use the default scene, select its rain variant, override its prompt,
 and enable RTX super resolution:
@@ -158,6 +159,129 @@ preset, the checkbox is hidden. Run
 post-processing presets. The built-in `rtx-*` presets require
 the optional NVIDIA VFX dependency, installable with
 `uv pip install 'flashdreams[rtx-postprocess]'`, and supported RTX hardware.
+
+## Web recordings and comparison videos
+
+Open the URL printed by `flashdreams-run-v2 ... --mode webrtc`. Interactive Drive
+adds **开始录制** (start), **停止并保存** (stop and save), and **下载 ZIP**
+(download) to that built-in page. The controls work with the normal HUD or
+`--web-ui`; no separate frontend is needed for recording or downloads. Use
+`--export-dir PATH` to change the persistent server directory. Downloads use
+unguessable URLs granted through the active WebRTC connection and the same HTTP
+port as the viewer; keep the server running while downloading.
+
+Recording starts and stops at model chunk boundaries. The ZIP contains native
+camera JPEGs, optional BEV PNGs, calibration, configuration, timestamped vehicle
+poses and states, applied command events, and per-frame simulated actor poses.
+`scene_geometry.json` snapshots the app's geometry and source tracks; prepared
+scenes also include `scene/{scene,map,tracks,poses}.json` so their geometry is
+portable. Camera JPEGs retain the emitted frame dimensions at quality 95; they
+are independent of the browser/HUD capture and preview thumbnails.
+Frame states are sampled before integrating the next frame. Recordings split on
+scene reset. ZIPs become downloadable after finalization; failed recordings retain
+their source directory for recovery. Recording uses synchronous disk writes.
+Delayed post-processing frames retain their original trajectory samples. A
+manual stop archives frames already emitted; `unemitted_frame_count` reports any
+remaining post-processing inputs without emitted images at that boundary.
+
+The optional separate cockpit in `apps/interactive_drive/web` also provides
+recording and video production. Start it with `npm run dev` there. The video
+studio is `/comparison.html`. Its export API accepts local connections with a
+page session token. On a remote machine, forward the frontend port with SSH, for
+example `ssh -L 5173:127.0.0.1:5173 HOST`, and open `http://localhost:5173`.
+The Python backend's `--export-dir` and the frontend's `DRIVE_EXPORT_DIR` must
+refer to the same directory.
+
+The current reference reader accepts a `flashdreams.jlu-raw-multiview` package
+with `manifest.json`, `sample.json`, camera images/timestamp tables, calibration,
+ego poses, and estimated controls. Supply its matching prepared RGB scene for
+map geometry, world poses, and object tracks. Set absolute paths when starting
+the frontend:
+
+```bash
+DRIVE_GT_PATH=/path/to/raw-sixview \
+DRIVE_SCENE_PATH=/path/to/prepared-scene \
+DRIVE_EXPORT_DIR=/path/to/drive-exports npm run dev
+```
+
+Choose **GT × GT** to test the template without running a model. After recording
+a matching simulation, choose that recording for the right side. Rendering runs
+on CPU and produces an H.264 MP4, JPEG poster, and JSON metadata. Videos use the
+common elapsed duration after aligning the first moving frame on each side, with
+nearest-frame sampling. Video time zero is each source's first frame above
+`start_speed_mps` (0.1 m/s by default). This removes time spent waiting at the
+scene opening pose, rather than starting GT dozens of meters ahead because the
+simulator clock advanced while stationary. Entirely stationary recordings keep
+their original start. Original source timestamps and files are unchanged; the
+sidecar records both time origins and trimmed durations. Dynamic map actors still
+use original source timestamps;
+missing camera views are omitted except for front telephoto, which uses a labeled
+2× center crop of front wide. The template retains a local map, chase view,
+four-second recorded future trajectory, vehicle instruments, and synchronized
+speed/acceleration curves. The front-wide trajectory overlay uses the supplied
+Brown or F-theta calibration and the vehicle half-height for its road offset;
+surveyed road elevation would improve alignment on uneven surfaces.
+The front ribbon is clipped against the camera near plane and the image edges,
+so it reaches the bottom of the image at the configured vehicle width, including
+the bonnet as in the presentation reference. A stationary vehicle with no visible
+future motion has no ribbon. The ribbon has continuous side outlines; neighboring
+frame samples do not add crossbars. Brown rays are also clipped before distortion
+to the first monotone radial branch, preventing nearby ground geometry from
+folding into the sky outside the calibrated projection domain.
+Steering instruments convert front-wheel angle
+using the template's `steering_ratio` (15:1 by default, an approximation rather
+than Haval calibration); positive angles turn the wheel counterclockwise.
+The gauge includes numeric speed ticks and the pedal bars include matching icons.
+
+GT control values are estimates, and camera exposure clock alignment has not
+been independently verified. Object boxes use recorded actor states when
+available, otherwise source predictions. The evaluation panel uses configurable
+`comfort_limits` for motion checks, with warnings above 80% of a limit and failures
+above the limit. Stuck requires speed below 0.3 m/s with throttle above 0.2 for
+five continuous seconds. Travel and distance to the GT polyline are measurements,
+not pass/fail route checks. Safety, road rules, and planner-intent checks without
+recorded evidence remain gray and are excluded from pass/warn/fail counts. These are presentation heuristics,
+not certified evaluations. The JSON sidecar retains the methods, thresholds and
+estimation limits; production notes and model reasoning are omitted from frames.
+
+GT speed uses the supplied pose fit with a 0.6-second jerk regularization scale,
+FlashDreams acceleration/braking bounds, and an equality constraint preserving
+the total fitted XY travel. Acceleration and estimated pedals are derived from
+that same curve. This offline bidirectional fit uses SciPy from the existing
+`flashdreams[runners]` extra. Original raw metadata and poses are retained;
+recorded simulator values are presented without filtering. Video JSON metadata
+records the estimation method.
+
+Edit `apps/interactive_drive/web/comparison-template.json` to change the default
+English titles, accents, optional caption, steering ratio, motion thresholds, or
+FPS. The caption is empty by default. The studio can edit titles/caption and
+download a template JSON. Render an edited template directly with:
+
+```bash
+uv run --no-sync python -m interactive_drive.comparison \
+  --gt /path/to/raw-sixview --scene /path/to/prepared-scene \
+  --template apps/interactive_drive/web/comparison-template.json \
+  --output artifacts/drive-exports/comparisons/example.mp4
+```
+
+Add `--right /path/to/drive-exports/drive-ID` for a simulation. Output files must
+have a new name. The archived ZIP and its extracted recording directory contain
+the same data; the command reads the directory. Copy the matching prepared scene
+when moving recordings to another machine.
+
+For a supplied OBJ/MTL ego vehicle, prepare a local mesh cache once:
+
+```bash
+uv run --no-sync python -m interactive_drive.vehicle_mesh \
+  --obj /path/to/vehicle.obj \
+  --output artifacts/drive-exports/assets/haval-h6/ego-model.npz
+```
+
+The supplied Haval asset uses millimeters with its long axis along Y; the
+converter maps this to forward-left-up meters. `--forward-sign 1` reverses the
+default forward direction. The studio automatically uses this cache when present;
+the command-line renderer accepts `--ego-model PATH`. Its depth-buffered car view
+is cached for the fixed chase camera; body pitch and roll are not animated.
 
 <a id="apps-interactivedrive-readme--tests"></a>
 

@@ -247,7 +247,10 @@ def build_prefill_pack(
     if not control_ranges:
         raise ValueError("a prefill needs at least one control range.")
 
-    num_views, spatial = geometry.num_views, geometry.spatial_tokens
+    num_views = geometry.num_views
+    spatial = (
+        geometry.view_spatial_tokens if geometry.view_grids else geometry.spatial_tokens
+    )
     target_frame, target_view = _stamp_view_major(
         torch.arange(target_frames, device=device), num_views, spatial
     )
@@ -293,6 +296,7 @@ def pad_control_slots(
     control_ranges: Sequence[tuple[int, int]],
     tokens_per_frame: int,
     slot_frames: int,
+    slot_count: int | None = None,
 ) -> list[LayerKV]:
     """Spread the prefilled control sections over fixed-width cache slots.
 
@@ -303,17 +307,25 @@ def pad_control_slots(
 
     Whatever follows the control sections, being the supplied frames, keeps its
     place after the last slot.
+
+    ``slot_count`` can exceed the prefilled ranges to reserve empty live-control
+    slots. Their metadata must remain padding until the slots are written.
     """
     sections = [(end - start) * tokens_per_frame for start, end in control_ranges]
+    slot_count = len(sections) if slot_count is None else slot_count
+    if slot_count < len(sections):
+        raise ValueError("slot_count must cover every prefilled control range")
     slot_tokens = slot_frames * tokens_per_frame
     if any(section > slot_tokens for section in sections):
         raise ValueError(
             f"control ranges {list(control_ranges)} do not fit {slot_frames}-frame slots."
         )
-    if all(section == slot_tokens for section in sections):
+    if slot_count == len(sections) and all(
+        section == slot_tokens for section in sections
+    ):
         return list(memory_kv)
 
-    control_tokens = len(sections) * slot_tokens
+    control_tokens = slot_count * slot_tokens
     padded: list[LayerKV] = []
     for k, v in memory_kv:
         rest = int(k.shape[2]) - sum(sections)

@@ -73,8 +73,8 @@ def test_presented_position_tracks_shifted_prefetch_and_consumes_partial_spans()
     )
     supplied.supply(np.stack([_pose(0), _pose(10), _pose(20)]))
     drawn = supplied.poses(0, 6)
-    assert drawn[:, 0, 3].tolist() == [2, 4, 6, 6, 16, 26]
-    assert supplied.take_position(2).tolist() == [4, 0]
+    assert drawn[:, 0, 3].tolist() == [0, 2, 4, 6, 16, 26]
+    assert supplied.take_position(2).tolist() == [2, 0]
     assert supplied.take_position(3).tolist() == [16, 0]
     assert supplied.take_position(1).tolist() == [26, 0]
     assert supplied._drawn_positions == []
@@ -153,7 +153,7 @@ def test_the_path_carries_straight_on_past_what_the_host_supplied() -> None:
 
     span = supplied.poses(0, 4)
 
-    assert [float(pose[0, 3]) for pose in span] == [2.0, 4.0, 6.0, 8.0]
+    assert [float(pose[0, 3]) for pose in span] == [0.0, 2.0, 4.0, 6.0]
 
 
 def test_carrying_on_resumes_from_the_last_pose_the_host_did_supply() -> None:

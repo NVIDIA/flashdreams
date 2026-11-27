@@ -32,11 +32,21 @@ def _key(timestamp_s: float, key: str, pressed: bool) -> KeyboardUserInputEvent:
     )
 
 
-def _loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> InteractiveDriveModelLoop:
+def _loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, direct_steering: bool = False
+) -> InteractiveDriveModelLoop:
     scene = tmp_path / "scene.usdz"
     scene.touch()
     app = InteractiveDriveApplication()
-    app.init(["--scene", str(scene), "--total-blocks", "0"])
+    app.init(
+        [
+            "--scene",
+            str(scene),
+            "--total-blocks",
+            "0",
+            *(["--direct-steering"] if direct_steering else []),
+        ]
+    )
     session = app.create_session(app.session_desc())
     session.init()
     loop = session.model_loop
@@ -180,6 +190,38 @@ def test_batched_steering_tap_changes_heading(
     loop.state.vehicle.speed_mps = 5.0
     loop.step(0, UserInputEvents([_key(10.0, key, True), _key(10.1, key, False)]))
     assert loop.state.vehicle.yaw_rad * direction > 0.0
+
+
+@pytest.mark.parametrize("key, direction", [("a", 1.0), ("d", -1.0)])
+@pytest.mark.parametrize("direct", [False, True])
+def test_short_keyboard_chunks_center_steering_without_return_lag_when_enabled(
+    tmp_path, monkeypatch, key, direction, direct
+):
+    loop = _loop(tmp_path, monkeypatch, direct_steering=direct)
+    loop.state.backend.initial_chunk_frames = loop.state.backend.chunk_frames = 4
+    loop.state.vehicle.speed_mps = 5.0
+    loop.step(0, UserInputEvents([_key(0.0, key, True)]))
+    vehicle = loop.state.config.app.vehicle
+    expected = (
+        vehicle.max_steer_rad if direct else vehicle.steer_rate_rad_per_s * 4 / 30
+    )
+    assert loop.state.vehicle.steer_rad == pytest.approx(direction * expected, abs=1e-6)
+    loop.state.vehicle.steer_rad = direction * vehicle.max_steer_rad
+    loop.step(1, UserInputEvents([_key(0.1, key, False)]))
+    expected = (
+        0.0
+        if direct
+        else vehicle.max_steer_rad - vehicle.steer_return_rate_rad_per_s * 4 / 30
+    )
+    assert loop.state.vehicle.steer_rad == pytest.approx(direction * expected, abs=1e-6)
+    assert loop.state.keyboard_track.pending_event_count == 0
+
+
+def test_direct_keyboard_steering_preserves_controller_commands(tmp_path, monkeypatch):
+    loop = _loop(tmp_path, monkeypatch, direct_steering=True)
+    controller = DriverCommand(steer=0.2, steer_is_direct=False)
+    loop.state.drive_input.controller_command = controller
+    assert loop._command() is controller
 
 
 @pytest.mark.parametrize("frames", [1, 12])

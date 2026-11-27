@@ -13,7 +13,8 @@ also works without GPU-specific geometry queries.
 
 import logging
 import math
-from dataclasses import replace
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 
 import numpy as np
 import numpy.typing as npt
@@ -25,6 +26,22 @@ logger = logging.getLogger(__name__)
 
 FloatArray = npt.NDArray[np.float32]
 IntArray = npt.NDArray[np.int32]
+
+
+@dataclass
+class RoadElevationSnapper:
+    """Keep calibrated rig clearance over a sparse, registered road surface."""
+
+    elevation_at: Callable[[float, float], float | None]
+    clearance_m: float
+
+    def snap(self, state: VehicleState, vehicle: VehicleConfig) -> VehicleState:
+        ground = self.elevation_at(state.x_m, state.y_m)
+        if ground is None:
+            return state
+        target = ground + self.clearance_m
+        # Same discontinuity limit as mesh snapping when returning to mapped ground.
+        return replace(state, z_m=target) if abs(target - state.z_m) <= 1.5 else state
 
 
 class GroundSnapper:

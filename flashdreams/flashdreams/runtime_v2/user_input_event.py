@@ -37,6 +37,46 @@ class FullscreenEnabledOptimalWindowSizeUserInputEvent(UserInputEvent):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class ViewportSizeUserInputEvent(UserInputEvent):
+    """Browser viewport dimensions for UI layout and video presentation."""
+
+    width: int
+    """Requested render width in pixels."""
+    height: int
+    """Requested render height in pixels."""
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "viewport_size"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class SelectCameraUserInputEvent(UserInputEvent):
+    """Switch active presentation camera in multi-view drives."""
+
+    camera: str = ""
+    view_index: int = 0
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "select_camera"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class RecordingUserInputEvent(UserInputEvent):
+    """Request application-owned recording at the next model boundary."""
+
+    action: Literal["start", "stop"]
+
+    @classmethod
+    def get_type_name(cls) -> str:
+        """Return the event type name."""
+        return "recording"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class NumeralKeypadUserInputEvent(UserInputEvent):
     """User input event for a numeral keypad."""
 
@@ -213,6 +253,10 @@ class GameWheelUserInputEvent(UserInputEvent):
     """Normalized throttle value in ``[0, 1]``."""
     brake: float = 0.0
     """Normalized brake value in ``[0, 1]``."""
+    reverse: bool = False
+    """Whether the driver requests reverse."""
+    gear: Literal["P", "R", "N", "D"] | None = None
+    """Explicit transmission selection; ``None`` uses legacy pedal/reverse input."""
     clutch: float = 0.0
     """Normalized clutch value in ``[0, 1]``."""
     buttons: tuple[bool, ...] = ()

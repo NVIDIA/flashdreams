@@ -191,6 +191,47 @@ def make_multiview_chunk_decoder(
     return multiview_chunk_decoder(decode_step, len_t=len_t, num_views=num_views)
 
 
+def make_mixed_resolution_chunk_decoder(
+    *,
+    view_sizes: Sequence[tuple[int, int]],
+    output_size: tuple[int, int],
+    dtype: torch.dtype,
+    device: str | torch.device,
+) -> Callable[[list[Tensor]], Tensor]:
+    """Decode cameras in resolution groups and resize them for presentation."""
+    groups = {
+        size: [index for index, candidate in enumerate(view_sizes) if candidate == size]
+        for size in dict.fromkeys(view_sizes)
+    }
+    decoders = {
+        size: make_multiview_chunk_decoder(
+            num_views=len(indices), dtype=dtype, device=device
+        )
+        for size, indices in groups.items()
+    }
+
+    def decode(latents: list[Tensor]) -> Tensor:
+        if len(latents) != len(view_sizes):
+            raise ValueError(
+                "Mixed-resolution decoder received the wrong number of cameras"
+            )
+        pixels: list[Tensor | None] = [None] * len(latents)
+        for size, indices in groups.items():
+            batch = decoders[size](torch.stack([latents[index] for index in indices]))
+            for index, view in zip(indices, batch, strict=True):
+                if view.shape[-2:] != output_size[::-1]:
+                    view = torch.nn.functional.interpolate(
+                        view,
+                        size=output_size[::-1],
+                        mode="bilinear",
+                        align_corners=False,
+                    )
+                pixels[index] = view
+        return torch.stack([view for view in pixels if view is not None])
+
+    return decode
+
+
 def decoded_views(
     latent: Tensor,
     decode: Callable[[Tensor], Tensor] | None,

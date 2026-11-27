@@ -1,0 +1,339 @@
+<!doctype html>
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FlashDreams Simulation Cockpit | 智能驾驶世界模型控制台</title>
+    <link rel="stylesheet" href="./src/styles/cockpit.css" />
+  </head>
+  <body>
+    <!-- TOP STATUS BAR -->
+    <header class="cockpit-header">
+      <div class="header-left">
+        <!-- OEM Telemetry Cluster (Image 6 style) -->
+        <div class="oem-dash-cluster">
+          <div class="oem-speed-tag"><span id="top-speed-val">0</span><small>km/h</small></div>
+          <div class="oem-gear-box" id="top-gear-box">D</div>
+
+          <!-- Brake Pedal Icon (Image 6 style) -->
+          <div class="oem-pedal-wrap" id="oem-brake-wrap" title="刹车踏板">
+            <svg class="oem-pedal-svg" id="oem-brake-svg" viewBox="0 0 28 32">
+              <path d="M14 2v6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+              <rect x="4" y="8" width="20" height="20" rx="3" fill="none" stroke="currentColor" stroke-width="2"/>
+              <line x1="8" y1="13" x2="20" y2="13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <line x1="8" y1="18" x2="20" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <line x1="8" y1="23" x2="20" y2="23" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </div>
+
+          <!-- Throttle Pedal Icon (Image 6 style) -->
+          <div class="oem-pedal-wrap" id="oem-throttle-wrap" title="油门踏板">
+            <svg class="oem-pedal-svg" id="oem-throttle-svg" viewBox="0 0 20 32">
+              <path d="M10 2v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <rect x="4" y="7" width="12" height="23" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/>
+              <line x1="8" y1="11" x2="8" y2="26" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="12" y1="11" x2="12" y2="26" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+          </div>
+
+          <!-- Steering Icon (Image 6 style) -->
+          <div class="oem-steer-wrap" id="oem-steer-wrap" title="方向盘转向">
+            <svg class="oem-steer-svg" id="oem-steer-svg" viewBox="0 0 28 28">
+              <circle cx="14" cy="14" r="11" fill="none" stroke="currentColor" stroke-width="2.2"/>
+              <circle cx="14" cy="14" r="3.5" fill="currentColor"/>
+              <line x1="3" y1="14" x2="10.5" y2="14" stroke="currentColor" stroke-width="2.2"/>
+              <line x1="17.5" y1="14" x2="25" y2="14" stroke="currentColor" stroke-width="2.2"/>
+              <line x1="14" y1="17.5" x2="14" y2="25" stroke="currentColor" stroke-width="2.2"/>
+            </svg>
+          </div>
+
+          <!-- LCC Smart Drive Badge (Image 6 style) -->
+          <div class="oem-lcc-badge" id="oem-lcc-badge" title="LCC 智能车道居中控制">
+            <div class="lcc-circle">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5">
+                <circle cx="12" cy="12" r="9"/>
+                <circle cx="12" cy="12" r="2.5" fill="#fff"/>
+                <path d="M3 12h6.5M14.5 12H21M12 14.5V21"/>
+              </svg>
+            </div>
+            <span class="lcc-text">LCC</span>
+          </div>
+        </div>
+
+        <div class="warning-cluster">
+          <!-- Parking brake (active when in P gear) -->
+          <div class="gear-icon-p active" id="top-p-icon">P</div>
+          <!-- Seatbelt Warning -->
+          <svg class="warning-icon" id="warn-seatbelt" viewBox="0 0 24 24" title="安全带"><path d="M12 2a4 4 0 0 0-4 4v2H6v12h12V8h-2V6a4 4 0 0 0-4-4zm-2 4a2 2 0 1 1 4 0v2h-4V6zm-2 6h8v6H8v-6z"/></svg>
+          <!-- Airbag Warning -->
+          <svg class="warning-icon" id="warn-airbag" viewBox="0 0 24 24" title="安全气囊"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2H5z"/></svg>
+          <!-- Steering Warning -->
+          <svg class="warning-icon" id="warn-steer" viewBox="0 0 24 24" title="转向助力"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2"/></svg>
+          <!-- Door Open Warning -->
+          <svg class="warning-icon" id="warn-door" viewBox="0 0 24 24" title="车门状态"><rect x="4" y="3" width="16" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="16" cy="12" r="1.5"/></svg>
+          <!-- 12V Battery Warning -->
+          <svg class="warning-icon" id="warn-battery" viewBox="0 0 24 24" title="蓄电池状态"><rect x="2" y="6" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M22 10v4M6 10v4M10 12h4" stroke="currentColor" stroke-width="2"/></svg>
+          <!-- Auto-hold (H) -->
+          <svg class="warning-icon orange" id="warn-autohold" viewBox="0 0 24 24" title="Auto-Hold 驻车"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><text x="12" y="16" font-size="11" font-weight="bold" fill="currentColor" text-anchor="middle">H</text></svg>
+          <!-- Hazard Exclamation -->
+          <svg class="warning-icon" id="warn-master" viewBox="0 0 24 24" title="系统告警"><path d="M12 2L1 21h22L12 2zm0 4l7.5 13H4.5L12 6zm-1 6v3h2v-3h-2zm0 4v2h2v-2h-2z"/></svg>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="recording-toolbar" aria-label="会话导出">
+          <button id="record-session-start" type="button">● 开始录制</button>
+          <button id="record-session-stop" type="button" disabled>停止并归档</button>
+          <a id="record-session-download" hidden download>下载素材 ZIP</a>
+          <a href="/comparison.html">视频制作 ↗</a>
+          <span id="record-session-status" role="status" aria-live="polite">未录制</span>
+        </div>
+        <div class="header-meta-item" id="top-clock" style="font-weight: 600; color: var(--text-primary);">03:45</div>
+
+        <!-- Day / Night Theme Toggle -->
+        <button class="icon-btn" id="theme-toggle-btn" title="切换黑/白系统模式">
+          <svg id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg id="theme-icon-moon" style="display:none;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+
+        <!-- Settings Button -->
+        <button class="icon-btn" id="settings-open-btn" title="仿真参数与模板设置">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN WORKSPACE -->
+    <main class="cockpit-workspace">
+      <!-- Camera selector -->
+      <aside class="camera-sidebar">
+        <div class="sidebar-title">
+          <span>相机阵列</span>
+          <span id="camera-count" style="font-size: 11px; color: var(--text-muted);">等待相机</span>
+        </div>
+        <div class="camera-list" id="camera-list"></div>
+      </aside>
+
+      <!-- Center Stage (Video & Overlay) -->
+      <section class="stage-container">
+        <!-- Floating Camera Tag -->
+        <div class="view-tag">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+          <span id="view-tag-label">相机画面</span>
+        </div>
+
+        <!-- Video Actions -->
+        <div class="video-actions">
+          <div class="action-btn" title="标记/书签">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <div class="action-btn" title="全屏视窗" id="fullscreen-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          </div>
+          <div class="action-btn" title="重置仿真场景" id="reset-stage-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </div>
+        </div>
+
+        <!-- The Video Stream Element -->
+        <video id="video" autoplay muted playsinline></video>
+        <div id="connection-status" role="status" aria-live="polite" style="position:absolute;bottom:12px;left:12px;right:12px;z-index:5;padding:8px 12px;background:#111d;color:#fff;border-radius:8px;pointer-events:none">正在连接 FlashDreams…</div>
+
+        <!-- Floating Alert Modal (Reference Inspired - hidden unless real warning arrives) -->
+        <div class="alert-card" id="alert-card" style="display: none;">
+          <div class="alert-body">
+            <div class="alert-icon-wrap">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9C2.1 11 2 11.2 2 11.5V16c0 .6.4 1 1 1h2"/>
+                <circle cx="7" cy="17" r="2"/>
+                <circle cx="17" cy="17" r="2"/>
+                <path d="M12 2v5M12 9h.01"/>
+              </svg>
+            </div>
+            <div class="alert-content">
+              <div class="alert-title" id="alert-title-text">车辆异常告警</div>
+              <div class="alert-subtitle" id="alert-subtitle-text">系统检测到异常状态，请安全靠边停车</div>
+            </div>
+          </div>
+          <button class="alert-action-btn" id="alert-action-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            <span>确认告警</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Right Telemetry & Dynamics Rail -->
+      <aside class="telemetry-rail">
+        <!-- Instrument Card -->
+        <div class="instrument-card">
+          <div class="speed-row">
+            <div>
+              <span class="speed-value" id="speed-num">—</span>
+              <span class="speed-unit">km/h</span>
+            </div>
+            <div class="gear-selector" title="点击换挡 (P / R / N / D)">
+              <button type="button" class="gear-item" id="gear-p" data-gear="P" aria-pressed="false">P</button>
+              <button type="button" class="gear-item" id="gear-r" data-gear="R" aria-pressed="false">R</button>
+              <button type="button" class="gear-item" id="gear-n" data-gear="N" aria-pressed="false">N</button>
+              <button type="button" class="gear-item active" id="gear-d" data-gear="D" aria-pressed="true">D</button>
+            </div>
+          </div>
+
+          <!-- Automotive Cockpit Power / Brake Bar (车企座舱式动能/制动双向光条) -->
+          <div class="cockpit-power-bar-wrap" title="制动减速 (左) / 动力加速 (右)">
+            <div class="cockpit-power-bar">
+              <div class="power-bar-fill brake" id="hud-brake-fill" style="width: 0%;"></div>
+              <div class="power-bar-center"></div>
+              <div class="power-bar-fill throttle" id="hud-throttle-fill" style="width: 0%;"></div>
+            </div>
+            <div class="cockpit-power-labels">
+              <span>◀ 制动 BRAKE</span>
+              <span>动力 POWER ▶</span>
+            </div>
+          </div>
+          <!-- Dynamics Steering Wheel & Pedals -->
+          <div class="dynamics-grid">
+            <!-- Steering Wheel Visual Dial -->
+            <div class="steering-container">
+              <svg id="steering-wheel" class="steering-wheel-svg" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(142, 142, 147, 0.2)" stroke-width="8"/>
+                <circle cx="50" cy="50" r="42" fill="none" stroke="#007aff" stroke-width="8" stroke-dasharray="60 200" stroke-linecap="round"/>
+                <circle cx="50" cy="50" r="14" fill="var(--panel-solid)" stroke="rgba(142, 142, 147, 0.4)" stroke-width="2"/>
+                <line x1="50" y1="50" x2="12" y2="50" stroke="rgba(142, 142, 147, 0.4)" stroke-width="4"/>
+                <line x1="50" y1="50" x2="88" y2="50" stroke="rgba(142, 142, 147, 0.4)" stroke-width="4"/>
+                <line x1="50" y1="50" x2="50" y2="88" stroke="rgba(142, 142, 147, 0.4)" stroke-width="4"/>
+              </svg>
+              <div class="steer-angle-text" id="steer-angle-val">+0.0°</div>
+            </div>
+
+            <!-- Throttle & Brake Pedals -->
+            <div class="pedals-container">
+              <div class="pedal-bar-wrap">
+                <div class="pedal-label">
+                  <span>THROTTLE (油门)</span>
+                  <span id="throttle-val">0%</span>
+                </div>
+                <div class="pedal-track">
+                  <div class="pedal-fill throttle" id="throttle-fill" style="width: 0%;"></div>
+                </div>
+              </div>
+
+              <div class="pedal-bar-wrap">
+                <div class="pedal-label">
+                  <span>BRAKE (刹车)</span>
+                  <span id="brake-val">0%</span>
+                </div>
+                <div class="pedal-track">
+                  <div class="pedal-fill brake" id="brake-fill" style="width: 0%;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- World Scenario Native Image Stream Card -->
+        <div class="instrument-card" style="flex: 1; padding: 10px;">
+          <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: flex; justify-content: space-between;">
+            <span>WORLD SCENARIO</span>
+            <span style="font-size: 10px; color: var(--text-muted);">BEV 原生流</span>
+          </div>
+          <div class="minimap-container">
+            <!-- Real image from World Scenario renderer -->
+            <img id="bev-image" class="bev-stream-img" style="display:none;" alt="World Scenario BEV Image" />
+            <div id="bev-placeholder" class="bev-placeholder">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <path d="M21 15l-5-5L5 21"/>
+              </svg>
+              <span>等待后端 BEV 图像渲染流...</span>
+            </div>
+            <div class="minimap-header-tag">航向跟随</div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <!-- SETTINGS PANEL / MODAL -->
+    <div class="modal-overlay hidden" id="settings-modal-overlay">
+      <div class="settings-modal">
+        <div class="modal-header">
+          <span>仿真与控制台设置</span>
+          <button class="icon-btn" id="settings-close-btn" style="border:none; background:transparent;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <!-- Backend Connection -->
+          <div class="setting-group">
+            <label class="setting-label">仿真服务地址 (WebRTC Host & Port)</label>
+            <div class="setting-row">
+              <input type="text" class="setting-input" id="setting-backend-url" value="" placeholder="留空使用 Vite 代理；或 http://后端地址:8089" />
+              <button class="btn primary" id="btn-reconnect-server">连接服务</button>
+            </div>
+          </div>
+
+          <!-- Theme Selection -->
+          <div class="setting-group">
+            <label class="setting-label">座舱显示模式 (黑白系统)</label>
+            <div class="setting-row">
+              <button class="btn" id="btn-theme-dark" style="flex:1;">🌙 夜间黑曜系统</button>
+              <button class="btn" id="btn-theme-light" style="flex:1;">☀️ 日间白色座舱</button>
+            </div>
+          </div>
+
+          <!-- Gamepad Vibration -->
+          <div class="setting-group">
+            <label class="setting-label">手柄震动触觉反馈 (Gamepad Rumble Feedback)</label>
+            <div class="setting-row">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="check-gamepad-vibrate" checked />
+                <span>开启手柄双马达震动（支持刹车/ABS抱死、动力加速、换挡与重置触觉）</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Model Inference Parameters -->
+          <div class="setting-group">
+            <label class="setting-label">扩散去噪步数 (Denoise Steps)</label>
+            <div class="setting-row">
+              <select class="setting-input" id="select-denoise-steps">
+                <option selected>通过后端 --denoise-steps 设置</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Template Preset Options (预留其他模板可添加选项) -->
+          <div class="setting-group">
+            <label class="setting-label">座舱与仿真模板选择 (预留模板插槽)</label>
+            <div class="template-grid" id="template-slot-grid">
+              <div class="template-card active" data-template="default">
+                <span class="template-name">智能汽车驾驶座舱 (默认)</span>
+                <span class="template-desc">7视角流 + 动力学仪表 + BEV 鹰眼</span>
+              </div>
+              <div class="template-card" data-template="tesla">
+                <span class="template-name">Tesla 极简风格中控</span>
+                <span class="template-desc">极简车速 + 行车车道可视化</span>
+              </div>
+              <div class="template-card" data-template="matrix">
+                <span class="template-name">自动驾驶多屏工程矩阵</span>
+                <span class="template-desc">7路全景平铺 + 激光雷达点云图</span>
+              </div>
+              <button class="add-template-btn" id="btn-add-template">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>+ 添加新模板 / 导入配置</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bootstrap TypeScript module -->
+    <script type="module" src="./src/components/CockpitApp.ts"></script>
+  </body>
+</html>

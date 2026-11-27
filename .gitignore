@@ -145,3 +145,11 @@ _vk_compare/
 imgui.ini
 
 # Generated from the canonical root LICENSES during integration builds.
+
+node_modules/
+*/.yarn/
+*/.pnp.*
+*/.pnp
+output
+
+Cosmos3-Nano-Sim-Auto

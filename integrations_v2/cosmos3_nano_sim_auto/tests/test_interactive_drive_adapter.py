@@ -58,13 +58,15 @@ def test_reverse_gear_is_enabled() -> None:
     assert defaults().reverse is True
 
 
-def test_no_overhead_view_is_claimed_for_a_rig_we_render_ourselves() -> None:
-    """The app's BEV is a camera its own rasterizer appends, and we are the rig.
+@pytest.mark.parametrize("option", ["--prefetch-controls", "--lidar"])
+def test_ros_rejects_unsynchronized_sensor_modes_before_model_load(option, capsys):
+    with pytest.raises(SystemExit):
+        create_app().init(["--ros-socket=/tmp/drive.sock", option])
+    assert "--ros-socket requires RGB" in capsys.readouterr().err
 
-    Left on, the HUD's map panel would read our second camera as a top-down
-    view, or stand empty at one view.
-    """
-    assert defaults().bev is False
+
+def test_native_world_scenario_bev_is_enabled() -> None:
+    assert defaults().bev is True
 
 
 def test_a_drive_with_no_end_declares_no_length() -> None:
@@ -90,6 +92,7 @@ def test_init_prepares_all_scenes_and_selects_matching_sample(
     from cosmos3_nano_sim_auto.apps.interactive_drive import adapter
     from cosmos3_nano_sim_auto.scenes import SCENE_NAMES
 
+    monkeypatch.chdir(tmp_path)
     prepared = []
 
     def prepare(scene):
@@ -131,7 +134,8 @@ def test_explicit_local_scene_and_help_do_not_download(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "views,ids", [(1, (0,)), (4, (0, 1, 3, 5)), (7, tuple(range(7)))]
+    "views,ids",
+    [(1, (0,)), (4, (0, 1, 3, 5)), (6, tuple(range(6))), (7, tuple(range(7)))],
 )
 @pytest.mark.parametrize("lidar", [False, True])
 def test_view_presets_preserve_camera_identity_with_optional_lidar(

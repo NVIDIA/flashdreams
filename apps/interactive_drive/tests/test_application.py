@@ -35,7 +35,7 @@ from interactive_drive.config import AppConfig, PresentationLayout, RasterConfig
 from interactive_drive.input.keyboard import command_from_snapshot
 from interactive_drive.scene_fixture import build_synthetic_scene_usdz
 from interactive_drive.scene_loader import load_scene_bundle, reseed_scene_bundle
-from interactive_drive.types import ControlSnapshot, PresentedFrame
+from interactive_drive.types import ControlSnapshot, PresentedFrame, SceneBundle
 
 from flashdreams.core.distributed.parallel import ParallelContext
 from flashdreams.infra.acceleration.frame_prefetch import LazyCudaFrame
@@ -342,6 +342,7 @@ def test_model_step_publishes_bev_channel_and_complete_elapsed_time(
         app=SimpleNamespace(
             chunk=SimpleNamespace(frame_interval_us=33_333, fps=30),
             vehicle=object(),
+            keyboard_direct_steering=False,
             postprocess=VideoPostprocessChainConfig(),
             postprocess_device="cuda:0",
             world_model_device="cuda:0",
@@ -424,8 +425,9 @@ def test_a_worker_ranks_step_generates_but_presents_nothing(
     backend = SimpleNamespace(
         initial_chunk_frames=2,
         chunk_frames=2,
-        render_first_chunk=lambda _: rendered.append("generated")
-        or SimpleNamespace(frames=[]),
+        render_first_chunk=lambda _: (
+            rendered.append("generated") or SimpleNamespace(frames=[])
+        ),
         finalize=lambda: {},
     )
     config = SimpleNamespace(
@@ -433,6 +435,7 @@ def test_a_worker_ranks_step_generates_but_presents_nothing(
         app=SimpleNamespace(
             chunk=SimpleNamespace(frame_interval_us=33_333, fps=30),
             vehicle=object(),
+            keyboard_direct_steering=False,
             postprocess=VideoPostprocessChainConfig(),
             postprocess_device="cuda:0",
             world_model_device="cuda:0",
@@ -805,7 +808,12 @@ def test_drive_telemetry_publishes_frame_chunk_size_and_warning(
     state = InteractiveDriveModelState(
         backend_factory=lambda _: None,
         config=SimpleNamespace(
-            app=SimpleNamespace(scene_path=tmp_path / "scene.usdz", variant="default")
+            web_ui=False,
+            app=SimpleNamespace(
+                scene_path=tmp_path / "scene.usdz",
+                variant="default",
+                present_camera=None,
+            ),
         ),
         desc=SimpleNamespace(),
         scene_loader=lambda *args: object(),
@@ -841,6 +849,7 @@ def test_interactive_drive_uses_regular_application_contract() -> None:
         SimpleNamespace(
             backend=backend,
             owns_backend=False,
+            finish_recording=lambda: None,
             physics_world=None,
             scene=object(),
             control_group=None,
@@ -966,6 +975,63 @@ def test_an_integration_cannot_name_two_models() -> None:
             pipeline_config=cast(Any, object()),
             backend_factory=lambda _: cast(Any, object()),
         )
+
+
+@pytest.mark.parametrize("speed", [None, 0.0, 2.5])
+def test_initial_speed_reaches_vehicle_and_backend_on_start_and_reset(tmp_path, speed):
+    source = SceneBundle(
+        scene_path=tmp_path,
+        scene_id="recorded",
+        metadata={},
+        cameras=(cast(Any, object()),),
+        initial_rig_to_world=np.eye(4, dtype=np.float32),
+        initial_timestamp_us=0,
+        initial_yaw_rad=0,
+        initial_speed_mps=5,
+        initial_rgbs=(np.zeros((1, 1, 3), dtype=np.uint8),),
+        prompt="Campus road.",
+        line_layers=(),
+        triangle_layers=(),
+    )
+    loaded = []
+    backend = SimpleNamespace(
+        warmup_model=lambda: None,
+        reset_scene_conditioning=lambda: None,
+        load_scene=loaded.append,
+        set_postprocess_enabled=lambda enabled: None,
+    )
+    app = InteractiveDriveApplication(
+        defaults=InteractiveDriveApplicationDefaults(
+            physics=False, backend_factory=lambda config: backend
+        ),
+        scene_loader=lambda *args, **kwargs: source,
+    )
+    app.init(
+        [
+            "--scene",
+            str(tmp_path),
+            *([] if speed is None else ["--initial-speed-mps", str(speed)]),
+        ]
+    )
+    session = app.create_session(app.session_desc())
+    session.init()
+    loop = session.model_loop
+    expected = 5 if speed is None else speed
+    for _ in range(2):
+        loop._initialize_rollout()
+        assert loaded[-1] is loop.state.scene
+        assert loaded[-1].initial_speed_mps == expected
+        assert loop.state.vehicle.speed_mps == expected
+        assert loop.state.vehicle.velocity_x_mps == expected
+        assert loop.state.vehicle.velocity_y_mps == 0
+        loop.state.vehicle.speed_mps = 9
+    assert source.initial_speed_mps == 5
+
+
+@pytest.mark.parametrize("speed", [-1, float("nan"), float("inf"), -float("inf")])
+def test_initial_speed_refuses_invalid_values(speed):
+    with pytest.raises(ValueError, match="initial_speed_mps"):
+        AppConfig(scene_path=Path("scene.usdz"), initial_speed_mps=speed)
 
 
 def test_the_session_reports_the_grid_size_for_a_wide_rig(tmp_path: Path) -> None:
@@ -1669,6 +1735,13 @@ def test_restart_key_triggers_once_per_press_with_or_without_ui(
         model_loop._apply_events(UserInputEvents(events))
         state.agree_on_queued()
         assert state.reset_pending == expected
+
+
+def test_cockpit_composite_shapes_and_layout() -> None:
+    cells = [torch.zeros(3, 368, 640, dtype=torch.uint8) for _ in range(7)]
+    composite = core_module._cockpit_composite(cells)
+    assert composite.shape == (3, 1288, 1920)
+    assert composite.dtype == torch.uint8
 
 
 def test_a_canvas_the_hud_fits_in_is_a_whole_multiple_of_the_drive() -> None:

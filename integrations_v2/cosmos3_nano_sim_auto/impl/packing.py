@@ -86,8 +86,18 @@ class ClipGeometry:
     """Original latent height/width before bottom/right patch padding, if needed."""
     rig_view_ids: tuple[int, ...] | None = None
     """Canonical camera embedding rows, preserved when views are selected or reordered."""
+    view_grids: tuple[tuple[int, int], ...] | None = None
+    """Optional per-camera patch grids, in rig order, for mixed resolutions."""
 
     def __post_init__(self) -> None:
+        if self.view_grids is not None and (
+            len(self.view_grids) != self.num_views
+            or any(len(grid) != 2 or min(grid) < 1 for grid in self.view_grids)
+            or self.latent_size is not None
+        ):
+            raise ValueError(
+                "view_grids requires one positive (height, width) per camera and no latent_size"
+            )
         if self.rig_view_ids is not None and (
             len(self.rig_view_ids) != self.num_views
             or any(view < 0 or view >= 11 for view in self.rig_view_ids)
@@ -139,7 +149,16 @@ class ClipGeometry:
     @property
     def tokens_per_frame(self) -> int:
         """Tokens one latent frame contributes across the whole rig."""
-        return self.num_views * self.spatial_tokens
+        return sum(self.view_spatial_tokens)
+
+    @property
+    def view_spatial_tokens(self) -> tuple[int, ...]:
+        """Return each camera's tokens per latent frame, in rig order."""
+        return (
+            tuple(h * w for h, w in self.view_grids)
+            if self.view_grids
+            else (self.spatial_tokens,) * self.num_views
+        )
 
 
 def causal_steps(frame_id: Tensor, frames_per_chunk: int) -> Tensor:
@@ -354,9 +373,24 @@ def _pad_to(
 
 
 def _stamp_view_major(
-    frames: Tensor, num_views: int, spatial_tokens: int
+    frames: Tensor, num_views: int, spatial_tokens: int | Sequence[int]
 ) -> tuple[Tensor, Tensor]:
     """Expand a frame range to per-token ``(frame_id, view_id)``, view-outer."""
+    if not isinstance(spatial_tokens, int):
+        return (
+            torch.cat([frames.repeat_interleave(count) for count in spatial_tokens]),
+            torch.cat(
+                [
+                    torch.full(
+                        (frames.numel() * count,),
+                        view,
+                        device=frames.device,
+                        dtype=torch.long,
+                    )
+                    for view, count in enumerate(spatial_tokens)
+                ]
+            ),
+        )
     frame_id = frames.repeat(num_views).repeat_interleave(spatial_tokens)
     view_id = torch.arange(num_views, device=frames.device).repeat_interleave(
         frames.numel() * spatial_tokens
@@ -519,6 +553,7 @@ def build_memory_layout(
     *,
     control_frame_ranges: Sequence[tuple[int, int]] | None = None,
     control_slot_frames: int | None = None,
+    control_slot_count: int | None = None,
     history_frame_ranges: Sequence[tuple[int, int]] = (),
     history_slot_frames: int | None = None,
     capacity: int | None = None,
@@ -533,6 +568,9 @@ def build_memory_layout(
     ``control_frame_ranges`` defaults to the whole clip in one range, which is
     what a prefill covering every control frame produces. A bounded cache holds
     a window instead and extends it as the rollout advances.
+
+    ``control_slot_count`` reserves unfilled control slots before the supplied
+    RGB frames. They are padding until a live trajectory supplies their map.
 
     ``control_slot_frames`` pads each control section out to that many frames.
     A bounded cache reuses fixed slots, and the last top-up of a finite clip
@@ -549,7 +587,10 @@ def build_memory_layout(
     recompiles for each one.
     """
     device = device or torch.device("cpu")
-    num_views, spatial_tokens = geometry.num_views, geometry.spatial_tokens
+    num_views = geometry.num_views
+    spatial_tokens = (
+        geometry.view_spatial_tokens if geometry.view_grids else geometry.spatial_tokens
+    )
 
     def stamped(start: int, end: int, role: int) -> StreamFields:
         frame, view = _stamp_view_major(
@@ -596,7 +637,21 @@ def build_memory_layout(
                 f"{control_slot_frames}-frame slot holding it."
             )
         if short:
-            sections.append(_padding(short * num_views * spatial_tokens, device))
+            sections.append(_padding(short * geometry.tokens_per_frame, device))
+    if control_slot_count is not None:
+        if control_slot_frames is None or control_slot_count < len(
+            control_frame_ranges
+        ):
+            raise ValueError(
+                "control_slot_count must cover the ranges and needs control_slot_frames"
+            )
+        missing = control_slot_count - len(control_frame_ranges)
+        if missing:
+            sections.append(
+                _padding(
+                    missing * control_slot_frames * geometry.tokens_per_frame, device
+                )
+            )
     if geometry.condition_frames:
         sections.append(stamped(0, geometry.condition_frames, ROLE_TARGET_CONDITION))
     for start, end in history_frame_ranges:
@@ -610,7 +665,7 @@ def build_memory_layout(
                 f"{history_slot_frames}-frame slot holding it."
             )
         if short:
-            sections.append(_padding(short * num_views * spatial_tokens, device))
+            sections.append(_padding(short * geometry.tokens_per_frame, device))
 
     real = concat(*sections)
     return MemoryLayout(
@@ -790,7 +845,11 @@ def build_chunk_metadata(
 
     global_frames = torch.arange(chunk_start, chunk_start + chunk_frames, device=device)
     gen_frame, gen_view = _stamp_view_major(
-        global_frames, geometry.num_views, geometry.spatial_tokens
+        global_frames,
+        geometry.num_views,
+        geometry.view_spatial_tokens
+        if geometry.view_grids
+        else geometry.spatial_tokens,
     )
     query = _pad_to(
         _vision(

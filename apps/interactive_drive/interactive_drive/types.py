@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -61,6 +62,8 @@ class CameraCalibration:
     is_backward_polynomial: bool
     linear_cde: FloatArray
     sensor_to_rig_flu: FloatArray
+    ludus_draw_size: tuple[int, int] | None = None
+    """F-theta raster width and height before resizing model conditioning."""
 
 
 @dataclass(frozen=True)
@@ -168,6 +171,8 @@ class SceneBundle:
     # mesh, in which case ground-snap no-ops.
     ground_mesh_vertices: FloatArray | None = None
     ground_mesh_faces: Int32Array | None = None
+    road_elevation_at: Callable[[float, float], float | None] | None = None
+    """Registered road elevation in world metres, where a local surface is supported."""
 
     def __post_init__(self) -> None:
         if not self.cameras:
@@ -188,6 +193,32 @@ class DriverCommand:
     reverse: bool = False
     steer_is_direct: bool = False
     manual_control: bool = False
+    gear: Literal["P", "R", "N", "D"] | None = None
+
+    @classmethod
+    def from_manual_controls(
+        cls,
+        *,
+        steer: float,
+        throttle: float,
+        brake: float,
+        reverse: bool,
+        gear: Literal["P", "R", "N", "D"] | None = None,
+    ) -> DriverCommand:
+        """Apply the cockpit gear selector to left-positive normalized controls."""
+        return cls(
+            steer=steer,
+            throttle=0.0 if gear in ("P", "N") else throttle,
+            brake=1.0 if gear == "P" else brake,
+            reverse=gear == "R" if gear is not None else reverse,
+            gear=gear,
+            steer_is_direct=True,
+            manual_control=True,
+        )
+
+
+MANUAL_STEER_RAD = 0.4
+"""Front-wheel angle at full manual steering input, before vehicle limits."""
 
 
 @dataclass
@@ -208,6 +239,10 @@ class VehicleState:
     suspension_pitch_rate_radps: float = 0.0
     suspension_roll_rate_radps: float = 0.0
     ragdoll_active: bool = False
+    # Actuator settings used during the integration interval ending at this state.
+    gear: Literal["P", "R", "N", "D"] = "D"
+    throttle: float = 0.0
+    brake: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -344,6 +379,9 @@ class TrajectoryChunk:
     physx_timings: PhysXChunkTimings | None = None
     """Detailed synchronization, native update, solve, and readback timings."""
 
+    vehicle_states: tuple[VehicleState, ...] = ()
+    """Vehicle state at each frame timestamp, before its integration step."""
+
 
 @dataclass
 class PresentedFrame:
@@ -372,6 +410,8 @@ class PresentedFrame:
     """Lazy Ludus CUDA debug raster, materialized only by host presenters."""
 
     status_message: str | None = None
+    scene_time_us: int | None = None
+    """Source scene time sampled by the renderer for traffic and signals."""
 
     @property
     def views(self) -> int:

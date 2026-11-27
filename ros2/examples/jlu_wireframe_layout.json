@@ -1,0 +1,195 @@
+{
+  "configById": {
+    "3D!vehicle": {
+      "followTf": "base_link",
+      "followMode": "follow-pose",
+      "cameraState": {
+        "perspective": true,
+        "distance": 34,
+        "phi": 62,
+        "thetaOffset": 90,
+        "targetOffset": [12, 0, 0],
+        "target": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.1,
+        "far": 5000
+      },
+      "topics": {
+        "/sim/ego/markers": { "visible": true },
+        "/sim/traffic/markers": { "visible": true },
+        "/sim/map/prim_28/markers": { "visible": true },
+        "/sim/map/prim_30/markers": { "visible": true },
+        "/sim/map/prim_32/markers": { "visible": true },
+        "/sim/map/prim_33/markers": { "visible": true }
+      },
+      "layers": {},
+      "scene": {
+        "transforms": {
+          "showLabel": false
+        },
+        "backgroundColor": "#101418"
+      },
+      "transforms": {
+        "frame:odom": { "visible": false },
+        "frame:base_link": { "visible": false },
+        "frame:camera_front_wide_120fov_optical_frame": { "visible": false },
+        "frame:camera_cross_right_120fov_optical_frame": { "visible": false },
+        "frame:camera_rear_right_70fov_optical_frame": { "visible": false },
+        "frame:camera_rear_tele_30fov_optical_frame": { "visible": false },
+        "frame:camera_rear_left_70fov_optical_frame": { "visible": false },
+        "frame:camera_cross_left_120fov_optical_frame": { "visible": false }
+      }
+    },
+    "RawMessages!state": {
+      "topicPath": "/sim/ego/vehicle_state",
+      "diffEnabled": false
+    },
+    "Image!CAM_FRONT_LEFT": {
+      "foxglovePanelTitle": "CAM_FRONT_LEFT",
+      "imageMode": {
+        "imageTopic": "/sim/camera/camera_cross_left_120fov/image_raw/compressed",
+        "calibrationTopic": "/sim/camera/camera_cross_left_120fov/camera_info"
+      }
+    },
+    "Image!CAM_FRONT": {
+      "foxglovePanelTitle": "CAM_FRONT",
+      "imageMode": {
+        "imageTopic": "/sim/camera/camera_front_wide_120fov/image_raw/compressed",
+        "calibrationTopic": "/sim/camera/camera_front_wide_120fov/camera_info"
+      }
+    },
+    "Image!CAM_FRONT_RIGHT": {
+      "foxglovePanelTitle": "CAM_FRONT_RIGHT",
+      "imageMode": {
+        "imageTopic": "/sim/camera/camera_cross_right_120fov/image_raw/compressed",
+        "calibrationTopic": "/sim/camera/camera_cross_right_120fov/camera_info"
+      }
+    },
+    "Image!FRONT_WSM": {
+      "foxglovePanelTitle": "前视 WSM 条件",
+      "imageMode": {
+        "imageTopic": "/sim/camera/camera_front_wide_120fov/condition/image_raw/compressed",
+        "calibrationTopic": "/sim/camera/camera_front_wide_120fov/condition/camera_info"
+      }
+    },
+    "Tab!front": {
+      "activeTabIdx": 0,
+      "tabs": [
+        { "title": "前视 RGB", "layout": "Image!CAM_FRONT" },
+        { "title": "前视 WSM", "layout": "Image!FRONT_WSM" }
+      ]
+    },
+    "Image!CAM_BACK_LEFT": {
+      "foxglovePanelTitle": "CAM_BACK_LEFT",
+      "imageMode": {
+        "imageTopic": "/sim/camera/camera_rear_left_70fov/image_raw/compressed",
+        "calibrationTopic": "/sim/camera/camera_rear_left_70fov/camera_info"
+      }
+    },
+    "Image!CAM_BACK": {
+      "foxglovePanelTitle": "CAM_BACK",
+      "imageMode": {
+        "imageTopic": "/sim/camera/camera_rear_tele_30fov/image_raw/compressed",
+        "calibrationTopic": "/sim/camera/camera_rear_tele_30fov/camera_info"
+      }
+    },
+    "Image!CAM_BACK_RIGHT": {
+      "foxglovePanelTitle": "CAM_BACK_RIGHT",
+      "imageMode": {
+        "imageTopic": "/sim/camera/camera_rear_right_70fov/image_raw/compressed",
+        "calibrationTopic": "/sim/camera/camera_rear_right_70fov/camera_info"
+      }
+    },
+    "Teleop!drive": {
+      "topic": "/cmd_vel",
+      "publishRate": 5,
+      "upButton": { "field": "linear-x", "value": 1 },
+      "downButton": { "field": "linear-x", "value": -1 },
+      "leftButton": { "field": "angular-z", "value": 1 },
+      "rightButton": { "field": "angular-z", "value": -1 },
+      "stopButton": { "field": "linear-x", "value": 0 },
+      "autoSendStopOnRelease": true
+    },
+    "RawMessages!joy": {
+      "topicPath": "/joy",
+      "diffEnabled": false
+    },
+    "RosOut!events": {
+      "topicToRender": "/rosout",
+      "minLogLevel": 1,
+      "searchTerms": []
+    },
+    "RawMessages!rates": {
+      "topicPath": "/diagnostics",
+      "diffEnabled": false
+    },
+    "Tab!sidebar": {
+      "activeTabIdx": 0,
+      "tabs": [
+        {
+          "title": "远程操纵",
+          "layout": "Teleop!drive"
+        },
+        {
+          "title": "车辆",
+          "layout": "RawMessages!state"
+        },
+        {
+          "title": "手柄输入",
+          "layout": "RawMessages!joy"
+        },
+        {
+          "title": "日志",
+          "layout": "RosOut!events"
+        },
+        {
+          "title": "频率",
+          "layout": "RawMessages!rates"
+        }
+      ]
+    }
+  },
+  "layout": {
+    "direction": "row",
+    "first": "Tab!sidebar",
+    "second": {
+      "direction": "column",
+      "first": {
+        "direction": "row",
+        "first": "Image!CAM_FRONT_LEFT",
+        "second": {
+          "direction": "row",
+          "first": "Tab!front",
+          "second": "Image!CAM_FRONT_RIGHT",
+          "splitPercentage": 50
+        },
+        "splitPercentage": 33.33
+      },
+      "second": {
+        "direction": "column",
+        "first": "3D!vehicle",
+        "second": {
+          "direction": "row",
+          "first": "Image!CAM_BACK_LEFT",
+          "second": {
+            "direction": "row",
+            "first": "Image!CAM_BACK",
+            "second": "Image!CAM_BACK_RIGHT",
+            "splitPercentage": 50
+          },
+          "splitPercentage": 33.33
+        },
+        "splitPercentage": 70
+      },
+      "splitPercentage": 23
+    },
+    "splitPercentage": 18
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "linkedGlobalVariables": [],
+  "playbackConfig": {
+    "speed": 1
+  }
+}

@@ -13,16 +13,18 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image
-from torch import Tensor
-
 from flashdreams.api_v2.loop import IModelLoop, invoke_async
 from flashdreams.api_v2.session import ISession
 from flashdreams.core.distributed.parallel import ParallelContext
+from flashdreams.runtime_v2.blit_model_output_to_screen_loop import (
+    BlitModelOutputToScreenLoop,
+)
 from flashdreams.runtime_v2.imgui_ui_loop import ImGuiUILoop
 from flashdreams.runtime_v2.session_desc import SessionDesc
 from flashdreams.runtime_v2.user_input_events import UserInputEvents
 from flashdreams.runtime_v2.video_tensor import VideoTensorLayout
+from PIL import Image
+from torch import Tensor
 
 from .core import (
     HUD_DESIGN_SIZE,
@@ -94,6 +96,9 @@ class InteractiveDriveUIState:
         "W/S drive, Space brakes, A/D steer; gamepads and wheels are supported."
     )
     telemetry: DriveTelemetry | None = None
+    recording_status: dict[str, Any] = field(default_factory=lambda: {"state": "idle"})
+    export_dir: Path = Path("artifacts/drive-exports")
+    recording_archive: tuple[str, Path] | None = None
     drive_input: DriveInputState = field(default_factory=DriveInputState)
     """Driving input updated on the UI thread."""
 
@@ -115,6 +120,20 @@ class InteractiveDriveUIState:
         """Accept the latest model-thread telemetry snapshot."""
         self.telemetry = telemetry
 
+    def set_recording_status(self, status: dict[str, Any]) -> None:
+        """Accept recording progress from the model thread."""
+        self.recording_status = status
+        if status.get("state") in ("ready", "error") and status.get("id"):
+            archive = self.export_dir.resolve() / f"{status['id']}.zip"
+            if archive.is_file():
+                self.recording_archive = (status["id"], archive)
+
+    def recording_files(self) -> dict[str, Path]:
+        """Publish the finalized archive while keeping server paths out of JSON."""
+        return (
+            dict([self.recording_archive]) if self.recording_archive is not None else {}
+        )
+
 
 def _hud_scale(viewport_width: int, viewport_height: int) -> float:
     """How far to shrink the HUD for a viewport smaller than it was drawn for.
@@ -128,8 +147,59 @@ def _hud_scale(viewport_width: int, viewport_height: int) -> float:
     return max(0.6, min(1.0, viewport_width / width, viewport_height / height))
 
 
+class InteractiveDriveWebUILoop(BlitModelOutputToScreenLoop[InteractiveDriveUIState]):
+    """Present camera video and send driving state to the separate web cockpit."""
+
+    def frames_to_blit(self) -> tuple[Tensor, ...]:
+        return self.presented_model_frames()[:1]
+
+    def client_files(self) -> dict[str, Path]:
+        return self.state.recording_files()
+
+    def client_data(self) -> list[dict[str, object]] | None:
+        """Return status and separate preview messages within SCTP size limits."""
+        t = self.state.telemetry
+        recording = {"type": "recording", **self.state.recording_status}
+        if t is None:
+            return [recording]
+        telemetry = {
+            "type": "telemetry",
+            "speed_mps": t.speed_mps,
+            "speed_kmh": abs(t.speed_mps) * 3.6,
+            "gear": t.gear,
+            "steer": t.steer,
+            "throttle": t.throttle,
+            "brake": t.brake,
+            "model_latency_ms": t.model_loop_ms,
+            "blocks_generated": t.blocks_generated,
+            "active_view": t.active_view,
+            "camera_names": t.camera_names,
+            "warning": t.warning,
+            "bev_image": t.bev_image,
+        }
+        return [
+            telemetry,
+            *(
+                {
+                    "type": "camera_preview",
+                    "camera": camera,
+                    "image": image,
+                    "blocks_generated": t.blocks_generated,
+                }
+                for camera, image in t.camera_previews
+            ),
+            recording,
+        ]
+
+
 class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
     """Composite the driving frame with immediate Dear ImGui controls."""
+
+    def client_data(self) -> dict[str, object]:
+        return {"type": "recording", **self.state.recording_status}
+
+    def client_files(self) -> dict[str, Path]:
+        return self.state.recording_files()
 
     def step_ui(
         self, imgui: Any, step_index: int, events: UserInputEvents
@@ -305,8 +375,8 @@ class InteractiveDriveUILoop(ImGuiUILoop[InteractiveDriveUIState]):
             state.set_status(f"Switching to {option.label} ({variant})...")
             invoke_async(
                 state.model_loop,
-                lambda model_state, variant=variant: (
-                    model_state.select_variant(variant)
+                lambda model_state, variant=variant: model_state.select_variant(
+                    variant
                 ),
             )
 
@@ -414,6 +484,10 @@ class InteractiveDriveSession(ISession):
         )
         model_loop = self.register_model_loop(self.model_loop_type, state=model_state)
         if self._config.no_ui:
+            if self._config.web_ui:
+                model_state.ui_loop = self.register_ui_loop(
+                    InteractiveDriveWebUILoop, state=self._create_ui_state(model_loop)
+                )
             return
         ui_loop = self.register_ui_loop(
             self.ui_loop_type,
@@ -463,6 +537,7 @@ class InteractiveDriveSession(ISession):
             postprocess_enabled=self._config.app.postprocess.is_enabled(),
             show_postprocess_toggle=self._config.app.postprocess.is_enabled(),
             show_bev=self._config.app.bev.enabled,
+            export_dir=self._config.app.export_dir,
         )
 
 
@@ -494,13 +569,7 @@ class InteractiveDriveApplication(_InteractiveDriveApplicationBase):
         """Parse common driving options and enable BEV output for the HUD."""
         super().init(commandline_args)
         assert self._config is not None
-        self._config = InteractiveDriveConfig(
-            app=self._config.app,
-            total_blocks=self._config.total_blocks,
-            view_mode=self._config.view_mode,
-            no_ui=self._config.no_ui,
-        )
-        if self._bev and not self._config.no_ui:
+        if self._bev and (not self._config.no_ui or self._config.web_ui):
             self._config = replace(
                 self._config,
                 app=replace(

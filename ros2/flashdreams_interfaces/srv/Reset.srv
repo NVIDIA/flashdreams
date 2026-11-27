@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 FlashDreams contributors
+
+# First reset accepts an empty previous_episode_id. Use a new UUID per episode.
+string previous_episode_id
+string episode_id
+---
+string code
+string message
+string episode_id
+uint64 next_step
+builtin_interfaces/Time initial_observation_stamp
+builtin_interfaces/Time next_apply_stamp
+int64 source_origin_us
+string[] cameras

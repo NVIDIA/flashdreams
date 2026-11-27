@@ -514,6 +514,14 @@ class IUILoop(ILoop[StateT], ABC):
     selected.
     """
 
+    def client_data(self) -> dict[str, object] | list[dict[str, object]] | None:
+        """Return optional JSON messages for a remote client."""
+        return None
+
+    def client_files(self) -> dict[str, Path]:
+        """Return completed files the application permits a client to download."""
+        return {}
+
     @abstractmethod
     def step(self, step_index: int, events: UserInputEvents) -> list[StepResult]:
         """Return zero or one :class:`StepResult` to present this tick."""

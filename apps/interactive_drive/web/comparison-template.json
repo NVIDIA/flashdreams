@@ -1,0 +1,17 @@
+{
+  "left_title": "Human Driver (Recorded Replay)",
+  "right_title": "Recorded Replay (GT Test)",
+  "left_accent": "#f0806c",
+  "right_accent": "#39c7aa",
+  "caption": "",
+  "steering_ratio": 15.0,
+  "start_speed_mps": 0.1,
+  "comfort_limits": {
+    "acceleration": 3.0,
+    "braking": 4.0,
+    "lateral_acceleration": 3.0,
+    "jerk": 5.0,
+    "path_jump": 1.0
+  },
+  "fps": 10
+}
